@@ -150,7 +150,9 @@ a plain folder works too.
 `python3 tools/update_version/update_version.py` bumps the shell version
 the extension requires to the one on the shell repository's `main` branch,
 as part of preparing a release; `--dry-run` shows the change without
-writing it.
+writing it. `python3 tools/check_openapi_ui_pins.py` checks that the
+Swagger UI release and request path the OpenAPI UI dialog names are the
+ones the mrs plugin pins; CI runs it on every change.
 
 The extension is bundled with [Vite](https://vite.dev), the result panel is
 [Preact](https://preactjs.com), and both are tested with

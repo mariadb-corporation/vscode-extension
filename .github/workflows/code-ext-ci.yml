@@ -39,6 +39,12 @@ jobs:
       - name: Type check and lint
         run: npm run pretest
 
+      - name: Check the OpenAPI UI pins against the mrs plugin
+        # The dialog's Swagger UI release and request path are copies of
+        # what mrs_plugin pins; the plugins repository is public, so the
+        # comparison needs no token.
+        run: python3 tools/check_openapi_ui_pins.py
+
       - name: Run the tests
         run: npm test
 

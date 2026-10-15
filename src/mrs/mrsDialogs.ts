@@ -1162,6 +1162,11 @@ export interface IContentSetContext {
     openApiUi?: boolean;
 }
 
+// Copies of what mrs_plugin/lib/open_api_ui.py pins, kept by hand: the
+// dialog shows them before the plugin is asked for anything, and the plugin
+// exposes neither. tools/check_openapi_ui_pins.py compares them with the
+// plugin's source, and CI runs it.
+
 /** Where a REST service's OpenAPI UI is served, unless told otherwise. */
 export const OPEN_API_UI_PATH = "/openApiUi";
 

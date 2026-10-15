@@ -208,6 +208,9 @@ path to `/openApiUi`.
   - mcp_plugin: the option's rules in-process, and
     `test_the_open_api_ui_is_downloaded_and_uploaded_for_real` (`--e2e`).
   - The UI test deploys it for real (network).
+  - CI runs `tools/check_openapi_ui_pins.py`, which compares the dialog's
+    Swagger UI release and request path with the plugin's source on
+    GitHub (see [`context/toolchain.md`](toolchain.md)).
 
 ## Decisions
 

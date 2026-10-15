@@ -110,3 +110,11 @@ Node that `.nvmrc` names and on a hosted runner, since the extension needs
 Node and nothing else. The build step is there because the extension ships
 as a bundle: an import that only resolves under the test aliases, or an
 asset that is not copied, is invisible to the type check and the tests alike.
+
+Between the lint and the tests it runs `tools/check_openapi_ui_pins.py`,
+which fetches `mrs_plugin/lib/open_api_ui.py` from the public
+mariadb-shell-plugins repository (`--ref`, `main` by default) and compares
+the Swagger UI release and request path pinned there with the extension's
+copies in `src/mrs/mrsDialogs.ts`. The copies are not a test: the plugin
+does not expose them, and a Vitest check would need the plugins repository
+checked out next to this one.
