@@ -100,7 +100,7 @@ text). `ExecutionService.execute()` then:
 
 ## The language, and ANSI_QUOTES
 
-(2026-10-12.) A `.sql` file opens as **MariaDB SQL** (`mariadb-sql`), the
+A `.sql` file opens as **MariaDB SQL** (`mariadb-sql`), the
 language the extension contributes with its own grammar (see
 [sql-grammar.md](sql-grammar.md)); `openSqlEditor` creates new files in
 it. The grammar reads `"..."` as a string. Where the server reads it as
@@ -152,11 +152,11 @@ Three deliberate differences from the original:
 
 `hasContent(span)` tells a real statement from a run of comments:
 `contentStart` is deliberately set below `span.start` when there is no
-content. **Every** content-free span has to say so that way — the spans a
-comment left open at the end of the input produces used to set
-`contentStart` to `span.start` instead, which reads as content, so a
-trailing `-- note` with no newline after it counted as a statement while
-the same line with a newline did not. That fed `splitStatements()`,
+content. **Every** content-free span has to say so that way — if the spans a
+comment left open at the end of the input produces set `contentStart`
+to `span.start` instead, that reads as content, so a trailing `-- note`
+with no newline after it counts as a statement while the same line with
+a newline does not. That would feed `splitStatements()`,
 `statementAtOffset()` and the gutter dots alike.
 
 ## Splitting has to agree with the server
@@ -192,15 +192,15 @@ it - unless the run failed, in which case it points at its first error.
 `splitStatements()` also drops DELIMITER commands, which the server
 consumes without producing a result.
 
-**Quotes, as the shell's splitter reads them** (2026-10-12). The MCP
+**Quotes, as the shell's splitter reads them.** The MCP
 plugin splits with `mysqlsh.mysql.split_script` (`mcp_plugin/lib/
 db_functions.py`), whose `Sql_splitter` (`mysqlshdk/libs/utils/
 utils_mysql_parsing.cc`) reads `'...'` as a string, in which a backslash
 escapes, `` `...` `` as an identifier, in which it does not
 (`span_quoted_identifier`), and `"..."` as either, by its `ansiQuotes`
 option. The scanner (`scanStatements(sql, delimiter, ansiQuotes)`) reads
-them the same way. It used to escape in backticks too, so
-`` SELECT `a\`; SELECT 1; `` - a column named `` a\ `` - ran to the end
+them the same way: nothing escapes in backticks, or
+`` SELECT `a\`; SELECT 1; `` - a column named `` a\ `` - runs to the end
 of the file as one open identifier.
 
 **The run passes the mode, and learns it back.** `SqlModes`
@@ -247,13 +247,12 @@ view - `mysql.user` is one since MariaDB 10.4 - is found out by the answer
 being no such table. **That is classified ONCE, at the source**:
 `MariaDbApi.getObjectDetails` matches the server's wording (`No table
 'user' found in schema 'mysql'`, anywhere in the text since the SDK
-prefixes its own; `OBJECT_NOT_FOUND` now lives in `mariaDbApi.ts`) and
+prefixes its own; `OBJECT_NOT_FOUND` lives in `mariaDbApi.ts`) and
 rejects with a typed `ObjectNotFoundError` carrying the type, schema and
 name. `#buildResultSet` checks `instanceof` and the grid reads "Read only:
 mysql.user is not a table - a view, say."; `createLoggingApi` recognises
 the same error and reports that call as an INFO row, "No table
-mysql.user", not as an error - asking is how the question is answered (it
-used to take an `expected` callback that re-ran the regex). Any other
+mysql.user", not as an error - asking is how the question is answered. Any other
 failure is still an error, and the grid says the columns could not be
 looked up. Nothing more is asked about a view: its columns would only
 feed the header tooltips. The test fake (`src/test/helpers.ts`) rejects
@@ -290,8 +289,8 @@ that was edited and then removed is not updated after it is gone.
 **Auto-increment is not generated** (`IResultColumn.isAutoIncrement` vs
 `isGenerated`): a generated (virtual/stored) column is computed by the
 server and gets no editor; an auto-increment one - usually the primary
-key - is edited like any column. Until 2026-09-25 `mapColumns` folded the
-two into `isGenerated`, which locked every auto-increment key.
+key - is edited like any column. Folding the two into `isGenerated`
+locks every auto-increment key.
 
 ## Statement markers in the gutter
 

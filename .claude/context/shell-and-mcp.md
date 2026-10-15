@@ -70,7 +70,7 @@ drives the shell lookup:
    group, so curl and bash go too. The POSIX command fetches the script
    into a variable first (`script=$(curl ...) || exit $?`) instead of
    piping curl into bash - a pipe's status is bash's, so a failed
-   download used to exit 0 and surface as "no shell found afterwards".
+   download would exit 0 and surface as "no shell found afterwards".
 
 `McpSession` then starts
 `<shell> -- mcp start-server --transport=stdio --gui` through the MCP SDK's

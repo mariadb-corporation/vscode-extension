@@ -5,9 +5,8 @@ the background tasks and the Tasks view.
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md). The server side (the
 `util.*` tools and the task registry) is in the MCP plugin's own
-`context/util.md`. Branch `wip/mcp_dump_load` (2026-10-10). The server
-runs each task in a MariaDB Shell process of its own (2026-10-12; it
-first needed mariadb-shell #73, which was dropped for this).
+`context/util.md`. The server runs each task in a MariaDB Shell process
+of its own.
 
 | File | Purpose |
 | --- | --- |
@@ -23,8 +22,8 @@ first needed mariadb-shell #73, which was dropped for this).
 
 Notes:
 - Start checks a dump folder first (`dumpFolderProblem`): one that is not
-  empty, or a file, keeps the dialog open with the reason, where the dump
-  used to start and fail after the dialog closed. Copy targets are shown
+  empty, or a file, keeps the dialog open with the reason, rather than letting the dump
+  start and fail after the dialog closed. Copy targets are shown
   by address (`IUtilTarget`), sent by URI.
 - Dump folders default to `<first workspace folder or home>/<name>-<YYYY-MM-DD-HHMM>`,
   an export to `<schema>.<table>.tsv` there. `exportTable` quotes names that
@@ -54,9 +53,7 @@ Notes:
     `resetProgress`, so the shell resumes from the dump's progress file;
   - the new task takes the old row's place.
 - Not done: copying between connections from the palette.
-- **UI tests live on `wip/mrs_code_ext`** (main has no `ui-test/`), which
-  has this branch merged in: `ui-test/tests/06-dump-load.test.ts`. Fixes
-  they find are made here and merged there again. They cover dump, load
+- **UI tests**: `ui-test/tests/06-dump-load.test.ts`. They cover dump, load
   into another schema, export, import, cancelling a slow dump from the
   Tasks view, a dump into a folder that is not empty, a copy to a second
   sandbox, and Clear Finished Tasks. The MRS tests of the same run need a
@@ -66,15 +63,13 @@ Notes:
     dialog panel);
   - `src/test/mcp/utilApi.test.ts`;
   - `webview/test/UtilDialog.test.tsx`;
-  - a one-off run against a real `mcp start-server --gui` (dump, load, list)
-    passed on 2026-10-10.
-- The real-server run deployed its sandbox in `~/.mariadb-shell/sandboxes`
-  and stored its password in the real secret store even with
-  `MYSQLSH_USER_CONFIG_HOME` pointing elsewhere; both had to be removed by
-  hand. The plugin's `run_tests.py` isolates the secret store, which a
-  one-off run does not.
+- A one-off run against a real `mcp start-server --gui` deploys its sandbox
+  in `~/.mariadb-shell/sandboxes` and stores its password in the real secret
+  store even with `MYSQLSH_USER_CONFIG_HOME` pointing elsewhere; both have
+  to be removed by hand. The plugin's `run_tests.py` isolates the secret
+  store, which a one-off run does not.
 
-## A task that does not start (2026-10-11)
+## A task that does not start
 
 When the start call itself fails - no task id to follow - the failure is
 a row of the connection's Actions of its own (`TaskActionLog.startFailed`:

@@ -48,7 +48,7 @@ change belongs to up to date, and this table with it.
 | [`context/shell-and-mcp.md`](context/shell-and-mcp.md) | `src/shell/` and `src/mcp/` file by file, the lazy startup and shell lookup, GUI mode (`--gui`) and the two connection lists, the MCP wire format. |
 | [`context/connection-editor.md`](context/connection-editor.md) | The connection editor: its files and tabs, what it deliberately leaves out, the URI box and its rules, its own vite build. |
 | [`context/connections.md`](context/connections.md) | The several connections one URI can have open and the one the Connections view keeps, what is reported on them (General Actions; browsing only on failure or with `logAllCalls`), the cached connection list, the tree, opening, the default connection. |
-| [`context/connection-folders.md`](context/connection-folders.md) | Folders, captions and colors of connections: what the server keeps, the helpers mirroring its rules, New Folder, moving, collapsed folders kept across a restart. Split out of connections.md on 2026-10-11. |
+| [`context/connection-folders.md`](context/connection-folders.md) | Folders, captions and colors of connections: what the server keeps, the helpers mirroring its rules, New Folder, moving, collapsed folders kept across a restart. |
 | [`context/running-sql.md`](context/running-sql.md) | The two run commands and stop on error, which connection a file runs on, the MariaDB SQL language and its ANSI_QUOTES highlight, the statement scanner, splitting agreeing with the server, what makes a result set editable, the gutter markers. |
 | [`context/sql-grammar.md`](context/sql-grammar.md) | The MariaDB SQL TextMate grammar: one language, ANSI_QUOTES as semantic tokens (and why not two languages), what a tokenizer can and cannot do and the policy for each, the generated word lists and the sync workflow, the three test layers. |
 | [`context/dump-and-load.md`](context/dump-and-load.md) | The Dump and Load submenu, its dialog, the background tasks (`util.*` tools) with their notification and the Tasks view, each task as a row of the Actions tab, and a log file per task. |
@@ -64,19 +64,17 @@ change belongs to up to date, and this table with it.
 
 ## Known gaps
 
-- `MINIMUM_SHELL_VERSION` is **26.10.1**, set by the release tooling
-  (`tools/update_version`, the shell repo's `main` version); the hard
+- `MINIMUM_SHELL_VERSION` (`src/shell/constants.ts`) is set by the release
+  tooling (`tools/update_version`, the shell repo's `main` version); the hard
   floor is 26.9.4 (`mariadb://` URIs from 26.9.3, `db.test_connection` and
   per-statement script results from 26.9.4). 26.10.0 is the first release
   whose bundled `mcp_plugin` has connection folders / captions / colors,
   `sandbox.list_instances` and `mcp_access`, paging (`has_more_pages`) and
-  `column_metadata` - checked 2026-10-11 by unpacking the 26.10.0 and
-  26.10.1 tarballs and grepping their plugin - so those are no longer
-  gaps. **What 26.10.1 still lacks:** the MRS module (mariadb-shell #71)
-  with the `mrs` MCP group: the REST Service tree needs a shell newer than
-  any release. Raise the version once one carries it. Dump and Load works
-  with any of them: since 2026-10-12 the server runs each task in a shell
-  process of its own and no longer needs #73.
+  `column_metadata`. The REST Service tree needs the MRS module
+  (mariadb-shell #71) with the `mrs` MCP group, which 26.10.1 lacks: it
+  takes a later shell release (see the shell repo's `gh release list`), and
+  the version is to be raised once one carries it. Dump and Load works with
+  any of them: the server runs each task in a shell process of its own.
 - The result grid edits every value as text; there is no type-aware editor
   (date picker, BLOB viewer) yet. Its cell menu has Save / Load Value and
   Set Field to Null only - none of the MySQL Shell's Copy items.
@@ -90,76 +88,23 @@ change belongs to up to date, and this table with it.
 - The webview CSP allows inline STYLES (`style-src 'unsafe-inline'`,
   `src/webview/html.ts`). Harmless now that every grid cell and header
   tooltip is built as an element (see [`context/result-grid.md`](context/result-grid.md)),
-  and left as the 2026-10-07 security review's one defence-in-depth
+  and left as a security review's one defence-in-depth
   suggestion: dropping it needs a check that the bundled CSS does not rely
   on it.
-- **CI cannot test what needs the unreleased shell.** The plugins CI uses
-  the shell tarball someone put in `~/.cache/ci` on the GCE runner (the
-  26.10.1 release), which does not have mariadb-shell #71 (MRS module):
-  #41 and #44 fail there for that reason alone (checked 2026-10-11). #43
-  failed for #73 too, until its tasks moved to a shell process of their
-  own (2026-10-12). The UI tests are not in CI at
-  all. Options weighed, none done: wait for a shell release; let a PR name
-  the shell build it needs and download it (shell PR CI would have to
+- **CI runs nothing that needs a shell.** `code-ext-ci.yml` runs the unit
+  tests, which sit behind fakes, and no UI test: those need a MariaDB Shell
+  whose bundled plugins carry the MRS module (mariadb-shell #71). Options
+  weighed, none done: use a shell release once one carries it; let a PR
+  name the shell build it needs and download it (shell PR CI would have to
   upload its Linux package; `rocky-linux.yml` can build one on dispatch);
   skip tests whose feature the shell lacks.
-- The UI tests need a shell with #71, which mariadb-shell `main` has since
-  2026-10-13: any local build of `main` in `~/git/mariadb-shell`
-  (`MARIADB_SHELL=...`). Before that it took the local-only merge
-  `wip/ui_test_shell`, deleted on 2026-10-13.
+- The UI tests need a shell with #71, which mariadb-shell `main` has: a
+  local build of the shell's `main`, named with `MARIADB_SHELL=...`.
 - **Highlighting is lexical.** Non-reserved keywords used as names are
   coloured as keywords, data types have no scope of their own, and the
   ANSI_QUOTES identifiers are semantic tokens, so a theme with semantic
   highlighting off shows them as strings and they appear a moment after
   the grammar's colours. See [`context/sql-grammar.md`](context/sql-grammar.md).
-
-## Git state
-
-Checked at this checkpoint (2026-10-12):
-
-```text
-$ git -C code_ext branch --show-current
-wip/vscode_syntax_highlighter
-
-$ git -C code_ext status --short   (one repository: every project's lines)
- M code_ext/.claude/PROJECT_CONTEXT.md
- M mcp_plugin/.claude/PROJECT_CONTEXT.md
- M mrs_plugin/.claude/PROJECT_CONTEXT.md
- M msm_plugin/.claude/PROJECT_CONTEXT.md
-(this checkpoint's own edits, committed with it)
-```
-
-The `/code-review` fixes (UI runner signals and time limit, one source
-each for the Actions tab's top alignment and tree indent) are #44's:
-`b9642b1c` on `wip/mrs_code_ext`, merged forward as `22406105`.
-
-- **PR #45** `wip/vscode_syntax_highlighter` -> `wip/mrs_code_ext`: the
-  MariaDB SQL language, grammar, ANSI_QUOTES semantic tokens, splitter
-  fixes, the `sql_mode` round trip (`13b7e192`, `a7da1b99`, `75602592`),
-  the `/simplify` pass `4743e259`, and the merges of #44 (`3f0b66eb`,
-  `cef8b880`, `22406105`). See [`context/sql-grammar.md`](context/sql-grammar.md)
-  and [`context/running-sql.md`](context/running-sql.md).
-- **PR #44** `wip/mrs_code_ext` got the footer tab styling (`92c5b4d1`),
-  the UI tests in suites (`168972cc`), and the Actions tab's top
-  alignment and indent guides plus the process-group stop (`a9d1a668`),
-  the `/code-review` fixes (`b9642b1c`).
-- **#43 (Dump and Load) and #41 (the mrs_plugin / msm side) are merged**
-  (2026-10-13, squash-merged after review fixes), and so is
-  mariadb-shell #71. `main` is merged into #44, and from there into #45
-  and #48. Fixes go #44 -> #45 -> #48, always that direction.
-- **Session 2026-10-12:** footer tabs, the grammar (TextMate, generated,
-  not an LSP), semantic tokens for ANSI_QUOTES, the Actions tab's top
-  alignment and straight indent guides instead of Tabulator's L branch,
-  UI tests split into `core` / `mrs` / `dump-load` suites, `/simplify`,
-  then `/code-review` (9 findings, all fixed).
-- Suite: **1994 unit tests pass**, 8 skipped; UI suites core 24, mrs 29,
-  dump-load 15 pass (before the review fixes; after them a live run was
-  interrupted twice with Ctrl-C to check the runner: exit 130, nothing
-  left running); mcp_plugin's script/paging/session/sql tests 133 passed.
-- Not looked at in a running VS Code outside the UI tests: the
-  ANSI_QUOTES colouring, the indent guides after the move to
-  `--actionsTreeIndent`, and still the PR #34 / #38 items listed in
-  earlier checkpoints.
 
 ## Conventions
 

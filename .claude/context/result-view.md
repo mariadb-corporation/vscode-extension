@@ -67,7 +67,7 @@ The error bar leads, above what it is about: it is read before the eye
 has gone looking for what went wrong. It steps through every error of
 the last run rather than showing one - see below.
 
-The tab on show is **drawn as a tab** (2026-10-12, the user's design).
+The tab on show is **drawn as a tab** (the user's design).
 The bar is on `--vscode-editor-background`, and the line along its top
 is **painted, not a border**: a 1px `linear-gradient` layer of its
 background. A border would sit outside what the bar's `overflow:
@@ -81,7 +81,7 @@ foot rounded (4px) and 2px short of the bar's bottom edge; its top
 stays open. Its caption is **underlined** in `textLink.foreground`
 (`text-underline-offset: 3px`) - under the text, not along the foot of
 the tab. The caption is a span of its own (`tabCaption`) so the
-underline leaves the Actions badge out. Tried and dropped (2026-10-12):
+underline leaves the Actions badge out. Tried and dropped:
 a top border of the tab, which closed it off from its content, and a
 line above the caption. Every tab
 carries the same 1px borders, transparent, so picking one moves
@@ -158,7 +158,7 @@ Two things they deliberately do not do:
 - **An event does not reveal the view.** Browsing the schema tree is no
   reason to throw the panel open over what the user is reading; the rows
   are simply there when they next look. A run still reveals it.
-- **An event does not reset the page.** State now arrives at any moment,
+- **An event does not reset the page.** State arrives at any moment,
   so the frontend rebuilds its editing state and picks a tab only when
   the result set ids actually changed - otherwise a schema listed in the
   tree would throw away a grid's pending edits.
@@ -206,16 +206,16 @@ cannot be - checked against `@types/vscode` 1.138:
 something is filed under it (see `mariadb.actions.logAllCalls` in
 [connections.md](connections.md)). It is not a connection, but where
 nothing is on show yet the first general action IS what the view comes
-up on - with the logging on it is usually first, and the panel used to
-stay empty. `#generalByDefault` marks General Actions picked that way, and
+up on - with the logging on it is usually first, and the panel would
+stay empty otherwise. `#generalByDefault` marks General Actions picked that way, and
 the first CONNECTION event takes the view over from it; General Actions
 picked by the user (`selectConnection`) stays. Two helpers own the rule:
 `#setActive(connection)` for a pick (the user's, a run's, a minimize) and
 `#claimIfUnset(connection)` for the takeover `startRun` and `appendEvent`
-both apply - it used to be spelled out at seven sites.
+both apply.
 
-**General Actions rows are shown on every connection too** (2026-10-14,
-the user's call): a sandbox deploy, a REST Daemon's steps and the logged
+**General Actions rows are shown on every connection too** (the user's
+call): a sandbox deploy, a REST Daemon's steps and the logged
 connection-list calls are no one connection's and mean as much whichever
 is on show. `#shownActions` merges them into the connection's own rows
 by `IActionRow.seq`, a running number `#add` gives every row (a replaced
@@ -264,7 +264,7 @@ The grid only draws the arrow when the id is still among the open tabs.
 
 ## The Actions tab's badge counts what was not seen
 
-(2026-10-11, the user's rule.) The blue count on the Actions tab is the
+(The user's rule.) The blue count on the Actions tab is the
 number of top-level rows that came in, or changed, while the tab was NOT
 on show (`webview/src/unseenActions.ts`: rows kept by id with the `kind`
 they were seen with, so a run seen pending that then fails counts again;

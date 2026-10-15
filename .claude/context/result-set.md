@@ -21,8 +21,8 @@ status text ...... View: [grid v] | Pages: [<][>] | Edit: [edit][add-row][sql_pr
 - The `|` are 1px lines, 16px high, 6px either side, in
   `--vscode-panel-border` (the MySQL Shell's are invisible spacers; lines
   were asked for). The section labels are 0.8em. Buttons are 20px,
-  icons 18px. A **disabled** button is `opacity: 0.2` (settled 2026-10-07
-  after 0.4, 0.25 and 0.15): most of the bar is disabled most of the
+  icons 18px. A **disabled** button is `opacity: 0.2` (settled after 0.4,
+  0.25 and 0.15): most of the bar is disabled most of the
   time, and the icons are there to keep their place, not to be read. The
   other disabled rules (error bar steps, tab pager, copy menu) stay at
   0.4.
@@ -51,7 +51,7 @@ status text ...... View: [grid v] | Pages: [<][>] | Edit: [edit][add-row][sql_pr
   the MySQL Shell, since a reload would drop the edits.
 - The status text says what is pending the MySQL Shell's way
   (`editingStatusOf`: "Editing, 1 row affected (1 field changed, ...)"),
-  in place of the old badge and "Apply (n)".
+  rather than a badge.
 - **Add New Row** is a toolbar button after Start Editing
   (`toolbar-add-row.svg`, the user's own); the preview icon is
   `toolbar-sql_preview.svg`. Section labels are 0.8em.
@@ -140,7 +140,7 @@ which puts it back.
 - **Closing the tab** with its X discards the result set, as closing a
   tab does; only Minimize brings it back. Disposing the provider closes
   every such tab.
-- When the id set of the panel's tabs changes, the page now **keeps the
+- When the id set of the panel's tabs changes, the page **keeps the
   edits of the tabs still there** and shows a tab that has just arrived
   (a returning one, or a run's first); before, any change rebuilt all of
   them.

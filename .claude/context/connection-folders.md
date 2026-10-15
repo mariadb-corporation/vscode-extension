@@ -4,9 +4,8 @@ How the Connections view files connections into folders: the folders the
 server knows as a connection's path, the ones made with New Folder, moving
 and renaming, and what is kept across a restart.
 
-Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md). Split out of
-[connections.md](connections.md) on 2026-10-11, which has the rest of the
-Connections view.
+Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md); [connections.md](connections.md)
+has the rest of the Connections view.
 
 A connection can be filed in a folder - `/Sandboxes`, `/Sandboxes/note_app` -
 and given a caption and a color. The MCP server keeps all three in
@@ -52,9 +51,9 @@ everything still goes by URI and kind.
   filed under - one holding only folders is shown, an empty one cannot be.
   Folder children come from the listing `getRoots` made (`#listing`), so a
   folder and its roots cannot disagree and opening one costs no server call.
-- `FolderTreeItem` is drawn EXPANDED, so a connection that used to be in
-  sight (a sandbox, now in `/Sandboxes`) does not vanish into a closed
-  folder. Its icon is `folder-opened` or `folder` by state, which VS Code
+- `FolderTreeItem` is drawn EXPANDED, so a connection that was in sight
+  before it moved into a folder (a sandbox, in `/Sandboxes`) does not
+  vanish into a closed one. Its icon is `folder-opened` or `folder` by state, which VS Code
   does not swap itself: the provider keeps the COLLAPSED paths and redraws
   the folder on a change (`onDidCollapseElement` -> `collapsed()`,
   `onDidExpandElement` -> `expanded()`, which drops that folder's own entry

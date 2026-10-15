@@ -54,8 +54,8 @@ the wrapper that produces them:
 - `createLoggingApi` wraps the calls that browse one: `db.list_schemas`,
   `db.list_objects` and `db.get_object_details`. It times each, says what
   came back (`Listed 12 tables in world`) and reports a failure as the row
-  instead. **Since 2026-10-10 a browsing call that worked is reported only
-  with `logAllCalls` on**: the user found the Actions tab drowning in
+  instead. **A browsing call that worked is reported only with
+  `logAllCalls` on**: the user found the Actions tab drowning in
   listings, and it is for what was done (runs, opening and closing, tasks,
   MRS changes). A failure is reported either way. A UUID it cannot resolve
   - one closed while the call was in flight - is reported as nothing at
@@ -76,9 +76,9 @@ the wrapper that produces them:
   [sandboxes.md](sandboxes.md)); `createGeneralWatcher` is shared by both
   wrappers.
 - **General Actions shows until a connection reports.** With the logging on
-  it is usually the first thing logged, and the panel used to stay empty
-  because only a connection's event picked what the view shows. Now the
-  first event of ANY kind does; General Actions picked that way
+  it is usually the first thing logged, so the
+  first event of ANY kind picks what the view shows, not only a
+  connection's; General Actions picked that way
   (`#generalByDefault`) gives way to the first connection that reports
   something, while General Actions picked by the user stays.
 - `ConnectionManager.api()` is what hands the wrapped API out, so
@@ -113,7 +113,7 @@ Before this every tree redraw re-listed, and the tree redraws on every
 connection opened or closed; with General Actions logging on, the list
 events redrew the panel, which re-listed for its picker, which logged more.
 Everything - tree roots and folders, the panel picker (its own 5 s TTL on
-top is now redundant but harmless), the editor's folder list
+top is redundant but harmless), the editor's folder list
 (`IConnectionEditorHost.listStored`), SQL-file connection choice, a folder
 move - reads the cache. A read that FAILS is not cached, so the next call
 retries. Known cost: a connection another client adds (`mcp.setup`, an
@@ -125,10 +125,9 @@ Contributed into its own activity bar container, and into a panel container,
 both with the extension's icon (`images/mariadb-code-ext.svg`, kept as a
 vector).
 
-**First-start layout** (2026-10-11): `initialSize` weights in package.json,
+**First-start layout**: `initialSize` weights in package.json,
 Connections 100, Sandboxes 16, REST Daemons 16 and Tasks 16, the last two
-with `visibility: "collapsed"` (REST Daemons collapsed: the user's call,
-2026-10-14).
+with `visibility: "collapsed"` (REST Daemons collapsed: the user's call).
 VS Code sizes a view it has no stored size for as `container height *
 weight / sum of the weights` (default weight 20, `computeInitialSizes` in
 the workbench), so it is proportional, not a row count: on the UI tests'
@@ -203,20 +202,17 @@ dba@localhost:3310/world      connection (icon by scheme; "default" if default)
   | `failed` | listing failed, or the server did not start | the log says why, + Show Log and Retry |
   | `listed` | the roots came back | nothing configured, + New Connection… and New Folder… buttons |
 
-  `failed` rather than `listed` on a failure: the view used to claim
-  nothing was configured when the shell could not even be installed.
+  `failed` rather than `listed` on a failure: otherwise the view claims
+  nothing is configured when the shell could not even be installed.
   A new start attempt (phase `locating`) clears a listing failure back
   to `looking`. The machine is `ViewStateTracker` (`src/tree/viewState.ts`:
   `listed()`, `failed()`, `state`, the phase subscription and the
   `setContext` write-on-change), one instance per view - the Sandboxes
-  view has the same four states under its own key, and the two providers
-  used to carry a copy each. The view also shows its busy bar for the whole startup
+  view has the same four states under its own key. The view also shows its busy bar for the whole startup
   (`withProgress` at `{ viewId }`, in `showStartupInView`). It cannot
   show the failure's text: setting `TreeView.message` hides welcome
   content (VS Code's `shouldShowWelcome` requires it empty), so the
-  reason goes to the notification and the log instead. It used to be
-  one message sending the user to `mariadb-shell -- mcp setup` in a
-  terminal, which the connection editor has since made unnecessary.
+  reason goes to the notification and the log instead.
   `SqlEditorBinding.selectConnection` points at the same button when a
   SQL file is asked what to run on and nothing is configured, naming it
   in words rather than the codicon, a notification drawing none.
@@ -281,7 +277,7 @@ tree, and honoured by every SQL editor that has not picked its own.
 
 **It is the one URI the extension writes down itself, which is why it needs
 `withDefaultScheme`.** A setting written before shell 26.9.3 holds a
-scheme-less URI, and `db.list_connections` now reports every connection with a
+scheme-less URI, and `db.list_connections` reports every connection with a
 scheme, so a plain `===` would stop matching and the tree's default marker
 would quietly disappear — nothing fails, the star is just gone.
 `ConnectionsModel.getRoots` puts BOTH sides through the fill-in, which also

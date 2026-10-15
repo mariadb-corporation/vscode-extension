@@ -32,7 +32,7 @@ What is *not* there is deliberate:
   they are quieter and smaller than it (`0.9em`, and `0.85em` for
   Conn), and `vertAlign: "top"` keeps them level with the first line of
   a message that may be taller than they are. **Every cell is aligned
-  at the top** (the user's rule, 2026-10-12; they were centred before),
+  at the top** (the user's rule),
   through `columnDefaults: { vertAlign: "top" }` alone: Tabulator then
   makes every cell, the message cell included, an inline flex box
   aligned at the start, so the stylesheet sets neither `display` nor
@@ -60,8 +60,7 @@ What is *not* there is deliberate:
   read through the props ref by the formatter and the row click, and a
   change of that set re-puts the rows with `replaceData` (`availableKey`,
   the sorted ids) - every row afresh, the statements under a closed run
-  included, where `reformat()` would miss rows not in the DOM. Until
-  2026-10-07 every state message rebuilt the whole table.
+  included, where `reformat()` would miss rows not in the DOM.
 
 The marker and the message lead together, as they do in the Problems
 panel; the details follow. The grid draws **no vertical rules**: it is a
@@ -89,8 +88,8 @@ A **statement** is meant to miss it: it sits one clear step in from
 its run, and that step, the twistie above it and the guide beside it
 are what say the row belongs to the run.
 
-**The indent guides are drawn by the stylesheet, not by Tabulator**
-(2026-10-12). Tabulator's `dataTreeBranchElement` - on by default - is
+**The indent guides are drawn by the stylesheet, not by Tabulator.**
+Tabulator's `dataTreeBranchElement` - on by default - is
 only a fixed 9px L per row, pulled up with a negative margin: it knows
 neither the row's height nor its siblings, so on a row taller than one
 line, or a top-aligned one, it came apart (the user's screenshots).
@@ -126,7 +125,7 @@ about, instead of a block of lines to be picked apart by eye.
 - `Actions` on a run says what ran and where (`Ran 5 statements on ...`,
   `Running 5 statements on ...` while it is under way); on a statement,
   what the server said about it.
-- `Information` - the column that used to be `Statement` - says what the
+- `Information` says what the
   run came to (`Finished 5 statements successfully`,
   `Finished with 2 errors, stopped after 4 of 5`, `Running…`) and, on a
   statement, which statement it was. A run's summary is the view
@@ -151,10 +150,9 @@ array per statement for this (`level`, `code`, `message`, as
 `SHOW WARNINGS` reports them). `warnings_count` is the older field and
 can arrive without it, so `warningRowsOf()` produces nothing against an
 older shell: the count still shows in the statement's message and the
-row simply has nothing to open. That same change was what fixed the
-count, which used to come back **0 for every statement that returned a
-result set** - it is `mysql_warning_count`, and the server does not
-have it until the rows have been read.
+row simply has nothing to open. The count is `mysql_warning_count`,
+which the server does not have until the rows have been read: taken
+before that, it is **0 for every statement that returned a result set**.
 
 ## An error grows its row; everything else gets a popup
 
@@ -164,13 +162,13 @@ message (`white-space: pre-wrap`, `overflow-wrap: anywhere`) and the
 row grows to hold it - Tabulator sizes a row to its tallest cell, so
 nothing more than the wrap is needed. The marker is pulled to the top
 of the block (`align-items: flex-start` on `.actionMessageCell`, as on
-every row now) to stay in the column of markers, and Time and
+every row) to stay in the column of markers, and Time and
 Information are top-aligned with it through the column default
 `vertAlign: "top"`: Tabulator writes `display` and `align-items` as an
 **inline** style for a column with a `vertAlign`, which no rule in the
 stylesheet can outrank, so they are set there and nowhere else.
 
-**A row marked `multiline` is shown the same way** (2026-10-10): its
+**A row marked `multiline` is shown the same way**: its
 message is a block of lines, shown in full, the row as tall as it needs.
 The grid gives such a row - and every error row - `.fullRow`, which is what
 the wrap is keyed on; the red stays with
@@ -236,10 +234,9 @@ cannot be scrolled to by its own id: `openTo()` finds its run, opens it
 and takes the child component from `getTreeChildren()`. The row to open
 is found by `topLevelRowOf()`: the run holding a statement, or the row
 itself when it is top level - an event, or a failed run with no failed
-statement under it, both of which `errorsOf()` points at. Until
-2026-10-11 only runs holding the row were looked for (`runHolding`), so
-the error bar's "go to" on those two never scrolled (found by the
-2026-10-07 reviews).
+statement under it, both of which `errorsOf()` points at. Looking only for runs holding the
+row (`runHolding`) misses those two, and the error bar's "go to" on them
+never scrolls.
 
 ## Nothing scrolls itself
 
@@ -247,7 +244,7 @@ Rows arriving are not scrolled to, because they arrive at the **top**
 and the view opens there. A reader who has not gone looking through the
 older rows is already where the new ones appear, and one who has is not
 taken away from what they are reading. That is what putting the newest
-first buys, and it is why `replaceData` is now the whole of the data
+first buys, and it is why `replaceData` is the whole of the data
 effect.
 
 The jump arrows still scroll where they are pointed: an explicit ask,
@@ -267,7 +264,7 @@ put to better use, and the panel area is short of it.
 
 - `$(go-to-file)` (the Tasks view's Show Log icon) opens the log a row
   names in `logPath`: a failed dump & load task's log, a failed REST
-  Daemon setup's output, a daemon's own log (2026-10-14, the user's
+  Daemon setup's output, a daemon's own log (the user's
   request). The host opens only a path one of its rows names
   (`ResultViewProvider.#openLog`); the page sends a path, and one it
   made up is not opened. A click on the button is `actionClick` "log",
@@ -285,7 +282,7 @@ says so with a pointer (`goesSomewhere`, set by the `rowFormatter` on
 any row that has a `source`). `actionClick()` decides, off a table-level
 `rowClick` rather than a column's `cellClick`, so that every column
 counts. The jump arrow is the one exception, going to a result set
-instead; the go-to arrow now does nothing its row does not already do
+instead; the go-to arrow does nothing its row does not already do
 and stays only because it says so, and because a run's carries a title
 of its own.
 
@@ -301,7 +298,7 @@ is not a click on the row either.
 
 VS Code puts a Cut / Copy / Paste menu on every webview, and its Copy acts
 on the text SELECTION - clicking a grid cell selects nothing, so it copied
-nothing. Tabulator's `cellContext` now opens `contextMenu.ts`'s menu
+nothing. Tabulator's `cellContext` opens `contextMenu.ts`'s menu
 instead: one item, **Copy**, for that cell's text as shown
 (`cellCopyText`: the message, `timeOf`, `informationOf`, the connection
 label), through the same `copyToClipboard` message. Its `preventDefault()`
@@ -358,7 +355,7 @@ work out: `db.execute_sql_script` runs the whole script in one call. The
 MCP plugin was changed for it (`mcp_plugin/lib/db_functions.py`):
 
 - every entry carries `statement_index` and `execution_time`,
-- a failing statement no longer raises. Its entry carries `error` and
+- a failing statement does not raise. Its entry carries `error` and
   `statement` instead of a result set, so the entries for what already
   ran are still returned - which matters, because a script is not a
   transaction,

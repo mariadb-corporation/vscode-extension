@@ -26,7 +26,7 @@ and a `"..."` straight after `@` (a variable's name, an account's host)
 is left to the grammar. A semantic token cannot span lines, so a
 multi-line span becomes a token per line.
 
-**Two languages were built first and dropped (2026-10-12).** One grammar
+**Two languages were built first and dropped.** One grammar
 per mode (`mariadb-sql-ansi` beside `mariadb-sql`, built from the one
 template) with each document moved between them by
 `setTextDocumentLanguage`. That call **closes and reopens the document**
@@ -70,7 +70,7 @@ those has a decided policy:
 
 - **Non-reserved keywords** (418 of the 691 keyword words) can be
   identifiers - `name`, `status`, `type` as column names. They are
-  coloured like reserved ones (the user's decision, 2026-10-12), but in a
+  coloured like reserved ones (the user's decision), but in a
   scope of their own, `keyword.other.unreserved.sql` against
   `keyword.other.reserved.sql`, so a theme or a later rule can tell them
   apart without a regeneration.
@@ -110,9 +110,9 @@ qualifying dot (`t.1`) but not after the range operator (`1..10`).
 Identifiers get `entity.name.identifier.sql` (quoted:
 `entity.name.identifier.quoted.sql`), which the 2026 default themes
 colour orange and Dark+ / Dark Modern leave in the foreground colour.
-They were `meta.identifier.sql`, unthemed, until the user asked for
-colour (2026-10-12); `variable.other.sql` was tried and dropped, as the
-2026 themes colour it barely apart from the foreground. User and system
+The user asked for colour, so they are not the unthemed
+`meta.identifier.sql`; `variable.other.sql` was tried and dropped, as
+VS Code's bundled themes colour it barely apart from the foreground. User and system
 variables are `variable.language.user.sql` / `variable.language.system.sql`,
 blue in both theme families - the keywords' blue in Dark+ / Dark Modern,
 apart from them in the 2026 themes. `variable.parameter` was tried and
@@ -127,7 +127,7 @@ and blue in Dark Modern, and the grammar's only lever is the scope name.
 not part of the build or the lint) owns the lists:
 
 ```text
-npm run grammar:sync -- --server ~/git/mariadb-server --shell ~/git/mariadb-shell
+npm run grammar:sync -- --server <mariadb-server checkout> --shell <mariadb-shell checkout>
 npm run grammar:build          # template + words.json -> the grammar
 npm run grammar:check          # the same, failing if it differs: for CI
 ```
@@ -153,9 +153,9 @@ template, `words.json` and `tools/` are in `.vscodeignore`: only the
 built grammar ships. The checked-in grammar must be rebuilt after an
 edit of the template; `words.test.ts` runs `grammar:check` to make sure.
 
-Snapshot of the lists at the first sync (server `main` 2026-07-24, shell
-26.10.1): 273 reserved, 418 unreserved, 479 functions, 133 REST keywords
-(63 not server keywords), 19 annotations.
+`words.json` records under `sources` which server and shell commits the
+lists were synced from; the lists themselves are where to look for their
+sizes.
 
 ## Tests, three layers (`src/test/grammar/`)
 

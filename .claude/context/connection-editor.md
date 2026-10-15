@@ -32,8 +32,8 @@ options the editor gives a text field of its own are ONE table,
 from and `parseConnectionUri` reads through (`URI_OPTION_FIELDS`, that
 table merged with `SSH_URI_OPTIONS`); `UPPERCASE_URI_OPTIONS` names the two
 whose values the shell spells in capitals, and `compression-algorithms`
-is handled apart as the one list field. Three hand-kept lists used to
-have to agree.
+is handled apart as the one list field, so no hand-kept lists have to
+agree.
 
 The Basic tab's two-column grid starts Caption | Folder, then Host |
 Port + Protocol - those two share one cell as a `.field-pair`, in halves -

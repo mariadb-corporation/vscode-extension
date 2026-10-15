@@ -29,7 +29,7 @@ the running server actually answers with, so the mapping is pinned to the
 server rather than to an idea of it. The shared fake API in
 `src/test/helpers.ts` rejects a missing object with the real API's
 `ObjectNotFoundError`, since the execution service and the logging
-wrapper now tell it apart by type, not by message.
+wrapper tell it apart by type, not by message.
 
 Two typing traps in the grid tests: Tabulator's `headerTooltip` typing
 says the function returns a `string` while the runtime takes an element,
@@ -51,8 +51,8 @@ drives a real VS Code through WebDriver. It uses vscode-extension-tester
 8.28.1 and Mocha, on the newest VS Code (`--code_version max`).
 `mariadbd` must be on the PATH.
 
-**Split into suites by area** (2026-10-12, the user's call: a change in
-one area should not need the full run). `SUITES` in `ui-test/run.ts`:
+**Split into suites by area** (the user's call: a change in one area
+should not need the full run). `SUITES` in `ui-test/run.ts`:
 
 | Suite | Files, between `01-sandbox` and `99-cleanup` | npm script |
 | --- | --- | --- |
@@ -76,7 +76,7 @@ that is not a positive number ends the run before it starts): ExTester
 never exits when ChromeDriver fails to start, which it does when its
 port is taken between being picked and bound (`bind() failed: Address
 already in use` in `.vscode-test/extest/chromedriver.log`, "Server
-terminated early with status 1" in the run) - seen 2026-10-12, it held
+terminated early with status 1" in the run) - which holds
 the whole run. ExTester runs in a process group of its own, killed as a
 whole - ExTester, its VS Code and its ChromeDriver - when the time is up
 or the run is interrupted (`runGroup`). Neither Ctrl-C nor a closed
@@ -182,7 +182,7 @@ so every run clears what the last one said.
 Both tasks report under `owner: "vite"`, which is deliberate: they share
 one collection, so building also clears whatever a watcher left behind.
 
-The watcher is still there - it is in the build group, just no longer the
+The watcher is still there - it is in the build group, just not the
 default one, so `Tasks: Run Task` -> `watch` starts it when a debug
 session is going to be reloaded (`Developer: Reload Window` in the
 extension host) rather than relaunched. Two things about it are
@@ -192,7 +192,7 @@ deliberate and easy to undo by accident:
   webview build into the watch script. The webview build prints
   `built in ...`, which would satisfy the watcher's `endsPattern` and let
   the extension host launch before `dist/extension.js` had been written.
-  (F5 no longer launches behind it, but ending the task early would
+  (F5 does not launch behind it, but ending the task early would
   still report a build as finished before it was.)
 - Its `endsPattern` matches the failure lines (`Transform failed`,
   `error during build`, `Could not resolve`) as well as `built in `. A
@@ -234,7 +234,7 @@ Seen on **VS Code 1.139.0** (js-debug 1.117.0): a known regression,
 js-debug probes `127.0.0.1` and `[::1]` in parallel; the inspector listens
 on IPv4 only, the IPv6 refusal comes back first as an error type it does
 not expect, and that cancels the IPv4 probe that would have worked. No
-launch.json setting avoids it. The fix used on 2026-09-24 was going back
+launch.json setting avoids it. The fix is going back
 to 1.138.0 (`https://update.code.visualstudio.com/1.138.0/darwin-arm64/stable`)
 with `"update.mode": "none"`; Run Without Debugging (Ctrl+F5) also works
 on 1.139.0, since nothing waits for a debugger.

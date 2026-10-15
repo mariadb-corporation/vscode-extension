@@ -34,7 +34,7 @@ element, never a string** - a `span` with the value as `textContent`, the
 text itself from `valueText()` for the callers that need the string.
 Tabulator writes a formatter's string return into the cell as
 `innerHTML`, and a string `headerTooltip` the same way, so a row holding
-`<style>` restyled the grid and `x<5` lost its text; the 2026-10-07
+`<style>` restyled the grid and `x<5` lost its text; a
 security review rated it Medium (UI spoofing and link planting; the CSP
 keeps scripts out but allows inline styles). The header tooltip is built
 as an element for the same reason - Tabulator takes one from the function
@@ -172,9 +172,10 @@ effect. **The build effect is keyed on `gridKeyOf(resultSet)`** - id,
 `pageKeyOf` (page index and loads), `editable` and the columns as JSON -
 memoized per result set, plus `freezeKeys` and `showTypes`; NOT on the
 result set object, which is a fresh clone on every state message (every
-`db.*` call on the connection) and used to rebuild the grid each time.
-Rows go in through the separate `replaceData` effect. The primary key's codicon key is `.columnName.keyColumn::after`
-now, since a title formatter replaces the title's text.
+`db.*` call on the connection), so rows go in through the separate
+`replaceData` effect rather than rebuilding the grid each time. The
+primary key's codicon key is `.columnName.keyColumn::after`, since a
+title formatter replaces the title's text.
 **A short result set hides them for the time being**: `App.tsx` watches
 `section.content` (grid plus status bar) with a `ResizeObserver`, and
 below `MIN_HEIGHT_FOR_TYPES` (250px) hides them (`tooShortForTypes`) -

@@ -3,8 +3,8 @@
 The REST Service part of the Connections view and its dialogs: a port of
 the MySQL Shell for VS Code extension's MySQL REST Service support
 (`mysql-shell-plugins/gui/extension` + the frontend's `modules/mrs`), with
-MariaDB's names and REST SQL as the only API. Branch `wip/mrs_code_ext`
-(2026-10-09). TypeScript notebooks are out of scope for now.
+MariaDB's names and REST SQL as the only API. TypeScript notebooks are out
+of scope for now.
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
@@ -99,10 +99,9 @@ differ from a plain form, so keep them when changing it:
   both got `new-2`, one edit rendered two inputs, and the blur of one dropped
   the edit.
 
-## Create REST Schema from Database Schema (2026-10-14)
+## Create REST Schema from Database Schema
 
-The new-schema dialog (the user's request; its old title was "Enter
-Configuration Values for the New REST Schema"):
+The new-schema dialog (the user's request):
 
 - **A REST Objects tab before Settings**, on a new schema only. It is a
   Tabulator table (`webview/src/mrs/DbObjectsTable.tsx`) of the database
@@ -160,7 +159,7 @@ Configuration Values for the New REST Schema"):
     `/table`, `/table2`, `/schema`, `/content`. A field made from such a
     column or parameter is `field`, `field2`. Unicode would pass the REST
     SQL grammar, but the URL would need encoding and the SDK class names
-    made from the path would not be names in every language (2026-10-15).
+    made from the path would not be names in every language.
   - That makes one Actions row, "Created REST Schema '/x'", with each
     statement as a child row.
 - **Gotcha:** the table must not be rebuilt on every render. A row rebuilt
@@ -172,11 +171,11 @@ Configuration Values for the New REST Schema"):
   lays nothing out. The "drawn" tests in `MrsDialog.test.tsx` give every
   element a size so that rows exist to click.
 
-## Deploy OpenAPI Web UI (2026-10-14)
+## Deploy OpenAPI Web UI
 
-Ported from the MySQL Shell for VS Code. It used to work through a
-content set whose folder was the placeholder `${openApiUi}`. It is a proper
-option now, `open_api_ui` of `mrs.load.contentSet` and of the
+Ported from the MySQL Shell for VS Code, which did it through a content
+set whose folder was the placeholder `${openApiUi}`. Here it is a proper
+option, `open_api_ui` of `mrs.load.contentSet` and of the
 `mrs.load_content_set` tool. That option takes no directory and defaults the
 path to `/openApiUi`.
 
@@ -214,8 +213,7 @@ path to `/openApiUi`.
 
 ## Decisions
 
-- **The REST Daemon is in now** (2026-10-14, `wip/restd_support`): the
-  earlier "list and delete only" decision is replaced. Setting up,
+- **The REST Daemon is in.** Setting up,
   starting, stopping and deleting mariadb-restd deployments is the MCP
   `rest` group and the REST Daemons view; see [rest.md](rest.md).
 
@@ -229,9 +227,9 @@ path to `/openApiUi`.
   dialog's Auth. Required, a metadata schema name on first deployment.
 - Edits use ALTER (CREATE OR REPLACE would give new ids); a view is saved
   with its whole mapping generated here, `@DATATYPE` and `JSON SCHEMA`
-  included. `SHOW CREATE REST VIEW` lost them until mariadb-shell's
-  2026-10-11 fix (on #71's branch, see the shell repo's mrs-module.md);
-  generating the text here keeps working with a shell without it.
+  included. `SHOW CREATE REST VIEW` lost them before a fix in
+  mariadb-shell #71 (see the shell repo's mrs-module.md); generating the
+  text here keeps working with a shell without it.
 - Reference CRUD flags are always written explicitly (`@INSERT`/
   `@NOINSERT`...) so a following `@NOCHECK` is the reference's, not the
   field's (the grammar resolves the ambiguity toward the field).
@@ -274,8 +272,7 @@ path to `/openApiUi`.
 ## In the Actions tab
 
 What the REST Service does is a row of the connection's Actions in the
-panel (2026-10-10), in plain words, after the user found the first take
-far too verbose:
+panel, in plain words (the user's rule: a verbose log is not read):
 
 - `src/mrs/mrsActions.ts`: `IMrsAction` (id, message, pending, detail,
   error, statements) and `describeRestSql()`, which names a call's REST
@@ -301,7 +298,7 @@ far too verbose:
   action, in the Information column, with no row under it; SEVERAL are the
   rows under it, caption in the message column and the statement beside
   it, so the REST SQL can be learned by reading. Success shows as for SQL:
-  no error marker and no error row (the user's rule, 2026-10-11).
+  no error marker and no error row (the user's rule).
 - **Verbose** (`mariadb.actions.logAllCalls`, read on every call as
   `MrsApi`'s `verbose`): the listings and standalone reads are shown too.
 - `src/mrs/mrsActivity.ts` `mrsActionRow()`: pending - an event row with
@@ -316,7 +313,7 @@ far too verbose:
   its one statement beside it, "Configured REST Metadata", no "Listed REST"
   row by default, the SDK dump, and with the setting switched on in the
   Settings editor the listings with their REST SQL under them.
-- **No success notifications** (2026-10-11, the user's call): what an MRS
+- **No success notifications** (the user's call): what an MRS
   action did is its row in the Actions tab, so saving a dialog, a delete,
   Set as Current, linking an auth app, project / service dump and load and
   the SDK export say nothing else. A dialog's `save` and `#drop` return
@@ -329,7 +326,7 @@ far too verbose:
   the panel comes up on that connection's actions, and a `showActions`
   message switches the webview to the Actions tab and scrolls to the newest
   failed row (`jumpToRowId`, else the row).
-- **Long operations (2026-10-11):** closing a dialog tab cancels
+- **Long operations:** closing a dialog tab cancels
   nothing; `#save` runs on, a later failure is notified and shown. A new
   content set is ONE action, "Creating REST Content Set '/web'…" ->
   "Created REST Content Set '/web'" with "N files", the `mrs.load_content_set`

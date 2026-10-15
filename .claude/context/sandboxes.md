@@ -21,7 +21,7 @@ MCP plugin's own `context/sandbox.md`.
 
 ## Decisions
 
-- **Configure MariaDB REST Service** (2026-10-14): New Sandbox can also
+- **Configure MariaDB REST Service**: New Sandbox can also
   set up the REST Service and a REST Daemon, and a sandbox's daemon
   follows its start / stop / delete. See [rest.md](rest.md).
 
@@ -46,8 +46,8 @@ MCP plugin's own `context/sandbox.md`.
   so the dialog lists it once per extension session. `refresh()` redraws
   from what is kept; only `reload()` re-reads. Known cost: a sandbox an
   agent deploys shows at the next Refresh.
-- **A deploy is always an action row of its own** (2026-10-11, the user's
-  request), under General Actions - the sandbox has no connection open
+- **A deploy is always an action row of its own** (the user's request),
+  under General Actions - the sandbox has no connection open
   yet - whatever `logAllCalls` says: `createLoggingSandboxApi`'s `put`
   shows "Creating Sandbox on port 3310…" with the spinner, replaced by
   "Created Sandbox on port 3310" with the server's message, or "Creating
@@ -154,8 +154,8 @@ MCP plugin's own `context/sandbox.md`.
 - **The password is always sent, and never empty**: the shell refuses a
   deploy without one. **Automatically generate a sandbox password**
   (`ISandboxFields.generatePassword`, ticked by default, `name=
-  "generatePassword"`, across both columns; the user's request,
-  2026-10-11) hides the password fields; while it is ticked the host sends
+  "generatePassword"`, across both columns; the user's request)
+  hides the password fields; while it is ticked the host sends
   `generateSandboxPassword()` (`sandboxDeployOptions`) and ignores anything
   typed before it was ticked again: 12 characters from upper and lower
   case, digits and `!$#^()`, at least one of each, drawn from
@@ -175,8 +175,8 @@ MCP plugin's own `context/sandbox.md`.
 ## Known gaps
 
 - `sandbox.list_instances` and `mcp_access` first shipped in shell
-  26.10.0's bundled `mcp_plugin`; `MINIMUM_SHELL_VERSION` (26.10.1) covers
-  them (checked 2026-10-11 by unpacking both releases).
+  26.10.0's bundled `mcp_plugin`, so every shell `MINIMUM_SHELL_VERSION`
+  allows has them.
 - `sandbox.deploy` runs synchronously in the server's event loop, so a
   client timeout (30 min) cannot stop it there: the extension would report
   a failure while the deploy completes.

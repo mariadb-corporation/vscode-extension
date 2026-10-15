@@ -2,13 +2,13 @@
 
 A sandbox deployed with the MariaDB REST Service, a REST Daemon set up for
 any connection, the REST Daemons view, and the Actions rows all of them
-report. Built on `wip/restd_support` (2026-10-14). The daemon itself is
+report. The daemon itself is
 run by the MCP server's `rest` group: see the plugin's
 `mcp_plugin/.claude/context/rest.md` for how mariadb-restd is driven.
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
-## What the user decided (2026-10-14)
+## What the user decided
 
 - **New Sandbox** gets a checkbox **Configure MariaDB REST Service** below
   the password choice, its note "Setting up the MariaDB REST Service on
@@ -19,8 +19,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   Password, with the Configure dialog's password rules. Ticking it with
   no REST password takes the cursor there.
 - **The REST Daemon port**, a sandbox's as a connection's: 8443, or the
-  next free one (the user's call, 2026-10-14; a sandbox's used to get ten
-  times its port). The field's placeholder shows 8443, and it is left to
+  next free one (the user's call). The field's placeholder shows 8443, and it is left to
   the server unless typed.
 - **After the deploy**, in this order: `rest.configure_restd` (which
   configures the REST metadata where there is none, installs mariadb-restd
@@ -71,7 +70,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 - `ui-test/tests/07-restd.test.ts`, suite `restd` (`npm run
   ui-test:restd`): needs a mariadb-restd where the server looks for one.
 
-## The HTTPS certificate (2026-10-14)
+## The HTTPS certificate
 
 - **The box:** New Sandbox's REST section and the Set Up MariaDB REST Daemon
   dialog offer "Register the REST Daemon's HTTPS certificate with the
