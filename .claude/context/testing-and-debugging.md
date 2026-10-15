@@ -156,11 +156,9 @@ runner end anyway. A spawn that fails is reported with its error.
 
 ## Debugging in VS Code
 
-`code_ext/.vscode/launch.json` is folder scoped, so its `${workspaceFolder}`
-resolves to `code_ext` both when that folder is opened on its own and when
-the multi-root `MariaDBShellPlugins.code-workspace` is opened. (Opening the
-repository root as a plain folder does not pick the file up at all, since
-only the root's `.vscode/launch.json` is read then.)
+`.vscode/launch.json` is folder scoped, so its `${workspaceFolder}` resolves
+to the repository root both when it is opened as a plain folder and when
+`Extension.code-workspace` is opened.
 
 ### F5 builds once; the watcher is asked for
 

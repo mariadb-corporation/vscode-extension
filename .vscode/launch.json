@@ -1,10 +1,10 @@
 // A launch configuration that builds the extension and then opens it inside
 // a new window.
 //
-// ${workspaceFolder} resolves to the folder that owns this file - code_ext -
-// both when that folder is opened on its own and when the multi-root
-// MariaDBShellPlugins.code-workspace is opened, so it needs no
-// ${workspaceFolder:Code Extension} qualifier.
+// ${workspaceFolder} resolves to the folder that owns this file - the
+// repository root - both when it is opened as a plain folder and when
+// Extension.code-workspace is opened, so it needs no
+// ${workspaceFolder:<name>} qualifier.
 //
 // Use IntelliSense to learn about possible attributes.
 // Hover to view descriptions of existing attributes.

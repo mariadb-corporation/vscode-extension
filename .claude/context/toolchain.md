@@ -1,6 +1,6 @@
 # Toolchain
 
-How `code_ext` is built, tested and shipped: the Vite builds, the two
+How the extension is built, tested and shipped: the Vite builds, the two
 Vitest projects, the pinned Node, the Marketplace icon and CI.
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
@@ -104,13 +104,9 @@ records the file executable.
 
 ## CI
 
-`.github/workflows/shell-plugins-ci.yml` has a `Code-Ext-CI-Verification` job
+`.github/workflows/code-ext-ci.yml` has a `Code-Ext-CI-Verification` job
 running `npm ci` -> `npm run pretest` -> `npm test` -> `npm run build`, on the
-Node that `code_ext/.nvmrc` names. The build step is there because the extension
-ships as a bundle: an import that only resolves under the test aliases, or an
+Node that `.nvmrc` names and on a hosted runner, since the extension needs
+Node and nothing else. The build step is there because the extension ships
+as a bundle: an import that only resolves under the test aliases, or an
 asset that is not copied, is invisible to the type check and the tests alike.
-
-Which suites run is decided once, by a `changes` job whose outputs the plugin
-job and this one both read — `code_ext/**` gates this job, and each `*_plugin/`
-prefix gates its own step. Adding a fifth thing to test means adding it to the
-loop in that job **and** reading the new output somewhere.

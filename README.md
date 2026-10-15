@@ -143,15 +143,24 @@ watcher, so nothing else is needed. To watch from a terminal instead, run
 `npm run watch` for the extension and `npm run watch:webview` for the
 result panel - `npm run watch` covers the extension only.
 
+Open `Extension.code-workspace` to get the recommended extensions along
+with the folder's launch and task configuration; opening the repository as
+a plain folder works too.
+
+`python3 tools/update_version/update_version.py` bumps the shell version
+the extension requires to the one on the shell repository's `main` branch,
+as part of preparing a release; `--dry-run` shows the change without
+writing it.
+
 The extension is bundled with [Vite](https://vite.dev), the result panel is
 [Preact](https://preactjs.com), and both are tested with
 [Vitest](https://vitest.dev). See
-[.claude/PROJECT_CONTEXT.md](https://github.com/mariadb-corporation/mariadb-shell-plugins/blob/main/code_ext/.claude/PROJECT_CONTEXT.md)
+[.claude/PROJECT_CONTEXT.md](https://github.com/mariadb-corporation/vscode-extension/blob/main/.claude/PROJECT_CONTEXT.md)
 for the layout and the behaviour in detail.
 
 ## Licensing
 
 The MariaDB for VS Code extension is a part of the MariaDB Shell and licensed
 under the GPLv2. See
-[LICENSE](https://github.com/mariadb-corporation/mariadb-shell-plugins/blob/main/code_ext/LICENSE)
+[LICENSE](https://github.com/mariadb-corporation/vscode-extension/blob/main/LICENSE)
 for more details.

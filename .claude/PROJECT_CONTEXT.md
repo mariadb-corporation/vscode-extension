@@ -1,7 +1,7 @@
-# code_ext — Project Context
+# MariaDB for VS Code — Project Context
 
 The **MariaDB** VS Code extension. Written in TypeScript, it talks to the
-MariaDB Shell backend through the [`mcp_plugin`](../../mcp_plugin), which
+MariaDB Shell backend through the [`mcp_plugin`](https://github.com/mariadb-corporation/mariadb-shell-plugins/tree/main/mcp_plugin), which
 exposes the backend functions over the Model Context Protocol (MCP).
 
 This file is the map: what the project is, where the code lives, and which
