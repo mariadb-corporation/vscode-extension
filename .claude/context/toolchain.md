@@ -40,7 +40,8 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 | Script | What it does |
 | --- | --- |
-| `npm run build` | Clean `dist/`, then bundle the extension and the webview. |
+| `npm run build` | Clean `dist/`, fetch the Copilot skills, then bundle the extension and the webview. |
+| `npm run sync:skills` | Fill the `skills/` cache from the ai-plugins release `aiPlugins.release` pins and match `contributes.chatSkills` to it (`--latest` moves the pin to the newest release first). See [copilot.md](copilot.md). |
 | `npm run clean` | Remove `dist/`. |
 | `npm run watch` | Rebuild the extension on change. |
 | `npm run watch:webview` | Rebuild the webview on change. |
@@ -127,14 +128,22 @@ records the file executable.
 ## CI
 
 `.github/workflows/code-ext-ci.yml` has a `Code-Ext-CI-Verification` job
-running `npm ci` -> `npm run pretest` -> `npm test` -> `npm run package`, on
+running `npm ci` -> `npm run sync:skills` -> `npm run pretest` -> `npm test`
+-> `npm run package`, on
 the Node that `.nvmrc` names and on a hosted runner, since the extension
 needs Node and nothing else. The last step builds (through
 `vscode:prepublish`) and packs: the build because the extension ships as a
 bundle, where an import that only resolves under the test aliases, or an
 asset that is not copied, is invisible to the type check and the tests
 alike; the packing so that what `.vscodeignore` lets through is seen on
-every change. The `.vsix` is kept as the run's `mariadb-ext-vsix` artifact.
+every change. The `.vsix` is kept as the run's `mariadb-dev-vsix` artifact.
+`skills/` is restored by `actions/cache`, keyed on the pinned release, so
+the sync downloads only when the pin is new to the cache - from codeload,
+not GitHub's rate-limited API. It runs before the tests, which hold
+`chatSkills` against the cached release
+(`src/test/tools/syncAiSkills.test.ts`), and after packaging
+`git diff --exit-code package.json` fails a run whose pin moved without its
+`chatSkills`.
 
 Between the lint and the tests it runs `tools/check_openapi_ui_pins.py`,
 which fetches `mrs_plugin/lib/open_api_ui.py` from the public
