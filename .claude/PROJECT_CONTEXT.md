@@ -63,7 +63,7 @@ change belongs to up to date, and this table with it.
 | [`context/actions-grid.md`](context/actions-grid.md) | The actions grid: run rows and their statements, errors and popups, scrolling, the jump arrows, and what the server had to report for it. |
 | [`context/commands.md`](context/commands.md) | Every contributed command and where it appears. |
 | [`context/mrs.md`](context/mrs.md) | The MariaDB REST Service tree and dialogs: REST SQL FORMAT=JSON reads, the `mrs.*` tools, several metadata schemas, the files, what was left out of the MySQL Shell's support, the opt-in end-to-end test, and every MRS action in the Actions tab. |
-| [`context/modeler.md`](context/modeler.md) | The schema model viewer (preview, `wip/canvas`): the split between the generic canvas and figure sets, the 2D / 3D views and orbiting, tables and layers (moves, elevation), the Navigator, the Workbench figure design and toolbar, in-place editing of names, the A4 page model, life-size 100%, the table catalog interface, why cards are canvas textures, the shortcuts and what is still missing. |
+| [`context/modeler.md`](context/modeler.md) | The schema model viewer (preview): the split between the generic canvas and figure sets, the 2D / 3D views and orbiting, tables and layers (moves, elevation), the Navigator, the Workbench figure design and toolbar, in-place editing of names, the A4 page model, life-size 100%, the table catalog interface, why cards are canvas textures, the shortcuts and what is still missing. |
 | [`context/testing-and-debugging.md`](context/testing-and-debugging.md) | The interfaces everything external sits behind, the UI tests (ExTester) and their traps, and the F5 launch and watch task. |
 
 ## Known gaps

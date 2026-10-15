@@ -1,11 +1,10 @@
 # The schema model viewer
 
 An EER diagram canvas on three.js that switches between a 2D and a 3D
-view, showing a live schema's diagrams. Started on `wip/canvas`
-(2026-10-15) from the design discussion saved in
-`~/Downloads/eer-modeler-threejs-discussion.md`.
+view, showing a live schema's diagrams. It began from a saved design
+discussion of an EER modeler on three.js, kept outside the repository.
 
-## Where the diagrams come from (2026-10-15)
+## Where the diagrams come from
 
 - **A schema's `msm_schema_diagrams` view** (`name`, `format`,
   `document`), as MSM projects carry it (the MRS metadata schema's is
@@ -44,7 +43,7 @@ view, showing a live schema's diagrams. Started on `wip/canvas`
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
-## The split: a canvas, and figure sets (2026-10-15)
+## The split: a canvas, and figure sets
 
 The user wants the canvas used for different purposes with different
 figure sets, so the canvas knows nothing of tables or layers:
@@ -78,7 +77,7 @@ figure sets, so the canvas knows nothing of tables or layers:
   which puts canvas, set, toolbar, Navigator, menus and the input
   together.
 
-## What the user decided (2026-10-15)
+## What the user decided
 
 - **three.js, not Pixi.** One scene, one `OrthographicCamera`; the 2D view
   looks straight down, the 3D one is the same camera turned and tilted
@@ -176,7 +175,7 @@ figure sets, so the canvas knows nothing of tables or layers:
   elsewhere); the history is kept (`entries`, `onHistory`) for a list the
   user wants later.
 
-## The Navigator (2026-10-15)
+## The Navigator
 
 A panel 15px in from the canvas's top right corner, 192px wide (`Navigator.tsx`;
 20% under the first 240px, to cover less of the diagram):
@@ -255,14 +254,12 @@ are dropped when Cmd goes up, on blur and when hidden.
 
 ## Known gaps / next steps
 
-- Committed and pushed as `39c889e1` on `wip/canvas` (2026-10-15); no PR
-  yet. The user looked at the rendering in a running VS Code throughout
-  (cards, menu buttons, grid, paper, Navigator, 3D view), with the MRS
-  model from the old file preview. NOT yet tried by the user: the
-  Connections view's Diagrams folder against a live schema with the view,
-  the double-click, the pre-selected diagram, the Actions rows on the
-  "Diagram" session, the Navigator's zoom list, layer moves with their
-  tables and Option + drag.
+- Not yet tried in a running VS Code (the rendering was: cards, menu
+  buttons, grid, paper, Navigator and the 3D view, on the MRS model):
+  the Connections view's Diagrams folder against a live schema with the
+  view, the double-click, the pre-selected diagram, the Actions rows on
+  the "Diagram" session, the Navigator's zoom list, layer moves with
+  their tables and Option + drag.
 - A diagram row has the Diagrams folder's icon (`type-hierarchy-sub`)
   until the user designs one of its own.
 - Nothing writes the model back; the history is not shown anywhere yet.
