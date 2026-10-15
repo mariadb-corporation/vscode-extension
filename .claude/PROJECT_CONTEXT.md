@@ -106,6 +106,32 @@ change belongs to up to date, and this table with it.
   highlighting off shows them as strings and they appear a moment after
   the grammar's colours. See [`context/sql-grammar.md`](context/sql-grammar.md).
 
+## Origin, and re-syncing from mariadb-shell-plugins
+
+The extension was developed as `code_ext/` of
+[mariadb-shell-plugins](https://github.com/mariadb-corporation/mariadb-shell-plugins)
+and moved here with its history: `git subtree split --prefix=code_ext`
+run on that repository, whose result is commit `e32debd6` here. Until the
+folder is removed there, a commit that lands in it can be brought over:
+
+1. In a plugins checkout, `git subtree split --prefix=code_ext main`
+   prints the new tip. The split is deterministic, so it contains
+   `e32debd6` as an ancestor with only the new commits on top.
+2. `git fetch <plugins checkout> <tip>` here, then cherry-pick
+   `e32debd6..<tip>` (or the newer base, once some have been taken).
+   Messages, authors and dates come through unchanged; a commit that also
+   touched the other plugins arrives with its `code_ext` part only.
+3. Expect conflicts where this repository diverged: `README.md`,
+   `package.json`, `.vscode/launch.json` and `.claude/` (references to the
+   old home, and the context cleaned of git state and dates), and
+   `src/test/mrs/mrsDialogs.test.ts` (the OpenAPI UI pins test, replaced
+   by `tools/check_openapi_ui_pins.py`). A context update arriving in the
+   old style is a cue to carry its facts over, not its wording.
+
+This holds only while the plugins history is not rewritten; after a
+force-push or squash over those commits, the new ones have to be picked by
+content.
+
 ## Conventions
 
 - Four space indentation, double quotes, trailing semicolons, 80 columns.
