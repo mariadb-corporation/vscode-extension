@@ -1,0 +1,51 @@
+name: Code Extension CI
+
+on:
+  push:
+    branches: [ test-workflow, 'wip/**' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  code-ext:
+    name: Code-Ext-CI-Verification
+    # The extension needs Node and nothing else - no MariaDB server, no shell -
+    # so a hosted runner is enough, for forks and for the repository alike.
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # The pin lives in one place, and .nvmrc is the one a contributor's
+          # `nvm use` reads too - so CI and a developer machine cannot drift
+          # onto different npm majors, which is what silently rewrites
+          # package-lock.json.
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        # `npm ci`, never `npm install`: it installs exactly what the lockfile
+        # says and fails instead of quietly resolving something else, and it
+        # never writes the lockfile back.
+        run: npm ci
+
+      - name: Type check and lint
+        run: npm run pretest
+
+      - name: Run the tests
+        run: npm test
+
+      - name: Build the extension
+        # The extension ships as a bundle, so a bundling failure - an import
+        # that only resolves under the test aliases, an asset that is not
+        # copied - is invisible to the type check and the tests alike. This is
+        # what `vscode:prepublish` runs, so packaging cannot fail on anything
+        # this step passed.
+        run: npm run build

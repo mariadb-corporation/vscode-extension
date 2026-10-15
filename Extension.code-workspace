@@ -1,0 +1,22 @@
+// cSpell:ignore dbaeumer davidanson
+{
+    "folders": [
+        {
+            "name": "MariaDB for VS Code",
+            "path": "."
+        }
+    ],
+    "settings": {
+        "files.exclude": {
+            "Extension.code-workspace": true
+        },
+        "git.ignoreLimitWarning": true
+    },
+    "extensions": {
+        "recommendations": [
+            "streetsidesoftware.code-spell-checker",
+            "dbaeumer.vscode-eslint",
+            "davidanson.vscode-markdownlint"
+        ]
+    }
+}

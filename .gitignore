@@ -4,3 +4,13 @@ coverage/
 node_modules/
 .vscode-test/
 *.vsix
+
+# Only the shared editor configuration is tracked.
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+
+**/.DS_Store
+**/__pycache__
+.idea
