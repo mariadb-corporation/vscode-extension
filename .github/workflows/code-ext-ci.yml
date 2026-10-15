@@ -48,10 +48,20 @@ jobs:
       - name: Run the tests
         run: npm test
 
-      - name: Build the extension
-        # The extension ships as a bundle, so a bundling failure - an import
-        # that only resolves under the test aliases, an asset that is not
-        # copied - is invisible to the type check and the tests alike. This is
-        # what `vscode:prepublish` runs, so packaging cannot fail on anything
-        # this step passed.
-        run: npm run build
+      - name: Build and package the extension
+        # `vsce package` runs the build through `vscode:prepublish` first.
+        # The build is here because the extension ships as a bundle, so a
+        # bundling failure - an import that only resolves under the test
+        # aliases, an asset that is not copied - is invisible to the type
+        # check and the tests alike; the packaging is here so that what
+        # .vscodeignore lets through is seen on every change, not at release
+        # time. --no-dependencies: the runtime dependencies are bundled into
+        # dist/ by Vite, so node_modules has nothing to ship.
+        run: npm run package
+
+      - name: Keep the .vsix
+        uses: actions/upload-artifact@v4
+        with:
+          name: mariadb-ext-vsix
+          path: '*.vsix'
+          if-no-files-found: error

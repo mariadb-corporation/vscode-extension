@@ -127,6 +127,7 @@ Set `MARIADB_SHELL_PREFIX` to install and look somewhere else.
 ```bash
 npm install            # install the toolchain
 npm run build          # bundle the extension and the result panel
+npm run package        # build, then pack the .vsix (what CI keeps as its artifact)
 npm test               # run the Vitest suite
 npm run pretest        # type check and lint
 npm run grammar:build  # rebuild the SQL grammar from syntaxes/words.json

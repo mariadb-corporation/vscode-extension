@@ -1,10 +1,13 @@
 .claude/**
+.github/**
+Extension.code-workspace
 .vscode/**
 .vscode-test/**
 coverage/**
 src/**
 webview/**
 .gitignore
+.nvmrc
 .yarnrc
 **/tsconfig.json
 **/tsconfig.webview.json
@@ -14,7 +17,12 @@ webview/**
 **/vitest.config.ts
 **/*.map
 **/*.ts
-!dist/**
+# What ships from dist/, by type: a negated pattern wins over every ignore
+# in vsce, so `!dist/**` would bring the source maps back.
+!dist/**/*.js
+!dist/**/*.css
+!dist/**/*.svg
+!dist/**/*.ttf
 !images/**
 ui-test/**
 out/**

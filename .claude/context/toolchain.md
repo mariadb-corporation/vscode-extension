@@ -1,7 +1,7 @@
 # Toolchain
 
 How the extension is built, tested and shipped: the Vite builds, the two
-Vitest projects, the pinned Node, the Marketplace icon and CI.
+Vitest projects, the pinned Node, the Marketplace icon, packaging and CI.
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
@@ -81,6 +81,28 @@ never published to npm.
 **Always `npm ci`, never `npm install`, in CI.** `npm ci` installs exactly the
 locked tree and never writes the lockfile back.
 
+## Packaging
+
+`npm run package` runs `vsce package --no-dependencies` (`@vscode/vsce` is a
+devDependency), which first runs `vscode:prepublish`, the build, and writes
+`mariadb-ext-<version>.vsix` into the repository root (gitignored). The
+extension identifier is `MariaDB.mariadb-ext`: `publisher` and `name` in
+`package.json`. The settings namespace and every command id stay `mariadb.*`,
+since those come from `contributes`, not from the name.
+
+- **`--no-dependencies` is required.** The four runtime dependencies are
+  bundled into `dist/` by Vite; without the flag vsce ships their
+  `node_modules` as well, thousands of files for nothing.
+- **`.vscodeignore` decides what ships**, and it is an allow-by-exception
+  list: sources, tests, configs, the grammar tooling, the context notes, the
+  workspace file and the CI workflow stay out; `dist/` (without its source
+  maps) and `images/` go in. A file added at the repository root ships
+  unless it is listed there - check with `npx vsce ls --no-dependencies`.
+- **The README's links are absolute** on purpose: vsce rewrites relative
+  links against the repository root, and in the plugins monorepo that
+  pointed them at the wrong directory. `LICENSE` is packaged as
+  `extension/LICENSE.txt` and rendered as the Marketplace's License tab.
+
 ## The Marketplace icon
 
 `images/marketplace-icon.png`, declared by `icon` in `package.json`. It is a
@@ -105,11 +127,14 @@ records the file executable.
 ## CI
 
 `.github/workflows/code-ext-ci.yml` has a `Code-Ext-CI-Verification` job
-running `npm ci` -> `npm run pretest` -> `npm test` -> `npm run build`, on the
-Node that `.nvmrc` names and on a hosted runner, since the extension needs
-Node and nothing else. The build step is there because the extension ships
-as a bundle: an import that only resolves under the test aliases, or an
-asset that is not copied, is invisible to the type check and the tests alike.
+running `npm ci` -> `npm run pretest` -> `npm test` -> `npm run package`, on
+the Node that `.nvmrc` names and on a hosted runner, since the extension
+needs Node and nothing else. The last step builds (through
+`vscode:prepublish`) and packs: the build because the extension ships as a
+bundle, where an import that only resolves under the test aliases, or an
+asset that is not copied, is invisible to the type check and the tests
+alike; the packing so that what `.vscodeignore` lets through is seen on
+every change. The `.vsix` is kept as the run's `mariadb-ext-vsix` artifact.
 
 Between the lint and the tests it runs `tools/check_openapi_ui_pins.py`,
 which fetches `mrs_plugin/lib/open_api_ui.py` from the public
