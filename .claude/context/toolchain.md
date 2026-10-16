@@ -110,9 +110,9 @@ since those come from `contributes`, not from the name.
 (`.claude/commands/release.md`) cuts a release: it checks the three versions
 against what is published, sets them on a `wip/release-<version>` branch
 (`update_version.py --version`, `sync:skills -- --release`, `npm version`),
-opens the PR, and after the merge tags it and publishes the merged commit's
-`.vsix` to a GitHub release and, with `vsce publish --packagePath`, to the
-Marketplace. The rules it rests on:
+and opens the PR. After the merge it builds the merge commit's `.vsix`,
+tags it and attaches it to a GitHub release, then hands that same file to
+the user. The rules it rests on:
 
 - **Every input must be published.** The extension installs
   `MINIMUM_SHELL_VERSION` when there is no shell, so a floor above the newest
@@ -121,12 +121,21 @@ Marketplace. The rules it rests on:
   finds nothing: the releases are listed and sorted as versions.
 - **A Marketplace version is used once**, even after an unpublish, and must
   be a bare `X.Y.Z` (vsce refuses `-rc` suffixes).
-- **The channel is fixed at packaging time.** `vsce publish --pre-release`
-  refuses a `.vsix` not packaged with `--pre-release`.
-- **Credentials never pass through the session**: an Azure DevOps PAT with
-  Marketplace (Manage) scope, as `VSCE_PAT` or stored by `vsce login`, or
-  Microsoft Entra ID with `--azure-credential`; `vsce verify-pat MariaDB`
-  checks it without publishing.
+- **The channel is fixed at packaging time.** `vsce package --pre-release`
+  records it in the `.vsix`, and the upload takes it from there.
+- **The Marketplace upload is manual**, in the browser at
+  `marketplace.visualstudio.com/manage`, signed in with a Microsoft account
+  that is a member of the `MariaDB` publisher. No credential is kept for
+  it. Publishing by token ends on December 1, 2026, when Azure DevOps
+  retires global PATs (the only kind the Marketplace accepts). The Entra ID
+  route (`--azure-credential`) needs an Azure subscription and a managed
+  identity, and was passed over in favour of trusted publishing
+  (`vsce publish --oidc`). vsce has that already, hidden from `--help`;
+  the token exchange matching the Marketplace's contract arrived after
+  4.0.0, in 4.0.1-1. The Marketplace backend still refuses it, and it has
+  no page to set up the trusted publisher yet. Once it does, the upload
+  becomes a GitHub Actions job started by the release tag, with
+  `id-token: write` and no stored secret.
 
 ## The Marketplace icon
 

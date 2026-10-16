@@ -1,5 +1,5 @@
 ---
-description: Cut a release of the extension, optionally raising the MariaDB Shell floor and moving the ai-plugins skills release, PR it, tag it, and publish the .vsix to GitHub and the VS Code Marketplace. Usage: /release <version> [shell-version|-] [ai-plugins-version|-] [--pre-release]
+description: Cut a release of the extension, optionally raising the MariaDB Shell floor and moving the ai-plugins skills release, PR it, tag it, attach the .vsix to a GitHub release, and hand it over for upload to the VS Code Marketplace. Usage: /release <version> [shell-version|-] [ai-plugins-version|-] [--pre-release]
 ---
 
 # Release Command
@@ -303,53 +303,50 @@ with `--repo`, which is why the notes go through a file. The `.vsix` is
 attached to the release, so the release holds the same file that goes to the
 Marketplace.
 
-## 9. Publish to the VS Code Marketplace
+## 9. Upload to the VS Code Marketplace (by hand)
 
 The extension is `MariaDB.mariadb-dev`: `publisher` and `name` in
-`package.json`. Publishing needs one of these credentials, and the user
-holds them:
+`package.json`. **The user uploads the `.vsix` in the browser; this command
+does not publish it.** Uploading through the web page signs in with the
+user's Microsoft account, so no token or Azure identity is involved. Never
+ask for a token, and never run `vsce publish` or `vsce login` here.
 
-- **A personal access token.** This is an Azure DevOps PAT with the
-  **Marketplace → Manage** scope and **All accessible organizations**.
-  It reaches vsce either through `VSCE_PAT` in the environment the session's
-  shell starts with, or through `vsce login MariaDB`, which the user runs
-  themselves (`! npx vsce login MariaDB` at the prompt) so that vsce stores
-  it.
-- **Microsoft Entra ID.** The user runs `az login` with an identity that is
-  a member of the `MariaDB` publisher. Then add `--azure-credential` to both
-  commands below.
+Stop and hand over:
 
-**Never ask for the token in the conversation, and never put it on a
-command line.** It would land in the transcript and in the process list. If
-neither credential is set up, stop. Explain both ways, and wait for the user
-to say it is done.
+- the file: the absolute path of `mariadb-dev-<version>.vsix` from step 7,
+  the same file that is attached to the GitHub release;
+- its SHA-256 from step 7, so the user can check that they pick the right
+  file;
+- the version and the channel (stable, or pre-release with the flag);
+- the steps:
+  1. Open `https://marketplace.visualstudio.com/manage` and sign in with an
+     account that is a member of the `MariaDB` publisher.
+  2. For the first release (step 2 found no Marketplace version), choose
+     **New extension → Visual Studio Code** and upload the file. For later
+     releases, open the extension's **…** menu, choose **Update**, and
+     upload the file.
 
-Check the credential first, without publishing:
+Remind the user of two things:
 
-```bash
-npx vsce verify-pat MariaDB
-```
+- A version that has been uploaded can never be reused, not even after an
+  unpublish.
+- The channel is recorded inside the `.vsix`, so the upload page does not
+  ask for it. After the first pre-release upload, check that the listing
+  shows it as a pre-release.
 
-Then **stop and ask for an explicit go-ahead**. Name:
+Wait until the user says the upload is done. The Marketplace verifies an
+upload before listing it, which takes a few minutes. Then confirm that
+`npx vsce show MariaDB.mariadb-dev --json` lists `<version>`. If it is still
+missing after about ten minutes, report that, and ask the user what the
+Manage page shows for it. Never upload again on the user's behalf.
 
-- the extension id;
-- the version;
-- the channel;
-- the `.vsix`'s SHA-256 from step 7.
-
-Say that a published version can never be reused, not even after an
-unpublish. Publish only on a yes:
-
-```bash
-npx vsce publish --packagePath mariadb-dev-<version>.vsix          # add --pre-release with the flag
-```
-
-`--packagePath` uploads the file as it is: nothing is rebuilt, so the
-Marketplace gets the file that is attached to the GitHub release. The
-Marketplace verifies an upload before listing it, which takes a few
-minutes. Then confirm that `npx vsce show MariaDB.mariadb-dev --json` lists
-`<version>`. If it is still missing after about ten minutes, report that
-rather than publishing again.
+This step is manual until the Marketplace supports trusted publishing
+(`vsce publish --oidc`, with a trusted publisher policy set up on the
+Marketplace). Then it moves into a GitHub Actions job that the release tag
+starts. That job publishes the `.vsix` attached to the release and stores
+no credential. Do not set up a PAT or an Azure identity in the meantime:
+the PATs that publish are retired on December 1, 2026, and `--oidc` makes
+the Azure route unnecessary.
 
 ## 10. Clean up and report
 
