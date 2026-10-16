@@ -106,7 +106,7 @@ since those come from `contributes`, not from the name.
 
 ## Releasing
 
-`/release <version> [shell-version|-] [ai-plugins-version|-] [--pre-release]`
+`/release <version> [shell-version|-] [ai-plugins-version|-] [--stable]`
 (`.claude/commands/release.md`) cuts a release: it checks the three versions
 against what is published, sets them on a `wip/release-<version>` branch
 (`update_version.py --version`, `sync:skills -- --release`, `npm version`),
@@ -121,8 +121,15 @@ the user. The rules it rests on:
   finds nothing: the releases are listed and sorted as versions.
 - **A Marketplace version is used once**, even after an unpublish, and must
   be a bare `X.Y.Z` (vsce refuses `-rc` suffixes).
-- **The channel is fixed at packaging time.** `vsce package --pre-release`
-  records it in the `.vsix`, and the upload takes it from there.
+- **Pre-release by default.** A release is stable only with `--stable`,
+  which the command confirms before starting, so a pre-release is never
+  declared ready by accident. The channel is fixed at packaging time:
+  `vsce package --pre-release` records it in the `.vsix`, and the upload
+  takes it from there. A pre-release is never promoted: going stable is a
+  new release, with a version above the last pre-release so the
+  pre-release channel's users move to it. Versions are calendar-like and
+  ignore the Marketplace's even/odd minor suggestion; it only advises
+  separate version numbers per channel, and uniqueness is all it enforces.
 - **The Marketplace upload is manual**, in the browser at
   `marketplace.visualstudio.com/manage`, signed in with a Microsoft account
   that is a member of the `MariaDB` publisher. No credential is kept for

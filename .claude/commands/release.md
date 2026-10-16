@@ -1,13 +1,14 @@
 ---
-description: Cut a release of the extension, optionally raising the MariaDB Shell floor and moving the ai-plugins skills release, PR it, tag it, attach the .vsix to a GitHub release, and hand it over for upload to the VS Code Marketplace. Usage: /release <version> [shell-version|-] [ai-plugins-version|-] [--pre-release]
+description: Cut a release of the extension, optionally raising the MariaDB Shell floor and moving the ai-plugins skills release, PR it, tag it, attach the .vsix to a GitHub release, and hand it over for upload to the VS Code Marketplace. Usage: /release <version> [shell-version|-] [ai-plugins-version|-] [--stable]
 ---
 
 # Release Command
 
 Arguments as typed: `$ARGUMENTS`
 
-Split that string on whitespace. `--pre-release`, wherever it stands, is a
-flag and not a position; take it out first. Of the rest:
+Split that string on whitespace. `--stable`, wherever it stands, is a
+flag and not a position; take it out first. So is `--pre-release`, which
+only says what is the default anyway. Of the rest:
 
 1. **The version** (required): the extension's version, `version` in
    `package.json`.
@@ -20,7 +21,7 @@ flag and not a position; take it out first. Of the rest:
 
 A `-` in a position means "not given", so the skills release can be given
 without the floor (`/release 26.11.0 - 26.10.3`). If the version is
-missing, ask for it before doing anything else. If a fifth word is present,
+missing, ask for it before doing anything else. If a fourth word is left over,
 stop and ask what it means.
 
 Every version is a bare `MAJOR.MINOR.PATCH` such as `26.10.0`. Strip a
@@ -34,11 +35,19 @@ Marketplace version and the tag. The floor and the skills release are
 inputs it ships with. When one of them is not given it stays where it is,
 unless a newer release of it exists. Then step 2 asks whether to move it.
 
-**`--pre-release`** puts the release on the Marketplace's pre-release
-channel and makes the GitHub release a prerelease. vsce records the channel
-in the `.vsix` when it packages it, and refuses to publish a stable-packaged
-`.vsix` as a pre-release, so the flag must be known before anything is
-built. Without it the release is stable on both.
+**A release is a pre-release unless `--stable` is given.** A pre-release
+goes on the Marketplace's pre-release channel, and its GitHub release is a
+prerelease. A stable release goes on the Marketplace's main channel, which
+every user gets, and only `--stable` produces one. Never infer it from
+anything else: not from the version, not from wording such as "the final
+release", and not from an earlier stable release. If the user's words
+suggest stable but the flag is missing, ask. Do not assume. vsce records the
+channel in the `.vsix` when it packages it, so the channel must be settled
+before anything is built.
+
+A pre-release cannot be promoted later. Making it stable means a new
+release with a new version and `--stable`. Give that release a version above
+the last pre-release, so that users on the pre-release channel move to it.
 
 Read `.claude/PROJECT_CONTEXT.md`, then `.claude/context/toolchain.md` and
 `.claude/context/copilot.md` before starting. The index's **Known gaps**
@@ -62,7 +71,9 @@ The remote is `origin` = `mariadb-corporation/vscode-extension`. Check
 
 Do all of this before changing anything, and report what you find in one
 summary. That way the user sees the whole release, including its channel,
-before it starts.
+before it starts. With `--stable`, **stop and ask the user to confirm** that
+this release goes to every user as stable. Name the version, and the
+pre-release it supersedes if there is one. Go on only on a yes.
 
 **The extension's version.** Take the highest of:
 
@@ -228,7 +239,7 @@ npm run sync:skills
 npm run pretest
 python3 tools/check_openapi_ui_pins.py
 npm test
-npm run package            # npm run package -- --pre-release with the flag
+npm run package -- --pre-release    # plain npm run package with --stable
 git diff --exit-code package.json
 ```
 
@@ -238,6 +249,9 @@ Then check the package:
 - `unzip -l mariadb-dev-<version>.vsix | grep -c 'extension/skills/.*/SKILL.md'`
   equals the number of `chatSkills` entries.
 - `extension/skills/skills-source.json` in it names `v<skills>`.
+- The channel is the one intended:
+  `unzip -p mariadb-dev-<version>.vsix extension.vsixmanifest | grep -c 'Microsoft.VisualStudio.Code.PreRelease" Value="true"'`
+  prints `1` for a pre-release and `0` with `--stable`.
 
 If anything fails, stop and show the failure. Do not open the PR on a red
 run. Give the user the `.vsix` path, so they can install it
@@ -254,7 +268,7 @@ The title names what the release contains, for example
 `Release 26.11.0: shell 26.10.3, skills v26.10.3, and the version`. Leave out
 a part that did not move. The release changes `package.json`, so the title
 never carries `[bypass-ci]`. The body lists each step with the files it
-changed, the skill sync's findings, the channel (stable or pre-release), and
+changed, the skill sync's findings, the channel (pre-release, or stable with `--stable`), and
 the verification. It ends with the PR attribution line.
 
 Wait for the PR's checks (`gh pr checks <N> --watch`) and report them. Then
@@ -272,7 +286,7 @@ branch. A squash merge makes a new commit, and the tag goes on that commit.
 git switch main && git pull --ff-only origin main
 git rev-parse HEAD          # must be the PR's merge commit
 npm ci
-npm run package            # npm run package -- --pre-release with the flag
+npm run package -- --pre-release    # plain npm run package with --stable
 git status --short          # must be empty: the build changed nothing
 shasum -a 256 mariadb-dev-<version>.vsix
 ```
@@ -298,7 +312,7 @@ git tag -l --format='%(contents:body)' v<version> > <scratch>/notes.md
 gh release create v<version> mariadb-dev-<version>.vsix --repo mariadb-corporation/vscode-extension --title v<version> --notes-file <scratch>/notes.md --verify-tag
 ```
 
-Add `--prerelease` with the flag. `gh` refuses `--notes-from-tag` together
+Add `--prerelease` unless the release is `--stable`. `gh` refuses `--notes-from-tag` together
 with `--repo`, which is why the notes go through a file. The `.vsix` is
 attached to the release, so the release holds the same file that goes to the
 Marketplace.
@@ -317,7 +331,7 @@ Stop and hand over:
   the same file that is attached to the GitHub release;
 - its SHA-256 from step 7, so the user can check that they pick the right
   file;
-- the version and the channel (stable, or pre-release with the flag);
+- the version and the channel (pre-release, or stable with `--stable`);
 - the steps:
   1. Open `https://marketplace.visualstudio.com/manage` and sign in with an
      account that is a member of the `MariaDB` publisher.
@@ -331,8 +345,9 @@ Remind the user of two things:
 - A version that has been uploaded can never be reused, not even after an
   unpublish.
 - The channel is recorded inside the `.vsix`, so the upload page does not
-  ask for it. After the first pre-release upload, check that the listing
-  shows it as a pre-release.
+  ask for it. After an upload, check that the listing shows the channel
+  intended: a pre-release must appear as one, and must not be the version
+  that the main channel offers.
 
 Wait until the user says the upload is done. The Marketplace verifies an
 upload before listing it, which takes a few minutes. Then confirm that
