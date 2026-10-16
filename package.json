@@ -14,7 +14,7 @@
     "node": ">=24.15.0"
   },
   "aiPlugins": {
-    "release": "v26.10.2"
+    "release": "v26.10.3"
   },
   "categories": [
     "Other"

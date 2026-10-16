@@ -23,7 +23,7 @@ and installed is in [shell-and-mcp.md](shell-and-mcp.md).
   `package.json`, not taken from `main` or from whatever was released
   last: a commit then always builds the same skills, every one of them
   released to the other harnesses too. The source is that release's
-  `claude/dev-plugin/skills` - the full `dev` set (85 skills at v26.10.2).
+  `claude/dev-plugin/skills` - the full `dev` set (85 skills at v26.10.3).
 - **Not committed.** The skills live in ai-plugins; `skills/` is a
   gitignored cache of the pinned release, which `.vscodeignore` still lets
   into the `.vsix` (vsce reads only that file). What is committed is what
