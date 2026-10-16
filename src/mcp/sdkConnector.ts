@@ -30,7 +30,7 @@ import { errorText } from "../text.js";
 const STDERR_LINES_KEPT = 5;
 
 /** Identifies this extension to the server during the handshake. */
-const CLIENT_INFO = { name: "mariadb-vscode", version: "26.9.0" };
+const CLIENT_INFO = { name: "mariadb-vscode", version: "26.10.0" };
 
 /**
  * The real connector, backed by the MCP SDK's stdio transport.
