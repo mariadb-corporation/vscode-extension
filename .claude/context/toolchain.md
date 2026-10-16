@@ -86,8 +86,8 @@ locked tree and never writes the lockfile back.
 
 `npm run package` runs `vsce package --no-dependencies` (`@vscode/vsce` is a
 devDependency), which first runs `vscode:prepublish`, the build, and writes
-`mariadb-ext-<version>.vsix` into the repository root (gitignored). The
-extension identifier is `MariaDB.mariadb-ext`: `publisher` and `name` in
+`mariadb-dev-<version>.vsix` into the repository root (gitignored). The
+extension identifier is `MariaDB.mariadb-dev`: `publisher` and `name` in
 `package.json`. The settings namespace and every command id stay `mariadb.*`,
 since those come from `contributes`, not from the name.
 
@@ -103,6 +103,30 @@ since those come from `contributes`, not from the name.
   links against the repository root, and in the plugins monorepo that
   pointed them at the wrong directory. `LICENSE` is packaged as
   `extension/LICENSE.txt` and rendered as the Marketplace's License tab.
+
+## Releasing
+
+`/release <version> [shell-version|-] [ai-plugins-version|-] [--pre-release]`
+(`.claude/commands/release.md`) cuts a release: it checks the three versions
+against what is published, sets them on a `wip/release-<version>` branch
+(`update_version.py --version`, `sync:skills -- --release`, `npm version`),
+opens the PR, and after the merge tags it and publishes the merged commit's
+`.vsix` to a GitHub release and, with `vsce publish --packagePath`, to the
+Marketplace. The rules it rests on:
+
+- **Every input must be published.** The extension installs
+  `MINIMUM_SHELL_VERSION` when there is no shell, so a floor above the newest
+  shell release breaks the first start; the skills pin must be an ai-plugins
+  release. Both repositories publish only prereleases, so `releases/latest`
+  finds nothing: the releases are listed and sorted as versions.
+- **A Marketplace version is used once**, even after an unpublish, and must
+  be a bare `X.Y.Z` (vsce refuses `-rc` suffixes).
+- **The channel is fixed at packaging time.** `vsce publish --pre-release`
+  refuses a `.vsix` not packaged with `--pre-release`.
+- **Credentials never pass through the session**: an Azure DevOps PAT with
+  Marketplace (Manage) scope, as `VSCE_PAT` or stored by `vsce login`, or
+  Microsoft Entra ID with `--azure-credential`; `vsce verify-pat MariaDB`
+  checks it without publishing.
 
 ## The Marketplace icon
 

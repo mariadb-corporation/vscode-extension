@@ -4,7 +4,9 @@
 # Bumps the MariaDB Shell version the extension requires, as part of preparing
 # a release -- that is, BEFORE the shell release is published. The version is
 # read from MYSQL_VERSION on the shell repo's main branch, where the shell
-# version is bumped for the release.
+# version is bumped for the release. --version sets a given one instead, which
+# is what /release does: the extension installs this version when there is no
+# shell, so a release must name one that is published.
 #
 # This is the extension's share of tools/update_version/update_version.py in
 # mariadb-shell-plugins, which bumps the plugin suite the same way and from
@@ -35,6 +37,12 @@ SHELL_TARGETS = [
         "file": "src/shell/constants.ts",
         "pattern": re.compile(r'^export const MINIMUM_SHELL_VERSION = "[^"]+";$', re.MULTILINE),
         "replacement": 'export const MINIMUM_SHELL_VERSION = "{v}";',
+    },
+    {
+        # What the README's Requirements tell the user to have.
+        "file": "README.md",
+        "pattern": re.compile(r"^MariaDB Shell \*\*[^*]+\*\* or newer", re.MULTILINE),
+        "replacement": "MariaDB Shell **{v}** or newer",
     },
 ]
 
@@ -100,11 +108,20 @@ def main() -> int:
         "--shell-branch", default=SHELL_VERSION_BRANCH,
         help=f"Shell repo branch to read MYSQL_VERSION from (default: {SHELL_VERSION_BRANCH}).",
     )
+    parser.add_argument(
+        "--version", metavar="X.Y.Z",
+        help="Set this shell version instead of reading it from the shell repo.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing files.")
     args = parser.parse_args()
 
-    print(f"Reading the shell version from {SHELL_REPO}@{args.shell_branch}...")
-    shell_version = read_shell_version(args.shell_branch)
+    if args.version:
+        if not re.fullmatch(r"\d+\.\d+\.\d+", args.version):
+            raise SystemExit(f"--version takes a bare X.Y.Z, got {args.version!r}.")
+        shell_version = args.version
+    else:
+        print(f"Reading the shell version from {SHELL_REPO}@{args.shell_branch}...")
+        shell_version = read_shell_version(args.shell_branch)
     print(f"Shell version: {shell_version}")
 
     plans = [plan_update(target, shell_version) for target in SHELL_TARGETS]

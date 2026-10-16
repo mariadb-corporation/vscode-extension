@@ -50,7 +50,7 @@ change belongs to up to date, and this table with it.
 
 | File | What is in it |
 | --- | --- |
-| [`context/toolchain.md`](context/toolchain.md) | The two Vite builds and two Vitest projects, the npm scripts, the pinned Node and the lockfile churn, the Marketplace icon, CI. |
+| [`context/toolchain.md`](context/toolchain.md) | The two Vite builds and two Vitest projects, the npm scripts, the pinned Node and the lockfile churn, packaging, releasing with `/release` (GitHub and the Marketplace), the Marketplace icon, CI. |
 | [`context/copilot.md`](context/copilot.md) | GitHub Copilot: the skills (`chatSkills`, the pinned ai-plugins release and the uncommitted cache) and the MCP server definition provider, agent mode without `--gui`, the shared shell lookup, the setting. |
 | [`context/shell-and-mcp.md`](context/shell-and-mcp.md) | `src/shell/` and `src/mcp/` file by file, the lazy startup and shell lookup, GUI mode (`--gui`) and the two connection lists, the MCP wire format. |
 | [`context/connection-editor.md`](context/connection-editor.md) | The connection editor: its files and tabs, what it deliberately leaves out, the URI box and its rules, its own vite build. |

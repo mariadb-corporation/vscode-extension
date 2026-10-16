@@ -97,7 +97,7 @@ which exposes the backend functions over the Model Context Protocol.
 
 ## Requirements
 
-MariaDB Shell **26.9.2** or newer, with at least one connection configured
+MariaDB Shell **26.10.2** or newer, with at least one connection configured
 via `mariadb-shell -- mcp setup`.
 
 The extension takes care of the shell on its own. The first time it needs
@@ -162,8 +162,8 @@ a plain folder works too.
 
 `python3 tools/update_version/update_version.py` bumps the shell version
 the extension requires to the one on the shell repository's `main` branch,
-as part of preparing a release; `--dry-run` shows the change without
-writing it. `python3 tools/check_openapi_ui_pins.py` checks that the
+as part of preparing a release (`--version X.Y.Z` sets a given one
+instead); `--dry-run` shows the change without writing it. `python3 tools/check_openapi_ui_pins.py` checks that the
 Swagger UI release and request path the OpenAPI UI dialog names are the
 ones the mrs plugin pins; CI runs it on every change.
 
@@ -178,8 +178,8 @@ The Copilot skills come from the
 that `aiPlugins.release` in `package.json` pins. `npm run build` downloads
 it into `skills/` - a gitignored cache, fetched again only when the pin
 moves - and keeps `contributes.chatSkills` in step with it. To take a newer
-release, run `npm run sync:skills -- --latest` and commit the changed
-`package.json`; to change a skill, change it in ai-plugins.
+release, run `npm run sync:skills -- --latest` (or `--release vX.Y.Z`)
+and commit the changed `package.json`; to change a skill, change it in ai-plugins.
 
 ## Licensing
 

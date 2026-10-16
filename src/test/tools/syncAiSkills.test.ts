@@ -226,7 +226,7 @@ describe("syncSkills", () => {
         const environment = world("v2.0.0",
             { b: skillMd("b"), a: skillMd("a") });
 
-        expect(await syncSkills(environment, false)).toBe("updated");
+        expect(await syncSkills(environment)).toBe("updated");
 
         expect(environment.downloads).toEqual([
             "https://codeload.github.com/mariadb-corporation/ai-plugins/"
@@ -247,19 +247,19 @@ describe("syncSkills", () => {
 
     it("asks GitHub nothing when skills/ holds the pinned release",
         async () => {
-            await syncSkills(world("v2.0.0", { a: skillMd("a") }), false);
+            await syncSkills(world("v2.0.0", { a: skillMd("a") }));
             const again = world("v2.0.0", { a: skillMd("a") }, true);
 
-            expect(await syncSkills(again, false)).toBe("current");
+            expect(await syncSkills(again)).toBe("current");
             expect(again.downloads).toEqual([]);
         });
 
     it("fetches again when the pin moves, dropping what is gone",
         async () => {
             await syncSkills(world("v2.0.0",
-                { a: skillMd("a"), gone: skillMd("gone") }), false);
+                { a: skillMd("a"), gone: skillMd("gone") }));
             pin("v2.1.0");
-            await syncSkills(world("v2.1.0", { a: skillMd("a") }), false);
+            await syncSkills(world("v2.1.0", { a: skillMd("a") }));
 
             expect(fs.existsSync(path.join(root, "skills", "gone")))
                 .toBe(false);
@@ -268,27 +268,41 @@ describe("syncSkills", () => {
         });
 
     it("moves the pin to the newest release with --latest", async () => {
-        await syncSkills(world("v2.0.0", { a: skillMd("a") }), false);
+        await syncSkills(world("v2.0.0", { a: skillMd("a") }));
 
-        expect(await syncSkills(world("v2.1.0", { a: skillMd("a") }), true))
-            .toBe("updated");
+        expect(await syncSkills(world("v2.1.0", { a: skillMd("a") }),
+            "latest")).toBe("updated");
         expect(manifest().aiPlugins.release).toBe("v2.1.0");
+    });
+
+    it("moves the pin to a given release with --release", async () => {
+        const environment = world("v2.1.0", { a: skillMd("a") }, true);
+
+        expect(await syncSkills(environment, "v2.1.0")).toBe("updated");
+        expect(manifest().aiPlugins.release).toBe("v2.1.0");
+        expect(environment.downloads[0]).toContain("refs/tags/v2.1.0");
+    });
+
+    it("refuses a --release that is not a vX.Y.Z", async () => {
+        await expect(syncSkills(world("v2.0.0", {}), "26.10.2"))
+            .rejects.toThrow("vX.Y.Z");
+        expect(manifest().aiPlugins.release).toBe("v2.0.0");
     });
 
     it("fails when the pinned release cannot be fetched", async () => {
         const offline = world("v2.0.0", {});
         offline.download = () => { return Promise.reject(new Error("offline")); };
 
-        await expect(syncSkills(offline, false)).rejects.toThrow("offline");
+        await expect(syncSkills(offline)).rejects.toThrow("offline");
         expect(fs.existsSync(path.join(root, "skills"))).toBe(false);
     });
 
     it("fails, leaving skills/ alone, when a skill is misnamed", async () => {
-        await syncSkills(world("v2.0.0", { a: skillMd("a") }), false);
+        await syncSkills(world("v2.0.0", { a: skillMd("a") }));
         pin("v2.1.0");
 
         await expect(syncSkills(
-            world("v2.1.0", { a: skillMd("a"), b: skillMd("not-b") }), false))
+            world("v2.1.0", { a: skillMd("a"), b: skillMd("not-b") })))
             .rejects.toThrow("match its folder");
         expect(readSkills(path.join(root, "skills"))).toEqual(["a"]);
     });

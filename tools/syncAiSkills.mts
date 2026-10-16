@@ -31,6 +31,8 @@
  * the network only the first time it sees a release.
  *
  * - `--latest` first moves the pin to the newest ai-plugins release.
+ * - `--release vX.Y.Z` first moves the pin to that release (`/release` uses
+ *   it); a release that does not exist fails the download.
  * - `GH_TOKEN` / `GITHUB_TOKEN`, if set, lift the API's rate limit, which
  *   only `--latest` uses.
  *
@@ -248,24 +250,25 @@ export interface SyncEnvironment {
  * Brings `skills/` and `contributes.chatSkills` to the pinned release.
  *
  * @param environment What the sync needs from the world.
- * @param latest Whether to move the pin to the newest release first.
+ * @param repin Moves the pin first: to the newest release with `"latest"`,
+ *              or to the given `vX.Y.Z`.
  *
  * @returns Whether `skills/` had to be fetched or already held the release.
  */
 export const syncSkills = async (
     environment: SyncEnvironment,
-    latest: boolean,
+    repin?: string,
 ): Promise<"updated" | "current"> => {
     const { root, log } = environment;
     const skillsDir = path.join(root, "skills");
     let outcome: "updated" | "current" = "current";
 
-    if (latest) {
-        const releases = await environment.fetchJson(
-            `https://api.github.com/repos/${SOURCE_REPO}/releases?per_page=30`);
-        const tag = newestReleaseTag(releases as Release[]);
-        if (!tag) {
-            throw new Error(`${SOURCE_REPO} has no vX.Y.Z release.`);
+    if (repin) {
+        const tag = repin === "latest"
+            ? await newestRelease(environment)
+            : repin;
+        if (!RELEASE_TAG.test(tag)) {
+            throw new Error(`--release takes a vX.Y.Z, got "${tag}".`);
         }
         updateManifest(root, (manifest) => {
             return withPinnedRelease(manifest, tag);
@@ -289,6 +292,22 @@ export const syncSkills = async (
     }, `package.json contributes ${names.length} skills.`, log);
 
     return outcome;
+};
+
+/**
+ * @param environment What the sync needs from the world.
+ *
+ * @returns The tag of the newest ai-plugins release.
+ */
+const newestRelease = async (environment: SyncEnvironment): Promise<string> => {
+    const releases = await environment.fetchJson(
+        `https://api.github.com/repos/${SOURCE_REPO}/releases?per_page=30`);
+    const tag = newestReleaseTag(releases as Release[]);
+    if (!tag) {
+        throw new Error(`${SOURCE_REPO} has no vX.Y.Z release.`);
+    }
+
+    return tag;
 };
 
 /**
@@ -460,9 +479,13 @@ const nodeEnvironment = (root: string): SyncEnvironment => {
 
 if (import.meta.main) {
     const root = path.resolve(import.meta.dirname, "..");
+    const args = process.argv.slice(2);
+    const at = args.indexOf("--release");
+    const repin = at >= 0
+        ? args[at + 1] ?? ""
+        : args.includes("--latest") ? "latest" : undefined;
     try {
-        await syncSkills(nodeEnvironment(root),
-            process.argv.includes("--latest"));
+        await syncSkills(nodeEnvironment(root), repin);
     } catch (error) {
         console.error(`sync:skills: ${errorText(error)}`);
         process.exitCode = 1;

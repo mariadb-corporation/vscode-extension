@@ -38,6 +38,9 @@ Run by `npm run build`, so by `vscode:prepublish` and so by `vsce package`.
    and moves the pin to the highest `vX.Y.Z` that is not a draft.
    Prereleases count: every ai-plugins release so far is one, so
    `releases/latest` finds nothing. This is the only API call.
+   `--release vX.Y.Z` moves the pin to that tag instead, unchecked: a tag
+   that does not exist fails the download. `/release` uses it, after
+   checking the tag against the release list.
 2. If `skills/skills-source.json` already records the pinned tag, nothing
    is downloaded.
 3. Otherwise it downloads the tag's tarball from codeload, unpacks it with
