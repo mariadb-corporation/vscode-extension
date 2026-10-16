@@ -20,6 +20,7 @@ import type { Readable } from "node:stream";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { version } from "../../package.json";
 import type { McpServerCommand } from "../shell/mcpServer.js";
 import { LineReader } from "../shell/lineReader.js";
 import type { IToolResult } from "./protocol.js";
@@ -29,8 +30,12 @@ import { errorText } from "../text.js";
 /** How many of the server's last stderr lines a start failure quotes. */
 const STDERR_LINES_KEPT = 5;
 
-/** Identifies this extension to the server during the handshake. */
-const CLIENT_INFO = { name: "mariadb-vscode", version: "26.10.0" };
+/**
+ * Identifies this extension to the server during the handshake. MCP requires
+ * a name and a version there; the server only logs them, so the version is
+ * the extension's own, read from package.json when the bundle is built.
+ */
+const CLIENT_INFO = { name: "mariadb-vscode", version };
 
 /**
  * The real connector, backed by the MCP SDK's stdio transport.
