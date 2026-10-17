@@ -1,5 +1,5 @@
 ---
-description: Cut a release of the extension, optionally raising the MariaDB Shell floor and moving the ai-plugins skills release, PR it, tag it, attach the .vsix to a GitHub release, and hand it over for upload to the VS Code Marketplace. Usage: /release <version> [shell-version|-] [ai-plugins-version|-] [--stable]
+description: Cut a release of the extension, suggesting its next YY.MM.x version and moving the MariaDB Shell floor and the ai-plugins skills release to newer releases where there are any, PR it, tag it, attach the .vsix to a GitHub release, and hand it over for upload to the VS Code Marketplace. Usage: /release [version|-] [shell-version|-] [ai-plugins-version|-] [--stable]
 ---
 
 # Release Command
@@ -10,19 +10,26 @@ Split that string on whitespace. `--stable`, wherever it stands, is a
 flag and not a position; take it out first. So is `--pre-release`, which
 only says what is the default anyway. Of the rest:
 
-1. **The version** (required): the extension's version, `version` in
+1. **The version**: the extension's version, `version` in
    `package.json`.
-2. **The shell floor** (optional): `MINIMUM_SHELL_VERSION` in
+2. **The shell floor**: `MINIMUM_SHELL_VERSION` in
    `src/shell/constants.ts`, the oldest MariaDB Shell the extension accepts
    and the one it installs when there is none.
-3. **The skills release** (optional): `aiPlugins.release` in
+3. **The skills release**: `aiPlugins.release` in
    `package.json`, the mariadb-corporation/ai-plugins release whose skills
    the extension contributes to Copilot.
 
-A `-` in a position means "not given", so the skills release can be given
-without the floor (`/release 26.11.0 - 26.10.3`). If the version is
-missing, ask for it before doing anything else. If a fourth word is left over,
-stop and ask what it means.
+All three are optional, so a bare `/release` works. A `-` in a position
+means "not given", so a later position can be given without an earlier one
+(`/release - - 26.10.3`). What is not given is suggested in step 2:
+
+- the version: the next `YY.MM.x` version (see step 2);
+- the floor and the skills release: the latest published release, when it
+  is newer than the current one. Otherwise they stay where they are.
+
+So with no newer shell or ai-plugins release, a bare `/release` only bumps
+the extension's version. If a fourth word is left over, stop and ask what
+it means.
 
 Every version is a bare `MAJOR.MINOR.PATCH` such as `26.10.0`. Strip a
 leading `v` if one was given and say so. The extension's version and the
@@ -33,7 +40,8 @@ carry the `v`.
 **The three versions are independent.** The extension's version is the
 Marketplace version and the tag. The floor and the skills release are
 inputs it ships with. When one of them is not given it stays where it is,
-unless a newer release of it exists. Then step 2 asks whether to move it.
+unless a newer release of it exists. Then step 2 suggests moving it to that
+release.
 
 **A release is a pre-release unless `--stable` is given.** A pre-release
 goes on the Marketplace's pre-release channel, and its GitHub release is a
@@ -63,17 +71,26 @@ The remote is `origin` = `mariadb-corporation/vscode-extension`. Check
   level with `origin/main` after `git fetch --tags origin`. If not, stop and
   report. Do not stash or reset anything.
 - `v<version>` must not exist as a tag, locally or on `origin`
-  (`git ls-remote --tags origin v<version>`). If it does, stop.
+  (`git ls-remote --tags origin v<version>`). If it does, stop. When the
+  version is suggested, check this in step 2, once it is known.
 - `gh auth status` must succeed. If it fails, stop: every later step needs
   it.
 
 ## 2. Check the versions
 
 Do all of this before changing anything, and report what you find in one
-summary. That way the user sees the whole release, including its channel,
-before it starts. With `--stable`, **stop and ask the user to confirm** that
-this release goes to every user as stable. Name the version, and the
-pre-release it supersedes if there is one. Go on only on a yes.
+summary: each of the three versions, its current value, the value this
+release ships, and whether that was given or suggested. That way the user
+sees the whole release, including its channel, before it starts.
+
+**When anything was suggested, stop and ask the user to confirm the
+summary.** They may accept it, or change any of the three versions, for
+example to keep the current floor although a newer shell exists. Run the
+checks below again for what they changed. With `--stable`, also **ask the
+user to confirm** that this release goes to every user as stable. Name the
+version, and the pre-release it supersedes if there is one. Go on only on a
+yes. When everything was given and the release is a pre-release, report
+the summary and go on.
 
 **The extension's version.** Take the highest of:
 
@@ -83,11 +100,25 @@ pre-release it supersedes if there is one. Go on only on a yes.
   The command prints `undefined` while the extension has never been
   published.
 
-The version must sort above that highest one, or stop. A Marketplace
-version can never be reused, not even after an unpublish. With neither a
-tag nor a Marketplace version (the first release), the version must not
-sort below `version` in `package.json`, and it may equal it. Report the
-previous version, or that this is the first release.
+Report it, or that there is neither a tag nor a Marketplace version (the
+first release).
+
+- **None given:** suggest `YY.MM.x`, from today's date
+  (`date +%y.%-m`): `YY` is the year's last two digits, `MM` the month
+  without a leading zero (`26.9.0`, never `26.09.0`: semver forbids leading
+  zeros), and `x` counts the releases of that month. It is `0` for the
+  month's first release, and one more than the highest `x` among the tags
+  and Marketplace versions that start with `YY.MM.` otherwise. For the
+  first release, when `version` in `package.json` already is a `YY.MM.x`
+  of this month, suggest that version as it is. If the suggestion does not
+  sort above the highest version (one from a later month exists), stop and
+  report it. Check that `v<suggestion>` is not a tag, locally or on
+  `origin`.
+- **One given:** it must sort above the highest version, or stop. A
+  Marketplace version can never be reused, not even after an unpublish.
+  For the first release, it must not sort below `version` in
+  `package.json`, and it may equal it. If it does not follow `YY.MM.x` for
+  this month, say so and ask whether to use it anyway.
 
 **The shell floor.** The current floor is `MINIMUM_SHELL_VERSION` in
 `src/shell/constants.ts`. Report it. List the published shell releases:
@@ -100,19 +131,22 @@ Every MariaDB Shell release is a **prerelease**, so `releases/latest` 404s.
 Do not use it. Sort the `tagName`s as versions (strip the `v`, then
 `sort -V`), not by date.
 
+First check that the current floor is a base version the extension can
+ship with: the oldest shell it requires, and one a user can install.
+
 - **The current floor itself is not in the list** (it was raised ahead of
   the shell release, which `update_version.py` without `--version` does) →
   stop, whatever was given. A release must not ship a floor that cannot be
   installed. Say whether the floor's release is still to come or whether the
   floor should go back to a published one, and let the user decide. A floor
   given here that *is* published resolves it.
+- **The current floor is below the hard floor** that the comment on
+  `MINIMUM_SHELL_VERSION` names → stop and report it.
 - **No floor given:** check whether the current floor is still the highest
-  published shell release. If it is, continue with the floor unchanged. If a
-  newer one exists, the user most likely forgot to pass it: **stop and ask
-  explicitly** whether to keep the current floor or raise it to the latest
-  release, naming both versions and the latest one's publish date. Do not go
-  on until they answer. If they choose to raise it, continue as if it had
-  been given.
+  published shell release. If it is, the floor stays unchanged. If a newer
+  one exists, suggest raising the floor to the latest release, naming both
+  versions and the latest one's publish date, and continue with it as if it
+  had been given. The confirmation of the summary settles it.
 - **A floor given:**
   - `v<floor>` is not in the list → stop. The extension *installs* the floor
     when a user has no shell, so a floor above every published release
@@ -142,9 +176,9 @@ Every ai-plugins release so far is a prerelease too: the same rules, and the
 same sorting, apply.
 
 - **None given:** if the pin is the highest release, keep it. If a newer one
-  exists, **stop and ask explicitly** whether to keep the pin or move it to
-  the latest release, naming both and the latest one's publish date. Wait for
-  the answer.
+  exists, suggest moving the pin to the latest release, naming both and the
+  latest one's publish date, and continue with it as if it had been given.
+  The confirmation of the summary settles it.
 - **One given:** not in the list → stop. Below the current pin → stop and
   ask. Equal → nothing to move. A higher one exists → say so and ask.
   Otherwise continue, and report its publish date.

@@ -106,9 +106,13 @@ since those come from `contributes`, not from the name.
 
 ## Releasing
 
-`/release <version> [shell-version|-] [ai-plugins-version|-] [--stable]`
+`/release [version|-] [shell-version|-] [ai-plugins-version|-] [--stable]`
 (`.claude/commands/release.md`) cuts a release: it checks the three versions
-against what is published, sets them on a `wip/release-<version>` branch
+against what is published, suggests what was not given (the next `YY.MM.x`
+version, where `x` counts the month's releases from 0, and the latest shell
+and ai-plugins releases when they are newer, so a bare `/release` with
+nothing new upstream only bumps the version), has the user confirm any
+suggestion, sets them on a `wip/release-<version>` branch
 (`update_version.py --version`, `sync:skills -- --release`, `npm version`),
 and opens the PR. After the merge it builds the merge commit's `.vsix`,
 tags it and attaches it to a GitHub release, then hands that same file to
