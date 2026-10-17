@@ -40,7 +40,8 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 | Script | What it does |
 | --- | --- |
-| `npm run build` | Clean `dist/`, then bundle the extension and the webview. |
+| `npm run build` | Clean `dist/`, fetch the Copilot skills, then bundle the extension and the webview. |
+| `npm run sync:skills` | Fill the `skills/` cache from the ai-plugins release `aiPlugins.release` pins and match `contributes.chatSkills` to it (`--latest` moves the pin to the newest release first). See [copilot.md](copilot.md). |
 | `npm run clean` | Remove `dist/`. |
 | `npm run watch` | Rebuild the extension on change. |
 | `npm run watch:webview` | Rebuild the webview on change. |
@@ -85,8 +86,8 @@ locked tree and never writes the lockfile back.
 
 `npm run package` runs `vsce package --no-dependencies` (`@vscode/vsce` is a
 devDependency), which first runs `vscode:prepublish`, the build, and writes
-`mariadb-ext-<version>.vsix` into the repository root (gitignored). The
-extension identifier is `MariaDB.mariadb-ext`: `publisher` and `name` in
+`mariadb-dev-<version>.vsix` into the repository root (gitignored). The
+extension identifier is `MariaDB.mariadb-dev`: `publisher` and `name` in
 `package.json`. The settings namespace and every command id stay `mariadb.*`,
 since those come from `contributes`, not from the name.
 
@@ -102,6 +103,50 @@ since those come from `contributes`, not from the name.
   links against the repository root, and in the plugins monorepo that
   pointed them at the wrong directory. `LICENSE` is packaged as
   `extension/LICENSE.txt` and rendered as the Marketplace's License tab.
+
+## Releasing
+
+`/release [version|-] [shell-version|-] [ai-plugins-version|-] [--stable]`
+(`.claude/commands/release.md`) cuts a release: it checks the three versions
+against what is published, suggests what was not given (the next `YY.MM.x`
+version, where `x` counts the month's releases from 0, and the latest shell
+and ai-plugins releases when they are newer, so a bare `/release` with
+nothing new upstream only bumps the version), has the user confirm any
+suggestion, sets them on a `wip/release-<version>` branch
+(`update_version.py --version`, `sync:skills -- --release`, `npm version`),
+and opens the PR. After the merge it builds the merge commit's `.vsix`,
+tags it and attaches it to a GitHub release, then hands that same file to
+the user. The rules it rests on:
+
+- **Every input must be published.** The extension installs
+  `MINIMUM_SHELL_VERSION` when there is no shell, so a floor above the newest
+  shell release breaks the first start; the skills pin must be an ai-plugins
+  release. Both repositories publish only prereleases, so `releases/latest`
+  finds nothing: the releases are listed and sorted as versions.
+- **A Marketplace version is used once**, even after an unpublish, and must
+  be a bare `X.Y.Z` (vsce refuses `-rc` suffixes).
+- **Pre-release by default.** A release is stable only with `--stable`,
+  which the command confirms before starting, so a pre-release is never
+  declared ready by accident. The channel is fixed at packaging time:
+  `vsce package --pre-release` records it in the `.vsix`, and the upload
+  takes it from there. A pre-release is never promoted: going stable is a
+  new release, with a version above the last pre-release so the
+  pre-release channel's users move to it. Versions are calendar-like and
+  ignore the Marketplace's even/odd minor suggestion; it only advises
+  separate version numbers per channel, and uniqueness is all it enforces.
+- **The Marketplace upload is manual**, in the browser at
+  `marketplace.visualstudio.com/manage`, signed in with a Microsoft account
+  that is a member of the `MariaDB` publisher. No credential is kept for
+  it. Publishing by token ends on December 1, 2026, when Azure DevOps
+  retires global PATs (the only kind the Marketplace accepts). The Entra ID
+  route (`--azure-credential`) needs an Azure subscription and a managed
+  identity, and was passed over in favour of trusted publishing
+  (`vsce publish --oidc`). vsce has that already, hidden from `--help`;
+  the token exchange matching the Marketplace's contract arrived after
+  4.0.0, in 4.0.1-1. The Marketplace backend still refuses it, and it has
+  no page to set up the trusted publisher yet. Once it does, the upload
+  becomes a GitHub Actions job started by the release tag, with
+  `id-token: write` and no stored secret.
 
 ## The Marketplace icon
 
@@ -127,14 +172,22 @@ records the file executable.
 ## CI
 
 `.github/workflows/code-ext-ci.yml` has a `Code-Ext-CI-Verification` job
-running `npm ci` -> `npm run pretest` -> `npm test` -> `npm run package`, on
+running `npm ci` -> `npm run sync:skills` -> `npm run pretest` -> `npm test`
+-> `npm run package`, on
 the Node that `.nvmrc` names and on a hosted runner, since the extension
 needs Node and nothing else. The last step builds (through
 `vscode:prepublish`) and packs: the build because the extension ships as a
 bundle, where an import that only resolves under the test aliases, or an
 asset that is not copied, is invisible to the type check and the tests
 alike; the packing so that what `.vscodeignore` lets through is seen on
-every change. The `.vsix` is kept as the run's `mariadb-ext-vsix` artifact.
+every change. The `.vsix` is kept as the run's `mariadb-dev-vsix` artifact.
+`skills/` is restored by `actions/cache`, keyed on the pinned release, so
+the sync downloads only when the pin is new to the cache - from codeload,
+not GitHub's rate-limited API. It runs before the tests, which hold
+`chatSkills` against the cached release
+(`src/test/tools/syncAiSkills.test.ts`), and after packaging
+`git diff --exit-code package.json` fails a run whose pin moved without its
+`chatSkills`.
 
 Between the lint and the tests it runs `tools/check_openapi_ui_pins.py`,
 which fetches `mrs_plugin/lib/open_api_ui.py` from the public
