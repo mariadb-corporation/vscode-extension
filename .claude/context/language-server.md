@@ -54,7 +54,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   rejected for that). The calls go to the connection open on the URI,
   the editors' session or one opened for it, as running the file would,
   so a file bound to a connection opens it when the server first reads
-  its catalog. A failed call is a JSON-RPC error with
+  its catalog. A reading lists names only; the details of a
+  table, view or routine are one `db.get_object_details` call each, made
+  when a completion, hover or signature help first needs them. A failed call is a JSON-RPC error with
   `data.permanent`; the server retries the others with its back-off, and
   `mariadb/refreshCatalog` reads again at once.
 - Stopped in `deactivate()` before the connections and the MCP session.
