@@ -267,6 +267,12 @@
           ],
           "markdownDescription": "The case completion writes keywords and built-in functions in."
         },
+        "mariadb.lsp.lineWidth": {
+          "type": "integer",
+          "default": 80,
+          "minimum": 0,
+          "markdownDescription": "The line width in characters that the `FROM` and `JOIN` clauses completion adds stay within: past it, or in a statement that spans lines already, each clause starts a line of its own. 0: no limit."
+        },
         "mariadb.lsp.sqlMode": {
           "type": "string",
           "default": "",

@@ -237,9 +237,12 @@ describe("SQL language server", () => {
                 ["c.country_id", "c.id", "c.name"]);
             await pickCompletion(editor, "country");
             await pickCompletion(editor, "name");
-            await lineBecomes(editor, 2, "SELECT c.name, c2.name FROM uitest.city"
-                + " AS c LEFT OUTER JOIN uitest.country AS c2"
-                + " ON c.country_id = c2.id");
+            // Past 80 characters: the join starts a line of its own, one
+            // level deeper than FROM.
+            await lineBecomes(editor, 2,
+                "SELECT c.name, c2.name FROM uitest.city AS c");
+            await lineBecomes(editor, 3,
+                "  LEFT OUTER JOIN uitest.country AS c2 ON c.country_id = c2.id");
             await screenshot("08-joined");
         });
 

@@ -37,7 +37,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   connecting itself. `mariadb.lsp.trace.server` is read
   by the client library itself (it follows the client id).
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
-  `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
+  `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A
   change is sent as `workspace/didChangeConfiguration`
   (`{settings: {mariadb: ...}}`, every key each time, so one put back to

@@ -39,6 +39,7 @@ export const LIVE_SERVER_SETTINGS = [
     "catalogFiles",
     "catalogRefreshSeconds",
     "keywordCase",
+    "lineWidth",
     "sqlMode",
     "debounceMs",
     "maxDiagnostics",
@@ -94,6 +95,7 @@ export const serverSettings = (
         keywordCase: settings.get<unknown>("keywordCase", "upper") === "lower"
             ? "lower"
             : "upper",
+        lineWidth: count(settings.get<unknown>("lineWidth", 80)),
         sqlMode: String(settings.get<unknown>("sqlMode", "")),
         debounceMs: count(settings.get<unknown>("debounceMs", 150)),
         maxDiagnostics: count(settings.get<unknown>("maxDiagnostics", 1000)),
