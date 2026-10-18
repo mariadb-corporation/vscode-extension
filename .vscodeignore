@@ -27,7 +27,10 @@ webview/**
 ui-test/**
 out/**
 
-# The grammar tool and its inputs: only the built grammars ship.
+# The build tools - the grammar's and the skill sync - and the grammar's
+# inputs: only the built grammars and the synced skills ship. skills/ is
+# gitignored but ships: vsce reads this file, not .gitignore.
 tools/**
+skills.new/**
 syntaxes/mariadb-sql.template.json
 syntaxes/words.json

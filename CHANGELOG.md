@@ -8,6 +8,16 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Added
 
+- **GitHub Copilot support.** The MariaDB agent skills of an
+  [ai-plugins](https://github.com/mariadb-corporation/ai-plugins) release
+  are contributed to Copilot (`contributes.chatSkills`), and the MariaDB
+  Shell's MCP server is offered to it as the **MariaDB** server
+  (`contributes.mcpServerDefinitionProviders`), started in agent mode -
+  without `--gui` - and installing the shell first if there is none. The
+  `mariadb.copilot.enabled` setting turns both off. `package.json` pins
+  the release (`aiPlugins.release`); `npm run build` fetches its skills
+  into the uncommitted `skills/` first (`npm run sync:skills`).
+
 - Startup check for a MariaDB Shell of at least version 26.9.2, looking at
   the `PATH` first and at the local installation directory second, and
   running the official installer when neither has one. The download and

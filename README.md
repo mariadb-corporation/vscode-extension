@@ -84,10 +84,20 @@ which exposes the backend functions over the Model Context Protocol.
   which can be watched while it runs and is kept after it ended, failed
   or not. Each task is also a row of its connection's **Actions** in the
   MariaDB panel, with what it reported under it.
+- **GitHub Copilot** gets the MariaDB agent skills and the MariaDB Shell's
+  MCP server, with nothing to set up. The skills - the same ones the
+  [MariaDB AI plugins](https://github.com/mariadb-corporation/ai-plugins)
+  give Claude Code, Codex, OpenCode and Pi - teach it MariaDB SQL, the
+  connectors and the REST Service; the **MariaDB** server in VS Code's MCP
+  server list gives it the `db.*` and other tools to act on a database.
+  The server runs in agent mode: it opens only the connections with
+  **MCP access** ticked, and asks before touching a file outside its
+  allowed paths. Starting it the first time installs the MariaDB Shell if
+  there is none. `mariadb.copilot.enabled` turns both off.
 
 ## Requirements
 
-MariaDB Shell **26.9.2** or newer, with at least one connection configured
+MariaDB Shell **26.10.2** or newer, with at least one connection configured
 via `mariadb-shell -- mcp setup`.
 
 The extension takes care of the shell on its own. The first time it needs
@@ -110,6 +120,7 @@ Set `MARIADB_SHELL_PREFIX` to install and look somewhere else.
 | `mariadb.defaultConnection` | The connection URI new SQL editors run on. |
 | `mariadb.connections.connectMode` | Whether expanding a connection in the **Connections** view opens it (`onOpen`, the default) or only the Connect button does (`explicit`). |
 | `mariadb.mrs.restDaemonUrl` | Where REST requests go for a server no local REST Daemon serves: the **Open ... Request Path in Web Browser** commands and the client SDK's default service URL start with it. Default `https://localhost:8443`. |
+| `mariadb.copilot.enabled` | Whether Copilot gets the MariaDB skills and MCP server (on by default). |
 | `mariadb.sql.ansiQuotes` | Whether `"..."` in a SQL file is an identifier or a string: as the file's connection's `sql_mode` says (`auto`, the default), always an identifier (`on`), or always a string (`off`). The identifier colouring needs `editor.semanticHighlighting.enabled`, which the built-in themes turn on. |
 
 ## Commands
@@ -126,8 +137,9 @@ Set `MARIADB_SHELL_PREFIX` to install and look somewhere else.
 
 ```bash
 npm install            # install the toolchain
-npm run build          # bundle the extension and the result panel
+npm run build          # fetch the Copilot skills, bundle the extension and the result panel
 npm run package        # build, then pack the .vsix (what CI keeps as its artifact)
+npm run sync:skills    # only fetch the pinned ai-plugins release's skills into skills/
 npm test               # run the Vitest suite
 npm run pretest        # type check and lint
 npm run grammar:build  # rebuild the SQL grammar from syntaxes/words.json
@@ -150,8 +162,8 @@ a plain folder works too.
 
 `python3 tools/update_version/update_version.py` bumps the shell version
 the extension requires to the one on the shell repository's `main` branch,
-as part of preparing a release; `--dry-run` shows the change without
-writing it. `python3 tools/check_openapi_ui_pins.py` checks that the
+as part of preparing a release (`--version X.Y.Z` sets a given one
+instead); `--dry-run` shows the change without writing it. `python3 tools/check_openapi_ui_pins.py` checks that the
 Swagger UI release and request path the OpenAPI UI dialog names are the
 ones the mrs plugin pins; CI runs it on every change.
 
@@ -160,6 +172,14 @@ The extension is bundled with [Vite](https://vite.dev), the result panel is
 [Vitest](https://vitest.dev). See
 [.claude/PROJECT_CONTEXT.md](https://github.com/mariadb-corporation/vscode-extension/blob/main/.claude/PROJECT_CONTEXT.md)
 for the layout and the behaviour in detail.
+
+The Copilot skills come from the
+[ai-plugins release](https://github.com/mariadb-corporation/ai-plugins/releases)
+that `aiPlugins.release` in `package.json` pins. `npm run build` downloads
+it into `skills/` - a gitignored cache, fetched again only when the pin
+moves - and keeps `contributes.chatSkills` in step with it. To take a newer
+release, run `npm run sync:skills -- --latest` (or `--release vX.Y.Z`)
+and commit the changed `package.json`; to change a skill, change it in ai-plugins.
 
 ## Licensing
 

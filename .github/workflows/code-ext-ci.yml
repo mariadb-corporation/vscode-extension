@@ -36,6 +36,23 @@ jobs:
         # never writes the lockfile back.
         run: npm ci
 
+      - name: Read the pinned ai-plugins release
+        id: skills
+        run: echo "release=$(node -p "require('./package.json').aiPlugins.release")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the Copilot skills
+        # skills/ is a cache of the pinned release, not committed; a run
+        # downloads it only when the pin is one the cache has not seen.
+        uses: actions/cache@v4
+        with:
+          path: skills
+          key: ai-plugins-skills-${{ steps.skills.outputs.release }}
+
+      - name: Fetch the Copilot skills
+        # Before the tests, which hold package.json's chatSkills against
+        # what the pinned release has.
+        run: npm run sync:skills
+
       - name: Type check and lint
         run: npm run pretest
 
@@ -59,9 +76,14 @@ jobs:
         # dist/ by Vite, so node_modules has nothing to ship.
         run: npm run package
 
+      - name: Check that the build left package.json as committed
+        # The skill sync rewrites chatSkills to match the pinned release; a
+        # change here means the pin moved without the list moving with it.
+        run: git diff --exit-code package.json
+
       - name: Keep the .vsix
         uses: actions/upload-artifact@v4
         with:
-          name: mariadb-ext-vsix
+          name: mariadb-dev-vsix
           path: '*.vsix'
           if-no-files-found: error
