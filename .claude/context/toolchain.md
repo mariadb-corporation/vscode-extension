@@ -7,7 +7,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 - **Build**: [Vite](https://vite.dev), twice. `vite.config.ts` bundles
   `src/extension.ts` into a single CommonJS `dist/extension.js` for the
-  extension host, with `vscode` and the Node built-ins external.
+  extension host, with `vscode` and the Node built-ins external. It
+  resolves with the `node` export condition (`resolve.conditions`):
+  `vscode-languageclient/node` exports its build under that condition
+  only, and the bundle of every other dependency came out byte for byte
+  the same with it.
   `vite.webview.config.ts` builds the Preact frontend into
   `dist/webview/main.js` and `main.css` for the browser. The two dialogs
   are a build each as well - `vite.editor.config.ts` (the connection

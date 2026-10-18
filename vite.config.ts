@@ -28,6 +28,11 @@ const external = [
 ];
 
 export default defineConfig({
+    // A Node bundle: packages that export a Node build only under the
+    // `node` condition (vscode-languageclient/node) resolve to it.
+    resolve: {
+        conditions: ["node"],
+    },
     build: {
         target: "node20",
         outDir: "dist",

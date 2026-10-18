@@ -52,8 +52,11 @@ import {
 import { McpSession } from "./mcp/session.js";
 import type { IMariaDbApi } from "./mcp/types.js";
 import { registerCopilotMcpServer } from "./copilot/mcpServerProvider.js";
+import { LanguageServer } from "./lsp/languageServer.js";
+import { createNodeLanguageClient } from "./lsp/nodeClient.js";
 import { ensureShell, type BootstrapResult } from "./shell/bootstrap.js";
 import { MINIMUM_SHELL_VERSION } from "./shell/constants.js";
+import { locateShell } from "./shell/locator.js";
 import { buildMcpServerCommand } from "./shell/mcpServer.js";
 import {
     createNodeProcessRunner,
@@ -140,6 +143,7 @@ import { VALUE_SCHEME } from "./webview/valueDocuments.js";
 interface IExtensionState {
     session: McpSession;
     connections: ConnectionManager;
+    languageServer?: LanguageServer;
 }
 
 let state: IExtensionState | undefined;
@@ -546,6 +550,39 @@ export const activate = (context: vscode.ExtensionContext): void => {
             return editors.ansiQuotesFor(document);
         },
     });
+    // Diagnostics, completion, hover and the rest for SQL files, from
+    // mariadb-lsp; started when the first SQL file is open.
+    const languageServer = new LanguageServer({
+        createClient: createNodeLanguageClient,
+        environment: createNodeShellEnvironment(log),
+        log,
+        connectionFor: (document) => {
+            return editors.connectionFor(document);
+        },
+        onDidChangeConnections: (listener) => {
+            const unbind = editors.onDidBindConnection(listener);
+            const unwatch = connections.onDidChange(listener);
+
+            return () => {
+                unbind();
+                unwatch();
+            };
+        },
+        onDidRunScript: (listener) => {
+            return editors.onDidRunScript(listener);
+        },
+        // The server finds the secret store helpers next to the
+        // mariadb-shell on its PATH; one the extension installed is not
+        // there. Looked up without installing: no shell, no live catalog.
+        shellBinary: async () => {
+            const found = await locateShell(createNodeShellEnvironment(log),
+                MINIMUM_SHELL_VERSION);
+
+            return found?.source === "managed" ? found.binaryPath : undefined;
+        },
+    });
+    context.subscriptions.push(languageServer);
+    state.languageServer = languageServer;
     // A connection whose sql_mode turned out to have ANSI_QUOTES, or
     // whose script changed it, may end its statements elsewhere.
     const stopFollowingSqlModes = sqlModes.onDidChange(() => {
@@ -1401,6 +1438,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
         vscode.commands.registerCommand("mariadb.showMcpServerLog", () => {
             output.show(true);
         }),
+
+        vscode.commands.registerCommand("mariadb.lsp.restart", async () => {
+            await languageServer.restart();
+        }),
     );
 
     // Nothing is started here: the server comes up the first time
@@ -1427,6 +1468,7 @@ export const deactivate = async (): Promise<void> => {
     SandboxEditorPanel.disposeCurrent();
     MrsDialogPanel.disposeAll();
 
+    await current.languageServer?.stop();
     await current.connections.disconnectAll();
     await current.session.stop();
 };

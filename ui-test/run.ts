@@ -20,13 +20,15 @@ import {
     chmodSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
+    realpathSync,
     rmSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 
 /**
  * Runs the UI tests: VS Code with the packaged extension, driven by
@@ -35,7 +37,8 @@ import { delimiter, join, resolve } from "node:path";
  *     MARIADB_SHELL=/path/to/mariadb-shell npm run ui-test [suite...]
  *
  * The tests are split into suites by area - `core` (startup, connections,
- * SQL and results, the sandbox lifecycle), `mrs` and `dump-load` - so a
+ * SQL and results, the sandbox lifecycle), `mrs`, `dump-load`, `restd`
+ * and `lsp` - so a
  * change to one area is tested without running the rest. Each suite runs
  * in a VS Code of its own with a sandbox of its own: `01-sandbox` deploys
  * it and creates the `uitest` schema every suite works on, and
@@ -47,9 +50,11 @@ import { delimiter, join, resolve } from "node:path";
  * suite puts a wrapper there that starts the given shell with a
  * configuration home of its own: its connections, its sandboxes (in a
  * directory of the suite's), its secrets (the plaintext credential
- * helper of a development build, in that home) and this repository's
- * plugins, never the user's. `mariadbd` has to be on the PATH for the
- * sandboxes. Everything a suite made is removed when it ends, also when
+ * helper of a development build, in that home) and the plugins of the
+ * mariadb-shell-plugins checkout beside this repository (or
+ * `MARIADB_SHELL_PLUGINS`), never the user's. `mariadbd` has to be on the PATH for the
+ * sandboxes, and `mariadb-lsp` for the language server (or named with
+ * `MARIADB_LSP`). Everything a suite made is removed when it ends, also when
  * its tests fail.
  *
  * Arguments that name no suite are passed to `extest setup-and-run`;
@@ -60,7 +65,12 @@ import { delimiter, join, resolve } from "node:path";
  */
 
 const root = resolve(__dirname, "../..");
-const repo = resolve(root, "..");
+/**
+ * The mariadb-shell-plugins checkout whose plugins the shell loads:
+ * `MARIADB_SHELL_PLUGINS`, else the one beside this repository.
+ */
+const plugins = resolve(process.env.MARIADB_SHELL_PLUGINS
+    ?? join(root, "..", "mariadb-shell-plugins"));
 const compiled = "out/ui-test/tests";
 
 /**
@@ -97,6 +107,7 @@ const SUITES: Record<string, string[]> = {
     mrs: [SETUP, "02-mrs", CLEANUP],
     "dump-load": [SETUP, "06-dump-load", CLEANUP],
     restd: [SETUP, "07-restd", CLEANUP],
+    lsp: [SETUP, "08-lsp", CLEANUP],
 };
 
 /** The signals that end the run, with the exit code each ends it with. */
@@ -228,7 +239,7 @@ const runFiles = async (
         mkdirSync(dir, { recursive: true });
     }
     for (const plugin of ["mcp_plugin", "mrs_plugin", "msm_plugin"]) {
-        symlinkSync(join(repo, plugin), join(home, "plugins", plugin));
+        symlinkSync(join(plugins, plugin), join(home, "plugins", plugin));
     }
     // The secrets too: the keychain is the whole user's, whatever the
     // configuration home, so the connections would be the user's. The
@@ -241,6 +252,20 @@ const runFiles = async (
     writeFileSync(wrapper, "#!/bin/sh\n"
         + `MARIADB_SHELL_USER_CONFIG_HOME='${home}' exec '${shell}' "$@"\n`);
     chmodSync(wrapper, 0o755);
+    // mariadb-lsp reads passwords through the secret store helpers next to
+    // the mariadb-shell on the PATH, which is the wrapper; the helpers
+    // that belong to the shell under test go beside it.
+    const shellDir = dirname(realpathSync(shell));
+    for (const name of readdirSync(shellDir)) {
+        if (name.startsWith("mariadb-secret-store-")) {
+            symlinkSync(join(shellDir, name), join(bin, name));
+        }
+    }
+    // The language server: MARIADB_LSP if given, else whatever the PATH has.
+    const lsp = process.env.MARIADB_LSP;
+    if (lsp !== undefined && lsp !== "") {
+        symlinkSync(resolve(lsp), join(bin, "mariadb-lsp"));
+    }
 
     const storage = join(root, ".vscode-test", "extest");
     // A run started from inside VS Code - its terminal, or an agent in its

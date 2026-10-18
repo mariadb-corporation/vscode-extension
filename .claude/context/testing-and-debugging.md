@@ -59,13 +59,14 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `core` | `00-startup` (before the setup), `03-connections`, `04-sql-results`, `05-lifecycle` | `ui-test:core` |
 | `mrs` | `02-mrs` | `ui-test:mrs` |
 | `dump-load` | `06-dump-load` | `ui-test:dump-load` |
+| `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, and completion of the sandbox's tables, which `mariadb-lsp` reads from the sandbox itself. Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
 profile, a work dir, shell home, ports and sandbox of its own.
 `01-sandbox` (New Sandbox dialog, the `uitest` schema) and `99-cleanup`
 (delete it) wrap every suite, so a suite can count on nothing another
-did. No suite named runs all three, one after the other; a failing one
+did. No suite named runs them all, one after the other; a failing one
 does not stop the next, and a summary says which failed. The files are
 passed one pattern each, because ExTester adds the matches of one
 pattern in no set order (`globSync(...).reverse()`). Arguments naming no
@@ -91,12 +92,17 @@ runner end anyway. A spawn that fails is reported with its error.
 - `ui-test/run.ts` builds a temporary work dir per suite, which is
   removed at the end, also after a failure. Sandboxes left running are
   pkill'ed first.
-  - A shell home with this repo's plugins linked in and options.json
+  - A shell home with the plugins of `../mariadb-shell-plugins` (or
+    `MARIADB_SHELL_PLUGINS`) linked in and options.json
     `sandboxDir` + `credentialStore.helper: plaintext`. The keychain is
     the whole user's, so without the plaintext helper the test VS Code
     would show the user's own connections.
   - A `mariadb-shell` wrapper first on the PATH, setting
     `MARIADB_SHELL_USER_CONFIG_HOME`.
+  - The shell's `mariadb-secret-store-*` helpers linked beside the
+    wrapper: `mariadb-lsp` looks for them next to the `mariadb-shell` on
+    its PATH, which is the wrapper. `MARIADB_LSP`, when set, is linked
+    there as `mariadb-lsp`.
   - `VSCODE_CLI=1`. Without it, VS Code on macOS takes the login shell's
     PATH and finds the user's shell.
   - All `VSCODE_*` / `ELECTRON_*` variables are stripped. An inherited

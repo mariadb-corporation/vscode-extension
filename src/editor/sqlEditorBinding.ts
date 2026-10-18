@@ -136,6 +136,11 @@ export class SqlEditorBinding implements vscode.Disposable {
     readonly #statusItem: vscode.StatusBarItem;
     /** Colours `"..."` as an identifier where ANSI_QUOTES is on. */
     readonly #ansiQuotes: AnsiQuotesHighlighter;
+    /** Told when a document is bound to another connection. */
+    readonly #bindListeners = new Set<() => void>();
+    /** Told when a script has run, whether it succeeded or not. */
+    readonly #runListeners =
+        new Set<(uri: string, script: string) => void>();
     readonly #disposables: vscode.Disposable[] = [];
 
     /**
@@ -272,6 +277,42 @@ export class SqlEditorBinding implements vscode.Disposable {
         this.updateStatusBar();
         // Another connection may have another sql_mode.
         this.#ansiQuotes.refresh();
+        for (const listener of this.#bindListeners) {
+            listener();
+        }
+    }
+
+    /**
+     * Listens for scripts that have run, failed ones too: a script that
+     * failed part way may still have changed the schema.
+     *
+     * @param listener Called with the connection and the script.
+     *
+     * @returns A function that stops listening.
+     */
+    public onDidRunScript(
+        listener: (uri: string, script: string) => void,
+    ): () => void {
+        this.#runListeners.add(listener);
+
+        return () => {
+            this.#runListeners.delete(listener);
+        };
+    }
+
+    /**
+     * Listens for a document bound to a connection by hand.
+     *
+     * @param listener Called after each.
+     *
+     * @returns A function that stops listening.
+     */
+    public onDidBindConnection(listener: () => void): () => void {
+        this.#bindListeners.add(listener);
+
+        return () => {
+            this.#bindListeners.delete(listener);
+        };
     }
 
     /**
@@ -619,6 +660,10 @@ export class SqlEditorBinding implements vscode.Disposable {
                 }],
                 resultSets: [],
             });
+        } finally {
+            for (const listener of this.#runListeners) {
+                listener(uri, script);
+            }
         }
     }
 

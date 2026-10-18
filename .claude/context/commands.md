@@ -52,6 +52,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.stopOnError.disable` / `.enable` | Stop on Error (on/off) | SQL editor toolbar, one shown at a time |
 | `mariadb.restartMcpServer` | Restart MCP Server | Command palette |
 | `mariadb.showMcpServerLog` | Show MCP Server Log | Command palette |
+| `mariadb.lsp.restart` | Restart SQL Language Server | Command palette. Looks for `mariadb-lsp` again, so it is also how a server installed after a failed lookup is picked up (see [language-server.md](language-server.md)) |
 | `mariadb.mrs.configure` | Configure MariaDB REST Service... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.showPrivateItems` | Show Private Items | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.hidePrivateItems` | Hide Private Items | REST Service rows (see [mrs.md](mrs.md)) |

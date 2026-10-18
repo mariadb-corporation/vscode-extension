@@ -730,6 +730,13 @@ const visibleEditorListeners =
     new Set<(editors: MockTextEditor[]) => void>();
 const changeDocumentListeners = new Set<(event: unknown) => void>();
 const closeDocumentListeners = new Set<(document: unknown) => void>();
+const openDocumentListeners = new Set<(document: unknown) => void>();
+
+/**
+ * `workspace.textDocuments`: the documents opened with
+ * `fireDocumentOpen` and not closed with `fireDocumentClose` since.
+ */
+export const textDocuments: MockTextDocument[] = [];
 const configurationListeners = new Set<(event: unknown) => void>();
 
 /** A registered semantic tokens provider, and what it was registered for. */
@@ -794,6 +801,21 @@ export const fireDocumentChange = (document: MockTextDocument): void => {
 };
 
 /**
+ * Opens a document: adds it to `workspace.textDocuments` and fires the
+ * open event.
+ *
+ * @param document The document that was opened.
+ *
+ * @returns Nothing.
+ */
+export const fireDocumentOpen = (document: MockTextDocument): void => {
+    textDocuments.push(document);
+    for (const listener of openDocumentListeners) {
+        listener(document);
+    }
+};
+
+/**
  * Fires the document close event.
  *
  * @param document The document that was closed.
@@ -801,6 +823,10 @@ export const fireDocumentChange = (document: MockTextDocument): void => {
  * @returns Nothing.
  */
 export const fireDocumentClose = (document: MockTextDocument): void => {
+    const index = textDocuments.indexOf(document);
+    if (index >= 0) {
+        textDocuments.splice(index, 1);
+    }
     for (const listener of closeDocumentListeners) {
         listener(document);
     }
@@ -1092,6 +1118,8 @@ export const window = {
 export const workspace = {
     workspaceFolders: undefined as Array<{ name: string }> | undefined,
 
+    textDocuments,
+
     fs: {
         writeFile: (uri: Uri, content: Uint8Array): Promise<void> => {
             files.set(uri.fsPath, content);
@@ -1162,6 +1190,18 @@ export const workspace = {
         return {
             dispose: () => {
                 fileSystemProviders.delete(scheme);
+            },
+        };
+    },
+
+    onDidOpenTextDocument: (
+        listener: (document: unknown) => void,
+    ): Disposable => {
+        openDocumentListeners.add(listener);
+
+        return {
+            dispose: () => {
+                openDocumentListeners.delete(listener);
             },
         };
     },
@@ -1399,6 +1439,8 @@ export const resetVscodeMock = (): void => {
     configuration.clear();
     activeEditorListeners.clear();
     closeDocumentListeners.clear();
+    openDocumentListeners.clear();
+    textDocuments.length = 0;
     configurationListeners.clear();
     setActiveTextEditor(undefined);
     setWorkspaceFolders(undefined);

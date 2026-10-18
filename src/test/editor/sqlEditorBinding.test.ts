@@ -488,6 +488,40 @@ describe("SqlEditorBinding", () => {
         binding.dispose();
     });
 
+    it("says when a document is pinned and when a script has run",
+        async () => {
+            const { api, binding } = createBinding("dba@localhost:3310");
+            const pinned: number[] = [];
+            const ran: Array<[string, string]> = [];
+            const stopPinned = binding.onDidBindConnection(() => {
+                pinned.push(1);
+            });
+            binding.onDidRunScript((uri, script) => {
+                ran.push([uri, script]);
+            });
+            const editor = createEditor("CREATE TABLE t (id INT);");
+            binding.bindConnection(editor.document as never,
+                "app@localhost:3311");
+            expect(pinned).toHaveLength(1);
+            stopPinned();
+            binding.bindConnection(editor.document as never,
+                "dba@localhost:3310");
+            expect(pinned).toHaveLength(1);
+
+            await binding.run(editor as never);
+            // A failed run too: it may have got part way.
+            api.connect = () => {
+                return Promise.reject(new Error("Access denied"));
+            };
+            await binding.run(editor as never);
+            expect(ran).toEqual([
+                ["dba@localhost:3310", "CREATE TABLE t (id INT);"],
+                ["dba@localhost:3310", "CREATE TABLE t (id INT);"],
+            ]);
+
+            binding.dispose();
+        });
+
     it("shows a failure to connect in the view", async () => {
         const { api, view, binding } = createBinding("dba@localhost:3310");
         api.connect = () => {
