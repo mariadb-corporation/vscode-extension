@@ -111,6 +111,59 @@ const completionsWith = async (
     }, `${what}\n${extensionLog()}`, SERVER_TIMEOUT);
 };
 
+/**
+ * Picks an item from the completion list, opening it if it is not open:
+ * an item ending in a '.' opens it again by itself.
+ *
+ * @param editor The editor, its caret where completion is wanted.
+ * @param label The item to pick.
+ *
+ * @returns Nothing.
+ */
+const pickCompletion = async (
+    editor: TextEditor,
+    label: string,
+): Promise<void> => {
+    await waitFor(async () => {
+        const assist = await editor.toggleContentAssist(true) as ContentAssist;
+        const item = await assist.getItem(label, 1000);
+        if (item === undefined) {
+            await editor.toggleContentAssist(false);
+
+            return undefined;
+        }
+        await item.click();
+
+        return true;
+    }, `${label} in the completion list\n${extensionLog()}`, SERVER_TIMEOUT);
+};
+
+/**
+ * Waits for a line of the editor to read `expected`.
+ *
+ * @param editor The editor.
+ * @param line The line, from 1.
+ * @param expected What it should read.
+ *
+ * @returns Nothing; on a timeout the error quotes what it read last.
+ */
+const lineBecomes = async (
+    editor: TextEditor,
+    line: number,
+    expected: string,
+): Promise<void> => {
+    let last = "";
+    try {
+        await waitFor(async () => {
+            last = await editor.getTextAtLine(line);
+
+            return last === expected ? true : undefined;
+        }, `line ${String(line)}`);
+    } catch {
+        assert.equal(last, expected);
+    }
+};
+
 /** The messages of the error markers in the Problems view. */
 const errorMarkers = async (): Promise<string[]> => {
     const problems = await new BottomBarPanel().openProblemsView();
@@ -164,6 +217,31 @@ describe("SQL language server", () => {
             "the sandbox's tables in the completion list");
         assert.ok(labels.includes("country"), labels.join(", "));
     });
+
+    it("goes from a schema to a table to a column, adding the table to FROM",
+        async () => {
+            const editor = await sqlEditor("SELECT ");
+            await editor.moveCursor(2, "SELECT ".length + 1);
+            // No schema in the connection's URI: the schemas come first.
+            await pickCompletion(editor, "uitest");
+            await pickCompletion(editor, "city");
+            await pickCompletion(editor, "name");
+            await lineBecomes(editor, 2, "SELECT c.name FROM uitest.city AS c");
+
+            // Another column: the table's own first, then the tables it
+            // has a foreign key with, joined on it.
+            await editor.typeText(", ");
+            const labels = await completionsWith(editor, "country",
+                "the related table after the comma");
+            assert.deepEqual(labels.slice(0, 3),
+                ["c.country_id", "c.id", "c.name"]);
+            await pickCompletion(editor, "country");
+            await pickCompletion(editor, "name");
+            await lineBecomes(editor, 2, "SELECT c.name, c2.name FROM uitest.city"
+                + " AS c LEFT OUTER JOIN uitest.country AS c2"
+                + " ON c.country_id = c2.id");
+            await screenshot("08-joined");
+        });
 
     it("completes the tables of a catalog file named in the settings",
         async () => {

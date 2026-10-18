@@ -59,7 +59,7 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `core` | `00-startup` (before the setup), `03-connections`, `04-sql-results`, `05-lifecycle` | `ui-test:core` |
 | `mrs` | `02-mrs` | `ui-test:mrs` |
 | `dump-load` | `06-dump-load` | `ui-test:dump-load` |
-| `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches). Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
+| `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), the walk from `SELECT ` through schema, table and column to the FROM clause and a foreign-key join (`pickCompletion` opens the list and clicks an item; a dotted item reopens it by itself), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches). Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
