@@ -13,9 +13,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   folding from `mariadb-lsp`, the MariaDB SQL language server, found on the
   `PATH` or in `~/.local/bin` (or at `mariadb.lsp.path`). Completion knows
   the tables and columns of the file's connection, read again after a
-  script that changes them. Settings `mariadb.lsp.enabled`, `.path`,
-  `.threads` and `.trace.server`; command **MariaDB: Restart SQL Language
-  Server**.
+  script that changes them. A large file shows how far its check has got
+  in the status bar. Settings `mariadb.lsp.enabled`, `.path`, `.threads`,
+  `.catalogFiles` (SQL files whose tables every file sees),
+  `.catalogRefreshSeconds`, `.keywordCase`, `.sqlMode`, `.serverVersion`,
+  `.debounceMs`, `.maxDiagnostics`, `.progressThresholdMB` and
+  `.trace.server`; command **MariaDB: Restart SQL Language Server**.
 
 - **GitHub Copilot support.** The MariaDB agent skills of an
   [ai-plugins](https://github.com/mariadb-corporation/ai-plugins) release

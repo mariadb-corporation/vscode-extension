@@ -453,6 +453,7 @@ export class MockOutputChannel {
 }
 
 export class MockStatusBarItem {
+    public name?: string;
     public text = "";
     public tooltip?: string;
     public command?: string;

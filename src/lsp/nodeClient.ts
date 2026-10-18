@@ -25,6 +25,10 @@ import {
 
 import { SQL_LANGUAGE_IDS } from "../editor/sqlLanguage.js";
 import type { LanguageClientFactory } from "./languageServer.js";
+import {
+    PARSE_PROGRESS_NOTIFICATION,
+    type IParseProgress,
+} from "./parseProgress.js";
 
 /**
  * The client's id: its settings are `mariadb.lsp.*`, and
@@ -81,6 +85,23 @@ export const createNodeLanguageClient: LanguageClientFactory = (options) => {
     };
     const client = new LanguageClient(CLIENT_ID, CLIENT_NAME, serverOptions,
         clientOptions);
+    client.onNotification(PARSE_PROGRESS_NOTIFICATION,
+        (progress: IParseProgress) => {
+            options.onParseProgress(progress);
+        });
+    // The server reports a large file's check as work done progress too,
+    // when the client says it takes that; the status bar entry built on
+    // mariadb/parseProgress says the same, so the client says it does not.
+    client.registerFeature({
+        fillClientCapabilities: (capabilities) => {
+            (capabilities.window ??= {}).workDoneProgress = false;
+        },
+        initialize: () => { /* nothing to set up */ },
+        getState: () => {
+            return { kind: "static" };
+        },
+        clear: () => { /* nothing to undo */ },
+    });
 
     return {
         start: async () => {

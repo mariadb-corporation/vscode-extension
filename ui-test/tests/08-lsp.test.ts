@@ -16,6 +16,8 @@
  */
 
 import * as assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
     BottomBarPanel,
@@ -29,20 +31,23 @@ import {
 import {
     CONNECTION,
     extensionLog,
+    FILES,
     inlineAction,
     openSection,
     runCommand,
     screenshot,
     SERVER_TIMEOUT,
     treeItem,
+    updateUserSettings,
     waitFor,
 } from "../lib/ui";
 
 /**
  * The SQL language server, mariadb-lsp: found on the PATH and started for
- * a SQL file, a syntax error in the Problems view until it is fixed, and
+ * a SQL file, a syntax error in the Problems view until it is fixed,
  * completion from the tables of the file's connection, which the server
- * reads from the sandbox itself with the password the extension stored.
+ * reads from the sandbox itself with the password the extension stored,
+ * and from a catalog file named in the settings while the server runs.
  */
 
 let connections: CustomTreeSection;
@@ -79,6 +84,33 @@ const discardEditors = async (): Promise<void> => {
     }
 };
 
+/**
+ * Opens the completion list until it offers a label: what is offered
+ * may come from a catalog the server is still reading.
+ *
+ * @param editor The editor, its caret where completion is wanted.
+ * @param label What has to be offered.
+ * @param what What is waited for, for the timeout's message.
+ *
+ * @returns Every label offered then.
+ */
+const completionsWith = async (
+    editor: TextEditor,
+    label: string,
+    what: string,
+): Promise<string[]> => {
+    return await waitFor(async () => {
+        const assist = await editor.toggleContentAssist(true) as ContentAssist;
+        const items = await Promise.all((await assist.getItems()).map(
+            async (item) => {
+                return await item.getLabel();
+            }));
+        await editor.toggleContentAssist(false);
+
+        return items.includes(label) ? items : undefined;
+    }, `${what}\n${extensionLog()}`, SERVER_TIMEOUT);
+};
+
 /** The messages of the error markers in the Problems view. */
 const errorMarkers = async (): Promise<string[]> => {
     const problems = await new BottomBarPanel().openProblemsView();
@@ -94,8 +126,13 @@ describe("SQL language server", () => {
         connections = await openSection("Connections");
     });
 
-    after(async () => {
+    // Each test opens editors of its own; left open, they move the
+    // focus off the tree row whose New SQL Editor button the next needs.
+    afterEach(async () => {
         await discardEditors();
+    });
+
+    after(async () => {
         await new BottomBarPanel().toggle(false);
     });
 
@@ -123,23 +160,26 @@ describe("SQL language server", () => {
         await editor.moveCursor(2, "SELECT * FROM uitest.".length + 1);
         // The server reads the sandbox's catalog in the background; until
         // it has, the list has no tables, so it is asked again.
-        const labels = await waitFor(async () => {
-            const assist = await editor.toggleContentAssist(true) as
-                ContentAssist;
-            const items = await Promise.all((await assist.getItems()).map(
-                async (item) => {
-                    return await item.getLabel();
-                }));
-            if (items.includes("city")) {
-                return items;
-            }
-            await editor.toggleContentAssist(false);
-
-            return undefined;
-        }, `the sandbox's tables in the completion list\n${extensionLog()}`,
-        SERVER_TIMEOUT);
+        const labels = await completionsWith(editor, "city",
+            "the sandbox's tables in the completion list");
         assert.ok(labels.includes("country"), labels.join(", "));
-        await screenshot("08-completion");
-        await editor.toggleContentAssist(false);
     });
+
+    it("completes the tables of a catalog file named in the settings",
+        async () => {
+            const catalog = join(FILES, "catalog.sql");
+            writeFileSync(catalog,
+                "CREATE TABLE offline.ledger (id INT, amount DECIMAL(10,2));\n");
+            const editor = await sqlEditor("SELECT * FROM offline.");
+            await editor.moveCursor(2, "SELECT * FROM offline.".length + 1);
+            // Sent to the running server, which reads the file then.
+            updateUserSettings({ "mariadb.lsp.catalogFiles": [catalog] });
+            try {
+                await completionsWith(editor, "ledger",
+                    "the catalog file's table in the completion list");
+                await screenshot("08-catalog-file");
+            } finally {
+                updateUserSettings({ "mariadb.lsp.catalogFiles": undefined });
+            }
+        });
 });

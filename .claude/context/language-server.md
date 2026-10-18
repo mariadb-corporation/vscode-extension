@@ -15,6 +15,8 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | --- | --- |
 | `locator.ts` | Finds the binary: `mariadb.lsp.path` alone when set, else `mariadb-lsp` on the PATH, else `~/.local/bin/mariadb-lsp` (`.exe` on Windows, under the home directory there too). Each candidate is probed with `--version`, which has to print `mariadb-lsp <x.y.z>` at least `MINIMUM_LSP_VERSION` (26.9.4, the first with `--version`). Shares `ShellEnvironment` and the version helpers with the shell lookup. |
 | `languageServer.ts` | `LanguageServer`, the controller: states `stopped` / `starting` / `running` / `unavailable`, the restart on settings changes, the `mariadb/documentContext` notifications. Talks to the client through `ILanguageClientHandle`, so it is tested with a fake. |
+| `settings.ts` | `serverSettings`: the `mariadb.lsp.*` settings under the server's option names (`progressThresholdMB` becomes bytes; values the server would refuse are left out), and which settings restart the server and which are sent to it. |
+| `parseProgress.ts` | `ParseProgressStatus`: the status bar entry for `mariadb/parseProgress`. |
 | `nodeClient.ts` | The only file importing `vscode-languageclient/node`: the `LanguageClient` (id `mariadb.lsp`, output channel **MariaDB SQL Language Server**), the document selector (`mariadb-sql` and `sql`, `file` and `untitled`), and the middleware. `extension.test.ts` mocks this module, since the library needs the real `vscode`. |
 
 ## Lifecycle
@@ -31,6 +33,15 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 - **Arguments**: `lsp --stdio`, plus `--threads N` when
   `mariadb.lsp.threads` is above 0. `mariadb.lsp.trace.server` is read
   by the client library itself (it follows the client id).
+- **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
+  `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
+  `progressThresholdMB` go to the server as initialization options. A
+  change is sent as `workspace/didChangeConfiguration`
+  (`{settings: {mariadb: ...}}`, every key each time, so one put back to
+  its default reaches the server too), except for `serverVersion`, which
+  restarts it like `enabled`, `path` and `threads`: the server ignores a
+  version it cannot read, so an emptied setting could not take it back to
+  its own. The settings' defaults are the server's.
 - **The shell's secret store helpers.** The server reads passwords
   through `mariadb-secret-store-<helper>` next to the `mariadb-shell` on
   its PATH. A shell the extension installed under
@@ -70,6 +81,24 @@ The `sqlMode` of the message is not sent: `SqlModes` knows only whether
 ANSI_QUOTES is on, and the server reads the full mode from the
 connection.
 
+## Progress of a large file's check
+
+For a file of at least `progressThresholdMB` (4 MB by default) the server
+sends `mariadb/parseProgress` while it checks it. `ParseProgressStatus`
+shows `Checking SQL 42%` on the left of the status bar: the active
+editor's file if it is being checked, else any, with `(+N)` for the
+others; hidden when no check is under way. The item is created on the
+first report (the activation test counts status bar items). Reports from
+a client that has been stopped are dropped (`#generation`), and a closed
+file or a stopped server clears its entries.
+
+The client tells the server it does not take work done progress
+(`window.workDoneProgress: false`, a static feature registered after the
+library's own, so it has the last word); otherwise the server would also
+report "Checking SQL" through VS Code's own progress, twice in the status
+bar. The checks of a few megabytes are over in milliseconds, too quick for
+a UI test to catch; the unit tests cover it.
+
 ## Semantic tokens are switched off on the client
 
 VS Code takes the answer of one semantic token provider, newest
@@ -86,7 +115,5 @@ provider, once the server's tokens cover both.
 - The gutter's statement markers and the run commands still use the
   TypeScript scanner (`src/sql/statementSpans.ts`), not the server's
   statements.
-- `mariadb/parseProgress` has no status bar entry; the server's work done
-  progress ("Checking SQL") shows instead.
-- No setting for the server's `catalogFiles`, `keywordCase` or
-  `catalogRefreshSeconds`.
+- No setting for the server's `delimiter` default or
+  `semanticTokensFullLimit` (the tokens are off).

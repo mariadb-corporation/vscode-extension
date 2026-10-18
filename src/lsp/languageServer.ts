@@ -31,6 +31,12 @@ import {
     locateLanguageServer,
     type LspLocation,
 } from "./locator.js";
+import { ParseProgressStatus, type IParseProgress } from "./parseProgress.js";
+import {
+    LIVE_SERVER_SETTINGS,
+    RESTART_SERVER_SETTINGS,
+    serverSettings,
+} from "./settings.js";
 
 /** The notification that tells the server about a document's connection. */
 export const DOCUMENT_CONTEXT_NOTIFICATION = "mariadb/documentContext";
@@ -44,12 +50,27 @@ export const REFRESH_CATALOG_REQUEST = "mariadb/refreshCatalog";
  */
 const CHANGES_CATALOG = /\b(CREATE|ALTER|DROP|RENAME)\b/i;
 
-/** The settings a change of which restarts the server. */
-const RESTART_SETTINGS = [
-    "mariadb.lsp.enabled",
-    "mariadb.lsp.path",
-    "mariadb.lsp.threads",
-];
+/** The notification that hands the server changed settings. */
+export const DID_CHANGE_CONFIGURATION_NOTIFICATION =
+    "workspace/didChangeConfiguration";
+
+/** The section all of the server's settings are in. */
+const SECTION = "mariadb.lsp";
+
+/**
+ * @param event A configuration change.
+ * @param names Settings below `mariadb.lsp`.
+ *
+ * @returns Whether any of them changed.
+ */
+const affects = (
+    event: vscode.ConfigurationChangeEvent,
+    names: readonly string[],
+): boolean => {
+    return names.some((name) => {
+        return event.affectsConfiguration(`${SECTION}.${name}`);
+    });
+};
 
 /** A running language client, as far as the controller needs it. */
 export interface ILanguageClientHandle {
@@ -88,6 +109,8 @@ export interface ILanguageClientOptions {
     onDidOpen(document: vscode.TextDocument): void;
     /** Called after the server was told a document closed. */
     onDidClose(document: vscode.TextDocument): void;
+    /** Called with each `mariadb/parseProgress` from the server. */
+    onParseProgress(progress: IParseProgress): void;
 }
 
 /** Builds a language client; `nodeClient.ts` has the real one. */
@@ -151,7 +174,13 @@ export class LanguageServer implements vscode.Disposable {
      * for every document the server has open.
      */
     readonly #sent = new Map<string, string | null>();
-    readonly #disposables: vscode.Disposable[] = [];
+    /**
+     * Counts the clients started, so what a stopped one still reports is
+     * told from what the current one does.
+     */
+    #generation = 0;
+    readonly #progress = new ParseProgressStatus();
+    readonly #disposables: vscode.Disposable[] = [this.#progress];
 
     /**
      * @param deps What the controller needs from the rest of the extension.
@@ -170,10 +199,10 @@ export class LanguageServer implements vscode.Disposable {
                 }
             }),
             vscode.workspace.onDidChangeConfiguration((event) => {
-                if (RESTART_SETTINGS.some((name) => {
-                    return event.affectsConfiguration(name);
-                })) {
+                if (affects(event, RESTART_SERVER_SETTINGS)) {
                     void this.restart();
+                } else if (affects(event, LIVE_SERVER_SETTINGS)) {
+                    this.#sendSettings();
                 }
             }),
             {
@@ -243,7 +272,9 @@ export class LanguageServer implements vscode.Disposable {
         }
         const state = this.#state;
         this.#state = { kind: "stopped" };
+        this.#generation += 1;
         this.#sent.clear();
+        this.#progress.clear();
         if (state.kind === "running") {
             try {
                 await state.client.stop();
@@ -267,7 +298,7 @@ export class LanguageServer implements vscode.Disposable {
      * @returns Once the state is settled.
      */
     async #start(): Promise<void> {
-        const settings = vscode.workspace.getConfiguration("mariadb.lsp");
+        const settings = vscode.workspace.getConfiguration(SECTION);
         if (!settings.get<boolean>("enabled", true)) {
             this.deps.log("The SQL language server is off "
                 + "(mariadb.lsp.enabled).");
@@ -304,11 +335,12 @@ export class LanguageServer implements vscode.Disposable {
         if (Number.isInteger(threads) && threads > 0) {
             args.push("--threads", String(threads));
         }
-        const initializationOptions: Record<string, unknown> = {};
+        const initializationOptions = serverSettings(settings);
         if (shellBinary !== undefined) {
             initializationOptions.shellBinary = shellBinary;
         }
 
+        const generation = this.#generation;
         const client = this.deps.createClient({
             command: location.binaryPath,
             args,
@@ -319,6 +351,12 @@ export class LanguageServer implements vscode.Disposable {
             },
             onDidClose: (document) => {
                 this.#sent.delete(document.uri.toString());
+                this.#progress.forget(document.uri.toString());
+            },
+            onParseProgress: (progress) => {
+                if (generation === this.#generation) {
+                    this.#progress.update(progress);
+                }
             },
         });
         try {
@@ -327,11 +365,34 @@ export class LanguageServer implements vscode.Disposable {
             this.deps.log(`The SQL language server did not start: `
                 + `${errorText(error)}`);
             this.#state = { kind: "unavailable" };
+            this.#progress.clear();
 
             return;
         }
         this.#state = { kind: "running", client };
         this.#syncAll();
+    }
+
+    /**
+     * Hands the running server the settings as they are now; one that
+     * is not running reads them when it starts.
+     *
+     * @returns Nothing.
+     */
+    #sendSettings(): void {
+        if (this.#state.kind !== "running") {
+            return;
+        }
+        this.#state.client.sendNotification(
+            DID_CHANGE_CONFIGURATION_NOTIFICATION, {
+                settings: {
+                    mariadb: serverSettings(
+                        vscode.workspace.getConfiguration(SECTION)),
+                },
+            }).catch((error: unknown) => {
+            this.deps.log(`Could not send the changed settings to the SQL `
+                + `language server: ${errorText(error)}`);
+        });
     }
 
     /**

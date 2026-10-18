@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type * as vscode from "vscode";
 
 import {
+    DID_CHANGE_CONFIGURATION_NOTIFICATION,
     DOCUMENT_CONTEXT_NOTIFICATION,
     LanguageServer,
     REFRESH_CATALOG_REQUEST,
@@ -32,6 +33,7 @@ import {
     fireDocumentOpen,
     MockTextDocument,
     resetVscodeMock,
+    statusBarItems,
     Uri,
 } from "../mocks/vscode.js";
 
@@ -199,7 +201,7 @@ describe("LanguageServer", () => {
         expect(clients[0].options.args)
             .toEqual(["lsp", "--stdio", "--threads", "3"]);
         expect(clients[0].options.initializationOptions)
-            .toEqual({ shellBinary: shell });
+            .toMatchObject({ shellBinary: shell, keywordCase: "upper" });
     });
 
     it("tells the server each document's connection", async () => {
@@ -335,6 +337,72 @@ describe("LanguageServer", () => {
         fireConfigurationChange("mariadb.lsp.trace.server");
         await settle();
         expect(clients).toHaveLength(2);
+    });
+
+    it("starts with the settings and sends them when they change",
+        async () => {
+            configuration.set("mariadb.lsp.catalogFiles", ["schema.sql"]);
+            const { clients, server } = build();
+            fireDocumentOpen(sqlDocument("a.sql"));
+            await server.start();
+            expect(clients[0].options.initializationOptions).toMatchObject({
+                catalogFiles: ["schema.sql"],
+                catalogRefreshSeconds: 0,
+            });
+
+            configuration.set("mariadb.lsp.catalogRefreshSeconds", 30);
+            fireConfigurationChange("mariadb.lsp.catalogRefreshSeconds");
+            await settle();
+            expect(clients).toHaveLength(1);
+            expect(clients[0].notifications).toEqual([{
+                method: DID_CHANGE_CONFIGURATION_NOTIFICATION,
+                params: {
+                    settings: {
+                        mariadb: expect.objectContaining({
+                            catalogFiles: ["schema.sql"],
+                            catalogRefreshSeconds: 30,
+                        }) as unknown,
+                    },
+                },
+            }]);
+
+            // The server cannot go back to its own version: restarted.
+            configuration.set("mariadb.lsp.serverVersion", "11.4.2");
+            fireConfigurationChange("mariadb.lsp.serverVersion");
+            await settle();
+            await server.start();
+            expect(clients).toHaveLength(2);
+            expect(clients[1].options.initializationOptions)
+                .toMatchObject({ serverVersion: "11.4.2" });
+        });
+
+    it("shows a large file's check in the status bar", async () => {
+        const { clients, server } = build();
+        fireDocumentOpen(sqlDocument("a.sql"));
+        await server.start();
+        const uri = "file:///work/a.sql";
+        clients[0].options.onParseProgress(
+            { uri, version: 1, checked: 5, total: 10, done: false });
+        const item = statusBarItems.find((candidate) => {
+            return candidate.name === "MariaDB SQL check";
+        });
+        expect(item?.visible).toBe(true);
+        expect(item?.text).toContain("50%");
+
+        // Closing the file ends it; so does a restart, and what the old
+        // server still says after it is not shown.
+        clients[0].options.onDidClose(asDocument(sqlDocument("a.sql")));
+        expect(item?.visible).toBe(false);
+        clients[0].options.onParseProgress(
+            { uri, version: 1, checked: 6, total: 10, done: false });
+        await server.restart();
+        expect(item?.visible).toBe(false);
+        clients[0].options.onParseProgress(
+            { uri, version: 1, checked: 7, total: 10, done: false });
+        expect(item?.visible).toBe(false);
+        clients[1].options.onParseProgress(
+            { uri, version: 1, checked: 7, total: 10, done: false });
+        expect(item?.visible).toBe(true);
     });
 
     it("stays off when disabled", async () => {

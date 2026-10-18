@@ -244,6 +244,57 @@
           "minimum": 0,
           "markdownDescription": "How many threads the language server checks statements with. 0: one per CPU core."
         },
+        "mariadb.lsp.catalogFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "SQL files whose schema objects every SQL file sees in completion, hover and go to definition, read in this order as one script. A directory stands for its `*.sql` files. Relative paths are from the first workspace folder. Saving one of them reads them again."
+        },
+        "mariadb.lsp.catalogRefreshSeconds": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "How often the language server reads a connection's tables, columns and routines again, in seconds. 0: when a file first uses the connection, and after a script with `CREATE`, `ALTER`, `DROP` or `RENAME` runs from an editor."
+        },
+        "mariadb.lsp.keywordCase": {
+          "type": "string",
+          "default": "upper",
+          "enum": [
+            "upper",
+            "lower"
+          ],
+          "markdownDescription": "The case completion writes keywords and built-in functions in."
+        },
+        "mariadb.lsp.sqlMode": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The `sql_mode` SQL files are checked in, for example `ANSI_QUOTES,STRICT_TRANS_TABLES`. A file on a connection is checked in that server's `sql_mode` instead, and `SET sql_mode` in the file is followed."
+        },
+        "mariadb.lsp.serverVersion": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "The server version versioned comments (`/*!100500 ... */`) are judged against, for example `11.4.2`. Empty: the version of the grammar the language server was built from. A file on a connection uses that server's version instead. Changing it restarts the language server."
+        },
+        "mariadb.lsp.debounceMs": {
+          "type": "integer",
+          "default": 150,
+          "minimum": 0,
+          "markdownDescription": "How long, in milliseconds, typing has to pause before the statements it changed are checked."
+        },
+        "mariadb.lsp.maxDiagnostics": {
+          "type": "integer",
+          "default": 1000,
+          "minimum": 0,
+          "markdownDescription": "The most problems reported per SQL file."
+        },
+        "mariadb.lsp.progressThresholdMB": {
+          "type": "number",
+          "default": 4,
+          "minimum": 0,
+          "markdownDescription": "SQL files at least this large, in megabytes, show how far their check has got in the status bar."
+        },
         "mariadb.lsp.trace.server": {
           "type": "string",
           "default": "off",

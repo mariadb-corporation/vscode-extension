@@ -16,7 +16,13 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    readFileSync,
+    writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -74,6 +80,32 @@ export const SANDBOX_ROW = `localhost:${SANDBOX_PORT}`;
 
 /** The labels on the way to the sandbox's connection. */
 export const CONNECTION = ["Sandboxes", `root@127.0.0.1:${SANDBOX_PORT}`];
+
+/**
+ * Changes the test instance's user settings while it runs, as the
+ * settings editor would: VS Code watches the file and reports the change
+ * to the extension.
+ *
+ * @param changes The settings to set; undefined removes one.
+ *
+ * @returns Nothing.
+ */
+export const updateUserSettings = (
+    changes: Record<string, unknown>,
+): void => {
+    const file = join(process.env.UI_TEST_STORAGE ?? "", "settings", "User",
+        "settings.json");
+    const settings = JSON.parse(readFileSync(file, "utf8")) as
+        Record<string, unknown>;
+    for (const [key, value] of Object.entries(changes)) {
+        if (value === undefined) {
+            delete settings[key];
+        } else {
+            settings[key] = value;
+        }
+    }
+    writeFileSync(file, JSON.stringify(settings, undefined, 4));
+};
 
 /**
  * @param lines How many of its last lines.
