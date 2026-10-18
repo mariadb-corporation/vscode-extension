@@ -73,6 +73,8 @@ const asDocument = (document: MockTextDocument): vscode.TextDocument => {
 const build = (options: {
     versions?: Record<string, string>;
     shellBinary?: string;
+    /** Makes looking for the shell fail. */
+    failShell?: boolean;
     failStart?: boolean;
     /** Holds the client's start until it settles. */
     startGate?: Promise<void>;
@@ -142,7 +144,9 @@ const build = (options: {
             return () => { /* nothing to undo */ };
         },
         shellBinary: () => {
-            return Promise.resolve(options.shellBinary);
+            return options.failShell
+                ? Promise.reject(new Error("shell lookup failed"))
+                : Promise.resolve(options.shellBinary);
         },
     });
 
@@ -381,6 +385,7 @@ describe("LanguageServer", () => {
         fireDocumentOpen(sqlDocument("a.sql"));
         await server.start();
         const uri = "file:///work/a.sql";
+        clients[0].options.onDidOpen(asDocument(sqlDocument("a.sql")));
         clients[0].options.onParseProgress(
             { uri, version: 1, checked: 5, total: 10, done: false });
         const item = statusBarItems.find((candidate) => {
@@ -393,13 +398,17 @@ describe("LanguageServer", () => {
         // server still says after it is not shown.
         clients[0].options.onDidClose(asDocument(sqlDocument("a.sql")));
         expect(item?.visible).toBe(false);
+        // One still on its way when the file closed is not shown.
         clients[0].options.onParseProgress(
             { uri, version: 1, checked: 6, total: 10, done: false });
+        expect(item?.visible).toBe(false);
+        clients[0].options.onDidOpen(asDocument(sqlDocument("a.sql")));
         await server.restart();
         expect(item?.visible).toBe(false);
         clients[0].options.onParseProgress(
             { uri, version: 1, checked: 7, total: 10, done: false });
         expect(item?.visible).toBe(false);
+        clients[1].options.onDidOpen(asDocument(sqlDocument("a.sql")));
         clients[1].options.onParseProgress(
             { uri, version: 1, checked: 7, total: 10, done: false });
         expect(item?.visible).toBe(true);
@@ -420,6 +429,15 @@ describe("LanguageServer", () => {
         expect(server.running).toBe(false);
         expect(lines.join("\n"))
             .toContain("did not start: spawn failed");
+    });
+
+    it("starts without the shell when looking for it fails", async () => {
+        const { clients, lines, server } = build({ failShell: true });
+        await server.start();
+        expect(server.running).toBe(true);
+        expect(clients[0].options.initializationOptions.shellBinary)
+            .toBeUndefined();
+        expect(lines.join("\n")).toContain("shell lookup failed");
     });
 
     it("stops the client", async () => {

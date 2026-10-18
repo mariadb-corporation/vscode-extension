@@ -17,7 +17,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `languageServer.ts` | `LanguageServer`, the controller: states `stopped` / `starting` / `running` / `unavailable`, the restart on settings changes, the `mariadb/documentContext` notifications. Talks to the client through `ILanguageClientHandle`, so it is tested with a fake. |
 | `settings.ts` | `serverSettings`: the `mariadb.lsp.*` settings under the server's option names (`progressThresholdMB` becomes bytes; values the server would refuse are left out), and which settings restart the server and which are sent to it. |
 | `parseProgress.ts` | `ParseProgressStatus`: the status bar entry for `mariadb/parseProgress`. |
-| `nodeClient.ts` | The only file importing `vscode-languageclient/node`: the `LanguageClient` (id `mariadb.lsp`, output channel **MariaDB SQL Language Server**), the document selector (`mariadb-sql` and `sql`, `file` and `untitled`), and the middleware. `extension.test.ts` mocks this module, since the library needs the real `vscode`. |
+| `nodeClient.ts` | The only file importing `vscode-languageclient/node`: the `LanguageClient` (id `mariadb.lsp`, output channel **MariaDB SQL Language Server**), the document selector (`mariadb-sql` and `sql`, `file` and `untitled`), and the middleware. `extension.test.ts` mocks this module, since the library needs the real `vscode`. The server process is spawned here (server options as a function) rather than by the library, which keeps its process private and, after a failed start, neither stops nor kills it: the handle kills it after a failed start and after `stop()`. All clients share one output channel; the library's own is not disposed on `stop()`, so every restart left another behind. |
 
 ## Lifecycle
 
@@ -49,6 +49,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   controller passes it as the `shellBinary` initialization option; it
   is found with `locateShell` (never the installer) when the server starts.
 - Stopped in `deactivate()` before the connections and the MCP session.
+- A start that throws past its own handling leaves the state
+  `unavailable`, never `starting`, which every later `start()` and
+  `stop()` would wait on. A failed shell lookup costs only `shellBinary`.
 
 ## Which connection a document runs on
 

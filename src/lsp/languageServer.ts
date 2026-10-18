@@ -239,7 +239,14 @@ export class LanguageServer implements vscode.Disposable {
             case "starting":
                 return await this.#state.done;
             case "stopped": {
-                const done = this.#start();
+                const done = this.#start().catch((error: unknown) => {
+                    // Never left "starting", or every later start and
+                    // stop would wait on this one for good.
+                    this.deps.log(`The SQL language server did not start: `
+                        + `${errorText(error)}`);
+                    this.#state = { kind: "unavailable" };
+                    this.#progress.clear();
+                });
                 this.#state = { kind: "starting", done };
 
                 return await done;
@@ -307,17 +314,26 @@ export class LanguageServer implements vscode.Disposable {
             return;
         }
 
+        // Looked for side by side; a shell that cannot be looked up costs
+        // the live catalog, not the language server.
+        const [found, shell] = await Promise.allSettled([
+            locateLanguageServer(this.deps.environment,
+                settings.get<string>("path", ""), this.deps.log),
+            this.deps.shellBinary(),
+        ]);
         let location: LspLocation | undefined;
-        let shellBinary: string | undefined;
-        try {
-            [location, shellBinary] = await Promise.all([
-                locateLanguageServer(this.deps.environment,
-                    settings.get<string>("path", ""), this.deps.log),
-                this.deps.shellBinary(),
-            ]);
-        } catch (error) {
+        if (found.status === "fulfilled") {
+            location = found.value;
+        } else {
             this.deps.log(`Looking for the SQL language server failed: `
-                + `${errorText(error)}`);
+                + `${errorText(found.reason)}`);
+        }
+        let shellBinary: string | undefined;
+        if (shell.status === "fulfilled") {
+            shellBinary = shell.value;
+        } else {
+            this.deps.log(`Looking for the MariaDB Shell for the SQL language `
+                + `server failed: ${errorText(shell.reason)}`);
         }
         if (!location) {
             this.deps.log("No usable mariadb-lsp was found, so SQL files "
@@ -354,7 +370,10 @@ export class LanguageServer implements vscode.Disposable {
                 this.#progress.forget(document.uri.toString());
             },
             onParseProgress: (progress) => {
-                if (generation === this.#generation) {
+                // One still on its way when the document closed would
+                // otherwise stay in the status bar.
+                if (generation === this.#generation
+                    && this.#sent.has(progress.uri)) {
                     this.#progress.update(progress);
                 }
             },

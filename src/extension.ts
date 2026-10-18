@@ -552,9 +552,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
     });
     // Diagnostics, completion, hover and the rest for SQL files, from
     // mariadb-lsp; started when the first SQL file is open.
+    const lspEnvironment = createNodeShellEnvironment(log);
     const languageServer = new LanguageServer({
         createClient: createNodeLanguageClient,
-        environment: createNodeShellEnvironment(log),
+        environment: lspEnvironment,
         log,
         connectionFor: (document) => {
             return editors.connectionFor(document);
@@ -575,7 +576,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         // mariadb-shell on its PATH; one the extension installed is not
         // there. Looked up without installing: no shell, no live catalog.
         shellBinary: async () => {
-            const found = await locateShell(createNodeShellEnvironment(log),
+            const found = await locateShell(lspEnvironment,
                 MINIMUM_SHELL_VERSION);
 
             return found?.source === "managed" ? found.binaryPath : undefined;

@@ -17,6 +17,9 @@
 
 /** The real language client, on `vscode-languageclient`. */
 
+import { spawn, type ChildProcess } from "node:child_process";
+
+import * as vscode from "vscode";
 import {
     LanguageClient,
     type LanguageClientOptions,
@@ -38,6 +41,27 @@ const CLIENT_ID = "mariadb.lsp";
 const CLIENT_NAME = "MariaDB SQL Language Server";
 
 /**
+ * The one output channel every client writes to. A client makes one of
+ * its own unless given one, and stopping it does not dispose it, so each
+ * restart would leave another channel of the same name behind.
+ */
+let outputChannel: vscode.LogOutputChannel | undefined;
+
+/**
+ * Kills a server process that is still there.
+ *
+ * @param child The process, if one was spawned.
+ *
+ * @returns Nothing.
+ */
+const killIfAlive = (child: ChildProcess | undefined): void => {
+    if (child !== undefined && child.exitCode === null
+        && child.signalCode === null) {
+        child.kill();
+    }
+};
+
+/**
  * Builds a client that spawns the server and talks to it over stdio.
  *
  * @param options What to start and what to tell it.
@@ -45,9 +69,20 @@ const CLIENT_NAME = "MariaDB SQL Language Server";
  * @returns The client, not started yet.
  */
 export const createNodeLanguageClient: LanguageClientFactory = (options) => {
-    const serverOptions: ServerOptions = {
-        command: options.command,
-        args: options.args,
+    // Spawned here rather than by the library, which keeps the process to
+    // itself: after a failed start it neither stops nor kills it, and the
+    // extension has to.
+    let child: ChildProcess | undefined;
+    const serverOptions: ServerOptions = async () => {
+        return await new Promise<ChildProcess>((resolve, reject) => {
+            const spawned = spawn(options.command, options.args,
+                { stdio: "pipe", windowsHide: true });
+            child = spawned;
+            spawned.once("spawn", () => {
+                resolve(spawned);
+            });
+            spawned.once("error", reject);
+        });
     };
     const clientOptions: LanguageClientOptions = {
         documentSelector: SQL_LANGUAGE_IDS.flatMap((language) => {
@@ -57,7 +92,8 @@ export const createNodeLanguageClient: LanguageClientFactory = (options) => {
             ];
         }),
         initializationOptions: options.initializationOptions,
-        outputChannelName: CLIENT_NAME,
+        outputChannel: outputChannel
+            ??= vscode.window.createOutputChannel(CLIENT_NAME, { log: true }),
         middleware: {
             didOpen: async (document, next) => {
                 await next(document);
@@ -105,11 +141,22 @@ export const createNodeLanguageClient: LanguageClientFactory = (options) => {
 
     return {
         start: async () => {
-            await client.start();
+            try {
+                await client.start();
+            } catch (error) {
+                killIfAlive(child);
+                throw error;
+            }
         },
         stop: async () => {
-            if (client.isRunning()) {
-                await client.stop();
+            try {
+                if (client.isRunning()) {
+                    await client.stop();
+                }
+            } finally {
+                // Stopped, it exits by itself; one that would not answer
+                // the shutdown, or never started, is ended here.
+                killIfAlive(child);
             }
         },
         sendNotification: async (method, params) => {
