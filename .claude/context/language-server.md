@@ -36,6 +36,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   connection's catalog through the extension (below) instead of
   connecting itself. `mariadb.lsp.trace.server` is read
   by the client library itself (it follows the client id).
+- **Formatting**: the server advertises `documentFormattingProvider` and
+  `documentRangeFormattingProvider` (queries only; lsp-server plan P8), so
+  "Format Document" works through the language client with nothing in the
+  extension; `keywordCase` and `lineWidth` apply, the editor's `tabSize`
+  sets the indentation. No UI test covers it yet.
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
   `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A
