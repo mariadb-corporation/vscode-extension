@@ -22,7 +22,9 @@ import type { IDbCallParams } from "../../lsp/dbCall.js";
 import {
     DID_CHANGE_CONFIGURATION_NOTIFICATION,
     DOCUMENT_CONTEXT_NOTIFICATION,
+    FORMATTING_REQUEST,
     LanguageServer,
+    RANGE_FORMATTING_REQUEST,
     REFRESH_CATALOG_REQUEST,
     type ILanguageClientOptions,
 } from "../../lsp/languageServer.js";
@@ -33,7 +35,10 @@ import {
     fireDocumentChange,
     fireDocumentOpen,
     MockTextDocument,
+    MockTextEditor,
+    Position,
     resetVscodeMock,
+    Selection,
     statusBarItems,
     Uri,
 } from "../mocks/vscode.js";
@@ -79,6 +84,8 @@ const build = (options: {
     failStart?: boolean;
     /** Holds the client's start until it settles. */
     startGate?: Promise<void>;
+    /** What a request other than the ones the controller sends answers. */
+    answer?: (method: string, params: unknown) => Promise<unknown>;
 } = {}): Fixture => {
     const clients: FakeClient[] = [];
     const lines: string[] = [];
@@ -120,7 +127,9 @@ const build = (options: {
                 sendRequest: (method, params) => {
                     client.requests.push({ method, params });
 
-                    return Promise.resolve(null);
+                    return options.answer
+                        ? options.answer(method, params)
+                        : Promise.resolve(null);
                 },
             };
         },
@@ -166,6 +175,127 @@ const settle = async (): Promise<void> => {
         await Promise.resolve();
     }
 };
+
+/** An LSP TextEdit replacing [line:from, line:to) with `text`. */
+const lspEdit = (line: number, from: number, to: number, text: string) => {
+    return {
+        range: {
+            start: { line, character: from },
+            end: { line, character: to },
+        },
+        newText: text,
+    };
+};
+
+describe("LanguageServer.format", () => {
+    beforeEach(() => {
+        resetVscodeMock();
+    });
+
+    /** An editor on a SQL document, as the controller takes it. */
+    const sqlEditor = (): MockTextEditor => {
+        return new MockTextEditor(new MockTextDocument(
+            Uri.parse("file:///work/q.sql"), "mariadb-sql",
+            "select a from t;\nselect b from u;\n"));
+    };
+
+    const asEditor = (editor: MockTextEditor): vscode.TextEditor => {
+        return editor as unknown as vscode.TextEditor;
+    };
+
+    it("formats the whole document when nothing is selected", async () => {
+        const { clients, server } = build({
+            answer: () => {
+                return Promise.resolve([lspEdit(0, 0, 15, "SELECT a FROM t")]);
+            },
+        });
+        const editor = sqlEditor();
+
+        expect(await server.format(asEditor(editor))).toBe("formatted");
+        expect(clients[0].requests).toEqual([{
+            method: FORMATTING_REQUEST,
+            params: {
+                textDocument: { uri: "file:///work/q.sql" },
+                options: { tabSize: 4, insertSpaces: true },
+            },
+        }]);
+        expect(editor.replacements).toHaveLength(1);
+        expect(editor.replacements[0].text).toBe("SELECT a FROM t");
+        expect(editor.replacements[0].range.start).toEqual(new Position(0, 0));
+        expect(editor.replacements[0].range.end).toEqual(new Position(0, 15));
+    });
+
+    it("formats the statements of the selection only", async () => {
+        const { clients, server } = build({
+            answer: () => {
+                return Promise.resolve([lspEdit(1, 0, 15, "SELECT b FROM u")]);
+            },
+        });
+        const editor = sqlEditor();
+        editor.selection = new Selection(new Position(1, 2), new Position(1, 8));
+        editor.options = { tabSize: 2, insertSpaces: false };
+
+        expect(await server.format(asEditor(editor))).toBe("formatted");
+        expect(clients[0].requests).toEqual([{
+            method: RANGE_FORMATTING_REQUEST,
+            params: {
+                textDocument: { uri: "file:///work/q.sql" },
+                options: { tabSize: 2, insertSpaces: false },
+                range: {
+                    start: { line: 1, character: 2 },
+                    end: { line: 1, character: 8 },
+                },
+            },
+        }]);
+        expect(editor.replacements.map((r) => {
+            return r.text;
+        })).toEqual(["SELECT b FROM u"]);
+    });
+
+    it("says when there was nothing to change", async () => {
+        const { server } = build({
+            answer: () => {
+                return Promise.resolve([]);
+            },
+        });
+        const editor = sqlEditor();
+
+        expect(await server.format(asEditor(editor))).toBe("unchanged");
+        expect(editor.replacements).toHaveLength(0);
+    });
+
+    it("drops edits for a document that changed meanwhile", async () => {
+        const editor = sqlEditor();
+        const { server } = build({
+            answer: () => {
+                editor.document.setText("select 1;");
+
+                return Promise.resolve([lspEdit(0, 0, 8, "SELECT 1")]);
+            },
+        });
+
+        expect(await server.format(asEditor(editor))).toBe("outdated");
+        expect(editor.replacements).toHaveLength(0);
+    });
+
+    it("cannot format without a server", async () => {
+        const { lines, server } = build({ versions: {} });
+
+        expect(await server.format(asEditor(sqlEditor()))).toBe("unavailable");
+        expect(lines.join("\n")).toContain("No usable mariadb-lsp");
+    });
+
+    it("reports a request that fails", async () => {
+        const { lines, server } = build({
+            answer: () => {
+                return Promise.reject(new Error("broken pipe"));
+            },
+        });
+
+        expect(await server.format(asEditor(sqlEditor()))).toBe("unavailable");
+        expect(lines.join("\n")).toContain("Formatting failed: broken pipe");
+    });
+});
 
 describe("LanguageServer", () => {
     beforeEach(() => {

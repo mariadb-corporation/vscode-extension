@@ -625,6 +625,15 @@
         "category": "MariaDB"
       },
       {
+        "command": "mariadb.formatSql",
+        "title": "Format SQL (Selection or File)",
+        "category": "MariaDB",
+        "icon": {
+          "light": "images/light/toolbar-format.svg",
+          "dark": "images/dark/toolbar-format.svg"
+        }
+      },
+      {
         "command": "mariadb.lsp.restart",
         "title": "Restart SQL Language Server",
         "category": "MariaDB"
@@ -1508,6 +1517,11 @@
           "command": "mariadb.stopOnError.enable",
           "when": "resourceLangId =~ /^(sql|mariadb-sql)$/ && !mariadb.stopOnError",
           "group": "navigation@4"
+        },
+        {
+          "command": "mariadb.formatSql",
+          "when": "resourceLangId =~ /^(sql|mariadb-sql)$/ && config.mariadb.lsp.enabled",
+          "group": "navigation@5"
         }
       ],
       "editor/context": [
@@ -1562,6 +1576,10 @@
         {
           "command": "mariadb.runSqlStatement",
           "when": "editorLangId =~ /^(sql|mariadb-sql)$/"
+        },
+        {
+          "command": "mariadb.formatSql",
+          "when": "editorLangId =~ /^(sql|mariadb-sql)$/ && config.mariadb.lsp.enabled"
         },
         {
           "command": "mariadb.stopOnError.disable",

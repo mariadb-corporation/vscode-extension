@@ -614,7 +614,35 @@ export class MockTextEditor {
         ranges: Range[];
     }> = [];
 
-    public selection: { isEmpty: boolean } = { isEmpty: true };
+    public selection: Range = new Selection(new Position(0, 0),
+        new Position(0, 0));
+
+    public options: { tabSize?: number | string; insertSpaces?: boolean | string } = {
+        tabSize: 4,
+        insertSpaces: true,
+    };
+
+    /** Every replacement made through edit(), in order. */
+    public readonly replacements: Array<{ range: Range; text: string }> = [];
+
+    /**
+     * Records the replacements the callback makes.
+     *
+     * @param callback Gets an edit builder.
+     *
+     * @returns True, as an applied edit.
+     */
+    public edit(callback: (builder: {
+        replace(range: Range, text: string): void;
+    }) => void): Promise<boolean> {
+        callback({
+            replace: (range, text) => {
+                this.replacements.push({ range, text });
+            },
+        });
+
+        return Promise.resolve(true);
+    }
 
     public constructor(public readonly document: MockTextDocument) { }
 

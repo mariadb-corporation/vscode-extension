@@ -45,6 +45,12 @@ export const DOCUMENT_CONTEXT_NOTIFICATION = "mariadb/documentContext";
 /** The request that makes the server read a connection's catalog again. */
 export const REFRESH_CATALOG_REQUEST = "mariadb/refreshCatalog";
 
+/** Formats a whole document. */
+export const FORMATTING_REQUEST = "textDocument/formatting";
+
+/** Formats the statements a range touches. */
+export const RANGE_FORMATTING_REQUEST = "textDocument/rangeFormatting";
+
 /**
  * Whether a script may have changed what a catalog holds. A plain word
  * match: one read too many is cheap, a stale catalog is not.
@@ -72,6 +78,26 @@ const affects = (
         return event.affectsConfiguration(`${SECTION}.${name}`);
     });
 };
+
+/** An LSP TextEdit, as the server sends it. */
+interface ILspTextEdit {
+    range: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+    };
+    newText: string;
+}
+
+/** What {@link LanguageServer.format} did. */
+export type FormatResult =
+    /** The edits were applied. */
+    | "formatted"
+    /** The server had nothing to change. */
+    | "unchanged"
+    /** The document changed while the server was laying it out. */
+    | "outdated"
+    /** No server is running, or it failed. */
+    | "unavailable";
 
 /** A running language client, as far as the controller needs it. */
 export interface ILanguageClientHandle {
@@ -263,6 +289,72 @@ export class LanguageServer implements vscode.Disposable {
             default:
                 return;
         }
+    }
+
+    /**
+     * Lays out the queries of an editor's document through the server: the
+     * statements the selection touches when something is selected, else
+     * the whole document. The editor's tab size and spaces/tabs choice set
+     * one level of indentation.
+     *
+     * @param editor The editor.
+     *
+     * @returns What was done.
+     */
+    public async format(editor: vscode.TextEditor): Promise<FormatResult> {
+        await this.start();
+        if (this.#state.kind !== "running") {
+            return "unavailable";
+        }
+        const { document, selection } = editor;
+        const tabSize = editor.options.tabSize;
+        const params: Record<string, unknown> = {
+            textDocument: { uri: document.uri.toString() },
+            options: {
+                tabSize: typeof tabSize === "number" ? tabSize : 4,
+                insertSpaces: editor.options.insertSpaces !== false,
+            },
+        };
+        if (!selection.isEmpty) {
+            params.range = {
+                start: {
+                    line: selection.start.line,
+                    character: selection.start.character,
+                },
+                end: {
+                    line: selection.end.line,
+                    character: selection.end.character,
+                },
+            };
+        }
+        const version = document.version;
+        let edits: ILspTextEdit[];
+        try {
+            const result = await this.#state.client.sendRequest(
+                selection.isEmpty ? FORMATTING_REQUEST
+                    : RANGE_FORMATTING_REQUEST,
+                params);
+            edits = Array.isArray(result) ? result as ILspTextEdit[] : [];
+        } catch (error) {
+            this.deps.log(`Formatting failed: ${errorText(error)}`);
+
+            return "unavailable";
+        }
+        if (document.version !== version) {
+            return "outdated";
+        }
+        if (edits.length === 0) {
+            return "unchanged";
+        }
+        const applied = await editor.edit((builder) => {
+            for (const edit of edits) {
+                const { start, end } = edit.range;
+                builder.replace(new vscode.Range(start.line, start.character,
+                    end.line, end.character), edit.newText);
+            }
+        });
+
+        return applied ? "formatted" : "outdated";
     }
 
     /**

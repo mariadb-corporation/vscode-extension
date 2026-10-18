@@ -341,6 +341,7 @@ describe("activate", () => {
             "mariadb.dumpTables",
             "mariadb.editConnection",
             "mariadb.exportTable",
+            "mariadb.formatSql",
             "mariadb.importTable",
             "mariadb.loadDump",
             "mariadb.lsp.restart",

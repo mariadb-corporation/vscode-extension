@@ -1446,6 +1446,35 @@ export const activate = (context: vscode.ExtensionContext): void => {
             output.show(true);
         }),
 
+        // The toolbar's format button: the selection's statements when
+        // something is selected, else the whole file.
+        vscode.commands.registerCommand("mariadb.formatSql", async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                return;
+            }
+
+            switch (await languageServer.format(editor)) {
+                case "unavailable":
+                    void vscode.window.showWarningMessage("MariaDB: the SQL "
+                        + "language server is not running, so the file cannot "
+                        + "be formatted. See the MariaDB output for why.");
+                    break;
+                case "unchanged":
+                    void vscode.window.setStatusBarMessage("MariaDB: nothing "
+                        + "to format (only SELECT and WITH statements that "
+                        + "parse are laid out).", 4000);
+                    break;
+                case "outdated":
+                    void vscode.window.setStatusBarMessage("MariaDB: the file "
+                        + "changed while it was formatted; format it again.",
+                    4000);
+                    break;
+                default:
+                    break;
+            }
+        }),
+
         vscode.commands.registerCommand("mariadb.lsp.restart", async () => {
             await languageServer.restart();
         }),

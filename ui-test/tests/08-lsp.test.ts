@@ -164,6 +164,60 @@ const lineBecomes = async (
     }
 };
 
+/**
+ * Waits until the editor holds `expected` below its connection header.
+ *
+ * @param editor The editor.
+ * @param expected The lines below the header.
+ * @param what What is waited for, for the timeout's message.
+ */
+const bodyBecomes = async (
+    editor: TextEditor,
+    expected: string[],
+    what: string,
+): Promise<void> => {
+    let last: string[] = [];
+    try {
+        await waitFor(async () => {
+            last = (await editor.getText()).split("\n").slice(1);
+            while (last.length > 0 && last.at(-1) === "") {
+                last.pop();
+            }
+
+            return last.join("\n") === expected.join("\n") ? true : undefined;
+        }, what, SERVER_TIMEOUT);
+    } catch {
+        assert.deepEqual(last, expected);
+    }
+};
+
+/** Clicks the editor toolbar's format button. */
+const clickFormat = async (): Promise<void> => {
+    const button = await waitFor(async () => {
+        return await new EditorView().getAction(
+            "Format SQL (Selection or File)");
+    }, "the format button in the editor toolbar");
+    await button.click();
+};
+
+/** Two statements, neither laid out; the first is too long for a line. */
+const UNFORMATTED = [
+    "select c.name, c2.name from uitest.city as c left outer join "
+    + "uitest.country as c2 on c.country_id = c2.id where c.id > 10;",
+    "select id from uitest.city where id > 1;",
+];
+
+/** The first of them laid out (VS Code's default indentation: 4 spaces). */
+const FIRST_FORMATTED = [
+    "SELECT c.name, c2.name",
+    "FROM uitest.city AS c",
+    "    LEFT OUTER JOIN uitest.country AS c2 ON c.country_id = c2.id",
+    "WHERE c.id > 10;",
+];
+
+/** The second of them laid out. */
+const SECOND_FORMATTED = "SELECT id FROM uitest.city WHERE id > 1;";
+
 /** The messages of the error markers in the Problems view. */
 const errorMarkers = async (): Promise<string[]> => {
     const problems = await new BottomBarPanel().openProblemsView();
@@ -245,6 +299,31 @@ describe("SQL language server", () => {
                 "  LEFT OUTER JOIN uitest.country AS c2 ON c.country_id = c2.id");
             await screenshot("08-joined");
         });
+
+    it("formats the file with Format Document", async () => {
+        const editor = await sqlEditor(UNFORMATTED.join("\n") + "\n");
+        await runCommand("Format Document");
+        await bodyBecomes(editor, [...FIRST_FORMATTED, SECOND_FORMATTED],
+            "the file formatted by the language server");
+    });
+
+    it("formats the whole file from the toolbar when nothing is selected",
+        async () => {
+            const editor = await sqlEditor(UNFORMATTED.join("\n") + "\n");
+            await editor.moveCursor(2, 1);
+            await clickFormat();
+            await bodyBecomes(editor, [...FIRST_FORMATTED, SECOND_FORMATTED],
+                "the whole file formatted from the toolbar");
+            await screenshot("08-formatted");
+        });
+
+    it("formats only the selected statement from the toolbar", async () => {
+        const editor = await sqlEditor(UNFORMATTED.join("\n") + "\n");
+        await editor.selectText("select id");
+        await clickFormat();
+        await bodyBecomes(editor, [UNFORMATTED[0], SECOND_FORMATTED],
+            "the selected statement formatted, the other left as it was");
+    });
 
     it("completes the tables of a catalog file named in the settings",
         async () => {

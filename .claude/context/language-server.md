@@ -38,9 +38,15 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   by the client library itself (it follows the client id).
 - **Formatting**: the server advertises `documentFormattingProvider` and
   `documentRangeFormattingProvider` (queries only; lsp-server plan P8), so
-  "Format Document" works through the language client with nothing in the
-  extension; `keywordCase` and `lineWidth` apply, the editor's `tabSize`
-  sets the indentation. No UI test covers it yet.
+  "Format Document" works through the language client; `keywordCase` and
+  `lineWidth` apply, the editor's `tabSize` sets the indentation. The
+  editor toolbar's format button (`mariadb.formatSql`, icon
+  `toolbar-format.svg`, shown while `mariadb.lsp.enabled`) calls
+  `LanguageServer.format`, which sends `textDocument/rangeFormatting` for
+  a selection, else `textDocument/formatting`, straight to our server (not
+  `editor.action.formatDocument`, which would take another default
+  formatter) and applies the edits unless the document changed meanwhile.
+  UI tests: Format Document, the button with and without a selection.
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
   `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A
