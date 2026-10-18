@@ -26,6 +26,7 @@ import * as vscode from "vscode";
 import { isSqlDocument } from "../editor/sqlLanguage.js";
 import type { ShellEnvironment } from "../shell/locator.js";
 import { errorText } from "../text.js";
+import type { IDbCallParams } from "./dbCall.js";
 import {
     describeLspLocation,
     locateLanguageServer,
@@ -111,6 +112,11 @@ export interface ILanguageClientOptions {
     onDidClose(document: vscode.TextDocument): void;
     /** Called with each `mariadb/parseProgress` from the server. */
     onParseProgress(progress: IParseProgress): void;
+    /**
+     * Answers a `mariadb/dbCall`: the server reads a connection's
+     * catalog through the extension's MCP server.
+     */
+    onDbCall(params: IDbCallParams): Promise<unknown>;
 }
 
 /** Builds a language client; `nodeClient.ts` has the real one. */
@@ -152,11 +158,14 @@ export interface ILanguageServerDependencies {
         listener: (connection: string, script: string) => void,
     ): () => void;
     /**
-     * @returns The MariaDB Shell binary whose directory holds the secret
-     *          store helpers, when the server would not find it on the
-     *          PATH itself.
+     * Makes a `db.*` tool call on the MCP server for the language
+     * server, which runs with `--mcp` and connects to nothing itself.
+     *
+     * @param params The connection, the tool and its arguments.
+     *
+     * @returns The tool's result.
      */
-    shellBinary(): Promise<string | undefined>;
+    dbCall(params: IDbCallParams): Promise<unknown>;
 }
 
 /** Where the server is in its life. */
@@ -314,26 +323,13 @@ export class LanguageServer implements vscode.Disposable {
             return;
         }
 
-        // Looked for side by side; a shell that cannot be looked up costs
-        // the live catalog, not the language server.
-        const [found, shell] = await Promise.allSettled([
-            locateLanguageServer(this.deps.environment,
-                settings.get<string>("path", ""), this.deps.log),
-            this.deps.shellBinary(),
-        ]);
         let location: LspLocation | undefined;
-        if (found.status === "fulfilled") {
-            location = found.value;
-        } else {
+        try {
+            location = await locateLanguageServer(this.deps.environment,
+                settings.get<string>("path", ""), this.deps.log);
+        } catch (error) {
             this.deps.log(`Looking for the SQL language server failed: `
-                + `${errorText(found.reason)}`);
-        }
-        let shellBinary: string | undefined;
-        if (shell.status === "fulfilled") {
-            shellBinary = shell.value;
-        } else {
-            this.deps.log(`Looking for the MariaDB Shell for the SQL language `
-                + `server failed: ${errorText(shell.reason)}`);
+                + `${errorText(error)}`);
         }
         if (!location) {
             this.deps.log("No usable mariadb-lsp was found, so SQL files "
@@ -346,15 +342,14 @@ export class LanguageServer implements vscode.Disposable {
         }
         this.deps.log(describeLspLocation(location));
 
-        const args = ["lsp", "--stdio"];
+        // --mcp: the server reads catalogs through this extension's MCP
+        // server (mariadb/dbCall) and needs no credentials of its own.
+        const args = ["lsp", "--stdio", "--mcp"];
         const threads = settings.get<number>("threads", 0);
         if (Number.isInteger(threads) && threads > 0) {
             args.push("--threads", String(threads));
         }
         const initializationOptions = serverSettings(settings);
-        if (shellBinary !== undefined) {
-            initializationOptions.shellBinary = shellBinary;
-        }
 
         const generation = this.#generation;
         const client = this.deps.createClient({
@@ -368,6 +363,9 @@ export class LanguageServer implements vscode.Disposable {
             onDidClose: (document) => {
                 this.#sent.delete(document.uri.toString());
                 this.#progress.forget(document.uri.toString());
+            },
+            onDbCall: async (params) => {
+                return await this.deps.dbCall(params);
             },
             onParseProgress: (progress) => {
                 // One still on its way when the document closed would

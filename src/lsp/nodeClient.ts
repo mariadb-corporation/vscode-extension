@@ -22,11 +22,14 @@ import { spawn, type ChildProcess } from "node:child_process";
 import * as vscode from "vscode";
 import {
     LanguageClient,
+    ResponseError,
     type LanguageClientOptions,
     type ServerOptions,
 } from "vscode-languageclient/node";
 
 import { SQL_LANGUAGE_IDS } from "../editor/sqlLanguage.js";
+import { errorText } from "../text.js";
+import { DB_CALL_REQUEST, DbCallError, type IDbCallParams } from "./dbCall.js";
 import type { LanguageClientFactory } from "./languageServer.js";
 import {
     PARSE_PROGRESS_NOTIFICATION,
@@ -39,6 +42,9 @@ import {
  */
 const CLIENT_ID = "mariadb.lsp";
 const CLIENT_NAME = "MariaDB SQL Language Server";
+
+/** The JSON-RPC error code of a `mariadb/dbCall` that could not be made. */
+const DB_CALL_FAILED = -32000;
 
 /**
  * The one output channel every client writes to. A client makes one of
@@ -121,6 +127,17 @@ export const createNodeLanguageClient: LanguageClientFactory = (options) => {
     };
     const client = new LanguageClient(CLIENT_ID, CLIENT_NAME, serverOptions,
         clientOptions);
+    client.onRequest(DB_CALL_REQUEST, async (params: IDbCallParams) => {
+        try {
+            return await options.onDbCall(params);
+        } catch (error) {
+            // The message reaches the server's log and, once, the user;
+            // `permanent` keeps it from asking again.
+            throw new ResponseError(DB_CALL_FAILED, errorText(error), {
+                permanent: error instanceof DbCallError && error.permanent,
+            });
+        }
+    });
     client.onNotification(PARSE_PROGRESS_NOTIFICATION,
         (progress: IParseProgress) => {
             options.onParseProgress(progress);

@@ -59,7 +59,7 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `core` | `00-startup` (before the setup), `03-connections`, `04-sql-results`, `05-lifecycle` | `ui-test:core` |
 | `mrs` | `02-mrs` | `ui-test:mrs` |
 | `dump-load` | `06-dump-load` | `ui-test:dump-load` |
-| `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads from the sandbox itself, and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches). Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
+| `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches). Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
@@ -99,10 +99,9 @@ runner end anyway. A spawn that fails is reported with its error.
     would show the user's own connections.
   - A `mariadb-shell` wrapper first on the PATH, setting
     `MARIADB_SHELL_USER_CONFIG_HOME`.
-  - The shell's `mariadb-secret-store-*` helpers linked beside the
-    wrapper: `mariadb-lsp` looks for them next to the `mariadb-shell` on
-    its PATH, which is the wrapper. `MARIADB_LSP`, when set, is linked
-    there as `mariadb-lsp`.
+  - `MARIADB_LSP`, when set, is linked beside the wrapper as
+    `mariadb-lsp`; the extension runs it with `--mcp`, so it needs no
+    secret store helpers of its own.
   - `VSCODE_CLI=1`. Without it, VS Code on macOS takes the login shell's
     PATH and finds the user's shell.
   - All `VSCODE_*` / `ELECTRON_*` variables are stripped. An inherited
@@ -141,6 +140,10 @@ runner end anyway. A spawn that fails is reported with its error.
     `submitDialog` checks the editor tab from outside.
   - Palette commands do not reach a focused webview: bring an editor
     tab to the front first.
+  - A command hidden from the palette (`menus.commandPalette` `when:
+    false`, such as Refresh Connections) cannot be run with
+    `runCommand`: ExTester types its title and presses Enter on whatever
+    matches instead. Click the view's toolbar button (`getAction`).
   - Tabulator rebuilds its cell editor right after the click. Type into
     `switchTo().activeElement()`, not into an element found earlier.
   - Untitled SQL editors would ask "Save changes?" when VS Code closes.

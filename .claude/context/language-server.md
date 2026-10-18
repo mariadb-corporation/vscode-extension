@@ -15,6 +15,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | --- | --- |
 | `locator.ts` | Finds the binary: `mariadb.lsp.path` alone when set, else `mariadb-lsp` on the PATH, else `~/.local/bin/mariadb-lsp` (`.exe` on Windows, under the home directory there too). Each candidate is probed with `--version`, which has to print `mariadb-lsp <x.y.z>` at least `MINIMUM_LSP_VERSION` (26.9.4, the first with `--version`). Shares `ShellEnvironment` and the version helpers with the shell lookup. |
 | `languageServer.ts` | `LanguageServer`, the controller: states `stopped` / `starting` / `running` / `unavailable`, the restart on settings changes, the `mariadb/documentContext` notifications. Talks to the client through `ILanguageClientHandle`, so it is tested with a fake. |
+| `dbCall.ts` | `answerDbCall`: the server's `mariadb/dbCall` requests (`{connection, tool, arguments}`) made as typed `db.*` calls on the MCP server, on the connection open on that URI, or opened for it. Only `db.list_schemas`, `db.list_objects`, `db.get_object_details` and `db.execute_sql`; anything else, and a bad argument, is refused for good (`DbCallError.permanent`). A URI that is not a configured connection is refused but may be asked again: it may be added later. |
 | `settings.ts` | `serverSettings`: the `mariadb.lsp.*` settings under the server's option names (`progressThresholdMB` becomes bytes; values the server would refuse are left out), and which settings restart the server and which are sent to it. |
 | `parseProgress.ts` | `ParseProgressStatus`: the status bar entry for `mariadb/parseProgress`. |
 | `nodeClient.ts` | The only file importing `vscode-languageclient/node`: the `LanguageClient` (id `mariadb.lsp`, output channel **MariaDB SQL Language Server**), the document selector (`mariadb-sql` and `sql`, `file` and `untitled`), and the middleware. `extension.test.ts` mocks this module, since the library needs the real `vscode`. The server process is spawned here (server options as a function) rather than by the library, which keeps its process private and, after a failed start, neither stops nor kills it: the handle kills it after a failed start and after `stop()`. All clients share one output channel; the library's own is not disposed on `stop()`, so every restart left another behind. |
@@ -30,8 +31,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   change of `mariadb.lsp.enabled` / `path` / `threads`, looks again.
   Downloading the server when it is missing, as `ensureShell` installs
   the shell, is planned and not built.
-- **Arguments**: `lsp --stdio`, plus `--threads N` when
-  `mariadb.lsp.threads` is above 0. `mariadb.lsp.trace.server` is read
+- **Arguments**: `lsp --stdio --mcp`, plus `--threads N` when
+  `mariadb.lsp.threads` is above 0. `--mcp` makes the server read every
+  connection's catalog through the extension (below) instead of
+  connecting itself. `mariadb.lsp.trace.server` is read
   by the client library itself (it follows the client id).
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
   `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
@@ -42,16 +45,22 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   restarts it like `enabled`, `path` and `threads`: the server ignores a
   version it cannot read, so an emptied setting could not take it back to
   its own. The settings' defaults are the server's.
-- **The shell's secret store helpers.** The server reads passwords
-  through `mariadb-secret-store-<helper>` next to the `mariadb-shell` on
-  its PATH. A shell the extension installed under
-  `~/.local/share/mariadb-shell/<version>` is not on the PATH, so the
-  controller passes it as the `shellBinary` initialization option; it
-  is found with `locateShell` (never the installer) when the server starts.
+- **Catalogs through the MCP server (`--mcp`).** The server connects to
+  no database: for a connection's tables, columns, routines and
+  `sql_mode` it sends `mariadb/dbCall` requests, which `nodeClient.ts`
+  hands to `answerDbCall`. The extension's one stdio MCP server serves
+  both, the credentials never leave the extension, and no localhost port
+  is opened (the HTTP transport was weighed for a second MCP client and
+  rejected for that). The calls go to the connection open on the URI,
+  the editors' session or one opened for it, as running the file would,
+  so a file bound to a connection opens it when the server first reads
+  its catalog. A failed call is a JSON-RPC error with
+  `data.permanent`; the server retries the others with its back-off, and
+  `mariadb/refreshCatalog` reads again at once.
 - Stopped in `deactivate()` before the connections and the MCP session.
 - A start that throws past its own handling leaves the state
   `unavailable`, never `starting`, which every later `start()` and
-  `stop()` would wait on. A failed shell lookup costs only `shellBinary`.
+  `stop()` would wait on.
 
 ## Which connection a document runs on
 

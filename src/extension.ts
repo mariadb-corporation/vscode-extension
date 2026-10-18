@@ -52,11 +52,11 @@ import {
 import { McpSession } from "./mcp/session.js";
 import type { IMariaDbApi } from "./mcp/types.js";
 import { registerCopilotMcpServer } from "./copilot/mcpServerProvider.js";
+import { answerDbCall } from "./lsp/dbCall.js";
 import { LanguageServer } from "./lsp/languageServer.js";
 import { createNodeLanguageClient } from "./lsp/nodeClient.js";
 import { ensureShell, type BootstrapResult } from "./shell/bootstrap.js";
 import { MINIMUM_SHELL_VERSION } from "./shell/constants.js";
-import { locateShell } from "./shell/locator.js";
 import { buildMcpServerCommand } from "./shell/mcpServer.js";
 import {
     createNodeProcessRunner,
@@ -552,10 +552,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
     });
     // Diagnostics, completion, hover and the rest for SQL files, from
     // mariadb-lsp; started when the first SQL file is open.
-    const lspEnvironment = createNodeShellEnvironment(log);
     const languageServer = new LanguageServer({
         createClient: createNodeLanguageClient,
-        environment: lspEnvironment,
+        environment: createNodeShellEnvironment(log),
         log,
         connectionFor: (document) => {
             return editors.connectionFor(document);
@@ -572,14 +571,21 @@ export const activate = (context: vscode.ExtensionContext): void => {
         onDidRunScript: (listener) => {
             return editors.onDidRunScript(listener);
         },
-        // The server finds the secret store helpers next to the
-        // mariadb-shell on its PATH; one the extension installed is not
-        // there. Looked up without installing: no shell, no live catalog.
-        shellBinary: async () => {
-            const found = await locateShell(lspEnvironment,
-                MINIMUM_SHELL_VERSION);
-
-            return found?.source === "managed" ? found.binaryPath : undefined;
+        // The server's catalog reads, made on this extension's MCP server
+        // and the connection open on the URI - the editors' session, or
+        // one opened for it, as running the file would.
+        dbCall: async (params) => {
+            return await answerDbCall({
+                listConnections: async () => {
+                    return await connections.listConnections();
+                },
+                connect: async (uri) => {
+                    return await connections.connect(uri);
+                },
+                api: async () => {
+                    return await connections.api();
+                },
+            }, params);
         },
     });
     context.subscriptions.push(languageServer);

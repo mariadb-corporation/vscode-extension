@@ -20,15 +20,13 @@ import {
     chmodSync,
     mkdirSync,
     mkdtempSync,
-    readdirSync,
-    realpathSync,
     rmSync,
     symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 /**
  * Runs the UI tests: VS Code with the packaged extension, driven by
@@ -252,15 +250,6 @@ const runFiles = async (
     writeFileSync(wrapper, "#!/bin/sh\n"
         + `MARIADB_SHELL_USER_CONFIG_HOME='${home}' exec '${shell}' "$@"\n`);
     chmodSync(wrapper, 0o755);
-    // mariadb-lsp reads passwords through the secret store helpers next to
-    // the mariadb-shell on the PATH, which is the wrapper; the helpers
-    // that belong to the shell under test go beside it.
-    const shellDir = dirname(realpathSync(shell));
-    for (const name of readdirSync(shellDir)) {
-        if (name.startsWith("mariadb-secret-store-")) {
-            symlinkSync(join(shellDir, name), join(bin, name));
-        }
-    }
     // The language server: MARIADB_LSP if given, else whatever the PATH has.
     const lsp = process.env.MARIADB_LSP;
     if (lsp !== undefined && lsp !== "") {

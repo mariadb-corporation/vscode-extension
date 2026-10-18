@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type * as vscode from "vscode";
 
+import type { IDbCallParams } from "../../lsp/dbCall.js";
 import {
     DID_CHANGE_CONFIGURATION_NOTIFICATION,
     DOCUMENT_CONTEXT_NOTIFICATION,
@@ -72,9 +73,9 @@ const asDocument = (document: MockTextDocument): vscode.TextDocument => {
  */
 const build = (options: {
     versions?: Record<string, string>;
-    shellBinary?: string;
+    /** What `dbCall` answers. */
+    dbCall?: (params: IDbCallParams) => Promise<unknown>;
     /** Makes looking for the shell fail. */
-    failShell?: boolean;
     failStart?: boolean;
     /** Holds the client's start until it settles. */
     startGate?: Promise<void>;
@@ -143,10 +144,10 @@ const build = (options: {
 
             return () => { /* nothing to undo */ };
         },
-        shellBinary: () => {
-            return options.failShell
-                ? Promise.reject(new Error("shell lookup failed"))
-                : Promise.resolve(options.shellBinary);
+        dbCall: (params) => {
+            return options.dbCall
+                ? options.dbCall(params)
+                : Promise.reject(new Error("no catalog in this test"));
         },
     });
 
@@ -183,7 +184,7 @@ describe("LanguageServer", () => {
         expect(clients).toHaveLength(1);
         expect(clients[0].started).toBe(true);
         expect(clients[0].options.command).toBe("mariadb-lsp");
-        expect(clients[0].options.args).toEqual(["lsp", "--stdio"]);
+        expect(clients[0].options.args).toEqual(["lsp", "--stdio", "--mcp"]);
         expect(server.running).toBe(true);
     });
 
@@ -195,17 +196,35 @@ describe("LanguageServer", () => {
         expect(clients).toHaveLength(1);
     });
 
-    it("passes the threads and a shell the PATH does not have", async () => {
+    it("runs the server in MCP mode, with the threads asked for", async () => {
         configuration.set("mariadb.lsp.threads", 3);
-        const shell = "/Users/me/.local/share/mariadb-shell/26.10.2/bin/"
-            + "mariadb-shell";
-        const { clients, server } = build({ shellBinary: shell });
+        const { clients, server } = build();
         await server.start();
 
         expect(clients[0].options.args)
-            .toEqual(["lsp", "--stdio", "--threads", "3"]);
+            .toEqual(["lsp", "--stdio", "--mcp", "--threads", "3"]);
         expect(clients[0].options.initializationOptions)
-            .toMatchObject({ shellBinary: shell, keywordCase: "upper" });
+            .toMatchObject({ keywordCase: "upper" });
+    });
+
+    it("hands the server's db calls on", async () => {
+        const asked: IDbCallParams[] = [];
+        const { clients, server } = build({
+            dbCall: (params) => {
+                asked.push(params);
+
+                return Promise.resolve([{ schema_name: "store" }]);
+            },
+        });
+        await server.start();
+        const params: IDbCallParams = {
+            connection: "mariadb://root@h:1",
+            tool: "db.list_schemas",
+            arguments: {},
+        };
+        await expect(clients[0].options.onDbCall(params))
+            .resolves.toEqual([{ schema_name: "store" }]);
+        expect(asked).toEqual([params]);
     });
 
     it("tells the server each document's connection", async () => {
@@ -429,15 +448,6 @@ describe("LanguageServer", () => {
         expect(server.running).toBe(false);
         expect(lines.join("\n"))
             .toContain("did not start: spawn failed");
-    });
-
-    it("starts without the shell when looking for it fails", async () => {
-        const { clients, lines, server } = build({ failShell: true });
-        await server.start();
-        expect(server.running).toBe(true);
-        expect(clients[0].options.initializationOptions.shellBinary)
-            .toBeUndefined();
-        expect(lines.join("\n")).toContain("shell lookup failed");
     });
 
     it("stops the client", async () => {
