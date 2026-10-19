@@ -34,6 +34,7 @@ describe("serverSettings", () => {
             catalogFiles: [],
             catalogRefreshSeconds: 0,
             keywordCase: "upper",
+            indentation: "editor",
             lineWidth: 80,
             sqlMode: "",
             debounceMs: 150,
@@ -47,6 +48,7 @@ describe("serverSettings", () => {
             catalogFiles: ["schema/", " ", "seed.sql", 3],
             catalogRefreshSeconds: 60,
             keywordCase: "lower",
+            indentation: "tab",
             lineWidth: 0,
             sqlMode: "ANSI_QUOTES",
             serverVersion: " 11.4.2 ",
@@ -57,6 +59,7 @@ describe("serverSettings", () => {
             catalogFiles: ["schema/", "seed.sql"],
             catalogRefreshSeconds: 60,
             keywordCase: "lower",
+            indentation: "tab",
             lineWidth: 0,
             sqlMode: "ANSI_QUOTES",
             serverVersion: "11.4.2",
@@ -71,6 +74,7 @@ describe("serverSettings", () => {
             catalogFiles: "schema.sql",
             catalogRefreshSeconds: -1,
             keywordCase: "Title",
+            indentation: "3 spaces",
             lineWidth: -1,
             debounceMs: 1.5,
             maxDiagnostics: "many",
@@ -79,6 +83,7 @@ describe("serverSettings", () => {
         expect(options).toEqual({
             catalogFiles: [],
             keywordCase: "upper",
+            indentation: "editor",
             sqlMode: "",
         });
     });

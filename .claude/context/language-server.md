@@ -39,7 +39,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 - **Formatting**: the server advertises `documentFormattingProvider` and
   `documentRangeFormattingProvider` (queries only; lsp-server plan P8), so
   "Format Document" works through the language client; `keywordCase` and
-  `lineWidth` apply, the editor's `tabSize` sets the indentation. The
+  `lineWidth` apply; `indentation` (`editor`, the default: the editor's
+  `tabSize`/`insertSpaces`; or `tab`, `2 spaces`, `4 spaces`) sets one
+  level of indentation, also for the lines completion adds. The
   editor toolbar's format button (`mariadb.formatSql`, icon
   `toolbar-format.svg`, shown while `mariadb.lsp.enabled`) calls
   `LanguageServer.format`, which sends `textDocument/rangeFormatting` for
@@ -48,7 +50,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   formatter) and applies the edits unless the document changed meanwhile.
   UI tests: Format Document, the button with and without a selection.
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
-  `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
+  `indentation`, `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A
   change is sent as `workspace/didChangeConfiguration`
   (`{settings: {mariadb: ...}}`, every key each time, so one put back to

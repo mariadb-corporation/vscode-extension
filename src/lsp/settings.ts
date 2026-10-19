@@ -39,6 +39,7 @@ export const LIVE_SERVER_SETTINGS = [
     "catalogFiles",
     "catalogRefreshSeconds",
     "keywordCase",
+    "indentation",
     "lineWidth",
     "sqlMode",
     "debounceMs",
@@ -70,6 +71,9 @@ const count = (value: unknown): number | undefined => {
         : undefined;
 };
 
+/** The values the server's `indentation` takes. */
+const INDENTATIONS = ["editor", "tab", "2 spaces", "4 spaces"];
+
 /**
  * The server's options, as the settings say, under the server's names.
  * Every live one is there, so a setting put back to its default reaches
@@ -84,6 +88,7 @@ export const serverSettings = (
 ): Record<string, unknown> => {
     const files = settings.get<unknown>("catalogFiles", []);
     const megabytes = settings.get<unknown>("progressThresholdMB", 4);
+    const indentation = settings.get<unknown>("indentation", "editor");
     const options: Record<string, unknown> = {
         catalogFiles: Array.isArray(files)
             ? files.filter((entry): entry is string => {
@@ -95,6 +100,9 @@ export const serverSettings = (
         keywordCase: settings.get<unknown>("keywordCase", "upper") === "lower"
             ? "lower"
             : "upper",
+        indentation: INDENTATIONS.find((value) => {
+            return value === indentation;
+        }) ?? "editor",
         lineWidth: count(settings.get<unknown>("lineWidth", 80)),
         sqlMode: String(settings.get<unknown>("sqlMode", "")),
         debounceMs: count(settings.get<unknown>("debounceMs", 150)),

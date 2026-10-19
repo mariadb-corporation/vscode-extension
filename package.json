@@ -267,6 +267,23 @@
           ],
           "markdownDescription": "The case completion writes keywords and built-in functions in."
         },
+        "mariadb.lsp.indentation": {
+          "type": "string",
+          "default": "editor",
+          "enum": [
+            "editor",
+            "tab",
+            "2 spaces",
+            "4 spaces"
+          ],
+          "enumDescriptions": [
+            "As the editor indents the file (`editor.insertSpaces`, `editor.tabSize`); the lines completion adds use a tab where the line has tabs, else two spaces.",
+            "One tab per level.",
+            "Two spaces per level.",
+            "Four spaces per level."
+          ],
+          "markdownDescription": "One level of indentation in formatted queries and in the `FROM` and `JOIN` lines completion adds."
+        },
         "mariadb.lsp.lineWidth": {
           "type": "integer",
           "default": 80,
