@@ -16,7 +16,7 @@
  */
 
 import { DEFAULT_PORT, parseConnectionUri } from "../connections/connectionUri.js";
-import type { IRestdDeployment } from "../mcp/restApi.js";
+import type { IRestdDeployment } from "../mcp/restdApi.js";
 import { DEFAULT_METADATA_SCHEMA } from "../mrs/mrsDialogs.js";
 
 /**
@@ -46,7 +46,7 @@ const sameHost = (host: string): string => {
 };
 
 /**
- * @param deployments The local REST Daemons, as `rest.get_restd_status`
+ * @param deployments The local REST Daemons, as `restd.get_restd_status`
  *                    lists them.
  * @param uri A connection.
  * @param metadataSchema The metadata schema the tree row is on. Undefined

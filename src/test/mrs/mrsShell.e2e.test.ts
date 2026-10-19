@@ -38,7 +38,7 @@ import {
     loadReference,
     updateField,
 } from "../../mrs/dataMapping.js";
-import { MrsApi, MrsToolsApi, type IMrsScope } from "../../mrs/mrsApi.js";
+import { MrsApi, RestToolsApi, type IMrsScope } from "../../mrs/mrsApi.js";
 import {
     authAppDefaults,
     authAppStatements,
@@ -94,7 +94,7 @@ describe.runIf(shell !== undefined)("REST SQL against a real shell", () => {
     let connection: IMcpConnection;
     let db: MariaDbApi;
     let sandbox: SandboxApi;
-    let tools: MrsToolsApi;
+    let tools: RestToolsApi;
     let api: MrsApi;
     let port: number;
     let uri: string;
@@ -105,8 +105,11 @@ describe.runIf(shell !== undefined)("REST SQL against a real shell", () => {
         home = mkdtempSync(join(tmpdir(), "mrs_e2e_"));
         const plugins = join(home, "plugins");
         mkdirSync(plugins, { recursive: true });
-        const repo = resolve(__dirname, "../../../..");
-        for (const plugin of ["mcp_plugin", "mrs_plugin", "msm_plugin"]) {
+        // A mariadb-shell-plugins checkout: MARIADB_SHELL_PLUGINS, or the
+        // one next to this repository.
+        const repo = resolve(process.env.MARIADB_SHELL_PLUGINS
+            ?? join(__dirname, "../../../..", "mariadb-shell-plugins"));
+        for (const plugin of ["mcp_plugin", "rest_plugin", "msm_plugin"]) {
             symlinkSync(join(repo, plugin), join(plugins, plugin));
         }
         connection = await createSdkConnector().open({
@@ -116,7 +119,7 @@ describe.runIf(shell !== undefined)("REST SQL against a real shell", () => {
         }, (line) => { log.push(line); });
         db = new MariaDbApi(connection);
         sandbox = new SandboxApi(connection);
-        tools = new MrsToolsApi(connection);
+        tools = new RestToolsApi(connection);
         api = new MrsApi(async () => { return db; });
 
         port = await freePort();

@@ -17,7 +17,7 @@
 
 import * as vscode from "vscode";
 
-import type { IRestdDeployment } from "../mcp/restApi.js";
+import type { IRestdDeployment } from "../mcp/restdApi.js";
 import type { IServerStatus } from "../mcp/serverStarter.js";
 import { errorText } from "../text.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
@@ -96,7 +96,7 @@ export class RestdTreeItem extends vscode.TreeItem {
 }
 
 /**
- * Feeds the REST Daemons view: every deployment `rest.get_restd_status`
+ * Feeds the REST Daemons view: every deployment `restd.get_restd_status`
  * lists - the sandboxes' and those set up for other servers - running or
  * stopped, and the start, stop and delete run from their rows.
  */

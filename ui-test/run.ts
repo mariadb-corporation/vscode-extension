@@ -18,6 +18,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
     chmodSync,
+    existsSync,
     mkdirSync,
     mkdtempSync,
     rmSync,
@@ -34,6 +35,10 @@ import { delimiter, join, resolve } from "node:path";
  *
  *     MARIADB_SHELL=/path/to/mariadb-shell npm run ui-test [suite...]
  *
+ * The shell loads mcp_plugin, rest_plugin and msm_plugin from a
+ * mariadb-shell-plugins checkout: `MARIADB_SHELL_PLUGINS`, or by default
+ * the `mariadb-shell-plugins` folder next to this repository.
+ *
  * The tests are split into suites by area - `core` (startup, connections,
  * SQL and results, the sandbox lifecycle), `mrs`, `dump-load`, `restd`
  * and `lsp` - so a
@@ -48,9 +53,8 @@ import { delimiter, join, resolve } from "node:path";
  * suite puts a wrapper there that starts the given shell with a
  * configuration home of its own: its connections, its sandboxes (in a
  * directory of the suite's), its secrets (the plaintext credential
- * helper of a development build, in that home) and the plugins of the
- * mariadb-shell-plugins checkout beside this repository (or
- * `MARIADB_SHELL_PLUGINS`), never the user's. `mariadbd` has to be on the PATH for the
+ * helper of a development build, in that home) and the plugins above,
+ * never the user's. `mariadbd` has to be on the PATH for the
  * sandboxes, and `mariadb-lsp` for the language server (or named with
  * `MARIADB_LSP`). Everything a suite made is removed when it ends, also when
  * its tests fail.
@@ -63,12 +67,10 @@ import { delimiter, join, resolve } from "node:path";
  */
 
 const root = resolve(__dirname, "../..");
-/**
- * The mariadb-shell-plugins checkout whose plugins the shell loads:
- * `MARIADB_SHELL_PLUGINS`, else the one beside this repository.
- */
-const plugins = resolve(process.env.MARIADB_SHELL_PLUGINS
+/** The mariadb-shell-plugins checkout whose plugins the shell loads. */
+const repo = resolve(process.env.MARIADB_SHELL_PLUGINS
     ?? join(root, "..", "mariadb-shell-plugins"));
+const PLUGINS = ["mcp_plugin", "rest_plugin", "msm_plugin"];
 const compiled = "out/ui-test/tests";
 
 /**
@@ -236,8 +238,8 @@ const runFiles = async (
     for (const dir of [join(home, "plugins"), bin, sandboxes, files]) {
         mkdirSync(dir, { recursive: true });
     }
-    for (const plugin of ["mcp_plugin", "mrs_plugin", "msm_plugin"]) {
-        symlinkSync(join(plugins, plugin), join(home, "plugins", plugin));
+    for (const plugin of PLUGINS) {
+        symlinkSync(join(repo, plugin), join(home, "plugins", plugin));
     }
     // The secrets too: the keychain is the whole user's, whatever the
     // configuration home, so the connections would be the user's. The
@@ -310,6 +312,13 @@ const main = async (): Promise<number> => {
     const shell = process.env.MARIADB_SHELL;
     if (shell === undefined || shell === "") {
         console.error("Set MARIADB_SHELL to the mariadb-shell to test with.");
+
+        return 2;
+    }
+    const missing = PLUGINS.filter((plugin) => !existsSync(join(repo, plugin)));
+    if (missing.length > 0) {
+        console.error(`${repo} has no ${missing.join(", ")}: set `
+            + "MARIADB_SHELL_PLUGINS to a mariadb-shell-plugins checkout.");
 
         return 2;
     }

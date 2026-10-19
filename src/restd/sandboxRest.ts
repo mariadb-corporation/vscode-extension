@@ -17,7 +17,7 @@
 
 import { GENERAL_ACTIONS } from "../connections/connectionActivity.js";
 import type { IMariaDbApi } from "../mcp/types.js";
-import type { IRestApi, IRestdDeployment, IRestdSetup } from "../mcp/restApi.js";
+import type { IRestdApi, IRestdDeployment, IRestdSetup } from "../mcp/restdApi.js";
 import type { ISandboxChange, ISandboxDeployOptions } from "../mcp/sandboxApi.js";
 import {
     DEFAULT_AUTH_APP,
@@ -53,7 +53,7 @@ export interface ISandboxRestHost {
     /** Opens the extension's connection to a URI; its connection id. */
     connect(uri: string): Promise<string>;
     api(): Promise<IMariaDbApi>;
-    restApi(): Promise<IRestApi>;
+    restdApi(): Promise<IRestdApi>;
     /**
      * Keeps a failure's full text in a log file, for its row to open.
      *
@@ -106,17 +106,17 @@ export const setupDetail = (setup: IRestdSetup): string => {
  * Has this system trust the REST Daemons' HTTPS certificate, as a step.
  *
  * @param group The action it is a step of.
- * @param restApi The REST API.
+ * @param restdApi The REST API.
  */
 export const trustCertificateStep = async (
     group: ActionGroup,
-    restApi: () => Promise<IRestApi>,
+    restdApi: () => Promise<IRestdApi>,
 ): Promise<void> => {
     await group.step({
         doing: "Registering the HTTPS Certificate",
         done: "Registered the HTTPS Certificate",
-    }, "rest.trust_certificate()", async () => {
-        return (await restApi()).trustCertificate();
+    }, "restd.trust_certificate()", async () => {
+        return (await restdApi()).trustCertificate();
     }, {
         detail: (trust) => {
             return trust.changed
@@ -177,11 +177,11 @@ export const deploySandboxWithRest = async (
                     ? "Setting up REST Daemon"
                     : `Setting up REST Daemon on port ${String(rest.restdPort)}`,
                 done: "Set up REST Daemon",
-            }, `rest.configure_restd(sandbox_port=${port}`
+            }, `restd.configure_restd(sandbox_port=${port}`
                 + (rest.restdPort === undefined
                     ? "" : `, port=${String(rest.restdPort)}`)
                 + ")", async () => {
-                return (await host.restApi()).configure({
+                return (await host.restdApi()).configure({
                     connectionId,
                     password: options.password,
                     sandboxPort: options.port,
@@ -236,7 +236,7 @@ export const deploySandboxWithRest = async (
             // Last: a dialog the user cancels leaves everything else done.
             if (rest.trustCertificate) {
                 await trustCertificateStep(group, () => {
-                    return host.restApi();
+                    return host.restdApi();
                 });
             }
 
@@ -298,7 +298,7 @@ export const followSandbox = async (
             return deployment.sandbox_port === port;
         });
     } catch {
-        // A server without the rest group: there is no daemon to follow.
+        // A server without the restd group: there is no daemon to follow.
     }
 
     const [doing, done] = CHANGE_WORDS[change];

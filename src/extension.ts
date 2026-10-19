@@ -110,14 +110,14 @@ import {
     SANDBOXES_VIEW_ID,
     type ISandboxNode,
 } from "./tree/sandboxesTreeProvider.js";
-import type { IRestApi } from "./mcp/restApi.js";
-import { RestdCommands, writeRestdLog } from "./rest/restdCommands.js";
+import type { IRestdApi } from "./mcp/restdApi.js";
+import { RestdCommands, writeRestdLog } from "./restd/restdCommands.js";
 import {
     deploySandboxWithRest,
     followSandbox,
     type SandboxChange,
-} from "./rest/sandboxRest.js";
-import { restdFor } from "./rest/restdUrl.js";
+} from "./restd/sandboxRest.js";
+import { restdFor } from "./restd/restdUrl.js";
 import { RESTD_VIEW_ID, RestdTreeProvider } from "./tree/restdTreeProvider.js";
 import { deleteConnection } from "./connections/connectionStore.js";
 import { SqlModes } from "./connections/sqlModes.js";
@@ -315,7 +315,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // The REST Service rows read REST SQL on the session the tree browses
     // with, through the connection manager's API. That API passes
     // db.execute_sql through unreported (a SQL run reports itself), so
-    // MrsApi reports its REST SQL itself, and the mrs.* tools theirs, to the
+    // MrsApi reports its REST SQL itself, and the rest.* tools theirs, to the
     // connection's Actions in the panel.
     const logAllCalls = (): boolean => {
         return settings.logAllCalls?.() ?? false;
@@ -398,10 +398,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
         extensionUri: context.extensionUri,
         api: mrsApi,
         tools: async () => {
-            if (session.mrsTools === undefined) {
+            if (session.restTools === undefined) {
                 await starter.start();
             }
-            const tools = session.mrsTools;
+            const tools = session.restTools;
             if (tools === undefined) {
                 throw new Error("The MCP server is not running.");
             }
@@ -455,11 +455,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const sandboxStore = new SandboxStore(sandboxApi);
     const sandboxes = new SandboxesTreeProvider(sandboxStore, log, starter);
     // The REST Daemons: a sandbox's, set up with it, and any connection's.
-    const restApi = async (): Promise<IRestApi> => {
-        if (session.restApi === undefined) {
+    const restdApi = async (): Promise<IRestdApi> => {
+        if (session.restdApi === undefined) {
             await starter.start();
         }
-        const api = session.restApi;
+        const api = session.restdApi;
         if (api === undefined) {
             throw new Error("The MCP server is not running.");
         }
@@ -467,7 +467,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         return api;
     };
     const restdTree = new RestdTreeProvider(async () => {
-        return (await restApi()).getStatus();
+        return (await restdApi()).getStatus();
     }, log, starter);
     // A failed setup's full text, for its row to open; kept beside the
     // task logs.
@@ -514,7 +514,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             return connections.connect(uri, UI_BACKEND_SESSION);
         },
         api: () => { return connections.api(); },
-        restApi,
+        restdApi,
         writeLog: (name: string, text: string) => {
             return writeRestdLog(restdLogFolder, name, text);
         },
@@ -646,7 +646,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             return (await mrsApi.metadataSchemas(connectionId))
                 .map((schema) => { return schema.schema_name; });
         },
-        restApi,
+        restdApi,
         tree: restdTree,
         put: putAction,
         showActions: (connection) => {
@@ -1149,7 +1149,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     ));
                 },
                 certificateTrusted: async () => {
-                    return (await (await restApi()).certificateStatus())
+                    return (await (await restdApi()).certificateStatus())
                         .trusted;
                 },
                 deployWithRest: async (options, rest) => {

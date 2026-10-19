@@ -24,7 +24,7 @@ EXTENSION_PATH = "src/mrs/mrsDialogs.ts"
 EXTENSION_FILE = REPO_ROOT / EXTENSION_PATH
 
 PLUGINS_REPO = "mariadb-corporation/mariadb-shell-plugins"
-PLUGIN_FILE = "mrs_plugin/lib/open_api_ui.py"
+PLUGIN_FILE = "rest_plugin/lib/open_api_ui.py"
 DEFAULT_REF = "main"
 
 # (what it is, the extension's constant, the plugin's constant)

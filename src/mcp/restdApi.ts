@@ -21,7 +21,7 @@ import { decodeList, decodeObject, decodeScalar } from "./protocol.js";
 /** Whether a REST Daemon is serving. */
 export type RestdStatus = "running" | "stopped";
 
-/** One REST Daemon deployment, as `rest.get_restd_status` lists it. */
+/** One REST Daemon deployment, as `restd.get_restd_status` lists it. */
 export interface IRestdDeployment {
     /** The deployment's folder, which names it in every other call. */
     directory: string;
@@ -48,7 +48,7 @@ export interface IRestdDeployment {
     sandbox_port: number | null;
 }
 
-/** What `rest.configure_restd` answers with. */
+/** What `restd.configure_restd` answers with. */
 export interface IRestdSetup extends IRestdDeployment {
     /** Whether mariadb-restd was installed for it. */
     installed: boolean;
@@ -65,7 +65,7 @@ export interface IRestdCertificateStatus {
     ca_path: string;
 }
 
-/** What `rest.trust_certificate` did. */
+/** What `restd.trust_certificate` did. */
 export interface IRestdCertificateTrust {
     trusted: boolean;
     /** Whether it was registered now, rather than trusted already. */
@@ -73,7 +73,7 @@ export interface IRestdCertificateTrust {
     ca_path: string;
 }
 
-/** What `rest.configure_restd` is asked to set up. */
+/** What `restd.configure_restd` is asked to set up. */
 export interface IRestdConfigureOptions {
     /** A connection to the server, opened with `db.connect`. */
     connectionId: string;
@@ -105,8 +105,8 @@ export const RESTD_LIFECYCLE_TIMEOUT_MS = 2 * 60 * 1000;
  */
 export const RESTD_TRUST_TIMEOUT_MS = 11 * 60 * 1000;
 
-/** The `rest.*` tools, as typed calls. */
-export interface IRestApi {
+/** The `restd.*` tools, as typed calls. */
+export interface IRestdApi {
     getStatus(): Promise<IRestdDeployment[]>;
     configure(options: IRestdConfigureOptions): Promise<IRestdSetup>;
     start(directory: string): Promise<IRestdDeployment>;
@@ -117,7 +117,7 @@ export interface IRestApi {
 }
 
 /** The REST Daemon tools of the MariaDB MCP server. */
-export class RestApi implements IRestApi {
+export class RestdApi implements IRestdApi {
     public constructor(private readonly caller: IToolCaller) { }
 
     /**
@@ -125,7 +125,7 @@ export class RestApi implements IRestApi {
      *          those set up for other servers, running or not.
      */
     public async getStatus(): Promise<IRestdDeployment[]> {
-        const name = "rest.get_restd_status";
+        const name = "restd.get_restd_status";
 
         return decodeList<IRestdDeployment>(name,
             await this.caller.callTool(name, {}));
@@ -143,7 +143,7 @@ export class RestApi implements IRestApi {
     public async configure(
         options: IRestdConfigureOptions,
     ): Promise<IRestdSetup> {
-        const name = "rest.configure_restd";
+        const name = "restd.configure_restd";
 
         return decodeObject<IRestdSetup>(name, await this.caller.callTool(name, {
             connection_id: options.connectionId,
@@ -165,7 +165,7 @@ export class RestApi implements IRestApi {
      * @returns It, started.
      */
     public async start(directory: string): Promise<IRestdDeployment> {
-        const name = "rest.start_restd";
+        const name = "restd.start_restd";
 
         return decodeObject<IRestdDeployment>(name, await this.caller.callTool(
             name, { directory }, RESTD_LIFECYCLE_TIMEOUT_MS));
@@ -179,7 +179,7 @@ export class RestApi implements IRestApi {
      * @returns It, stopped.
      */
     public async stop(directory: string): Promise<IRestdDeployment> {
-        const name = "rest.stop_restd";
+        const name = "restd.stop_restd";
 
         return decodeObject<IRestdDeployment>(name, await this.caller.callTool(
             name, { directory }, RESTD_LIFECYCLE_TIMEOUT_MS));
@@ -190,7 +190,7 @@ export class RestApi implements IRestApi {
      *          REST Daemon here serves. Makes nothing.
      */
     public async certificateStatus(): Promise<IRestdCertificateStatus> {
-        const name = "rest.get_certificate_status";
+        const name = "restd.get_certificate_status";
 
         return decodeObject<IRestdCertificateStatus>(name,
             await this.caller.callTool(name, {}));
@@ -203,7 +203,7 @@ export class RestApi implements IRestApi {
      * @returns What was done; nothing where it was trusted already.
      */
     public async trustCertificate(): Promise<IRestdCertificateTrust> {
-        const name = "rest.trust_certificate";
+        const name = "restd.trust_certificate";
 
         return decodeObject<IRestdCertificateTrust>(name,
             await this.caller.callTool(name, {}, RESTD_TRUST_TIMEOUT_MS));
@@ -223,7 +223,7 @@ export class RestApi implements IRestApi {
         directory: string,
         connectionId?: string,
     ): Promise<string> {
-        const name = "rest.delete_restd_config";
+        const name = "restd.delete_restd_config";
 
         return decodeScalar(name, await this.caller.callTool(name, {
             directory,

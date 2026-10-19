@@ -23,7 +23,7 @@ MCP plugin's own `context/sandbox.md`.
 
 - **Configure MariaDB REST Service**: New Sandbox can also
   set up the REST Service and a REST Daemon, and a sandbox's daemon
-  follows its start / stop / delete. See [rest.md](rest.md).
+  follows its start / stop / delete. See [restd.md](restd.md).
 
 - **The lists are read once and kept** (`SandboxStore`), because listing
   walks the sandbox directory and probes every instance, which is slow, and

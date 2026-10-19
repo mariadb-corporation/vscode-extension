@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { IRestdDeployment } from "../../mcp/restApi.js";
+import type { IRestdDeployment } from "../../mcp/restdApi.js";
 import { restdServerLabel } from "../../tree/restdTreeProvider.js";
 
 const deployment = (
