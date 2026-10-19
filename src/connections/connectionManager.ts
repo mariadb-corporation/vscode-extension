@@ -93,6 +93,8 @@ export type ConnectionChangeListener = () => void;
  */
 export class ConnectionManager {
     readonly #open: IOpenConnection[] = [];
+    /** URI and label -> the open under way for them. */
+    readonly #connecting = new Map<string, Promise<string>>();
     readonly #listeners = new Set<ConnectionChangeListener>();
     /** The API last handed out, with the one built over it. */
     #logged?: { plain: IMariaDbApi; logging: IMariaDbApi };
@@ -357,7 +359,31 @@ export class ConnectionManager {
         if (existing !== undefined) {
             return existing.connectionId;
         }
+        // Callers that ask at once - the language server's catalog reads,
+        // a run - share one open rather than each opening a session.
+        const key = `${uri}\n${label}`;
+        const pending = this.#connecting.get(key);
+        if (pending !== undefined) {
+            return await pending;
+        }
+        const opening = this.#openNew(uri, label);
+        this.#connecting.set(key, opening);
+        try {
+            return await opening;
+        } finally {
+            this.#connecting.delete(key);
+        }
+    }
 
+    /**
+     * Opens a connection that is not open yet.
+     *
+     * @param uri The connection to open.
+     * @param label What to call it.
+     *
+     * @returns The UUID identifying the open connection.
+     */
+    async #openNew(uri: string, label: string): Promise<string> {
         const api = await this.apiProvider();
         const when = new Date();
         const startedMs = Date.now();

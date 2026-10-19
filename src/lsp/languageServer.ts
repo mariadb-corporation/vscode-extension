@@ -346,13 +346,22 @@ export class LanguageServer implements vscode.Disposable {
         if (edits.length === 0) {
             return "unchanged";
         }
-        const applied = await editor.edit((builder) => {
-            for (const edit of edits) {
-                const { start, end } = edit.range;
-                builder.replace(new vscode.Range(start.line, start.character,
-                    end.line, end.character), edit.newText);
-            }
-        });
+        let applied: boolean;
+        try {
+            applied = await editor.edit((builder) => {
+                for (const edit of edits) {
+                    const { start, end } = edit.range;
+                    builder.replace(new vscode.Range(start.line,
+                        start.character, end.line, end.character),
+                    edit.newText);
+                }
+            });
+        } catch (error) {
+            // Overlapping edits, or an editor that was closed meanwhile.
+            this.deps.log(`Formatting failed: ${errorText(error)}`);
+
+            return "unavailable";
+        }
 
         return applied ? "formatted" : "outdated";
     }
@@ -449,6 +458,9 @@ export class LanguageServer implements vscode.Disposable {
             args,
             initializationOptions,
             onDidOpen: (document) => {
+                // Opened again after the client restarted a crashed
+                // server: a check the old one had under way never ends.
+                this.#progress.forget(document.uri.toString());
                 this.#sent.set(document.uri.toString(), null);
                 this.#sendContext(document);
             },

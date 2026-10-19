@@ -1457,8 +1457,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
             switch (await languageServer.format(editor)) {
                 case "unavailable":
                     void vscode.window.showWarningMessage("MariaDB: the SQL "
-                        + "language server is not running, so the file cannot "
-                        + "be formatted. See the MariaDB output for why.");
+                        + "language server is not running or could not "
+                        + "format the file. See the MariaDB output for why.");
                     break;
                 case "unchanged":
                     void vscode.window.setStatusBarMessage("MariaDB: nothing "
