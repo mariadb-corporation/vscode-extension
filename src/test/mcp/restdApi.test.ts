@@ -22,8 +22,8 @@ import type { IToolResult } from "../../mcp/protocol.js";
 import {
     RESTD_LIFECYCLE_TIMEOUT_MS,
     RESTD_SETUP_TIMEOUT_MS,
-    RestApi,
-} from "../../mcp/restApi.js";
+    RestdApi,
+} from "../../mcp/restdApi.js";
 
 interface ICall {
     name: string;
@@ -56,28 +56,28 @@ const createCaller = (
     };
 };
 
-describe("RestApi", () => {
+describe("RestdApi", () => {
     it("lists the deployments, one text item each", async () => {
         const caller = createCaller({
-            "rest.get_restd_status": {
+            "restd.get_restd_status": {
                 content: [{ type: "text", text: JSON.stringify(DEPLOYMENT) }],
             },
         });
 
-        expect(await new RestApi(caller).getStatus()).toEqual([DEPLOYMENT]);
+        expect(await new RestdApi(caller).getStatus()).toEqual([DEPLOYMENT]);
     });
 
     it("sets a sandbox's daemon up with the server's names, and time to install",
         async () => {
             const caller = createCaller();
 
-            await new RestApi(caller).configure({
+            await new RestdApi(caller).configure({
                 connectionId: "c1", password: "pw", sandboxPort: 3311,
                 port: 9443,
             });
 
             expect(caller.calls).toEqual([{
-                name: "rest.configure_restd",
+                name: "restd.configure_restd",
                 args: {
                     connection_id: "c1", password: "pw", sandbox_port: 3311,
                     port: 9443,
@@ -89,14 +89,14 @@ describe("RestApi", () => {
     it("leaves out what was not given, so the server decides", async () => {
         const caller = createCaller();
 
-        await new RestApi(caller).configure({ connectionId: "c1" });
+        await new RestdApi(caller).configure({ connectionId: "c1" });
 
         expect(caller.calls[0]?.args).toEqual({ connection_id: "c1" });
     });
 
     it("starts and stops by folder", async () => {
         const caller = createCaller();
-        const api = new RestApi(caller);
+        const api = new RestdApi(caller);
 
         expect(await api.start(DEPLOYMENT.directory)).toEqual(DEPLOYMENT);
         await api.stop(DEPLOYMENT.directory);
@@ -104,9 +104,9 @@ describe("RestApi", () => {
         expect(caller.calls.map((call) => {
             return [call.name, call.args, call.timeoutMs];
         })).toEqual([
-            ["rest.start_restd", { directory: DEPLOYMENT.directory },
+            ["restd.start_restd", { directory: DEPLOYMENT.directory },
                 RESTD_LIFECYCLE_TIMEOUT_MS],
-            ["rest.stop_restd", { directory: DEPLOYMENT.directory },
+            ["restd.stop_restd", { directory: DEPLOYMENT.directory },
                 RESTD_LIFECYCLE_TIMEOUT_MS],
         ]);
     });
@@ -114,12 +114,12 @@ describe("RestApi", () => {
     it("drops the account with a connection, else deletes the folder only",
         async () => {
             const caller = createCaller({
-                "rest.delete_restd_config": {
+                "restd.delete_restd_config": {
                     content: [{ type: "text", text: "Deleted" }],
                     structuredContent: { result: "Deleted" },
                 },
             });
-            const api = new RestApi(caller);
+            const api = new RestdApi(caller);
 
             await api.delete("/d", "c1");
             await api.delete("/d");

@@ -28,7 +28,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.startSandbox` | Start Sandbox | Inline on, and context menu of, a STOPPED sandbox |
 | `mariadb.stopSandbox` | Stop Sandbox | Inline on, and context menu of, a RUNNING sandbox |
 | `mariadb.deleteSandbox` | Delete Sandbox | Inline on, and context menu of, every sandbox not busy. Asks first; stops a running one before deleting |
-| `mariadb.restd.setUp` | Set Up MariaDB REST Daemon… | Context menu of a CONNECTED connection (`7_mrs`). Opens the `restd` MRS dialog (see [rest.md](rest.md)) |
+| `mariadb.restd.setUp` | Set Up MariaDB REST Daemon… | Context menu of a CONNECTED connection (`7_mrs`). Opens the `restd` MRS dialog (see [restd.md](restd.md)) |
 | `mariadb.restd.refresh` | Refresh REST Daemons | REST Daemons view title; Retry in its failed welcome content |
 | `mariadb.restd.start` | Start REST Daemon | Inline on, and context menu of, a STOPPED daemon |
 | `mariadb.restd.stop` | Stop REST Daemon | Inline on, and context menu of, a RUNNING daemon |

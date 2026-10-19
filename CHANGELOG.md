@@ -70,6 +70,11 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Changed
 
+- **The MCP server's REST groups are renamed.** The REST Service tree and
+  dialogs call the REST Service tools as `rest.*` (were `mrs.*`), and the
+  REST Daemon features call the daemon tools as `restd.*` (were `rest.*`),
+  as mariadb-shell-plugins#57 renames them. Needs a MariaDB Shell with
+  that change.
 - The SQL splitter is now a port of the MySQL Shell's
   `determineStatementRanges`: an offset-based scanner that runs at about
   120 MB/s instead of accumulating each statement's text as it goes. It

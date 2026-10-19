@@ -52,7 +52,7 @@ import type {
     IMrsScope,
     IMrsSdkOptions,
     MrsApi,
-    MrsToolsApi,
+    RestToolsApi,
 } from "./mrsApi.js";
 import {
     APP_BASE_CLASSES,
@@ -125,7 +125,7 @@ import {
 /**
  * The commands of the REST Service rows, and of the database rows that
  * add to a REST service: what the MySQL Shell for VS Code extension
- * offers on its MySQL REST Service tree, through REST SQL and the `mrs.*`
+ * offers on its MySQL REST Service tree, through REST SQL and the `rest.*`
  * tools.
  */
 
@@ -137,7 +137,7 @@ export const MRS_DOCS_URL =
 export interface IMrsCommandsHost {
     extensionUri: vscode.Uri;
     api: MrsApi;
-    tools(): Promise<MrsToolsApi>;
+    tools(): Promise<RestToolsApi>;
     model: MrsModel;
     connections: ConnectionManager;
     /** Redraws the Connections view. */

@@ -58,7 +58,7 @@ jobs:
 
       - name: Check the OpenAPI UI pins against the mrs plugin
         # The dialog's Swagger UI release and request path are copies of
-        # what mrs_plugin pins; the plugins repository is public, so the
+        # what rest_plugin pins; the plugins repository is public, so the
         # comparison needs no token.
         run: python3 tools/check_openapi_ui_pins.py
 

@@ -3,8 +3,8 @@
 A sandbox deployed with the MariaDB REST Service, a REST Daemon set up for
 any connection, the REST Daemons view, and the Actions rows all of them
 report. The daemon itself is
-run by the MCP server's `rest` group: see the plugin's
-`mcp_plugin/.claude/context/rest.md` for how mariadb-restd is driven.
+run by the MCP server's `restd` group: see the plugin's
+`mcp_plugin/.claude/context/restd.md` for how mariadb-restd is driven.
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
@@ -21,7 +21,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 - **The REST Daemon port**, a sandbox's as a connection's: 8443, or the
   next free one (the user's call). The field's placeholder shows 8443, and it is left to
   the server unless typed.
-- **After the deploy**, in this order: `rest.configure_restd` (which
+- **After the deploy**, in this order: `restd.configure_restd` (which
   configures the REST metadata where there is none, installs mariadb-restd
   where it is missing, sets the daemon up and starts it), then the MRS auth
   app, the REST user, and the REST service, published and linked to `MRS`.
@@ -30,7 +30,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 - **A failure after the deploy keeps the sandbox**; the user sets the
   daemon up again from the connection's menu.
 - **The Actions rows are sub-rows** of the sandbox's row, as a SQL
-  script's statements are of its run: `ActionGroup` (`src/rest/
+  script's statements are of its run: `ActionGroup` (`src/restd/
   actionGroup.ts`). The same for start / stop / delete of a sandbox that
   has a daemon: the daemon after the server on start, before it on stop
   and delete (`followSandbox`).
@@ -40,7 +40,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   A setup's failure text (all mariadb-restd printed) is written to
   `<storage>/restd-logs/`; a daemon that did not start points at its own
   `log/mariadb-restd.log`.
-- **The REST Daemons view** lists `rest.get_restd_status`: every
+- **The REST Daemons view** lists `restd.get_restd_status`: every
   deployment, the sandboxes' and `~/.mariadb-restd`'s, running or stopped,
   with Start / Stop / Delete / Open Log / Open in Browser. Delete drops the
   account the setup created, through the deployment's connection; where
@@ -52,15 +52,15 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 ## Files
 
-- `src/mcp/restApi.ts`: the `rest.*` tools; setup's timeout is 20 minutes
+- `src/mcp/restdApi.ts`: the `restd.*` tools; setup's timeout is 20 minutes
   (an install), the others 2.
-- `src/rest/actionGroup.ts`: one action with a row per step.
-- `src/rest/sandboxRest.ts`: `deploySandboxWithRest`, `followSandbox`.
-- `src/rest/restdCommands.ts`: the view's and the connection menu's
+- `src/restd/actionGroup.ts`: one action with a row per step.
+- `src/restd/sandboxRest.ts`: `deploySandboxWithRest`, `followSandbox`.
+- `src/restd/restdCommands.ts`: the view's and the connection menu's
   commands, `writeRestdLog`.
 - `src/tree/restdTreeProvider.ts`: the view. `deployments()` hands out
   the list it last showed (fetched if it has shown none; `refresh()`
-  clears it), which `src/rest/restdUrl.ts` matches tree rows against for
+  clears it), which `src/restd/restdUrl.ts` matches tree rows against for
   their request URLs (see mrs.md).
 - `src/sandboxes/sandboxFields.ts`: the REST fields, `DEFAULT_RESTD_PORT`,
   `restServiceUrl`, `sandboxRestOptions`.
@@ -76,7 +76,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   dialog offer "Register the REST Daemon's HTTPS certificate with the
   system", ticked by default.
   - It is offered only while the system does not trust it yet: the panel
-    asks `rest.get_certificate_status` as it loads (`restCertificateTrusted`
+    asks `restd.get_certificate_status` as it loads (`restCertificateTrusted`
     in the sandbox dialog's load message, `certificateTrusted` in the restd
     dialog's context).
   - A status that cannot be read offers the box. That does no harm:

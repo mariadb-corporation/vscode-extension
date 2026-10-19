@@ -17,14 +17,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { IRestApi, IRestdDeployment } from "../../mcp/restApi.js";
+import type { IRestdApi, IRestdDeployment } from "../../mcp/restdApi.js";
 import type { ISandboxRestdOutcome } from "../../mcp/sandboxApi.js";
 import type { IMariaDbApi } from "../../mcp/types.js";
 import {
     deploySandboxWithRest,
     followSandbox,
     type ISandboxRestHost,
-} from "../../rest/sandboxRest.js";
+} from "../../restd/sandboxRest.js";
 import type { IActionRow } from "../../webview/protocol.js";
 
 const DEPLOYMENT: IRestdDeployment = {
@@ -36,11 +36,11 @@ const DEPLOYMENT: IRestdDeployment = {
 };
 
 /** A REST API recording its calls, failing those it is told to. */
-const restApi = (
+const restdApi = (
     calls: string[],
     fail: string[] = [],
     deployments: IRestdDeployment[] = [DEPLOYMENT],
-): IRestApi => {
+): IRestdApi => {
     const answer = <T>(name: string, value: T): Promise<T> => {
         calls.push(name);
         return fail.includes(name)
@@ -97,7 +97,7 @@ const createHost = (fail: string[] = []): {
             },
             connect: (uri) => { calls.push(`connect ${uri}`); return Promise.resolve("c1"); },
             api: () => { return Promise.resolve(api); },
-            restApi: () => { return Promise.resolve(restApi(calls, fail)); },
+            restdApi: () => { return Promise.resolve(restdApi(calls, fail)); },
             writeLog: (name) => { return Promise.resolve(`/logs/${name}.log`); },
         },
     };

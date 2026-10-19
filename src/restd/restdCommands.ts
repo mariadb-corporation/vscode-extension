@@ -23,7 +23,7 @@ import * as vscode from "vscode";
 import { GENERAL_ACTIONS } from "../connections/connectionActivity.js";
 import { parseConnectionUri } from "../connections/connectionUri.js";
 import { reportError } from "../errorMessages.js";
-import type { IRestApi, IRestdSetup } from "../mcp/restApi.js";
+import type { IRestdApi, IRestdSetup } from "../mcp/restdApi.js";
 import { MrsDialogPanel } from "../mrs/mrsDialogPanel.js";
 import {
     restdDefaults,
@@ -49,7 +49,7 @@ export interface IRestdCommandsHost {
     connect(uri: string): Promise<string>;
     /** The REST metadata schemas a connection's account can see. */
     metadataSchemas(connectionId: string): Promise<string[]>;
-    restApi(): Promise<IRestApi>;
+    restdApi(): Promise<IRestdApi>;
     tree: RestdTreeProvider;
     put: ActionPutter;
     /** Brings up the panel on a connection's actions. */
@@ -143,7 +143,7 @@ export class RestdCommands {
     public async setUp(node: IConnectionNode): Promise<void> {
         // The certificate does not depend on the connection: asked for
         // at the same time.
-        const trusted = this.host.restApi().then(async (api) => {
+        const trusted = this.host.restdApi().then(async (api) => {
             return (await api.certificateStatus()).trusted;
         }).catch(() => {
             // Offered then, which does no harm: registering a trusted
@@ -206,12 +206,12 @@ export class RestdCommands {
                 doing: "Setting up REST Daemon"
                     + (port === "" ? "" : ` on port ${port}`),
                 done: "Set up REST Daemon",
-            }, "rest.configure_restd(" + [
+            }, "restd.configure_restd(" + [
                 ...(port === "" ? [] : [`port=${port}`]),
                 ...(values.metadataSchema === ""
                     ? [] : [`metadata_schema='${values.metadataSchema}'`]),
             ].join(", ") + ")", async () => {
-                return (await this.host.restApi()).configure({
+                return (await this.host.restdApi()).configure({
                     connectionId,
                     ...(values.password === ""
                         ? {} : { password: values.password }),
@@ -232,7 +232,7 @@ export class RestdCommands {
                 // confirmed, and setting it up again would be refused. The
                 // step's row says why, and the panel shows it.
                 await trustCertificateStep(group, () => {
-                    return this.host.restApi();
+                    return this.host.restdApi();
                 }).catch(() => {
                     this.host.showActions(uri);
                 });
@@ -258,7 +258,7 @@ export class RestdCommands {
         await this.#singleStep(node, change === "start" ? "starting" : "stopping",
             words, `rest.${change}_restd(directory='${node.directory}')`,
             async () => {
-                const api = await this.host.restApi();
+                const api = await this.host.restdApi();
                 await (change === "start"
                     ? api.start(node.directory)
                     : api.stop(node.directory));
@@ -347,11 +347,11 @@ export class RestdCommands {
         const daemon = `REST Daemon on port ${String(node.port)}`;
         const words = { doing: `Deleting ${daemon}`, done: `Deleted ${daemon}` };
         await this.#singleStep(node, "deleting", words,
-            "rest.delete_restd_config("
+            "restd.delete_restd_config("
             + `directory='${node.directory}'`
             + (connectionId === undefined ? ", drop_accounts=False" : "")
             + ")", async () => {
-                return (await this.host.restApi()).delete(node.directory,
+                return (await this.host.restdApi()).delete(node.directory,
                     connectionId);
             }, { detail: (said) => { return said; } });
     }

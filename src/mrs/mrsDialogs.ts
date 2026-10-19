@@ -1162,7 +1162,7 @@ export interface IContentSetContext {
     openApiUi?: boolean;
 }
 
-// Copies of what mrs_plugin/lib/open_api_ui.py pins, kept by hand: the
+// Copies of what rest_plugin/lib/open_api_ui.py pins, kept by hand: the
 // dialog shows them before the plugin is asked for anything, and the plugin
 // exposes neither. tools/check_openapi_ui_pins.py compares them with the
 // plugin's source, and CI runs it.

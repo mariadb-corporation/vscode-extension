@@ -32,7 +32,7 @@ import {
     MRS_TOOL_TIMEOUT_MS,
     MRS_UPLOAD_TIMEOUT_MS,
     MrsApi,
-    MrsToolsApi,
+    RestToolsApi,
 } from "../../mrs/mrsApi.js";
 import {
     MRS_DOCS_URL,
@@ -139,7 +139,7 @@ const CONFIGURED = {
 /**
  * @param answers What the server answers REST SQL with.
  * @param options Whether the tree's connection is open, and what the
- *        `mrs.*` tools answer.
+ *        `rest.*` tools answer.
  *
  * @returns The registered commands over a fake server, and what they
  *          touched.
@@ -192,7 +192,7 @@ const setup = async (
                 ?? { content: [] });
         },
     };
-    const tools = new MrsToolsApi(caller, reportAction);
+    const tools = new RestToolsApi(caller, reportAction);
     const log = createRecordingLog();
     const state = {
         refreshed: 0,
@@ -1605,8 +1605,8 @@ describe("REST objects", () => {
 });
 
 describe("content sets", () => {
-    const LANGUAGE = "mrs.get_folder_mrs_script_language";
-    const DEFINITIONS = "mrs.get_folder_mrs_script_definitions";
+    const LANGUAGE = "rest.get_folder_mrs_script_language";
+    const DEFINITIONS = "rest.get_folder_mrs_script_definitions";
 
     it("uploads a folder as a new content set, then applies the dialog",
         async () => {
@@ -1616,7 +1616,7 @@ describe("content sets", () => {
                     [mrsContentSet({ request_path: "/web" })],
             }, {
                 toolAnswers: {
-                    "mrs.load_content_set": {
+                    "rest.load_content_set": {
                         content: [{
                             type: "text",
                             text: JSON.stringify({ files: ["/a", "/b"] }),
@@ -1640,7 +1640,7 @@ describe("content sets", () => {
                 ...values, directory: "/src/web", requestPath: " /web ",
             })).resolves.toBeUndefined();
             expect(toolCalls).toEqual([{
-                name: "mrs.load_content_set",
+                name: "rest.load_content_set",
                 args: {
                     connection_id: "uuid-1",
                     directory: "/src/web",
@@ -1667,7 +1667,7 @@ describe("content sets", () => {
             });
             expect(reported[1]!.statements?.map((step) => {
                 return step.sql.split("(")[0]!.split(" ").slice(0, 4).join(" ");
-            })).toEqual(["mrs.load_content_set", "SHOW REST CONTENT SETS",
+            })).toEqual(["rest.load_content_set", "SHOW REST CONTENT SETS",
                 "ALTER REST CONTENT SET"]);
         });
 
@@ -1680,7 +1680,7 @@ describe("content sets", () => {
                 [mrsContentSet({ request_path: "/openApiUi" })],
         }, {
             toolAnswers: {
-                "mrs.load_content_set": {
+                "rest.load_content_set": {
                     content: [{
                         type: "text",
                         text: JSON.stringify({ files: ["/index.html"] }),
@@ -1703,7 +1703,7 @@ describe("content sets", () => {
         await expect(spec.save(values)).resolves.toBeUndefined();
         // No folder: the plugin downloads Swagger UI itself.
         expect(toolCalls).toEqual([{
-            name: "mrs.load_content_set",
+            name: "rest.load_content_set",
             args: {
                 connection_id: "uuid-1", content_set_path: "/openApiUi",
                 service_path: "/myService", open_api_ui: true,
@@ -1722,7 +1722,7 @@ describe("content sets", () => {
                 [SERVICES]: [service], [CONTENT_SETS]: [],
             }, {
                 toolAnswers: {
-                    "mrs.load_content_set": {
+                    "rest.load_content_set": {
                         content: [{ type: "text", text: "{\"files\":[]}" }],
                     },
                 },
@@ -1742,7 +1742,7 @@ describe("content sets", () => {
             [SERVICES]: [service], [CONTENT_SETS]: [],
         }, {
             toolAnswers: {
-                "mrs.load_content_set": {
+                "rest.load_content_set": {
                     content: [{ type: "text", text: "{\"files\":[]}" }],
                 },
             },
@@ -2038,11 +2038,11 @@ describe("users", () => {
     });
 });
 
-describe("the mrs tools", () => {
+describe("the rest tools", () => {
     it("exports the SDK with the options the folder keeps", async () => {
         const { toolCalls } = await setup({}, {
             toolAnswers: {
-                "mrs.get_sdk_options": {
+                "rest.get_sdk_options": {
                     content: [{
                         type: "text",
                         text: JSON.stringify({ sdkLanguage: "Python" }),
@@ -2059,7 +2059,7 @@ describe("the mrs tools", () => {
             saveLabel: "Export SDK Files",
         });
         expect(toolCalls).toEqual([{
-            name: "mrs.get_sdk_options", args: { directory: "/out/my.mrs.sdk" },
+            name: "rest.get_sdk_options", args: { directory: "/out/my.mrs.sdk" },
         }]);
         const spec = dialog();
         expect(spec.dialog).toBe("sdkExport");
@@ -2078,7 +2078,7 @@ describe("the mrs tools", () => {
             header: "// hi",
         })).resolves.toBeUndefined();
         expect(toolCalls[1]).toEqual({
-            name: "mrs.dump_sdk_service_files",
+            name: "rest.dump_sdk_service_files",
             args: {
                 connection_id: "uuid-1",
                 directory: "/out/my.mrs.sdk",
@@ -2098,7 +2098,7 @@ describe("the mrs tools", () => {
         async () => {
             const { api, toolCalls } = await setup({}, {
                 toolAnswers: {
-                    "mrs.get_sdk_options": {
+                    "rest.get_sdk_options": {
                         isError: true,
                         content: [{ type: "text", text: "no options" }],
                     },
@@ -2137,7 +2137,7 @@ describe("the mrs tools", () => {
         await run("mariadb.mrs.dumpServiceAsProject", serviceNode());
 
         expect(toolCalls).toEqual([{
-            name: "mrs.dump_service_project",
+            name: "rest.dump_service_project",
             args: {
                 connection_id: "uuid-1",
                 destination: "/out/Shop.ZIP",
@@ -2206,7 +2206,7 @@ describe("the mrs tools", () => {
 
         expect(api.sent).toEqual([USE_DEV]);
         expect(toolCalls).toEqual([{
-            name: "mrs.load_service_project",
+            name: "rest.load_service_project",
             args: { connection_id: "uuid-1", source: "/p.zip" },
             timeoutMs: MRS_TOOL_TIMEOUT_MS,
         }]);
@@ -2240,7 +2240,7 @@ describe("the mrs tools", () => {
                     as_path: "/copy",
                 },
             ]);
-            expect(toolCalls[0]!.name).toBe("mrs.load_service");
+            expect(toolCalls[0]!.name).toBe("rest.load_service");
             expect(state.refreshed).toBe(2);
         });
 
@@ -2260,7 +2260,7 @@ describe("the mrs tools", () => {
         await run("mariadb.mrs.rebuildMrsSdk", Uri.file("/app/x.mrs.sdk"));
 
         expect(toolCalls).toEqual([{
-            name: "mrs.dump_sdk_service_files",
+            name: "rest.dump_sdk_service_files",
             args: {
                 connection_id: "uuid-1",
                 directory: "/app/x.mrs.sdk",
