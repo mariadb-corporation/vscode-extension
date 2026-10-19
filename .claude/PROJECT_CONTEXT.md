@@ -21,7 +21,7 @@ extension grows.
 | `src/mcp/` | The MCP client: the one-at-a-time server startup, session lifecycle, wire decoding, typed `db.*` and `sandbox.*` APIs. |
 | `src/errorMessages.ts` | The error notification every failure uses, with its Show Log button, and `reportError` (log it, then notify). |
 | `src/text.ts` | `errorText`, `counted` and `stripAnsi`: text helpers shared with the webviews, so free of `vscode`. |
-| `src/connections/` | Which connections are open on which URI and which is the default, what happens on each one, what each one's `sql_mode` says about double quotes (`sqlModes.ts`), plus the connection editor: URI building, the store, the panel and its protocol. |
+| `src/connections/` | Which connections are open on which URI and which is the default, what happens on each one, what each one's `sql_mode` says about double quotes and what its editors' session reported of its `sql_mode` and schema for the language server (`sqlModes.ts`), plus the connection editor: URI building, the store, the panel and its protocol. |
 | `src/tree/` | The Connections view: its data model and its tree items; the Sandboxes view; `viewState.ts`, the welcome-content state machine both share. |
 | `src/mrs/` | The MariaDB REST Service: REST SQL builders, the data mapping model, the dialogs' fields, the API, the dialog panel and the commands, and what goes to the Actions tab (`mrsActions.ts`, `mrsActivity.ts`) (see [`context/mrs.md`](context/mrs.md)). |
 | `src/util/` | Dump and Load: the operations' fields, the dialog, the commands, the task monitor, the Tasks view, a task's Actions row (`taskActions.ts`) and its log file (`taskLogs.ts`) (see [`context/dump-and-load.md`](context/dump-and-load.md)). |
@@ -40,7 +40,7 @@ extension grows.
 | `webview/src/modeler/` | The EER diagram as a figure set of the canvas (tables, layers, connections), and the model viewer. |
 | `src/test/` | The extension-side test suite, mirroring the source layout; `grammar/` tokenizes with VS Code's own TextMate engine (word coverage, token classes, corpus snapshots). |
 | `webview/test/` | The frontend test suite, run under jsdom. |
-| `ui-test/` | The ExTester UI tests: the runner and its suites (`core`, `mrs`, `dump-load`, each with a sandbox of its own), the helpers, the test files (see [`context/testing-and-debugging.md`](context/testing-and-debugging.md)). |
+| `ui-test/` | The ExTester UI tests: the runner and its suites (`core`, `mrs`, `dump-load`, `lsp`, `restd`, each with a sandbox of its own), the helpers, the test files (see [`context/testing-and-debugging.md`](context/testing-and-debugging.md)). |
 | `images/` | Icons: `light/` and `dark/` variants, the activity bar icon `mariadb-code-ext.svg`, and `marketplace-icon.png`. |
 
 ## Context files
@@ -123,7 +123,8 @@ change belongs to up to date, and this table with it.
   server's `db.execute_sql` calls, compared with runs of blanks as one
   space and no `;` at the end (a new layout is fine, any other change is
   not); anything else is refused, and logged in the MariaDB channel, so
-  the server cannot run arbitrary SQL on the user's credentials. It mirrors `k_server_sql` in lsp-server's
+  the server cannot run arbitrary SQL on the user's credentials. It
+  mirrors `k_server_sql` in lsp-server's
   `libs/mariadblanguageserver/src/mcp_catalog.cc` (today the one
   `SELECT @@sql_mode AS sql_mode, VERSION() AS version, DATABASE() AS
   schema_name`). A statement added or changed there has to be added here,

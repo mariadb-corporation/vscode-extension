@@ -23,7 +23,7 @@ There are two producers, and they deliberately do not share:
 | Label | Who opens it | Why it is its own |
 | --- | --- | --- |
 | `1`, `2`, … | An editor running SQL | The user's session: its temporary tables, its current schema, its open transaction. |
-| `UI Backend` | The Connections view | Walking the tree neither waits behind whatever an editor is running nor disturbs its session state. |
+| `UI Backend` | The Connections view, and the SQL language server's catalog reads | Walking the tree, or completing, neither waits behind whatever an editor is running nor disturbs its session state. |
 
 - `connect(uri)` reuses the lowest numbered connection open on the URI,
   so an editor goes on running on the one it has been running on, and
@@ -34,8 +34,20 @@ There are two producers, and they deliberately do not share:
   puts a run up the moment the user asks for it, which is before the
   connection it runs on has been opened - so the label has to be knowable
   in advance, and it is the one `connect` will then pick.
+- **Opens under way are shared.** Callers asking for the same URI and
+  label while it is being opened (the language server's catalog reads, a
+  run) wait for that one open rather than each opening a session.
 - `disconnect(uri)` closes **every** connection open on the URI, which is
   what Disconnect in the tree means; `disconnect(uri, name)` closes one.
+  An open still under way that it matches is abandoned: what it opens is
+  closed as it arrives and its caller gets an error, and a connect after
+  the disconnect starts an open of its own. `disconnectAll` covers those
+  opens too.
+- **`wasDisconnected(uri)`** is true after `disconnect(uri)` (the whole
+  connection: the tree's Disconnect, a sandbox stopped, a connection
+  deleted) until the next `connect` on the URI. The language server's
+  catalog reads check it and leave such a connection closed rather than
+  undo the disconnect.
 - `isConnected(uri)` asks whether any is open, `isConnected(uri, name)`
   about one. The tree's rows use the first - what a row says, and what
   disconnecting it closes, is the whole of what is open on the connection

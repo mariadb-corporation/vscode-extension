@@ -109,11 +109,12 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   (`ConnectionManager`'s abandoned opens; a connect after the disconnect
   opens anew). A connection disconnected as a whole is not opened again
   for the server (`wasDisconnected`): its reads are refused, to be asked
-  again, until a run, the tree or anything else connects it. That session does not follow
-  a `SET sql_mode` or `USE` run in an editor, so the editors' session's
-  state goes with each document's context (below). A reading lists names only; the details of a
-  table, view or routine are one `db.get_object_details` call each, made
-  when a completion, hover or signature help first needs them. A failed call is a JSON-RPC error with
+  again, until a run, the tree or anything else connects it. That session
+  does not follow a `SET sql_mode` or `USE` run in an editor, so the
+  editors' session's state goes with each document's context (below). A
+  reading lists names only; the details of a table, view or routine are
+  one `db.get_object_details` call each, made when a completion, hover or
+  signature help first needs them. A failed call is a JSON-RPC error with
   `data.permanent`; the server retries the others with its back-off, and
   `mariadb/refreshCatalog` reads again at once.
 - Stopped in `deactivate()` before the connections and the MCP session.
@@ -123,10 +124,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 ## Which connection a document runs on
 
-The server reads a connection's catalog, `sql_mode` and version itself,
-from the URI. The controller sends `mariadb/documentContext` with
-`{textDocument: {uri}, connection}`, `connection` being
-`SqlEditorBinding.connectionFor` (picked, header, default):
+The server reads a connection's catalog, `sql_mode` and version through
+the extension, by the URI. The controller sends `mariadb/documentContext`
+with `{textDocument: {uri}, connection, sqlMode?, currentSchema?}`,
+`connection` being `SqlEditorBinding.connectionFor` (picked, header,
+default), and the other two what the editors' session reported (below):
 
 - after the client's `didOpen` (middleware), since the server ignores a
   context for a document it does not have open; a document opened while
@@ -134,6 +136,7 @@ from the URI. The controller sends `mariadb/documentContext` with
 - when the binding binds a document by hand (`onDidBindConnection`),
   when the connections change (the default among them), and on an edit of
   the document, which may have changed its header line;
+- when what the editors' session reported changes (`onDidChangeSession`);
 - only when it differs from what was last sent for that document, and
   `null` when a document lost its connection. Nothing is sent for a
   document that never had one: the server starts without.
@@ -156,14 +159,17 @@ schema is created after the first SQL editor opened.
 
 **The editors' session.** `SqlModes` also keeps what the editors' session
 on a connection reported (`sessionOf`, `onDidChangeSession`): the full
-`sql_mode` every run reports, and after a run whose script has `USE` or drops a schema (also one that failed),
-`SELECT DATABASE()` read on that session (`SqlEditorBinding`). The
+`sql_mode` every run reports, and after a run whose script has `USE` or
+drops a schema (also one that failed), `SELECT DATABASE()` read on that
+session (`SqlEditorBinding`). The
 controller sends them as `sqlMode` and `currentSchema` with the document's
 context, and again when they change. Each message is whole: until a run
 reported something, or once the connection closed, they are left out and
-the server takes the connection's own, which a new session shares. Kept
-per connection, like the ANSI_QUOTES state: two editor sessions on one
-connection share the last report.
+the server takes the connection's own, which a new session shares. It is
+dropped once no editors' session (a numbered label) is open on the
+connection, whether the tree's is or not. Kept per connection, like the
+ANSI_QUOTES state: two editor sessions on one connection share the last
+report.
 
 ## Progress of a large file's check
 
@@ -195,7 +201,10 @@ provider, once the server's tokens cover both.
 
 ## Not done yet (plan P6 in lsp-server)
 
-- Downloading `mariadb-lsp` when it is not found.
+- No download of `mariadb-lsp` alone: it comes with the MariaDB Shell's
+  package, so installing the shell (`ensureShell`) brings it only once
+  the shell's package carries it. Until then the third lookup step finds
+  nothing an installer put there.
 - The gutter's statement markers and the run commands still use the
   TypeScript scanner (`src/sql/statementSpans.ts`), not the server's
   statements.

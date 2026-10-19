@@ -64,7 +64,7 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `core` | `00-startup` (before the setup), `03-connections`, `04-sql-results`, `05-lifecycle` | `ui-test:core` |
 | `mrs` | `02-mrs` | `ui-test:mrs` |
 | `dump-load` | `06-dump-load` | `ui-test:dump-load` |
-| `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), the walk from `SELECT ` through schema, table and column to the FROM clause and a foreign-key join (`pickCompletion` opens the list and clicks an item; a dotted item reopens it by itself), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches). Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
+| `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), the walk from `SELECT ` through schema, table and column to the FROM clause and a foreign-key join (`pickCompletion` opens the list and clicks an item; a dotted item reopens it by itself), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches); Format Document and the toolbar's format button with and without a selection; the Explorer's Outline (schema > table > columns and key, a view, a function) and a click on a symbol moving the cursor; an MSM script's `SOURCE` section in the Outline and in path completion. Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
@@ -132,11 +132,23 @@ runner end anyway. A spawn that fails is reported with its error.
   other MariaDB views and expands the one asked for: with three views
   sharing the side bar, deep Connections rows were out of sight (and
   collapsing only one view gives its height to the next, not to
-  Connections). Timeouts are short on purpose
+  Connections). It takes another view container too
+  (`openSection("Outline", "Explorer")`). `08-lsp`'s `sqlEditor` uses
+  the Connections view opened once in `before`, so a test that shows
+  another container puts the MariaDB view back in a `finally`; having
+  `sqlEditor` open the view on every call instead made the completion
+  tests fail now and then, for no cause that was found. Timeouts are short on purpose
   (TIMEOUT 10 s, SERVER_TIMEOUT 15 s, DEPLOY_TIMEOUT 90 s), and dialogs
   fail at once on an in-dialog `.message.error` or an error
   notification. Screenshots go to `.vscode-test/extest/screenshots`.
 - ExTester traps:
+  - The tests drive the real window: typing or clicking on the machine
+    while they run makes them fail. An occasional "element not
+    interactable" in the command palette, or a completion timeout, that
+    passes on a rerun is that kind of flake, not a defect.
+  - VS Code's Outline sorts by position: an inline `PRIMARY KEY` is
+    listed right after its column, so a test that wants the keys last
+    declares them in a clause of their own.
   - Tree rows are virtualized and their DOM is reused. Re-find a row by
     label and `aria-level` (`treeItem`); never hold on to one.
   - Context-menu clicks are sometimes lost when a tree refresh closes the
