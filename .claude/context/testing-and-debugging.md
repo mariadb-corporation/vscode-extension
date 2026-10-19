@@ -47,7 +47,12 @@ deliberate change). See [sql-grammar.md](sql-grammar.md).
 ## UI tests (ExTester)
 
 `MARIADB_SHELL=<path to mariadb-shell> npm run ui-test [suite...]`
-drives a real VS Code through WebDriver. It uses vscode-extension-tester
+drives a real VS Code through WebDriver. The shell loads `mcp_plugin`,
+`rest_plugin` and `msm_plugin` from a mariadb-shell-plugins checkout:
+`MARIADB_SHELL_PLUGINS`, or by default `../mariadb-shell-plugins` next to
+this repository (so does `mrsShell.e2e.test.ts`). Before the extension
+moved out of that repository the runner took its parent folder, which a
+standalone checkout doesn't have. It uses vscode-extension-tester
 8.28.1 and Mocha, on the newest VS Code (`--code_version max`).
 `mariadbd` must be on the PATH.
 
