@@ -22,14 +22,13 @@ import type { IDbCallParams } from "../../lsp/dbCall.js";
 import {
     DID_CHANGE_CONFIGURATION_NOTIFICATION,
     DOCUMENT_CONTEXT_NOTIFICATION,
-    FORMATTING_REQUEST,
     LanguageServer,
-    RANGE_FORMATTING_REQUEST,
     REFRESH_CATALOG_REQUEST,
     type ILanguageClientOptions,
 } from "../../lsp/languageServer.js";
 import { createFakeEnvironment } from "../helpers.js";
 import {
+    commands,
     configuration,
     fireConfigurationChange,
     fireDocumentChange,
@@ -84,8 +83,6 @@ const build = (options: {
     failStart?: boolean;
     /** Holds the client's start until it settles. */
     startGate?: Promise<void>;
-    /** What a request other than the ones the controller sends answers. */
-    answer?: (method: string, params: unknown) => Promise<unknown>;
 } = {}): Fixture => {
     const clients: FakeClient[] = [];
     const lines: string[] = [];
@@ -127,9 +124,7 @@ const build = (options: {
                 sendRequest: (method, params) => {
                     client.requests.push({ method, params });
 
-                    return options.answer
-                        ? options.answer(method, params)
-                        : Promise.resolve(null);
+                    return Promise.resolve(null);
                 },
             };
         },
@@ -176,17 +171,6 @@ const settle = async (): Promise<void> => {
     }
 };
 
-/** An LSP TextEdit replacing [line:from, line:to) with `text`. */
-const lspEdit = (line: number, from: number, to: number, text: string) => {
-    return {
-        range: {
-            start: { line, character: from },
-            end: { line, character: to },
-        },
-        newText: text,
-    };
-};
-
 describe("LanguageServer.format", () => {
     beforeEach(() => {
         resetVscodeMock();
@@ -203,97 +187,64 @@ describe("LanguageServer.format", () => {
         return editor as unknown as vscode.TextEditor;
     };
 
+    /**
+     * Stands in for VS Code's formatting commands.
+     *
+     * @param editor The editor they work on.
+     * @param text What a command leaves in it; none leaves it as it is.
+     *
+     * @returns The commands run, in order.
+     */
+    const formatCommands = (editor: MockTextEditor, text?: string): string[] => {
+        const ran: string[] = [];
+        for (const command of ["editor.action.formatDocument",
+            "editor.action.formatSelection"]) {
+            commands.registerCommand(command, () => {
+                ran.push(command);
+                if (text !== undefined) {
+                    editor.document.setText(text);
+                }
+            });
+        }
+
+        return ran;
+    };
+
     it("formats the whole document when nothing is selected", async () => {
-        const { clients, server } = build({
-            answer: () => {
-                return Promise.resolve([lspEdit(0, 0, 15, "SELECT a FROM t")]);
-            },
-        });
+        const { server } = build({});
         const editor = sqlEditor();
+        const ran = formatCommands(editor, "SELECT a FROM t;\n");
 
         expect(await server.format(asEditor(editor))).toBe("formatted");
-        expect(clients[0].requests).toEqual([{
-            method: FORMATTING_REQUEST,
-            params: {
-                textDocument: { uri: "file:///work/q.sql" },
-                options: { tabSize: 4, insertSpaces: true },
-            },
-        }]);
-        expect(editor.replacements).toHaveLength(1);
-        expect(editor.replacements[0].text).toBe("SELECT a FROM t");
-        expect(editor.replacements[0].range.start).toEqual(new Position(0, 0));
-        expect(editor.replacements[0].range.end).toEqual(new Position(0, 15));
+        expect(ran).toEqual(["editor.action.formatDocument"]);
     });
 
-    it("formats the statements of the selection only", async () => {
-        const { clients, server } = build({
-            answer: () => {
-                return Promise.resolve([lspEdit(1, 0, 15, "SELECT b FROM u")]);
-            },
-        });
+    it("formats the selection when something is selected", async () => {
+        const { server } = build({});
         const editor = sqlEditor();
         editor.selection = new Selection(new Position(1, 2), new Position(1, 8));
-        editor.options = { tabSize: 2, insertSpaces: false };
+        const ran = formatCommands(editor, "SELECT b FROM u;\n");
 
         expect(await server.format(asEditor(editor))).toBe("formatted");
-        expect(clients[0].requests).toEqual([{
-            method: RANGE_FORMATTING_REQUEST,
-            params: {
-                textDocument: { uri: "file:///work/q.sql" },
-                options: { tabSize: 2, insertSpaces: false },
-                range: {
-                    start: { line: 1, character: 2 },
-                    end: { line: 1, character: 8 },
-                },
-            },
-        }]);
-        expect(editor.replacements.map((r) => {
-            return r.text;
-        })).toEqual(["SELECT b FROM u"]);
+        expect(ran).toEqual(["editor.action.formatSelection"]);
     });
 
     it("says when there was nothing to change", async () => {
-        const { server } = build({
-            answer: () => {
-                return Promise.resolve([]);
-            },
-        });
+        const { server } = build({});
         const editor = sqlEditor();
+        formatCommands(editor);
 
         expect(await server.format(asEditor(editor))).toBe("unchanged");
-        expect(editor.replacements).toHaveLength(0);
-    });
-
-    it("drops edits for a document that changed meanwhile", async () => {
-        const editor = sqlEditor();
-        const { server } = build({
-            answer: () => {
-                editor.document.setText("select 1;");
-
-                return Promise.resolve([lspEdit(0, 0, 8, "SELECT 1")]);
-            },
-        });
-
-        expect(await server.format(asEditor(editor))).toBe("outdated");
-        expect(editor.replacements).toHaveLength(0);
     });
 
     it("cannot format without a server", async () => {
         const { lines, server } = build({ versions: {} });
+        const editor = sqlEditor();
+        const ran = formatCommands(editor, "SELECT 1;");
 
-        expect(await server.format(asEditor(sqlEditor()))).toBe("unavailable");
+        expect(await server.format(asEditor(editor))).toBe("unavailable");
+        expect(ran).toEqual([]);
         expect(lines.join("\n")).toContain("No usable mariadb-lsp");
-    });
-
-    it("reports a request that fails", async () => {
-        const { lines, server } = build({
-            answer: () => {
-                return Promise.reject(new Error("broken pipe"));
-            },
-        });
-
-        expect(await server.format(asEditor(sqlEditor()))).toBe("unavailable");
-        expect(lines.join("\n")).toContain("Formatting failed: broken pipe");
     });
 });
 
@@ -431,6 +382,54 @@ describe("LanguageServer", () => {
             ran("mariadb://root@other:1", "DROP TABLE t;");
             expect(clients[0].requests).toHaveLength(1);
         });
+
+    it("has catalogs read again when asked", async () => {
+        const { clients, connections, server } = build();
+        const document = sqlDocument("q.sql");
+        connections.set(document.uri.toString(), "mariadb://root@h:1");
+        // Not running: nothing to ask.
+        server.refreshCatalog();
+        await server.start();
+        clients[0].options.onDidOpen(asDocument(document));
+
+        // A load or a copy names the connection as the tree has it.
+        server.refreshCatalog("root@h:1");
+        server.refreshCatalog("root@other:1");
+        // The tree's refresh asks for every one.
+        server.refreshCatalog();
+        expect(clients[0].requests).toEqual([
+            {
+                method: REFRESH_CATALOG_REQUEST,
+                params: { textDocument: { uri: document.uri.toString() } },
+            },
+            { method: REFRESH_CATALOG_REQUEST, params: {} },
+        ]);
+    });
+
+    it("ignores what a stopped client still reports", async () => {
+        const { clients, connections, server, changed } = build();
+        const document = sqlDocument("q.sql");
+        connections.set(document.uri.toString(), "mariadb://root@h:1");
+        await server.start();
+        await server.stop();
+        await server.start();
+        clients[1].options.onDidOpen(asDocument(document));
+
+        clients[0].options.onDidClose(asDocument(document));
+        clients[0].options.onDidOpen(asDocument(sqlDocument("old.sql")));
+        // The document is still the new client's: a moved connection is sent.
+        connections.set(document.uri.toString(), "mariadb://root@h:2");
+        fireDocumentOpen(document);
+        changed();
+        expect(clients[1].notifications.at(-1)).toEqual({
+            method: DOCUMENT_CONTEXT_NOTIFICATION,
+            params: {
+                textDocument: { uri: document.uri.toString() },
+                connection: "mariadb://root@h:2",
+            },
+        });
+        expect(clients[0].notifications).toEqual([]);
+    });
 
     it("sends what was opened while it was starting", async () => {
         let open = (): void => { /* set below */ };

@@ -17,7 +17,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { answerDbCall, DbCallError, type IDbCallHost } from "../../lsp/dbCall.js";
+import {
+    ALLOWED_SQL,
+    answerDbCall,
+    DbCallError,
+    type IDbCallHost,
+} from "../../lsp/dbCall.js";
 import { createFakeApi, type FakeApi } from "../helpers.js";
 
 /** A host with one configured connection, open on demand. */
@@ -73,7 +78,7 @@ describe("answerDbCall", () => {
         })).resolves.toMatchObject({ basic: { name: "item" } });
         await expect(answerDbCall(h, {
             connection, tool: "db.execute_sql",
-            arguments: { sql: "SELECT @@sql_mode" },
+            arguments: { sql: [...ALLOWED_SQL][0] },
         })).resolves.toMatchObject({ result_sets: [expect.anything()] });
         // Opened as it is configured, not as the server spelled it.
         expect(new Set(h.opened)).toEqual(new Set(["dba@localhost:3310"]));
@@ -111,4 +116,21 @@ describe("answerDbCall", () => {
             connection, tool: "db.execute_sql", arguments: { sql: 42 },
         })).rejects.toMatchObject({ permanent: true });
     });
+
+    it("runs no SQL but the server's own, and opens nothing for it",
+        async () => {
+            const h = host(createFakeApi());
+            for (const sql of ["DROP DATABASE store", "SELECT @@sql_mode",
+                ` ${[...ALLOWED_SQL][0]}`]) {
+                await expect(answerDbCall(h, {
+                    connection: "dba@localhost:3310", tool: "db.execute_sql",
+                    arguments: { sql },
+                })).rejects.toMatchObject({
+                    message: "the extension runs only the server's own "
+                        + "statements",
+                    permanent: true,
+                });
+            }
+            expect(h.opened).toEqual([]);
+        });
 });

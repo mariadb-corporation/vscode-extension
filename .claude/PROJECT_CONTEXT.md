@@ -116,6 +116,20 @@ change belongs to up to date, and this table with it.
   highlighting off shows them as strings and they appear a moment after
   the grammar's colours. See [`context/sql-grammar.md`](context/sql-grammar.md).
 
+## Kept in sync with lsp-server
+
+- **The SQL the language server may run.** `ALLOWED_SQL` in
+  `src/lsp/dbCall.ts` lists, character for character, the statements the
+  extension runs for the server's `db.execute_sql` calls; anything else is
+  refused, so the server cannot run arbitrary SQL on the user's
+  credentials. It mirrors `k_server_sql` in lsp-server's
+  `libs/mariadblanguageserver/src/mcp_catalog.cc` (today the one
+  `SELECT @@sql_mode AS sql_mode, VERSION() AS version, DATABASE() AS
+  schema_name`). A statement added or changed there has to be added here,
+  in a release no later than the server's, or its catalog readings fail;
+  only read-only SELECTs belong on the list. lsp-server's
+  `.claude/PROJECT_CONTEXT.md` carries the same note.
+
 ## Origin, and re-syncing from mariadb-shell-plugins
 
 The extension was developed as `code_ext/` of

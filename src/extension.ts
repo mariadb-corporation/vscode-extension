@@ -572,15 +572,17 @@ export const activate = (context: vscode.ExtensionContext): void => {
             return editors.onDidRunScript(listener);
         },
         // The server's catalog reads, made on this extension's MCP server
-        // and the connection open on the URI - the editors' session, or
-        // one opened for it, as running the file would.
+        // and the tree's session on the URI, as the Connections view reads
+        // it: an editor's would make completion wait for whatever the
+        // editor runs.
         dbCall: async (params) => {
             return await answerDbCall({
                 listConnections: async () => {
                     return await connections.listConnections();
                 },
                 connect: async (uri) => {
-                    return await connections.connect(uri);
+                    return await connections.connect(uri,
+                        UI_BACKEND_SESSION);
                 },
                 api: async () => {
                     return await connections.api();
@@ -737,7 +739,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
         },
         utilApi,
         monitor: taskMonitor,
-        refresh: () => { tree.refresh(); },
+        // What the task changed is new to completion too.
+        refresh: (uri) => {
+            tree.refresh();
+            languageServer.refreshCatalog(uri);
+        },
         defaultFolder: () => {
             return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
                 ?? os.homedir();
@@ -913,6 +919,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
             // everything else works from what was read last.
             connections.invalidateStoredConnections();
             tree.refresh();
+            // Where one looks when something is missing; completion may
+            // miss it too, after a change made outside the editors.
+            languageServer.refreshCatalog();
         }),
 
         vscode.commands.registerCommand(
@@ -1457,18 +1466,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
             switch (await languageServer.format(editor)) {
                 case "unavailable":
                     void vscode.window.showWarningMessage("MariaDB: the SQL "
-                        + "language server is not running or could not "
-                        + "format the file. See the MariaDB output for why.");
+                        + "language server is not running, so the file cannot "
+                        + "be formatted. See the MariaDB output for why.");
                     break;
                 case "unchanged":
                     void vscode.window.setStatusBarMessage("MariaDB: nothing "
                         + "to format (only SELECT and WITH statements that "
                         + "parse are laid out).", 4000);
-                    break;
-                case "outdated":
-                    void vscode.window.setStatusBarMessage("MariaDB: the file "
-                        + "changed while it was formatted; format it again.",
-                    4000);
                     break;
                 default:
                     break;

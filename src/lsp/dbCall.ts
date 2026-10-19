@@ -70,6 +70,17 @@ const TOOLS = new Set([
     "db.execute_sql",
 ]);
 
+/**
+ * The statements `db.execute_sql` may run, character for character: the
+ * server's own, so it cannot run anything else on the user's credentials.
+ * Kept in sync by hand with lsp-server (`k_server_sql` in
+ * `libs/mariadblanguageserver/src/mcp_catalog.cc`): a statement the server
+ * adds there is refused here until it is added to this list too.
+ */
+export const ALLOWED_SQL: ReadonlySet<string> = new Set([
+    "SELECT @@sql_mode AS sql_mode, VERSION() AS version, DATABASE() AS schema_name",
+]);
+
 const text = (args: Record<string, unknown>, name: string): string => {
     const value = args[name];
     if (typeof value !== "string") {
@@ -103,6 +114,12 @@ export const answerDbCall = async (
     if (!TOOLS.has(params.tool)) {
         throw new DbCallError(
             `the extension does not serve ${params.tool}`, true);
+    }
+    // Checked before anything is opened for it.
+    if (params.tool === "db.execute_sql"
+        && !ALLOWED_SQL.has(text(params.arguments, "sql"))) {
+        throw new DbCallError(
+            "the extension runs only the server's own statements", true);
     }
     // Only a configured connection is opened: the URI came out of a file's
     // header, and the server would retry one that is not there yet - it

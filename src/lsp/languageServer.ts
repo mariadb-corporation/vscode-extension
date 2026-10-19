@@ -23,6 +23,7 @@
 
 import * as vscode from "vscode";
 
+import { withDefaultScheme } from "../connections/connectionUri.js";
 import { isSqlDocument } from "../editor/sqlLanguage.js";
 import type { ShellEnvironment } from "../shell/locator.js";
 import { errorText } from "../text.js";
@@ -44,12 +45,6 @@ export const DOCUMENT_CONTEXT_NOTIFICATION = "mariadb/documentContext";
 
 /** The request that makes the server read a connection's catalog again. */
 export const REFRESH_CATALOG_REQUEST = "mariadb/refreshCatalog";
-
-/** Formats a whole document. */
-export const FORMATTING_REQUEST = "textDocument/formatting";
-
-/** Formats the statements a range touches. */
-export const RANGE_FORMATTING_REQUEST = "textDocument/rangeFormatting";
 
 /**
  * Whether a script may have changed what a catalog holds. A plain word
@@ -79,24 +74,13 @@ const affects = (
     });
 };
 
-/** An LSP TextEdit, as the server sends it. */
-interface ILspTextEdit {
-    range: {
-        start: { line: number; character: number };
-        end: { line: number; character: number };
-    };
-    newText: string;
-}
-
 /** What {@link LanguageServer.format} did. */
 export type FormatResult =
-    /** The edits were applied. */
+    /** The document changed. */
     | "formatted"
-    /** The server had nothing to change. */
+    /** There was nothing to change. */
     | "unchanged"
-    /** The document changed while the server was laying it out. */
-    | "outdated"
-    /** No server is running, or it failed. */
+    /** No server is running. */
     | "unavailable";
 
 /** A running language client, as far as the controller needs it. */
@@ -247,7 +231,9 @@ export class LanguageServer implements vscode.Disposable {
             },
             {
                 dispose: deps.onDidRunScript((connection, script) => {
-                    this.#refreshAfterRun(connection, script);
+                    if (CHANGES_CATALOG.test(script)) {
+                        this.refreshCatalog(connection);
+                    }
                 }),
             },
         );
@@ -292,12 +278,13 @@ export class LanguageServer implements vscode.Disposable {
     }
 
     /**
-     * Lays out the queries of an editor's document through the server: the
-     * statements the selection touches when something is selected, else
-     * the whole document. The editor's tab size and spaces/tabs choice set
-     * one level of indentation.
+     * Lays out the queries of the active editor's document with VS Code's
+     * own Format Selection, when something is selected, else Format
+     * Document: the same formatting, and the same formatter, as the
+     * editor's commands and format-on-save. The server is started first,
+     * so the button works in a file opened before the server ran.
      *
-     * @param editor The editor.
+     * @param editor The active editor.
      *
      * @returns What was done.
      */
@@ -306,64 +293,13 @@ export class LanguageServer implements vscode.Disposable {
         if (this.#state.kind !== "running") {
             return "unavailable";
         }
-        const { document, selection } = editor;
-        const tabSize = editor.options.tabSize;
-        const params: Record<string, unknown> = {
-            textDocument: { uri: document.uri.toString() },
-            options: {
-                tabSize: typeof tabSize === "number" ? tabSize : 4,
-                insertSpaces: editor.options.insertSpaces !== false,
-            },
-        };
-        if (!selection.isEmpty) {
-            params.range = {
-                start: {
-                    line: selection.start.line,
-                    character: selection.start.character,
-                },
-                end: {
-                    line: selection.end.line,
-                    character: selection.end.character,
-                },
-            };
-        }
+        const { document } = editor;
         const version = document.version;
-        let edits: ILspTextEdit[];
-        try {
-            const result = await this.#state.client.sendRequest(
-                selection.isEmpty ? FORMATTING_REQUEST
-                    : RANGE_FORMATTING_REQUEST,
-                params);
-            edits = Array.isArray(result) ? result as ILspTextEdit[] : [];
-        } catch (error) {
-            this.deps.log(`Formatting failed: ${errorText(error)}`);
+        await vscode.commands.executeCommand(editor.selection.isEmpty
+            ? "editor.action.formatDocument"
+            : "editor.action.formatSelection");
 
-            return "unavailable";
-        }
-        if (document.version !== version) {
-            return "outdated";
-        }
-        if (edits.length === 0) {
-            return "unchanged";
-        }
-        let applied: boolean;
-        try {
-            applied = await editor.edit((builder) => {
-                for (const edit of edits) {
-                    const { start, end } = edit.range;
-                    builder.replace(new vscode.Range(start.line,
-                        start.character, end.line, end.character),
-                    edit.newText);
-                }
-            });
-        } catch (error) {
-            // Overlapping edits, or an editor that was closed meanwhile.
-            this.deps.log(`Formatting failed: ${errorText(error)}`);
-
-            return "unavailable";
-        }
-
-        return applied ? "formatted" : "outdated";
+        return document.version === version ? "unchanged" : "formatted";
     }
 
     /**
@@ -457,7 +393,12 @@ export class LanguageServer implements vscode.Disposable {
             command: location.binaryPath,
             args,
             initializationOptions,
+            // What a stopped client still reports would change the state
+            // its successor keeps, so only the current one's counts.
             onDidOpen: (document) => {
+                if (generation !== this.#generation) {
+                    return;
+                }
                 // Opened again after the client restarted a crashed
                 // server: a check the old one had under way never ends.
                 this.#progress.forget(document.uri.toString());
@@ -465,6 +406,9 @@ export class LanguageServer implements vscode.Disposable {
                 this.#sendContext(document);
             },
             onDidClose: (document) => {
+                if (generation !== this.#generation) {
+                    return;
+                }
                 this.#sent.delete(document.uri.toString());
                 this.#progress.forget(document.uri.toString());
             },
@@ -517,34 +461,39 @@ export class LanguageServer implements vscode.Disposable {
     }
 
     /**
-     * Has the server read a connection's catalog again after a script
-     * that may have changed it, so completion and hover see the new
-     * objects. The server reads it once and then only when asked.
+     * Has the server read catalogs again, so completion and hover see
+     * objects created or dropped since: the server reads a catalog once
+     * and then only when asked (unless `catalogRefreshSeconds` is set).
      *
-     * @param connection The connection the script ran on.
-     * @param script The script.
+     * @param connection The connection whose catalog changed; none for
+     *        every catalog the server has read, and the workspace catalog.
      *
      * @returns Nothing.
      */
-    #refreshAfterRun(connection: string, script: string): void {
-        if (this.#state.kind !== "running" || !CHANGES_CATALOG.test(script)) {
+    public refreshCatalog(connection?: string): void {
+        if (this.#state.kind !== "running") {
             return;
         }
-        // The request names a document, and the server refreshes that
-        // document's connection; with none it would read every one.
-        const document = [...this.#sent].find(([, sent]) => {
-            return sent === connection;
-        })?.[0];
-        if (document === undefined) {
-            // No document uses it, so the server never read it.
-            return;
+        let params = {};
+        if (connection !== undefined) {
+            // The request names a document, and the server refreshes that
+            // document's connection.
+            const wanted = withDefaultScheme(connection);
+            const document = [...this.#sent].find(([, sent]) => {
+                return sent !== null && withDefaultScheme(sent) === wanted;
+            })?.[0];
+            if (document === undefined) {
+                // No document uses it, so the server never read it.
+                return;
+            }
+            params = { textDocument: { uri: document } };
         }
-        this.#state.client.sendRequest(REFRESH_CATALOG_REQUEST, {
-            textDocument: { uri: document },
-        }).catch((error: unknown) => {
-            this.deps.log(`Could not have the SQL language server read `
-                + `${connection} again: ${errorText(error)}`);
-        });
+        this.#state.client.sendRequest(REFRESH_CATALOG_REQUEST, params)
+            .catch((error: unknown) => {
+                this.deps.log(`Could not have the SQL language server read `
+                    + `${connection ?? "the catalogs"} again: `
+                    + `${errorText(error)}`);
+            });
     }
 
     /** Sends the context of every open document whose connection moved. */

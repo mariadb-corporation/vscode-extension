@@ -15,7 +15,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | --- | --- |
 | `locator.ts` | Finds the binary: `mariadb.lsp.path` alone when set, else `mariadb-lsp` on the PATH, else `~/.local/bin/mariadb-lsp` (`.exe` on Windows, under the home directory there too). Each candidate is probed with `--version`, which has to print `mariadb-lsp <x.y.z>` at least `MINIMUM_LSP_VERSION` (26.9.4, the first with `--version`). Shares `ShellEnvironment` and the version helpers with the shell lookup. |
 | `languageServer.ts` | `LanguageServer`, the controller: states `stopped` / `starting` / `running` / `unavailable`, the restart on settings changes, the `mariadb/documentContext` notifications. Talks to the client through `ILanguageClientHandle`, so it is tested with a fake. |
-| `dbCall.ts` | `answerDbCall`: the server's `mariadb/dbCall` requests (`{connection, tool, arguments}`) made as typed `db.*` calls on the MCP server, on the connection open on that URI, or opened for it. Only `db.list_schemas`, `db.list_objects`, `db.get_object_details` and `db.execute_sql`; anything else, and a bad argument, is refused for good (`DbCallError.permanent`). A URI that is not a configured connection is refused but may be asked again: it may be added later. |
+| `dbCall.ts` | `answerDbCall`: the server's `mariadb/dbCall` requests (`{connection, tool, arguments}`) made as typed `db.*` calls on the MCP server, on the tree's session (`UI_BACKEND_SESSION`) on that URI, opened if need be. Only `db.list_schemas`, `db.list_objects`, `db.get_object_details` and `db.execute_sql`, the last only for the statements in `ALLOWED_SQL` (character for character; see PROJECT_CONTEXT.md, "Kept in sync with lsp-server"); anything else, and a bad argument, is refused for good (`DbCallError.permanent`), before anything is opened. A URI that is not a configured connection is refused but may be asked again: it may be added later. |
 | `settings.ts` | `serverSettings`: the `mariadb.lsp.*` settings under the server's option names (`progressThresholdMB` becomes bytes; values the server would refuse are left out), and which settings restart the server and which are sent to it. |
 | `parseProgress.ts` | `ParseProgressStatus`: the status bar entry for `mariadb/parseProgress`. |
 | `nodeClient.ts` | The only file importing `vscode-languageclient/node`: the `LanguageClient` (id `mariadb.lsp`, output channel **MariaDB SQL Language Server**), the document selector (`mariadb-sql` and `sql`, `file` and `untitled`), and the middleware. `extension.test.ts` mocks this module, since the library needs the real `vscode`. The server process is spawned here (server options as a function) rather than by the library, which keeps its process private and, after a failed start, neither stops nor kills it: the handle kills it after a failed start and after `stop()`. All clients share one output channel; the library's own is not disposed on `stop()`, so every restart left another behind. |
@@ -44,10 +44,13 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   level of indentation, also for the lines completion adds. The
   editor toolbar's format button (`mariadb.formatSql`, icon
   `toolbar-format.svg`, shown while `mariadb.lsp.enabled`) calls
-  `LanguageServer.format`, which sends `textDocument/rangeFormatting` for
-  a selection, else `textDocument/formatting`, straight to our server (not
-  `editor.action.formatDocument`, which would take another default
-  formatter) and applies the edits unless the document changed meanwhile.
+  `LanguageServer.format`, which starts the server and runs VS Code's
+  `editor.action.formatSelection` for a selection, else
+  `editor.action.formatDocument`: one formatting path for the button,
+  the commands and format-on-save. Another SQL formatter set as
+  `editor.defaultFormatter` takes the button too, for `sql` files above
+  all. A warning when no server runs, a status bar note when nothing
+  changed.
   UI tests: Format Document, the button with and without a selection.
 - **Outline**: the server's `textDocument/documentSymbol` (schema >
   tables with columns and keys, views, routines, ...) reaches VS Code's
@@ -71,9 +74,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   both, the credentials never leave the extension, and no localhost port
   is opened (the HTTP transport was weighed for a second MCP client and
   rejected for that). The calls go to the connection open on the URI,
-  the editors' session or one opened for it, as running the file would,
-  so a file bound to a connection opens it when the server first reads
-  its catalog. A reading lists names only; the details of a
+  on the tree's session (`UI_BACKEND_SESSION`), opened if need be, as
+  the Connections view reads it: on an editor's session completion would
+  wait for whatever the editor runs. A file bound to a connection opens
+  it when the server first reads its catalog. Collapsing the connection
+  in the tree does not close that session; Disconnect closes every one. A reading lists names only; the details of a
   table, view or routine are one `db.get_object_details` call each, made
   when a completion, hover or signature help first needs them. A failed call is a JSON-RPC error with
   `data.permanent`; the server retries the others with its back-off, and
@@ -107,6 +112,12 @@ binding tells listeners every script it ran (`onDidRunScript`, failed runs
 too), and when the script has `CREATE`, `ALTER`, `DROP` or `RENAME` in it
 the controller sends `mariadb/refreshCatalog` naming a document the
 server has open on that connection; none open on it, nothing is sent.
+`LanguageServer.refreshCatalog` does the same for a load, a copy (the
+target's connection) or an import that finished (`UtilCommands`' host
+`refresh(uri)`), and with no connection, for every catalog, from the
+Connections view's refresh button. Changes from other clients, or from
+an agent through the MCP server, are seen only after that button or with
+`catalogRefreshSeconds`.
 The UI test's completion of the sandbox's tables depends on this: the
 schema is created after the first SQL editor opened.
 
