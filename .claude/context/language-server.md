@@ -49,6 +49,12 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   `editor.action.formatDocument`, which would take another default
   formatter) and applies the edits unless the document changed meanwhile.
   UI tests: Format Document, the button with and without a selection.
+- **Outline**: the server's `textDocument/documentSymbol` (schema >
+  tables with columns and keys, views, routines, ...) reaches VS Code's
+  Outline view, breadcrumbs and Go to Symbol through the language client
+  as it is; the extension adds nothing. UI test: the Explorer's Outline
+  for a table, a view and a function, and a click on a symbol moving the
+  cursor to it.
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
   `indentation`, `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A

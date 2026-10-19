@@ -29,6 +29,7 @@ import {
 } from "vscode-extension-tester";
 
 import {
+    childLabels,
     CONNECTION,
     extensionLog,
     FILES,
@@ -218,6 +219,13 @@ const FIRST_FORMATTED = [
 /** The second of them laid out. */
 const SECOND_FORMATTED = "SELECT id FROM uitest.city WHERE id > 1;";
 
+/** A table, a view and a function, all in one schema. */
+const OBJECTS = [
+    "CREATE TABLE shop.customer (id INT, name VARCHAR(50), PRIMARY KEY (id));",
+    "CREATE VIEW shop.customer_names AS SELECT name FROM shop.customer;",
+    "CREATE FUNCTION shop.twice(x INT) RETURNS INT RETURN x * 2;",
+];
+
 /** The messages of the error markers in the Problems view. */
 const errorMarkers = async (): Promise<string[]> => {
     const problems = await new BottomBarPanel().openProblemsView();
@@ -323,6 +331,35 @@ describe("SQL language server", () => {
         await clickFormat();
         await bodyBecomes(editor, [UNFORMATTED[0], SECOND_FORMATTED],
             "the selected statement formatted, the other left as it was");
+    });
+
+    it("shows the objects the file creates in the Outline view", async () => {
+        const editor = await sqlEditor(OBJECTS.join("\n") + "\n");
+        const outline = await openSection("Outline", "Explorer");
+        try {
+            // The server's document symbols: the schema, the objects in
+            // it, a table's columns and keys.
+            assert.deepEqual(await childLabels(outline, ["shop"]),
+                ["customer", "customer_names", "twice"]);
+            assert.deepEqual(await childLabels(outline, ["shop", "customer"]),
+                ["id", "name", "primary (id)"]);
+            const twice = await treeItem(outline, ["shop", "twice"]);
+            assert.equal(await twice.getDescription(),
+                "function(x INT) returns INT");
+            await screenshot("08-outline");
+
+            // A symbol takes the editor to its name: the last statement,
+            // below the connection header.
+            await twice.click();
+            await waitFor(async () => {
+                const [line] = await editor.getCoordinates();
+
+                return line === OBJECTS.length + 1 ? true : undefined;
+            }, "the cursor on the function's name");
+        } finally {
+            // The next test's New SQL Editor button is in the MariaDB view.
+            connections = await openSection("Connections");
+        }
     });
 
     it("completes the tables of a catalog file named in the settings",

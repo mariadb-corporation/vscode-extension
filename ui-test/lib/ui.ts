@@ -203,20 +203,25 @@ export const screenshot = async (name: string): Promise<void> => {
 export const VIEW_CONTAINER = "MariaDB";
 
 /**
- * Opens one of the MariaDB views.
+ * Opens one of the MariaDB views, or a view of another container.
  *
- * @param title `Connections`, `Sandboxes` or `Tasks`.
+ * @param title The view's title: `Connections`, `Sandboxes` or `Tasks`,
+ *        or one of `container`'s.
+ * @param container The activity bar entry the view is in.
  *
  * @returns Its tree.
  */
-export const openSection = async (title: string): Promise<CustomTreeSection> => {
+export const openSection = async (
+    title: string,
+    container = VIEW_CONTAINER,
+): Promise<CustomTreeSection> => {
     const control = await waitFor(async () => {
-        return await new ActivityBar().getViewControl(VIEW_CONTAINER);
-    }, "the MariaDB activity bar entry");
+        return await new ActivityBar().getViewControl(container);
+    }, `the ${container} activity bar entry`);
     const view = await control.openView();
 
     const section = await waitFor(async () => {
-        return await view.getContent().getSection(title) as CustomTreeSection;
+        return await view.getContent().getSection(title, CustomTreeSection);
     }, `the ${title} view`);
     // ExTester sees only the rows drawn, so the view asked for gets the
     // whole side bar: the others share its height otherwise, and deep rows
