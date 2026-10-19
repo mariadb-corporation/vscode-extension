@@ -546,6 +546,25 @@ describe("LanguageServer", () => {
             expect(server.running).toBe(true);
         });
 
+    it("looks again once the MariaDB Shell was installed", async () => {
+        const versions: Record<string, string> = {};
+        const { clients, server } = build({ versions });
+        fireDocumentOpen(sqlDocument("a.sql"));
+        await server.start();
+        expect(clients).toHaveLength(0);
+
+        // The shell's installation carries one now.
+        versions["mariadb-lsp"] = "mariadb-lsp 26.9.4";
+        await server.shellInstalled();
+        expect(clients).toHaveLength(1);
+        expect(server.running).toBe(true);
+
+        // One that runs is left alone.
+        await server.shellInstalled();
+        expect(clients).toHaveLength(1);
+        expect(clients[0].stopped).toBe(false);
+    });
+
     it("restarts when its settings change", async () => {
         const { clients, server } = build();
         fireDocumentOpen(sqlDocument("a.sql"));

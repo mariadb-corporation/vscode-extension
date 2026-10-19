@@ -13,7 +13,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 | File | Purpose |
 | --- | --- |
-| `locator.ts` | Finds the binary: `mariadb.lsp.path` alone when set, else `mariadb-lsp` on the PATH, else `~/.local/bin/mariadb-lsp` (`.exe` on Windows, under the home directory there too). Each candidate is probed with `--version`, which has to print `mariadb-lsp <x.y.z>` at least `MINIMUM_LSP_VERSION` (26.9.4, the first with `--version`). Shares `ShellEnvironment` and the version helpers with the shell lookup. |
+| `locator.ts` | Finds the binary: `mariadb.lsp.path` alone when set, else `mariadb-lsp` on the PATH, else the one next to `mariadb-shell` in a MariaDB Shell installation, newest version directory first (`shellInstallPath`: `<installPrefix>/<version>/bin/mariadb-lsp`, `.exe` on Windows; the prefix is the shell lookup's, `~/.local/share/mariadb-shell`, `%LOCALAPPDATA%\Programs\mariadb-shell` or `MARIADB_SHELL_PREFIX`). The shell's install scripts (`install.sh`, `install.ps1`) put it there; `~/.local/bin` is not looked at, since only the shell's own symlinks go there. Each candidate is probed with `--version`, which has to print `mariadb-lsp <x.y.z>` at least `MINIMUM_LSP_VERSION` (26.9.4, the first with `--version`). Shares `ShellEnvironment` and the version helpers with the shell lookup. |
 | `languageServer.ts` | `LanguageServer`, the controller: states `stopped` / `starting` / `running` / `unavailable`, the restart on settings changes, the `mariadb/documentContext` notifications. Talks to the client through `ILanguageClientHandle`, so it is tested with a fake. |
 | `dbCall.ts` | `answerDbCall`: the server's `mariadb/dbCall` requests (`{connection, tool, arguments}`) made as typed `db.*` calls on the MCP server, on the tree's session (`UI_BACKEND_SESSION`) on that URI, opened if need be. Only `db.list_schemas`, `db.list_objects`, `db.get_object_details` and `db.execute_sql`, the last only for the statements in `ALLOWED_SQL` (compared with runs of blanks as one space and no `;` at the end; see PROJECT_CONTEXT.md, "Kept in sync with lsp-server"); anything else, and a bad argument, is refused for good (`DbCallError.permanent`), before anything is opened. A refused statement is logged in the MariaDB channel, the one place a server newer than the list shows. A URI that is not a configured connection is refused but may be asked again: it may be added later. |
 | `settings.ts` | `serverSettings`: the `mariadb.lsp.*` settings under the server's option names (`progressThresholdMB` becomes bytes; values the server would refuse are left out), and which settings restart the server and which are sent to it. |
@@ -29,8 +29,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   `unavailable`: no notification, and no new lookup on every file opened.
   `MariaDB: Restart SQL Language Server` (`mariadb.lsp.restart`), or a
   change of `mariadb.lsp.enabled` / `path` / `threads`, looks again.
-  Downloading the server when it is missing, as `ensureShell` installs
-  the shell, is planned and not built.
+  When the extension had to install the MariaDB Shell (`ensureShell`),
+  `LanguageServer.shellInstalled` looks again, since the shell's package
+  carries the server. There is no download of the server alone.
 - **Arguments**: `lsp --stdio --mcp`, plus `--threads N` when
   `mariadb.lsp.threads` is above 0. `--mcp` makes the server read every
   connection's catalog through the extension (below) instead of

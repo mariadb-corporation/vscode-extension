@@ -10,8 +10,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 - **SQL language server.** SQL files get diagnostics, completion, hover,
   go to definition, references, rename, signature help, the outline and
-  folding from `mariadb-lsp`, the MariaDB SQL language server, found on the
-  `PATH` or in `~/.local/bin` (or at `mariadb.lsp.path`). Completion knows
+  folding from `mariadb-lsp`, the MariaDB SQL language server, which the
+  MariaDB Shell's installation carries (or found on the `PATH`, or at
+  `mariadb.lsp.path`). Completion knows
   the tables and columns of the file's connection, read through the
   extension's MCP server and read again after a script that changes them,
   a load or a copy, or a refresh of the Connections view. Queries are laid

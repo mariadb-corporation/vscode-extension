@@ -17,14 +17,20 @@
 
 /**
  * Finds the `mariadb-lsp` binary: the one the settings name, else the
- * first on the PATH, else the one in `~/.local/bin`. Downloading it when
- * none is there, as the MariaDB Shell is, comes later.
+ * first on the PATH, else the one a MariaDB Shell installation carries
+ * next to `mariadb-shell` (its install scripts, and the extension's own
+ * install of the shell, put it there).
  */
 
 import * as path from "node:path";
 
-import type { LocatorLog, ShellEnvironment } from "../shell/locator.js";
 import {
+    installPrefix,
+    type LocatorLog,
+    type ShellEnvironment,
+} from "../shell/locator.js";
+import {
+    compareVersions,
     formatVersion,
     meetsMinimum,
     parseVersion,
@@ -41,7 +47,7 @@ export const LSP_BINARY_NAME = "mariadb-lsp";
 export const MINIMUM_LSP_VERSION = "26.9.4";
 
 /** Where a usable language server was found. */
-export type LspSource = "setting" | "path" | "userBin";
+export type LspSource = "setting" | "path" | "shellInstall";
 
 export interface LspLocation {
     /** The executable to spawn. */
@@ -62,17 +68,23 @@ export const lspBinaryName = (platform: NodeJS.Platform): string => {
 };
 
 /**
- * The language server in the user's own binary directory, `~/.local/bin`,
- * on every platform.
+ * The language server in one versioned MariaDB Shell installation, next to
+ * `mariadb-shell`: `~/.local/share/mariadb-shell/<version>/bin`, or
+ * `%LOCALAPPDATA%\Programs\mariadb-shell\<version>\bin` on Windows
+ * (`MARIADB_SHELL_PREFIX` moves both).
  *
  * @param environment The environment to resolve against.
+ * @param version The version directory's name.
  *
  * @returns The absolute path it would be at.
  */
-export const userBinPath = (environment: ShellEnvironment): string => {
+export const shellInstallPath = (
+    environment: ShellEnvironment,
+    version: string,
+): string => {
     const p = environment.platform === "win32" ? path.win32 : path.posix;
 
-    return p.join(environment.homeDir, ".local", "bin",
+    return p.join(installPrefix(environment), version, "bin",
         lspBinaryName(environment.platform));
 };
 
@@ -149,12 +161,7 @@ export const locateLanguageServer = async (
             + `${environment.env.PATH ?? environment.env.Path ?? ""}`);
         candidates.push({ binaryPath: name, source: "path" });
 
-        const local = userBinPath(environment);
-        if (await environment.pathExists(local)) {
-            candidates.push({ binaryPath: local, source: "userBin" });
-        } else {
-            log(`  No ${local}.`);
-        }
+        candidates.push(...await shellInstallCandidates(environment, log));
     }
 
     for (const candidate of candidates) {
@@ -169,6 +176,50 @@ export const locateLanguageServer = async (
 };
 
 /**
+ * The language servers of the MariaDB Shell installations, newest
+ * installation first. The directory names only order them: what each
+ * binary reports is what counts.
+ *
+ * @param environment The environment to search in.
+ * @param log Where to say what was found there.
+ *
+ * @returns Those that are there.
+ */
+const shellInstallCandidates = async (
+    environment: ShellEnvironment,
+    log: LocatorLog,
+): Promise<{ binaryPath: string; source: LspSource }[]> => {
+    const prefix = installPrefix(environment);
+    const versions = (await environment.listDirectories(prefix))
+        .map((name) => {
+            return { name, version: parseVersion(name) };
+        })
+        .filter((entry): entry is { name: string; version: ShellVersion } => {
+            return entry.version !== undefined;
+        })
+        .sort((a, b) => {
+            return compareVersions(b.version, a.version);
+        });
+    if (versions.length === 0) {
+        log(`  No MariaDB Shell installations in ${prefix}.`);
+
+        return [];
+    }
+
+    const found: { binaryPath: string; source: LspSource }[] = [];
+    for (const { name } of versions) {
+        const binaryPath = shellInstallPath(environment, name);
+        if (await environment.pathExists(binaryPath)) {
+            found.push({ binaryPath, source: "shellInstall" });
+        } else {
+            log(`  No ${binaryPath}.`);
+        }
+    }
+
+    return found;
+};
+
+/**
  * Renders a location for a log line.
  *
  * @param location The location to describe.
@@ -179,7 +230,7 @@ export const describeLspLocation = (location: LspLocation): string => {
     const origin = {
         setting: "named by mariadb.lsp.path",
         path: "found on the PATH",
-        userBin: "found in ~/.local/bin",
+        shellInstall: "found in the MariaDB Shell installation",
     }[location.source];
 
     return `mariadb-lsp ${formatVersion(location.version)} ${origin} `

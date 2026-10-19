@@ -230,13 +230,13 @@
         "mariadb.lsp.enabled": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Whether SQL files get diagnostics, completion, hover, outline and the other language features of the MariaDB SQL language server, `mariadb-lsp`. It is looked for in `#mariadb.lsp.path#`, else on the PATH, else in `~/.local/bin`."
+          "markdownDescription": "Whether SQL files get diagnostics, completion, hover, outline and the other language features of the MariaDB SQL language server, `mariadb-lsp`. It is looked for in `#mariadb.lsp.path#`, else on the PATH, else next to `mariadb-shell` in the MariaDB Shell's installation."
         },
         "mariadb.lsp.path": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "markdownDescription": "The `mariadb-lsp` executable to use. Empty: the first on the PATH, else `~/.local/bin/mariadb-lsp`."
+          "markdownDescription": "The `mariadb-lsp` executable to use. Empty: the first on the PATH, else the one next to `mariadb-shell` in the MariaDB Shell's installation (`~/.local/share/mariadb-shell/<version>/bin`, or `%LOCALAPPDATA%\\Programs\\mariadb-shell\\<version>\\bin` on Windows)."
         },
         "mariadb.lsp.threads": {
           "type": "integer",

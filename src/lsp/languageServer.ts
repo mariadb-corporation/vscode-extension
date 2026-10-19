@@ -351,6 +351,18 @@ export class LanguageServer implements vscode.Disposable {
     }
 
     /**
+     * Looks for the binary again if none was found: a MariaDB Shell that
+     * was just installed carries one next to itself.
+     *
+     * @returns Once it is up, or it was found it cannot be.
+     */
+    public async shellInstalled(): Promise<void> {
+        if (this.#state.kind === "unavailable") {
+            await this.restart();
+        }
+    }
+
+    /**
      * Stops the server.
      *
      * @returns Once it is down.
@@ -407,9 +419,10 @@ export class LanguageServer implements vscode.Disposable {
         }
         if (!location) {
             this.deps.log("No usable mariadb-lsp was found, so SQL files "
-                + "get no diagnostics or completion. Install it on the "
-                + "PATH or in ~/.local/bin, then run MariaDB: Restart SQL "
-                + "Language Server.");
+                + "get no diagnostics or completion. A MariaDB Shell "
+                + "installation that has it next to mariadb-shell, one on "
+                + "the PATH or mariadb.lsp.path gives it; then run MariaDB: "
+                + "Restart SQL Language Server.");
             this.#state = { kind: "unavailable" };
 
             return;

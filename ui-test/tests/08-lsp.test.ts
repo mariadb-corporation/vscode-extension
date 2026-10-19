@@ -263,8 +263,8 @@ describe("SQL language server", () => {
         SERVER_TIMEOUT);
         assert.match(errors.join("\n"), /syntax error near 'SELEC'/);
         await screenshot("08-syntax-error");
-        assert.match(extensionLog(40),
-            /mariadb-lsp \S+ found (on the PATH|in ~\/\.local\/bin)/);
+        assert.match(extensionLog(40), new RegExp("mariadb-lsp \\S+ found "
+            + "(on the PATH|in the MariaDB Shell installation)"));
 
         await setBody(editor, "SELECT 1;\n");
         await waitFor(async () => {

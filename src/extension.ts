@@ -282,8 +282,16 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
     // One lookup for both servers on the shell - this extension's and
     // Copilot's - so they never run the installer side by side.
-    const shell = new ShellResolver((onInstalling) => {
-        return locateOrInstallShell(log, onInstalling);
+    // Told once the language server exists, which then looks again for
+    // the mariadb-lsp an installed shell carries.
+    let shellInstalled = (): void => { /* set below */ };
+    const shell = new ShellResolver(async (onInstalling) => {
+        const result = await locateOrInstallShell(log, onInstalling);
+        if (result.installed) {
+            shellInstalled();
+        }
+
+        return result;
     });
     const session = new McpSession(createSdkConnector(), log);
     const starter = new ServerStarter((onPhase) => {
@@ -599,6 +607,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
     });
     context.subscriptions.push(languageServer);
     state.languageServer = languageServer;
+    shellInstalled = () => {
+        void languageServer.shellInstalled();
+    };
     // A connection whose sql_mode turned out to have ANSI_QUOTES, or
     // whose script changed it, may end its statements elsewhere.
     const stopFollowingSqlModes = sqlModes.onDidChange(() => {
