@@ -17,8 +17,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { IRestdDeployment } from "../../mcp/restApi.js";
-import { restdFor } from "../../rest/restdUrl.js";
+import type { IRestdDeployment } from "../../mcp/restdApi.js";
+import { restdFor } from "../../restd/restdUrl.js";
 
 /** A deployment of mariadb-restd, serving the given server on `port`. */
 const deployment = (

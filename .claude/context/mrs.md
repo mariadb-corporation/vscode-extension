@@ -17,17 +17,17 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   mariadb-shell PR #71 added FORMAT=JSON to every list statement, `SHOW
   REST SCRIPTS`, `SHOW REST AUTH APPS ON ANY SERVICE` and a no-op
   `USE REST METADATA SCHEMA x` when x is the session's already, for this.
-- **What needs the developer's files goes through the `mrs.*` MCP tools**
+- **What needs the developer's files goes through the `rest.*` MCP tools**
   (mcp_plugin `lib/mrs_functions.py`, the mrs plugin's functions): SDK
   export / rebuild, service and project dump/load, uploading a folder as a
-  content set, MRS script analysis. `McpSession.mrsTools`, `MrsToolsApi`.
+  content set, MRS script analysis. `McpSession.restTools`, `RestToolsApi`.
   A `--gui` server allows every path, so no elicitation happens.
 - **Several metadata schemas** (`<prefix>mariadb_rest_service<postfix>`):
   `SHOW REST METADATA SCHEMAS FORMAT=JSON`; with more than one, each gets a
   root of its own (`metadataSchema` on every node) and every call is sent
   as a script `USE REST METADATA SCHEMA x; ...` in ONE `execute_sql_script`
   call, so nothing interleaves on the shared session (`MrsApi.run`). The
-  `mrs.*` tools work on the session's chosen schema: the commands run
+  `rest.*` tools work on the session's chosen schema: the commands run
   `api.run(scope, [])` (the USE alone) first.
 - **The current service is session state** (`USE REST SERVICE`), shown by
   `is_current` in `SHOW REST SERVICES`; Set as Current runs the USE on the
@@ -41,7 +41,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `src/mrs/restSql.ts` | Every statement and the quoting (text single quoted with `''` and `\\`; request paths plain or back-ticked; developer paths `devs@/path`) |
 | `src/mrs/dataMapping.ts` | The data mapping editor's model: columns + stored fields merged, references loaded lazily, the edits, and the mapping's REST SQL (`mappingText`, `objectSql`) |
 | `src/mrs/mrsDialogs.ts` | Each dialog's fields, defaults, validation (the old dialogs' messages) and statements; shared by webview and host |
-| `src/mrs/mrsApi.ts` | `MrsApi` (REST SQL calls) and `MrsToolsApi` (`mrs.*` tools) |
+| `src/mrs/mrsApi.ts` | `MrsApi` (REST SQL calls) and `RestToolsApi` (`rest.*` tools) |
 | `src/mrs/mrsDialogPanel.ts`, `mrsDialogProtocol.ts` | One panel class for every dialog (one per kind), the message protocol |
 | `src/mrs/mrsCommands.ts` | Every `mariadb.mrs.*` command; builds the dialog specs |
 | `src/tree/mrsModel.ts`, `mrsTreeItems.ts` | The tree nodes, their children, their rows |
@@ -176,7 +176,7 @@ The new-schema dialog (the user's request):
 Ported from the MySQL Shell for VS Code, which did it through a content
 set whose folder was the placeholder `${openApiUi}`. Here it is a proper
 option, `open_api_ui` of `mrs.load.contentSet` and of the
-`mrs.load_content_set` tool. That option takes no directory and defaults the
+`rest.load_content_set` tool. That option takes no directory and defaults the
 path to `/openApiUi`.
 
 - **What the plugin does:** `mrs_plugin/lib/open_api_ui.py` downloads
@@ -200,7 +200,7 @@ path to `/openApiUi`.
   own busy label. It is set to the service right-clicked; the old extension
   took the first service. The content set is open to everyone, since signing
   in is the UI's own Authorize. It is uploaded and then given the dialog's
-  settings, as any content set is (`MrsToolsApi.loadOpenApiUi`).
+  settings, as any content set is (`RestToolsApi.loadOpenApiUi`).
 - **Tests:**
   - mrs_plugin: a fake archive, the patches, a refused checksum, and the
     upload.
@@ -215,7 +215,7 @@ path to `/openApiUi`.
 
 - **The REST Daemon is in.** Setting up,
   starting, stopping and deleting mariadb-restd deployments is the MCP
-  `rest` group and the REST Daemons view; see [rest.md](rest.md).
+  `restd` group and the REST Daemons view; see [restd.md](restd.md).
 
 - Old features left out: MySQL Router bootstrap/start/stop/kill and service
   debug, JSON dump/load of schemas/objects (plugin functions
@@ -238,7 +238,7 @@ path to `/openApiUi`.
   otherwise, and `Full Access` was "not found".
 - Request URLs: the daemon URL + service + schema + object path. The
   daemon URL is the local REST Daemon serving the row's server and
-  metadata schema (`restdFor` in `src/rest/restdUrl.ts`, over the REST
+  metadata schema (`restdFor` in `src/restd/restdUrl.ts`, over the REST
   Daemons view's cached list: loopback names are one host, a missing
   port is 3306, a running daemon wins), and only where none does the
   `mariadb.mrs.restDaemonUrl` setting (default `https://localhost:8443`).
@@ -262,8 +262,8 @@ path to `/openApiUi`.
 
 ## Known gaps / next steps
 
-- The `mrs.*` tools and REST SQL FORMAT=JSON need a shell carrying
-  mcp_plugin's mrs group and the module of mariadb-shell PR #71. No release
+- The `rest.*` tools and REST SQL FORMAT=JSON need a shell carrying
+  mcp_plugin's rest group and the module of mariadb-shell PR #71. No release
   has them yet (26.10.1, the current `MINIMUM_SHELL_VERSION`, does not);
   raise it once one does.
 - The data mapping editor has no SDK language mode (the old one showed
@@ -285,7 +285,7 @@ panel, in plain words (the user's rule: a verbose log is not read):
   the spinner a running SQL script has) and as it ended; the panel
   replaces the row (`putAction`). `MrsApi.#act` does it for a `run()` on
   its own and for a `group()` (AsyncLocalStorage: every call inside is
-  part of the group's action); `MrsToolsApi.#tool` for each `mrs.*` call
+  part of the group's action); `RestToolsApi.#tool` for each `rest.*` call
   ("Dumping the REST Client SDK to ..." / "Dumped ...").
 - Not shown unless they fail: a read on its own (a dialog filling its
   choices) and the tree's listings (`onlyFailures`) - they drowned the
@@ -329,11 +329,11 @@ panel, in plain words (the user's rule: a verbose log is not read):
 - **Long operations:** closing a dialog tab cancels
   nothing; `#save` runs on, a later failure is notified and shown. A new
   content set is ONE action, "Creating REST Content Set '/web'…" ->
-  "Created REST Content Set '/web'" with "N files", the `mrs.load_content_set`
+  "Created REST Content Set '/web'" with "N files", the `rest.load_content_set`
   call and the settings' REST SQL its steps: `MrsApi.group`, and a tool
   called inside a group pushes a step instead of reporting itself (the
   group's `AsyncLocalStorage`, `currentAction`, is shared by `MrsApi` and
-  `MrsToolsApi`). The upload's timeout is `MRS_UPLOAD_TIMEOUT_MS` (2^31-1
+  `RestToolsApi`). The upload's timeout is `MRS_UPLOAD_TIMEOUT_MS` (2^31-1
   ms, as good as none): the server finishes an upload anyway, and giving
   up only skipped the set's settings. A failed action says "Creating ...
   failed" (`failedWords`), not its done form. Still: a connection closed

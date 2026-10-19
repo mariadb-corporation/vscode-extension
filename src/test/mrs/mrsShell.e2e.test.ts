@@ -38,7 +38,7 @@ import {
     loadReference,
     updateField,
 } from "../../mrs/dataMapping.js";
-import { MrsApi, MrsToolsApi, type IMrsScope } from "../../mrs/mrsApi.js";
+import { MrsApi, RestToolsApi, type IMrsScope } from "../../mrs/mrsApi.js";
 import {
     authAppDefaults,
     authAppStatements,
@@ -94,7 +94,7 @@ describe.runIf(shell !== undefined)("REST SQL against a real shell", () => {
     let connection: IMcpConnection;
     let db: MariaDbApi;
     let sandbox: SandboxApi;
-    let tools: MrsToolsApi;
+    let tools: RestToolsApi;
     let api: MrsApi;
     let port: number;
     let uri: string;
@@ -116,7 +116,7 @@ describe.runIf(shell !== undefined)("REST SQL against a real shell", () => {
         }, (line) => { log.push(line); });
         db = new MariaDbApi(connection);
         sandbox = new SandboxApi(connection);
-        tools = new MrsToolsApi(connection);
+        tools = new RestToolsApi(connection);
         api = new MrsApi(async () => { return db; });
 
         port = await freePort();

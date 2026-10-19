@@ -24,7 +24,7 @@ import {
     MRS_UPLOAD_TIMEOUT_MS,
     MrsApi,
     MrsError,
-    MrsToolsApi,
+    RestToolsApi,
     type IMrsScope,
 } from "../../mrs/mrsApi.js";
 import { type IMrsAction, words } from "../../mrs/mrsActions.js";
@@ -403,7 +403,7 @@ const createCaller = (answer: IToolResult = { content: [] }) => {
         },
     };
 
-    return { calls, tools: new MrsToolsApi(caller) };
+    return { calls, tools: new RestToolsApi(caller) };
 };
 
 const text = (...texts: string[]): IToolResult => {
@@ -414,7 +414,7 @@ const text = (...texts: string[]): IToolResult => {
     };
 };
 
-describe("MrsToolsApi", () => {
+describe("RestToolsApi", () => {
     it("allows ten minutes for what writes many files", () => {
         expect(MRS_TOOL_TIMEOUT_MS).toBe(600000);
     });
@@ -428,7 +428,7 @@ describe("MrsToolsApi", () => {
             serviceUrl: "https://h/svc", sdkLanguage: "Python",
         });
         expect(calls).toEqual([{
-            name: "mrs.get_sdk_options", args: { directory: "/sdk" },
+            name: "rest.get_sdk_options", args: { directory: "/sdk" },
         }]);
     });
 
@@ -444,7 +444,7 @@ describe("MrsToolsApi", () => {
         await tools.dumpSdkServiceFiles("c1", "/sdk", { a: 1 });
 
         expect(calls).toEqual([{
-            name: "mrs.dump_sdk_service_files",
+            name: "rest.dump_sdk_service_files",
             args: { connection_id: "c1", directory: "/sdk", options: { a: 1 } },
             timeoutMs: MRS_TOOL_TIMEOUT_MS,
         }]);
@@ -456,7 +456,7 @@ describe("MrsToolsApi", () => {
         await tools.dumpService("c1", "/svc", "/f.sql", "ALL");
 
         expect(calls).toEqual([{
-            name: "mrs.dump_service",
+            name: "rest.dump_service",
             args: {
                 connection_id: "c1",
                 service_path: "/svc",
@@ -478,7 +478,7 @@ describe("MrsToolsApi", () => {
             { connection_id: "c1", file_path: "/f.sql" },
             { connection_id: "c1", file_path: "/f.sql", as_path: "/other" },
         ]);
-        expect(calls[0]!.name).toBe("mrs.load_service");
+        expect(calls[0]!.name).toBe("rest.load_service");
         expect(calls[0]!.timeoutMs).toBe(MRS_TOOL_TIMEOUT_MS);
     });
 
@@ -499,7 +499,7 @@ describe("MrsToolsApi", () => {
             { ...options, iconPath: "/i.png", zip: true });
 
         expect(calls[0]).toEqual({
-            name: "mrs.dump_service_project",
+            name: "rest.dump_service_project",
             args: {
                 connection_id: "c1",
                 destination: "/out",
@@ -532,7 +532,7 @@ describe("MrsToolsApi", () => {
         await tools.loadServiceProject("c1", "/p.zip");
 
         expect(calls).toEqual([{
-            name: "mrs.load_service_project",
+            name: "rest.load_service_project",
             args: { connection_id: "c1", source: "/p.zip" },
             timeoutMs: MRS_TOOL_TIMEOUT_MS,
         }]);
@@ -551,7 +551,7 @@ describe("MrsToolsApi", () => {
             false);
 
         expect(calls[0]).toEqual({
-            name: "mrs.load_content_set",
+            name: "rest.load_content_set",
             args: {
                 connection_id: "c1",
                 directory: "/dir",
@@ -582,7 +582,7 @@ describe("MrsToolsApi", () => {
             await expect(tools.folderScriptLanguage("/dir", "x"))
                 .resolves.toBe(expected);
             expect(calls).toEqual([{
-                name: "mrs.get_folder_mrs_script_language",
+                name: "rest.get_folder_mrs_script_language",
                 args: { path: "/dir", ignore_list: "x" },
             }]);
         }
@@ -596,7 +596,7 @@ describe("MrsToolsApi", () => {
         await expect(tools.folderScriptDefinitions("/dir", "x"))
             .resolves.toEqual({ script_modules: [{ name: "m" }] });
         expect(calls).toEqual([{
-            name: "mrs.get_folder_mrs_script_definitions",
+            name: "rest.get_folder_mrs_script_definitions",
             args: { path: "/dir", ignore_list: "x" },
             timeoutMs: MRS_TOOL_TIMEOUT_MS,
         }]);
@@ -606,7 +606,7 @@ describe("MrsToolsApi", () => {
         const { calls, tools } = createCaller(text("1.19.0"));
 
         await expect(tools.version()).resolves.toBe("1.19.0");
-        expect(calls).toEqual([{ name: "mrs.version", args: {} }]);
+        expect(calls).toEqual([{ name: "rest.version", args: {} }]);
     });
 
     it("raises a tool's failure", async () => {
@@ -795,7 +795,7 @@ describe("reporting what MRS does, for the Actions tab", () => {
         const caller: IToolCaller = {
             callTool: () => { return Promise.resolve({ content: [] }); },
         };
-        const tools = new MrsToolsApi(caller,
+        const tools = new RestToolsApi(caller,
             (action) => { actions.push(action); });
 
         await tools.dumpService("uuid-1", "/myService", "/tmp/s.sql", "all");
@@ -817,7 +817,7 @@ describe("reporting what MRS does, for the Actions tab", () => {
                     return Promise.reject(new Error("No such folder"));
                 },
             };
-            const tools = new MrsToolsApi(caller,
+            const tools = new RestToolsApi(caller,
                 (action) => { actions.push(action); });
 
             await expect(tools.loadServiceProject("uuid-1", "/nope"))

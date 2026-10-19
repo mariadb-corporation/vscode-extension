@@ -18,8 +18,8 @@
 import type { McpServerCommand } from "../shell/mcpServer.js";
 import { MariaDbApi, type IToolCaller } from "./mariaDbApi.js";
 import type { IMrsAction } from "../mrs/mrsActions.js";
-import { MrsToolsApi } from "../mrs/mrsApi.js";
-import { RestApi, type IRestApi } from "./restApi.js";
+import { RestToolsApi } from "../mrs/mrsApi.js";
+import { RestdApi, type IRestdApi } from "./restdApi.js";
 import { SandboxApi, type ISandboxApi } from "./sandboxApi.js";
 import { UtilApi, type IUtilApi } from "./utilApi.js";
 import type { IMariaDbApi } from "./types.js";
@@ -63,10 +63,10 @@ export class McpSession {
     #starting?: Promise<IMariaDbApi>;
     #api?: IMariaDbApi;
     #sandboxApi?: ISandboxApi;
-    #restApi?: IRestApi;
-    #mrsTools?: MrsToolsApi;
+    #restdApi?: IRestdApi;
+    #restTools?: RestToolsApi;
 
-    /** Where what each `mrs.*` tool call did is reported. */
+    /** Where what each `rest.*` tool call did is reported. */
     public onMrsAction?: (action: IMrsAction) => void;
     #utilApi?: IUtilApi;
 
@@ -99,19 +99,19 @@ export class McpSession {
     }
 
     /**
-     * @returns The `rest.*` API on the same server, if one is already
+     * @returns The `restd.*` API on the same server, if one is already
      *          running, else undefined.
      */
-    public get restApi(): IRestApi | undefined {
-        return this.#restApi;
+    public get restdApi(): IRestdApi | undefined {
+        return this.#restdApi;
     }
 
     /**
-     * @returns The `mrs.*` tools on the same server, if one is already
+     * @returns The `rest.*` tools on the same server, if one is already
      *          running, else undefined.
      */
-    public get mrsTools(): MrsToolsApi | undefined {
-        return this.#mrsTools;
+    public get restTools(): RestToolsApi | undefined {
+        return this.#restTools;
     }
 
     /**
@@ -153,8 +153,8 @@ export class McpSession {
         this.#connection = undefined;
         this.#api = undefined;
         this.#sandboxApi = undefined;
-        this.#restApi = undefined;
-        this.#mrsTools = undefined;
+        this.#restdApi = undefined;
+        this.#restTools = undefined;
         this.#utilApi = undefined;
         if (!connection) {
             return;
@@ -186,8 +186,8 @@ export class McpSession {
         this.#connection = connection;
         this.#api = new MariaDbApi(connection);
         this.#sandboxApi = new SandboxApi(connection);
-        this.#restApi = new RestApi(connection);
-        this.#mrsTools = new MrsToolsApi(connection, (action) => {
+        this.#restdApi = new RestdApi(connection);
+        this.#restTools = new RestToolsApi(connection, (action) => {
             this.onMrsAction?.(action);
         });
         this.#utilApi = new UtilApi(connection);

@@ -31,7 +31,7 @@ export interface ISandboxInstance {
 
 /**
  * What became of one of a sandbox's REST Daemons as the sandbox was
- * started, stopped or deleted. What `rest.get_restd_status` says of it,
+ * started, stopped or deleted. What `restd.get_restd_status` says of it,
  * where that could still be read.
  */
 export interface ISandboxRestdOutcome {

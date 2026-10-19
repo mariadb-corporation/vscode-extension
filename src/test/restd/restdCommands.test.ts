@@ -17,10 +17,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { IRestApi } from "../../mcp/restApi.js";
+import type { IRestdApi } from "../../mcp/restdApi.js";
 import { MrsDialogPanel, type IMrsDialogSpec } from "../../mrs/mrsDialogPanel.js";
 import type { IRestdDialogValues } from "../../mrs/mrsDialogs.js";
-import { RestdCommands } from "../../rest/restdCommands.js";
+import { RestdCommands } from "../../restd/restdCommands.js";
 import type { IConnectionNode } from "../../tree/connectionsModel.js";
 import type { RestdTreeProvider } from "../../tree/restdTreeProvider.js";
 import type { IActionRow } from "../../webview/protocol.js";
@@ -48,7 +48,7 @@ describe("Set Up MariaDB REST Daemon", () => {
         + "cancelled", async () => {
         const rows: IActionRow[] = [];
         const actions: string[] = [];
-        const restApi = {
+        const restdApi = {
             certificateStatus: () => {
                 return Promise.resolve({ exists: true, trusted: false,
                     ca_path: "/c" });
@@ -60,12 +60,12 @@ describe("Set Up MariaDB REST Daemon", () => {
             trustCertificate: () => {
                 return Promise.reject(new Error("The dialog was cancelled."));
             },
-        } as unknown as IRestApi;
+        } as unknown as IRestdApi;
         const commands = new RestdCommands({
             extensionUri: Uri.file("/ext") as never,
             connect: () => { return Promise.resolve("c1"); },
             metadataSchemas: () => { return Promise.resolve([]); },
-            restApi: () => { return Promise.resolve(restApi); },
+            restdApi: () => { return Promise.resolve(restdApi); },
             tree: {} as RestdTreeProvider,
             put: (_connection, row) => { rows.push(row); },
             showActions: (connection) => { actions.push(connection); },

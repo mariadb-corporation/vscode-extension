@@ -158,7 +158,7 @@ export const columnsSql = (
  * `db.execute_sql`: the shell's `mrs` module answers `SHOW ... FORMAT=JSON`
  * with one cell of JSON and runs the CREATE / ALTER / DROP statements. What
  * needs the developer's files - the client SDK, dumping and loading, a
- * content set from a folder - goes through the server's `mrs.*` tools.
+ * content set from a folder - goes through the server's `rest.*` tools.
  */
 
 /**
@@ -239,7 +239,7 @@ const OBJECT_LISTS = ["VIEWS", "PROCEDURES", "FUNCTIONS", "SCRIPTS"] as const;
 
 /**
  * The action the calls being made belong to: their statements. Shared by
- * {@link MrsApi} and {@link MrsToolsApi}, so a tool called inside a group
+ * {@link MrsApi} and {@link RestToolsApi}, so a tool called inside a group
  * is a step of the group's action rather than an action of its own.
  */
 const currentAction = new AsyncLocalStorage<IMrsStatement[]>();
@@ -673,7 +673,7 @@ export const MRS_TOOL_TIMEOUT_MS = 10 * 60 * 1000;
  */
 export const MRS_UPLOAD_TIMEOUT_MS = 2 ** 31 - 1;
 
-/** What `mrs.dump_service_project` writes. */
+/** What `rest.dump_service_project` writes. */
 export interface IServiceProjectOptions {
     destination: string;
     servicePath: string;
@@ -685,7 +685,7 @@ export interface IServiceProjectOptions {
     zip: boolean;
 }
 
-/** The SDK options a dump writes and `mrs.get_sdk_options` reads back. */
+/** The SDK options a dump writes and `rest.get_sdk_options` reads back. */
 export interface IMrsSdkOptions {
     serviceId?: string;
     serviceUrl?: string;
@@ -695,19 +695,19 @@ export interface IMrsSdkOptions {
     dbConnectionUri?: string;
 }
 
-/** The result of `mrs.load_content_set`. */
+/** The result of `rest.load_content_set`. */
 export interface IContentSetUpload {
     files: string[];
     message?: string;
 }
 
 /**
- * The server's `mrs.*` tools: the mrs plugin's functions that work with
+ * The server's `rest.*` tools: the mrs plugin's functions that work with
  * the developer's files. Those that use a REST service take an open
  * connection; the metadata schema on it is chosen with {@link MrsApi.run}
  * first where there is a choice.
  */
-export class MrsToolsApi {
+export class RestToolsApi {
     /**
      * @param caller What calls the server's tools.
      * @param report Where what each call did is reported, for the Actions
@@ -722,7 +722,7 @@ export class MrsToolsApi {
     #calls = 0;
 
     public async getSdkOptions(directory: string): Promise<IMrsSdkOptions> {
-        return await this.#tool("mrs.get_sdk_options", undefined,
+        return await this.#tool("rest.get_sdk_options", undefined,
             { directory },
             (name, result) => {
                 return decodeList<IMrsSdkOptions>(name, result)[0] ?? {};
@@ -736,7 +736,7 @@ export class MrsToolsApi {
         directory: string,
         options: Record<string, unknown>,
     ): Promise<void> {
-        await this.#tool("mrs.dump_sdk_service_files", connectionId,
+        await this.#tool("rest.dump_sdk_service_files", connectionId,
             { directory, options }, decodeVoid,
             words(`Dumping the REST Client SDK to ${directory}`,
                 `Dumped the REST Client SDK to ${directory}`),
@@ -749,7 +749,7 @@ export class MrsToolsApi {
         filePath: string,
         endpoints: string,
     ): Promise<void> {
-        await this.#tool("mrs.dump_service", connectionId, {
+        await this.#tool("rest.dump_service", connectionId, {
             service_path: servicePath,
             file_path: filePath,
             endpoints,
@@ -765,7 +765,7 @@ export class MrsToolsApi {
         filePath: string,
         asPath?: string,
     ): Promise<void> {
-        await this.#tool("mrs.load_service", connectionId, {
+        await this.#tool("rest.load_service", connectionId, {
             file_path: filePath,
             ...(asPath === undefined ? {} : { as_path: asPath }),
         }, decodeVoid,
@@ -780,7 +780,7 @@ export class MrsToolsApi {
         connectionId: string,
         options: IServiceProjectOptions,
     ): Promise<void> {
-        await this.#tool("mrs.dump_service_project", connectionId, {
+        await this.#tool("rest.dump_service_project", connectionId, {
             destination: options.destination,
             services: [{
                 name: options.servicePath,
@@ -810,7 +810,7 @@ export class MrsToolsApi {
         connectionId: string,
         source: string,
     ): Promise<void> {
-        await this.#tool("mrs.load_service_project", connectionId, { source },
+        await this.#tool("rest.load_service_project", connectionId, { source },
             decodeVoid, words(`Loading the REST Project ${source}`,
                 `Loaded the REST Project ${source}`),
             undefined, MRS_TOOL_TIMEOUT_MS);
@@ -825,7 +825,7 @@ export class MrsToolsApi {
         loadScripts: boolean | undefined,
         requiresAuth: boolean,
     ): Promise<IContentSetUpload> {
-        return await this.#tool("mrs.load_content_set", connectionId, {
+        return await this.#tool("rest.load_content_set", connectionId, {
             directory,
             content_set_path: contentSetPath,
             service_path: servicePath,
@@ -860,7 +860,7 @@ export class MrsToolsApi {
         servicePath: string,
         requiresAuth: boolean,
     ): Promise<IContentSetUpload> {
-        return await this.#tool("mrs.load_content_set", connectionId, {
+        return await this.#tool("rest.load_content_set", connectionId, {
             content_set_path: contentSetPath,
             service_path: servicePath,
             open_api_ui: true,
@@ -877,7 +877,7 @@ export class MrsToolsApi {
         path: string,
         ignoreList: string,
     ): Promise<string | undefined> {
-        return await this.#tool("mrs.get_folder_mrs_script_language",
+        return await this.#tool("rest.get_folder_mrs_script_language",
             undefined, { path, ignore_list: ignoreList },
             (name, result) => {
                 const language = decodeList<string | null>(name, result)[0];
@@ -894,7 +894,7 @@ export class MrsToolsApi {
         path: string,
         ignoreList: string,
     ): Promise<IMrsScriptDefinitions> {
-        return await this.#tool("mrs.get_folder_mrs_script_definitions",
+        return await this.#tool("rest.get_folder_mrs_script_definitions",
             undefined, { path, ignore_list: ignoreList },
             decodeObject<IMrsScriptDefinitions>,
             words(`Reading the MRS scripts in ${path}`,
@@ -903,7 +903,7 @@ export class MrsToolsApi {
     }
 
     public async version(): Promise<string> {
-        return await this.#tool("mrs.version", undefined, {}, decodeScalar,
+        return await this.#tool("rest.version", undefined, {}, decodeScalar,
             words("Reading the MRS plugin version",
                 "Read the MRS plugin version"), (version) => { return version; });
     }

@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ActionGroup } from "../../rest/actionGroup.js";
+import { ActionGroup } from "../../restd/actionGroup.js";
 import type { IActionRow } from "../../webview/protocol.js";
 
 /** Collects what goes up, keeping the latest row of each id. */
@@ -82,7 +82,7 @@ describe("ActionGroup", () => {
         const group = new ActionGroup(rows.put, "General", WORDS);
 
         await expect(group.step({ doing: "Setting up", done: "Set up" },
-            "rest.configure_restd()",
+            "restd.configure_restd()",
             () => { return Promise.reject(new Error("Access denied")); },
             { logOf: () => { return Promise.resolve("/logs/setup.log"); } }))
             .rejects.toThrow("Access denied");
@@ -92,7 +92,7 @@ describe("ActionGroup", () => {
         const failed = row.children![0]!;
         expect(failed).toMatchObject({ kind: "error",
             message: "Setting up failed: Access denied",
-            statement: "rest.configure_restd()", logPath: "/logs/setup.log" });
+            statement: "restd.configure_restd()", logPath: "/logs/setup.log" });
         expect(row).toMatchObject({ kind: "error",
             message: "Creating Sandbox on port 3311 failed",
             summary: "Finished with 1 error", jumpToRowId: failed.id,
