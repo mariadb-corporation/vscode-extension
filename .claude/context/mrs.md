@@ -179,7 +179,7 @@ option, `open_api_ui` of `mrs.load.contentSet` and of the
 `rest.load_content_set` tool. That option takes no directory and defaults the
 path to `/openApiUi`.
 
-- **What the plugin does:** `mrs_plugin/lib/open_api_ui.py` downloads
+- **What the plugin does:** `rest_plugin/lib/open_api_ui.py` downloads
   Swagger UI 5.17.14 and the SwaggerDark theme. Both are pinned by SHA-256,
   and certificates are checked; the old code switched TLS checks off for
   the whole process. It keeps the top-level `dist/` only; the old filter
@@ -193,7 +193,7 @@ path to `/openApiUi`.
   - The title is `<service name> - OpenAPI UI`, and the topbar logo link is
     hidden.
   - The page gets the dark theme, and the MariaDB favicons
-    (`mrs_plugin/lib/assets`) in place of the PNG ones.
+    (`rest_plugin/lib/assets`) in place of the PNG ones.
 - **In the extension:** "Deploy OpenAPI Web UI..." sits on REST Service
   rows (`4_mrs@2`). It opens the content set dialog in its `openApiUi`
   mode, with no folder or ignore list, a note on what is downloaded, and its
@@ -202,7 +202,7 @@ path to `/openApiUi`.
   in is the UI's own Authorize. It is uploaded and then given the dialog's
   settings, as any content set is (`RestToolsApi.loadOpenApiUi`).
 - **Tests:**
-  - mrs_plugin: a fake archive, the patches, a refused checksum, and the
+  - rest_plugin: a fake archive, the patches, a refused checksum, and the
     upload.
   - mcp_plugin: the option's rules in-process, and
     `test_the_open_api_ui_is_downloaded_and_uploaded_for_real` (`--e2e`).

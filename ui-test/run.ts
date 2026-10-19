@@ -227,7 +227,7 @@ const runFiles = async (
     for (const dir of [join(home, "plugins"), bin, sandboxes, files]) {
         mkdirSync(dir, { recursive: true });
     }
-    for (const plugin of ["mcp_plugin", "mrs_plugin", "msm_plugin"]) {
+    for (const plugin of ["mcp_plugin", "rest_plugin", "msm_plugin"]) {
         symlinkSync(join(repo, plugin), join(home, "plugins", plugin));
     }
     // The secrets too: the keychain is the whole user's, whatever the

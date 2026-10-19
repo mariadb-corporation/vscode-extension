@@ -106,7 +106,7 @@ describe.runIf(shell !== undefined)("REST SQL against a real shell", () => {
         const plugins = join(home, "plugins");
         mkdirSync(plugins, { recursive: true });
         const repo = resolve(__dirname, "../../../..");
-        for (const plugin of ["mcp_plugin", "mrs_plugin", "msm_plugin"]) {
+        for (const plugin of ["mcp_plugin", "rest_plugin", "msm_plugin"]) {
             symlinkSync(join(repo, plugin), join(plugins, plugin));
         }
         connection = await createSdkConnector().open({
