@@ -16,7 +16,7 @@
  */
 
 import * as assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -26,6 +26,7 @@ import {
     EditorView,
     MarkerType,
     TextEditor,
+    VSBrowser,
 } from "vscode-extension-tester";
 
 import {
@@ -48,7 +49,8 @@ import {
  * a SQL file, a syntax error in the Problems view until it is fixed,
  * completion from the tables of the file's connection, which the server
  * reads from the sandbox itself with the password the extension stored,
- * and from a catalog file named in the settings while the server runs.
+ * and from a catalog file named in the settings while the server runs; an
+ * MSM script's SOURCE directives in the Outline and in completion.
  */
 
 let connections: CustomTreeSection;
@@ -358,6 +360,49 @@ describe("SQL language server", () => {
             }, "the cursor on the function's name");
         } finally {
             // The next test's New SQL Editor button is in the MariaDB view.
+            connections = await openSection("Connections");
+        }
+    });
+
+    it("reads the files an MSM script includes with SOURCE", async () => {
+        // A development script on disk, its section in sections/: relative
+        // paths are relative to the script's folder.
+        const project = join(FILES, "uitest-msm");
+        mkdirSync(join(project, "sections"), { recursive: true });
+        writeFileSync(join(project, "sections", "140_tables.sql"),
+            "-- Copyright header\nCREATE TABLE tracked (id INT);\n");
+        const script = join(project, "shop_next.sql");
+        writeFileSync(script,
+            "USE shop;\nSOURCE './sections/140_tables.sql'[ln2:];\n");
+        await VSBrowser.instance.openResources(script);
+        const editor = await waitFor(async () => {
+            const title = await (await new EditorView().getActiveTab())
+                ?.getTitle();
+
+            return title === "shop_next.sql" ? new TextEditor() : undefined;
+        }, "the script's editor");
+        const outline = await openSection("Outline", "Explorer");
+        try {
+            // The section's table, in the script's schema, its file named.
+            const labels = await waitFor(async () => {
+                const found = await childLabels(outline, ["shop"])
+                    .catch((): string[] => []);
+
+                return found.includes("tracked") ? found : undefined;
+            }, "the included table in the Outline", SERVER_TIMEOUT);
+            assert.deepEqual(labels, ["tracked"]);
+            const tracked = await treeItem(outline, ["shop", "tracked"]);
+            assert.match(await tracked.getDescription() ?? "",
+                /140_tables\.sql:2$/);
+            await screenshot("08-source-outline");
+
+            // A path being typed: the section folder's files.
+            await editor.setText("USE shop;\nSOURCE './sections/");
+            await editor.moveCursor(2, "SOURCE './sections/".length + 1);
+            await completionsWith(editor, "140_tables.sql",
+                "the section file in the completion list");
+        } finally {
+            await runCommand("View: Revert and Close Editor");
             connections = await openSection("Connections");
         }
     });

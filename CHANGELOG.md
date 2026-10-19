@@ -24,6 +24,17 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   `.progressThresholdMB` and `.trace.server`; command **MariaDB: Restart
   SQL Language Server**.
 
+- **MSM `SOURCE` includes.** In a MariaDB Schema Management development
+  script, the files `SOURCE '<path>'[<start>:<end>];` includes are read
+  with it:
+  - Their objects show in the Outline, each naming its file and line.
+  - Go to definition, hover, references and rename reach into them.
+  - Each path is a link, and completion lists the folders and `.sql` files while a path is typed.
+  - Problems with a directive are marked: a missing file, a bad slice, a nested `SOURCE` that msm does not expand.
+  - A section file opened on its own takes the schema, `sql_mode` and delimiter of an open script that includes it.
+
+  Running such a script still sends the `SOURCE` lines as they are, until MariaDB Shell's `db.execute_sql_script` expands them.
+
 - **GitHub Copilot support.** The MariaDB agent skills of an
   [ai-plugins](https://github.com/mariadb-corporation/ai-plugins) release
   are contributed to Copilot (`contributes.chatSkills`), and the MariaDB

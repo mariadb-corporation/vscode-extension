@@ -58,6 +58,22 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   as it is; the extension adds nothing. UI test: the Explorer's Outline
   for a table, a view and a function, and a click on a symbol moving the
   cursor to it.
+- **MSM `SOURCE` includes** (lsp-server plan P9,
+  `docs/plans/source-includes.md` there): the server reads the files a
+  development script's `SOURCE '<path>'[<start>:<end>];` lines include, as
+  msm's `prepare_release` does. The extension adds nothing; all of it comes
+  through the language client as it is:
+  - **Outline:** included objects sit on their directive, `· file:line` in the description.
+  - **Links and completion:** `textDocument/documentLink` on the paths; path completion, with `/` added to the trigger characters, the server answering an empty list for `/` outside a `SOURCE` path.
+  - **File watcher:** the server registers a `**/*.sql` watcher through `client/registerCapability`, which the library honours, so a section changed on disk is read again.
+  - **Navigation and diagnostics:** definition, hover, references and rename across the files; diagnostics with code `source`.
+  - **Section files opened alone:** a section opened on its own takes an open including script's schema, `sql_mode` and delimiter. That comes below `mariadb/documentContext`: a `sqlMode`, `delimiter` or `currentSchema` the extension sends wins.
+
+  UI test: a script on disk with one section, its table in the Outline under the script's schema with `140_tables.sql:2`, and path completion listing the section.
+
+  Not done:
+  - **Running a script with `SOURCE` lines:** `executeScript` sends the editor's text inline, so they reach the server as they are. Once MariaDB Shell's `db.execute_sql_script` expands them (a `source_dir` argument for inline scripts was proposed to the shell-plugins session), `executeScript` should pass the document's folder for a file-backed editor, left out for a shell that does not have the argument.
+  - **`mariadb/outline`:** the extension does not read it. A future reader must take `source` positions as positions in the included files.
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
   `indentation`, `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A
