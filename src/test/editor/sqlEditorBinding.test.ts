@@ -375,6 +375,12 @@ describe("SqlEditorBinding", () => {
                 .toContain(SCHEMA_QUERY);
             expect(sqlModes.sessionOf("dba@localhost:3310").schema)
                 .toBe("shop");
+
+            // Dropping a schema may drop the one in use.
+            const reads = api.statements.length;
+            await binding.run(createEditor("DROP SCHEMA old;") as never);
+            expect(api.statements.slice(reads).map((s) => { return s.sql; }))
+                .toEqual([SCHEMA_QUERY]);
             binding.dispose();
         });
 

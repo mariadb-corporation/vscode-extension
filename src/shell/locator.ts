@@ -151,6 +151,47 @@ export const managedBinaryPath = (
     );
 };
 
+/** A versioned installation below the install prefix. */
+export interface IInstallation {
+    /** Its directory's name. */
+    name: string;
+    /** The version the name says. */
+    version: ShellVersion;
+}
+
+/**
+ * The MariaDB Shell installations the installers maintain: the version
+ * directories below the install prefix, newest first. Only directories
+ * that name a version are theirs; anything else below the prefix belongs
+ * to something they did not put there.
+ *
+ * @param environment The environment to search in.
+ *
+ * @returns The prefix, every directory in it, and the installations.
+ */
+export const listInstallations = async (
+    environment: ShellEnvironment,
+): Promise<{
+    prefix: string;
+    entries: string[];
+    installations: IInstallation[];
+}> => {
+    const prefix = installPrefix(environment);
+    const entries = await environment.listDirectories(prefix);
+    const installations = entries
+        .map((name) => {
+            return { name, version: parseVersion(name) };
+        })
+        .filter((entry): entry is IInstallation => {
+            return entry.version !== undefined;
+        })
+        .sort((a, b) => {
+            return compareVersions(b.version, a.version);
+        });
+
+    return { prefix, entries, installations };
+};
+
 /** Where the locator says what it looked at and why it passed it over. */
 export type LocatorLog = (message: string) => void;
 
@@ -246,35 +287,22 @@ export const findManagedShell = async (
     minimum: ShellVersion,
     log: LocatorLog = ignore,
 ): Promise<ShellLocation | undefined> => {
-    const prefix = installPrefix(environment);
-    const entries = await environment.listDirectories(prefix);
+    const { prefix, entries, installations } =
+        await listInstallations(environment);
     log(entries.length === 0
         ? `No local installations in ${prefix}.`
         : `Local installations in ${prefix}: ${entries.join(", ")}`);
 
-    // Only directories that name a version are ours; anything else below the
-    // prefix belongs to something we did not put there.
-    const candidates = entries
-        .map((name) => {
-            return { name, version: parseVersion(name) };
-        })
-        .filter((entry): entry is { name: string; version: ShellVersion } => {
-            if (entry.version === undefined) {
-                return false;
-            }
+    const candidates = installations.filter((entry) => {
+        if (!meetsMinimum(entry.version, minimum)) {
+            log(`  ${entry.name} is older than `
+                + `${formatVersion(minimum)}; not used.`);
 
-            if (!meetsMinimum(entry.version, minimum)) {
-                log(`  ${entry.name} is older than `
-                    + `${formatVersion(minimum)}; not used.`);
+            return false;
+        }
 
-                return false;
-            }
-
-            return true;
-        })
-        .sort((a, b) => {
-            return compareVersions(b.version, a.version);
-        });
+        return true;
+    });
 
     for (const candidate of candidates) {
         const binaryPath = managedBinaryPath(environment, candidate.name);

@@ -26,11 +26,11 @@ import * as path from "node:path";
 
 import {
     installPrefix,
+    listInstallations,
     type LocatorLog,
     type ShellEnvironment,
 } from "../shell/locator.js";
 import {
-    compareVersions,
     formatVersion,
     meetsMinimum,
     parseVersion,
@@ -189,17 +189,8 @@ const shellInstallCandidates = async (
     environment: ShellEnvironment,
     log: LocatorLog,
 ): Promise<{ binaryPath: string; source: LspSource }[]> => {
-    const prefix = installPrefix(environment);
-    const versions = (await environment.listDirectories(prefix))
-        .map((name) => {
-            return { name, version: parseVersion(name) };
-        })
-        .filter((entry): entry is { name: string; version: ShellVersion } => {
-            return entry.version !== undefined;
-        })
-        .sort((a, b) => {
-            return compareVersions(b.version, a.version);
-        });
+    const { prefix, installations: versions } =
+        await listInstallations(environment);
     if (versions.length === 0) {
         log(`  No MariaDB Shell installations in ${prefix}.`);
 

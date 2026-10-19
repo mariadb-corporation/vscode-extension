@@ -52,7 +52,7 @@ import {
 import { McpSession } from "./mcp/session.js";
 import type { IMariaDbApi } from "./mcp/types.js";
 import { registerCopilotMcpServer } from "./copilot/mcpServerProvider.js";
-import { answerDbCall } from "./lsp/dbCall.js";
+import { answerDbCall, DbCallError } from "./lsp/dbCall.js";
 import { LanguageServer } from "./lsp/languageServer.js";
 import { createNodeLanguageClient } from "./lsp/nodeClient.js";
 import { ensureShell, type BootstrapResult } from "./shell/bootstrap.js";
@@ -595,6 +595,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return await connections.listConnections();
                 },
                 connect: async (uri) => {
+                    // Asked again with the server's back-off, so it reads
+                    // the catalog once something opens the connection.
+                    if (connections.wasDisconnected(uri)) {
+                        throw new DbCallError(`${uri} was disconnected`,
+                            false);
+                    }
+
                     return await connections.connect(uri,
                         UI_BACKEND_SESSION);
                 },

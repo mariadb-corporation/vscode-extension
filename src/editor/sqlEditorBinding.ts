@@ -68,10 +68,11 @@ export const CONNECTION_HEADER_PREFIX = "-- MariaDB connection:";
 const HEADER_SEARCH_LINES = 5;
 
 /**
- * Whether a script may have changed its session's schema. A plain word
- * match: one read too many is cheap.
+ * Whether a script may have changed its session's schema: a `USE`, or
+ * dropping a schema, which may be the one in use. A plain word match: one
+ * read too many is cheap.
  */
-const CHANGES_SCHEMA = /\bUSE\b/i;
+const CHANGES_SCHEMA = /\bUSE\b|\bDROP\s+(DATABASE|SCHEMA)\b/i;
 
 /** What the session is asked for its schema after such a script. */
 export const SCHEMA_QUERY = "SELECT DATABASE()";
@@ -609,8 +610,9 @@ export class SqlEditorBinding implements vscode.Disposable {
         });
         await this.resultView.startRun(uri, run, into);
 
+        let connectionId: string | undefined;
         try {
-            const connectionId = await this.connections.connect(uri);
+            connectionId = await this.connections.connect(uri);
             // Read on the first run, known from the last one after that.
             const known = await this.sqlModes.ansiQuotes(uri);
             if (known !== ansiQuotes) {
@@ -640,9 +642,6 @@ export class SqlEditorBinding implements vscode.Disposable {
                 connectionId,
                 service,
             });
-            if (CHANGES_SCHEMA.test(script)) {
-                await this.#readSchema(uri, connectionId);
-            }
         } catch (error) {
             const message = reportError(
                 this.log, error, `run the script on ${uri}`);
@@ -675,6 +674,10 @@ export class SqlEditorBinding implements vscode.Disposable {
                 resultSets: [],
             });
         } finally {
+            // Also after a run that failed part way, past its USE.
+            if (connectionId !== undefined && CHANGES_SCHEMA.test(script)) {
+                await this.#readSchema(uri, connectionId);
+            }
             for (const listener of this.#runListeners) {
                 listener(uri, script);
             }

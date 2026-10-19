@@ -30,8 +30,15 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   `MariaDB: Restart SQL Language Server` (`mariadb.lsp.restart`), or a
   change of `mariadb.lsp.enabled` / `path` / `threads`, looks again.
   When the extension had to install the MariaDB Shell (`ensureShell`),
-  `LanguageServer.shellInstalled` looks again, since the shell's package
-  carries the server. There is no download of the server alone.
+  `LanguageServer.shellInstalled` looks again (after a lookup still under
+  way), since the shell's package carries the server. There is no
+  download of the server alone.
+- **Crashes**: `vscode-languageclient` restarts a crashed server itself;
+  when it gives up (`State.Stopped` not caused by us, `onDidStop`), the
+  state goes to `unavailable` with a log line, and a restart brings it
+  back. A stop or restart while the server is still starting stops that
+  client too, so a server that never answers `initialize` cannot hold
+  them for good.
 - **Arguments**: `lsp --stdio --mcp`, plus `--threads N` when
   `mariadb.lsp.threads` is above 0. `--mcp` makes the server read every
   connection's catalog through the extension (below) instead of
@@ -99,7 +106,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   it when the server first reads its catalog. Collapsing the connection
   in the tree does not close that session; Disconnect closes every one,
   and one still being opened is closed as it arrives
-  (`ConnectionManager`'s abandoned opens). That session does not follow
+  (`ConnectionManager`'s abandoned opens; a connect after the disconnect
+  opens anew). A connection disconnected as a whole is not opened again
+  for the server (`wasDisconnected`): its reads are refused, to be asked
+  again, until a run, the tree or anything else connects it. That session does not follow
   a `SET sql_mode` or `USE` run in an editor, so the editors' session's
   state goes with each document's context (below). A reading lists names only; the details of a
   table, view or routine are one `db.get_object_details` call each, made
@@ -146,7 +156,7 @@ schema is created after the first SQL editor opened.
 
 **The editors' session.** `SqlModes` also keeps what the editors' session
 on a connection reported (`sessionOf`, `onDidChangeSession`): the full
-`sql_mode` every run reports, and after a run whose script has `USE`,
+`sql_mode` every run reports, and after a run whose script has `USE` or drops a schema (also one that failed),
 `SELECT DATABASE()` read on that session (`SqlEditorBinding`). The
 controller sends them as `sqlMode` and `currentSchema` with the document's
 context, and again when they change. Each message is whole: until a run

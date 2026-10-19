@@ -126,6 +126,11 @@ export interface ILanguageClientOptions {
     /** Called with each `mariadb/parseProgress` from the server. */
     onParseProgress(progress: IParseProgress): void;
     /**
+     * Called when the client stopped: when it was stopped, and when it
+     * gave up restarting a server that kept crashing.
+     */
+    onDidStop(): void;
+    /**
      * Answers a `mariadb/dbCall`: the server reads a connection's
      * catalog through the extension's MCP server.
      */
@@ -224,6 +229,11 @@ export class LanguageServer implements vscode.Disposable {
      * told from what the current one does.
      */
     #generation = 0;
+    /**
+     * The client while it starts, so a stop can end a start that would
+     * otherwise never settle: a server that never answers `initialize`.
+     */
+    #launching?: ILanguageClientHandle;
     readonly #progress = new ParseProgressStatus();
     readonly #disposables: vscode.Disposable[] = [this.#progress];
 
@@ -357,6 +367,10 @@ export class LanguageServer implements vscode.Disposable {
      * @returns Once it is up, or it was found it cannot be.
      */
     public async shellInstalled(): Promise<void> {
+        // A lookup still under way may have looked before the install.
+        if (this.#state.kind === "starting") {
+            await this.#state.done;
+        }
         if (this.#state.kind === "unavailable") {
             await this.restart();
         }
@@ -369,7 +383,15 @@ export class LanguageServer implements vscode.Disposable {
      */
     public async stop(): Promise<void> {
         if (this.#state.kind === "starting") {
-            await this.#state.done;
+            const { done } = this.#state;
+            // What the start still reports is not this one's to keep.
+            this.#generation += 1;
+            try {
+                await this.#launching?.stop();
+            } catch {
+                // It is being ended, either way.
+            }
+            await done;
         }
         const state = this.#state;
         this.#state = { kind: "stopped" };
@@ -475,15 +497,41 @@ export class LanguageServer implements vscode.Disposable {
                     this.#progress.update(progress);
                 }
             },
+            onDidStop: () => {
+                // The library gave up restarting a server that kept
+                // crashing: a restart, by hand or by a setting, is what
+                // brings it back.
+                if (generation === this.#generation
+                    && this.#state.kind === "running") {
+                    this.deps.log("The SQL language server stopped. Run "
+                        + "MariaDB: Restart SQL Language Server to start it "
+                        + "again.");
+                    this.#state = { kind: "unavailable" };
+                    this.#sent.clear();
+                    this.#sentSession.clear();
+                    this.#progress.clear();
+                }
+            },
         });
+        this.#launching = client;
         try {
             await client.start();
         } catch (error) {
+            if (generation !== this.#generation) {
+                // Ended by a stop, which settles the state itself.
+                return;
+            }
             this.deps.log(`The SQL language server did not start: `
                 + `${errorText(error)}`);
             this.#state = { kind: "unavailable" };
             this.#progress.clear();
 
+            return;
+        } finally {
+            this.#launching = undefined;
+        }
+        if (generation !== this.#generation) {
+            // Stopped while it started.
             return;
         }
         this.#state = { kind: "running", client };

@@ -51,6 +51,8 @@ interface FakeClient {
     stopped: boolean;
     notifications: Array<{ method: string; params: unknown }>;
     requests: Array<{ method: string; params: unknown }>;
+    /** Ends a start still under way, as killing the process does. */
+    kill?: (error: Error) => void;
 }
 
 /** What one test built. */
@@ -113,7 +115,10 @@ const build = (options: {
 
             return {
                 start: async () => {
-                    await options.startGate;
+                    await new Promise<void>((resolve, reject) => {
+                        client.kill = reject;
+                        void Promise.resolve(options.startGate).then(resolve);
+                    });
                     if (options.failStart) {
                         throw new Error("spawn failed");
                     }
@@ -121,6 +126,7 @@ const build = (options: {
                 },
                 stop: () => {
                     client.stopped = true;
+                    client.kill?.(new Error("killed"));
 
                     return Promise.resolve();
                 },
@@ -563,6 +569,40 @@ describe("LanguageServer", () => {
         await server.shellInstalled();
         expect(clients).toHaveLength(1);
         expect(clients[0].stopped).toBe(false);
+    });
+
+    it("ends a start that never finishes when it is stopped", async () => {
+        const { clients, lines, server } = build({
+            startGate: new Promise<void>(() => { /* never */ }),
+        });
+        fireDocumentOpen(sqlDocument("a.sql"));
+        const starting = server.start();
+        await settle();
+        expect(clients).toHaveLength(1);
+
+        await server.stop();
+        await starting;
+        expect(clients[0].stopped).toBe(true);
+        expect(server.running).toBe(false);
+        // Ended on purpose, not a failure to report.
+        expect(lines.join("\n")).not.toContain("did not start");
+    });
+
+    it("says so when the client gave up on a crashing server", async () => {
+        const { clients, lines, server } = build();
+        fireDocumentOpen(sqlDocument("a.sql"));
+        await server.start();
+        expect(server.running).toBe(true);
+
+        clients[0].options.onDidStop();
+        expect(server.running).toBe(false);
+        expect(lines.join("\n")).toContain("The SQL language server stopped");
+
+        // A restart brings it back; its own stop is not reported.
+        await server.restart();
+        expect(server.running).toBe(true);
+        clients[0].options.onDidStop();
+        expect(server.running).toBe(true);
     });
 
     it("restarts when its settings change", async () => {

@@ -17,7 +17,10 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { ConnectionManager } from "../../connections/connectionManager.js";
+import {
+    ConnectionManager,
+    UI_BACKEND_SESSION,
+} from "../../connections/connectionManager.js";
 import { hasAnsiQuotes, SqlModes } from "../../connections/sqlModes.js";
 import { createFakeApi, createFakeSettings, createRecordingLog } from
     "../helpers.js";
@@ -130,6 +133,22 @@ describe("SqlModes", () => {
             await connections.disconnect(DBA);
             expect(modes.sessionOf(DBA)).toEqual({});
             expect(reported).toHaveLength(4);
+        });
+
+    it("forgets it when the editors' session closes, the tree's open or not",
+        async () => {
+            const { connections, modes } = createModes("");
+            await connections.connect(DBA);
+            await connections.connect(DBA, UI_BACKEND_SESSION);
+            modes.record(DBA, "ANSI_QUOTES");
+            modes.recordSchema(DBA, "shop");
+
+            await connections.disconnect(DBA, UI_BACKEND_SESSION);
+            expect(modes.sessionOf(DBA).schema).toBe("shop");
+
+            await connections.connect(DBA, UI_BACKEND_SESSION);
+            await connections.disconnect(DBA, "1");
+            expect(modes.sessionOf(DBA)).toEqual({});
         });
 
     it("lets a run's report win over a read it overtook", async () => {

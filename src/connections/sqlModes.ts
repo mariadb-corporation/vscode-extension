@@ -96,8 +96,13 @@ export class SqlModes {
                     this.#modes.delete(uri);
                 }
             }
+            // The editors' sessions are the numbered ones: the tree's,
+            // which the language server keeps open, says nothing of them.
             for (const uri of this.#sessions.keys()) {
-                if (!connections.isConnected(uri)) {
+                const editorOpen = connections.sessionsOf(uri).some((open) => {
+                    return /^\d+$/u.test(open.label);
+                });
+                if (!editorOpen) {
                     this.#sessions.delete(uri);
                     this.#sessionChanged(uri);
                 }

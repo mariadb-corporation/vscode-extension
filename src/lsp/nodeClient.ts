@@ -23,6 +23,7 @@ import * as vscode from "vscode";
 import {
     LanguageClient,
     ResponseError,
+    State,
     type LanguageClientOptions,
     type ServerOptions,
 } from "vscode-languageclient/node";
@@ -142,6 +143,11 @@ export const createNodeLanguageClient: LanguageClientFactory = (options) => {
         (progress: IParseProgress) => {
             options.onParseProgress(progress);
         });
+    client.onDidChangeState((event) => {
+        if (event.newState === State.Stopped) {
+            options.onDidStop();
+        }
+    });
     // The server reports a large file's check as work done progress too,
     // when the client says it takes that; the status bar entry built on
     // mariadb/parseProgress says the same, so the client says it does not.
