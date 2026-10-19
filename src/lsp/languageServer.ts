@@ -25,6 +25,7 @@ import * as vscode from "vscode";
 
 import { withDefaultScheme } from "../connections/connectionUri.js";
 import { isSqlDocument } from "../editor/sqlLanguage.js";
+import type { ISessionState } from "../connections/sqlModes.js";
 import type { ShellEnvironment } from "../shell/locator.js";
 import { errorText } from "../text.js";
 import type { IDbCallParams } from "./dbCall.js";
@@ -80,6 +81,8 @@ export type FormatResult =
     | "formatted"
     /** There was nothing to change. */
     | "unchanged"
+    /** Another editor became active while the server started. */
+    | "skipped"
     /** No server is running. */
     | "unavailable";
 
@@ -168,6 +171,24 @@ export interface ILanguageServerDependencies {
         listener: (connection: string, script: string) => void,
     ): () => void;
     /**
+     * What the editors' session on a connection reported of itself: the
+     * server reads its catalogs on a session of its own, which does not
+     * follow a `SET sql_mode` or a `USE` run in an editor.
+     *
+     * @param connection The connection.
+     *
+     * @returns Its `sql_mode` and schema, where a run reported them.
+     */
+    sessionOf(connection: string): ISessionState;
+    /**
+     * Listens for what an editors' session reported changing.
+     *
+     * @param listener Called on each.
+     *
+     * @returns A function that stops listening.
+     */
+    onDidChangeSession(listener: () => void): () => void;
+    /**
      * Makes a `db.*` tool call on the MCP server for the language
      * server, which runs with `--mcp` and connects to nothing itself.
      *
@@ -193,6 +214,11 @@ export class LanguageServer implements vscode.Disposable {
      * for every document the server has open.
      */
     readonly #sent = new Map<string, string | null>();
+    /**
+     * Document URI -> the session state last sent with its connection,
+     * as JSON, so an unchanged one is not sent again.
+     */
+    readonly #sentSession = new Map<string, string>();
     /**
      * Counts the clients started, so what a stopped one still reports is
      * told from what the current one does.
@@ -226,6 +252,11 @@ export class LanguageServer implements vscode.Disposable {
             }),
             {
                 dispose: deps.onDidChangeConnections(() => {
+                    this.#syncAll();
+                }),
+            },
+            {
+                dispose: deps.onDidChangeSession(() => {
                     this.#syncAll();
                 }),
             },
@@ -294,6 +325,11 @@ export class LanguageServer implements vscode.Disposable {
             return "unavailable";
         }
         const { document } = editor;
+        // The commands work on the active editor: one that changed while
+        // the server started would be formatted in place of this one.
+        if (vscode.window.activeTextEditor?.document !== document) {
+            return "skipped";
+        }
         const version = document.version;
         await vscode.commands.executeCommand(editor.selection.isEmpty
             ? "editor.action.formatDocument"
@@ -327,6 +363,7 @@ export class LanguageServer implements vscode.Disposable {
         this.#state = { kind: "stopped" };
         this.#generation += 1;
         this.#sent.clear();
+        this.#sentSession.clear();
         this.#progress.clear();
         if (state.kind === "running") {
             try {
@@ -403,6 +440,7 @@ export class LanguageServer implements vscode.Disposable {
                 // server: a check the old one had under way never ends.
                 this.#progress.forget(document.uri.toString());
                 this.#sent.set(document.uri.toString(), null);
+                this.#sentSession.delete(document.uri.toString());
                 this.#sendContext(document);
             },
             onDidClose: (document) => {
@@ -410,6 +448,7 @@ export class LanguageServer implements vscode.Disposable {
                     return;
                 }
                 this.#sent.delete(document.uri.toString());
+                this.#sentSession.delete(document.uri.toString());
                 this.#progress.forget(document.uri.toString());
             },
             onDbCall: async (params) => {
@@ -506,8 +545,10 @@ export class LanguageServer implements vscode.Disposable {
     }
 
     /**
-     * Tells the server the connection a document runs on, if that is not
-     * what it was told last.
+     * Tells the server the connection a document runs on, with what its
+     * editors' session reported of its `sql_mode` and schema, if that is
+     * not what it was told last. Each message is whole: what it leaves
+     * out, the server takes from the connection again.
      *
      * @param document A document the server has open.
      *
@@ -520,13 +561,26 @@ export class LanguageServer implements vscode.Disposable {
         }
         const key = document.uri.toString();
         const connection = this.deps.connectionFor(document) ?? null;
-        if (this.#sent.get(key) === connection) {
+        const session = connection === null ? {}
+            : this.deps.sessionOf(connection);
+        const context: Record<string, string> = {};
+        if (session.sqlMode !== undefined) {
+            context.sqlMode = session.sqlMode;
+        }
+        if (typeof session.schema === "string") {
+            context.currentSchema = session.schema;
+        }
+        const sessionKey = JSON.stringify(context);
+        if (this.#sent.get(key) === connection
+            && (this.#sentSession.get(key) ?? "{}") === sessionKey) {
             return;
         }
         this.#sent.set(key, connection);
+        this.#sentSession.set(key, sessionKey);
         this.#state.client.sendNotification(DOCUMENT_CONTEXT_NOTIFICATION, {
             textDocument: { uri: key },
             connection,
+            ...context,
         }).catch((error: unknown) => {
             this.deps.log(`Could not send the connection of ${key} to the `
                 + `SQL language server: ${errorText(error)}`);

@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type * as vscode from "vscode";
 
+import type { ISessionState } from "../../connections/sqlModes.js";
 import type { IDbCallParams } from "../../lsp/dbCall.js";
 import {
     DID_CHANGE_CONFIGURATION_NOTIFICATION,
@@ -38,6 +39,7 @@ import {
     Position,
     resetVscodeMock,
     Selection,
+    setActiveTextEditor,
     statusBarItems,
     Uri,
 } from "../mocks/vscode.js";
@@ -59,6 +61,10 @@ interface Fixture {
     connections: Map<string, string>;
     changed: () => void;
     ran: (connection: string, script: string) => void;
+    /** What each connection's editors' session reported. */
+    sessions: Map<string, ISessionState>;
+    /** Says a session's report changed. */
+    sessionChanged: () => void;
 }
 
 const sqlDocument = (name: string): MockTextDocument => {
@@ -92,6 +98,8 @@ const build = (options: {
         void connection;
         void script;
     };
+    const sessions = new Map<string, ISessionState>();
+    let sessionListener = (): void => { /* set below */ };
     const server = new LanguageServer({
         createClient: (clientOptions) => {
             const client: FakeClient = {
@@ -148,6 +156,14 @@ const build = (options: {
 
             return () => { /* nothing to undo */ };
         },
+        sessionOf: (connection) => {
+            return sessions.get(connection) ?? {};
+        },
+        onDidChangeSession: (changed) => {
+            sessionListener = changed;
+
+            return () => { /* nothing to undo */ };
+        },
         dbCall: (params) => {
             return options.dbCall
                 ? options.dbCall(params)
@@ -160,6 +176,8 @@ const build = (options: {
             listener();
         }, ran: (connection, script) => {
             runListener(connection, script);
+        }, sessions, sessionChanged: () => {
+            sessionListener();
         },
     };
 };
@@ -176,11 +194,14 @@ describe("LanguageServer.format", () => {
         resetVscodeMock();
     });
 
-    /** An editor on a SQL document, as the controller takes it. */
-    const sqlEditor = (): MockTextEditor => {
-        return new MockTextEditor(new MockTextDocument(
-            Uri.parse("file:///work/q.sql"), "mariadb-sql",
+    /** The active editor, on a SQL document. */
+    const sqlEditor = (name = "q.sql"): MockTextEditor => {
+        const editor = new MockTextEditor(new MockTextDocument(
+            Uri.parse(`file:///work/${name}`), "mariadb-sql",
             "select a from t;\nselect b from u;\n"));
+        setActiveTextEditor(editor);
+
+        return editor;
     };
 
     const asEditor = (editor: MockTextEditor): vscode.TextEditor => {
@@ -235,6 +256,16 @@ describe("LanguageServer.format", () => {
         formatCommands(editor);
 
         expect(await server.format(asEditor(editor))).toBe("unchanged");
+    });
+
+    it("formats nothing when another editor became active", async () => {
+        const { server } = build({});
+        const editor = sqlEditor();
+        const ran = formatCommands(editor, "SELECT 1;");
+        sqlEditor("other.sql");
+
+        expect(await server.format(asEditor(editor))).toBe("skipped");
+        expect(ran).toEqual([]);
     });
 
     it("cannot format without a server", async () => {
@@ -362,6 +393,48 @@ describe("LanguageServer", () => {
         changed();
         expect(clients[0].notifications).toHaveLength(4);
     });
+
+    it("sends what the editors' session reported of its mode and schema",
+        async () => {
+            const { clients, connections, server, sessions, sessionChanged }
+                = build();
+            const document = sqlDocument("q.sql");
+            connections.set(document.uri.toString(), "mariadb://root@h:1");
+            await server.start();
+            fireDocumentOpen(document);
+            clients[0].options.onDidOpen(asDocument(document));
+            const context = (extra: Record<string, string>) => {
+                return {
+                    method: DOCUMENT_CONTEXT_NOTIFICATION,
+                    params: {
+                        textDocument: { uri: document.uri.toString() },
+                        connection: "mariadb://root@h:1",
+                        ...extra,
+                    },
+                };
+            };
+            // Nothing reported yet: the server reads the connection's own.
+            expect(clients[0].notifications).toEqual([context({})]);
+
+            // A run reported the mode, then a USE.
+            sessions.set("mariadb://root@h:1", { sqlMode: "ANSI_QUOTES" });
+            sessionChanged();
+            sessions.set("mariadb://root@h:1",
+                { sqlMode: "ANSI_QUOTES", schema: "shop" });
+            sessionChanged();
+            // Nothing new: nothing sent.
+            sessionChanged();
+            // No schema in use: the server takes the connection's again.
+            sessions.set("mariadb://root@h:1",
+                { sqlMode: "ANSI_QUOTES", schema: null });
+            sessionChanged();
+            expect(clients[0].notifications).toEqual([
+                context({}),
+                context({ sqlMode: "ANSI_QUOTES" }),
+                context({ sqlMode: "ANSI_QUOTES", currentSchema: "shop" }),
+                context({ sqlMode: "ANSI_QUOTES" }),
+            ]);
+        });
 
     it("has the catalog read again after a script that may change it",
         async () => {

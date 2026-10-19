@@ -108,6 +108,30 @@ describe("SqlModes", () => {
             expect(api.statements).toEqual([]);
         });
 
+    it("keeps what the editors' session reported, and forgets it on close",
+        async () => {
+            const { connections, modes } = createModes("");
+            const reported: string[] = [];
+            modes.onDidChangeSession((uri) => {
+                reported.push(uri);
+            });
+            await connections.connect(DBA);
+            expect(modes.sessionOf(DBA)).toEqual({});
+
+            // Any change of the mode is news here, not only ANSI_QUOTES.
+            modes.record(DBA, "STRICT_TRANS_TABLES");
+            modes.record(DBA, "STRICT_TRANS_TABLES");
+            modes.record(DBA, "STRICT_TRANS_TABLES,NO_ZERO_DATE");
+            modes.recordSchema(DBA, "shop");
+            expect(modes.sessionOf(DBA)).toEqual({
+                sqlMode: "STRICT_TRANS_TABLES,NO_ZERO_DATE", schema: "shop" });
+            expect(reported).toEqual([DBA, DBA, DBA]);
+
+            await connections.disconnect(DBA);
+            expect(modes.sessionOf(DBA)).toEqual({});
+            expect(reported).toHaveLength(4);
+        });
+
     it("lets a run's report win over a read it overtook", async () => {
         const { connections, modes } = createModes("");
         await connections.connect(DBA);

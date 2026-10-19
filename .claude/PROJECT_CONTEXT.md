@@ -119,10 +119,11 @@ change belongs to up to date, and this table with it.
 ## Kept in sync with lsp-server
 
 - **The SQL the language server may run.** `ALLOWED_SQL` in
-  `src/lsp/dbCall.ts` lists, character for character, the statements the
-  extension runs for the server's `db.execute_sql` calls; anything else is
-  refused, so the server cannot run arbitrary SQL on the user's
-  credentials. It mirrors `k_server_sql` in lsp-server's
+  `src/lsp/dbCall.ts` lists the statements the extension runs for the
+  server's `db.execute_sql` calls, compared with runs of blanks as one
+  space and no `;` at the end (a new layout is fine, any other change is
+  not); anything else is refused, and logged in the MariaDB channel, so
+  the server cannot run arbitrary SQL on the user's credentials. It mirrors `k_server_sql` in lsp-server's
   `libs/mariadblanguageserver/src/mcp_catalog.cc` (today the one
   `SELECT @@sql_mode AS sql_mode, VERSION() AS version, DATABASE() AS
   schema_name`). A statement added or changed there has to be added here,

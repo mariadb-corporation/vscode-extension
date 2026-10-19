@@ -28,6 +28,7 @@ import {
     STOP_ON_ERROR_CONTEXT_KEY,
 } from "../connections/settings.js";
 import { reportError } from "../errorMessages.js";
+import { firstCell } from "../mcp/types.js";
 import {
     captionFor,
     describeStatements,
@@ -38,6 +39,7 @@ import {
 import { quoteIdentifier } from "../sql/queryBuilder.js";
 import { splitStatements } from "../sql/splitStatements.js";
 import { statementAtOffset } from "../sql/statementAtOffset.js";
+import { errorText } from "../text.js";
 import type { SqlModes } from "../connections/sqlModes.js";
 import { AnsiQuotesHighlighter } from "./ansiQuotes.js";
 import { isSqlDocument, MARIADB_SQL_LANGUAGE_ID } from "./sqlLanguage.js";
@@ -64,6 +66,15 @@ export const CONNECTION_HEADER_PREFIX = "-- MariaDB connection:";
 
 /** How far into a file the connection header is looked for. */
 const HEADER_SEARCH_LINES = 5;
+
+/**
+ * Whether a script may have changed its session's schema. A plain word
+ * match: one read too many is cheap.
+ */
+const CHANGES_SCHEMA = /\bUSE\b/i;
+
+/** What the session is asked for its schema after such a script. */
+export const SCHEMA_QUERY = "SELECT DATABASE()";
 
 /**
  * Builds the header line recording a file's connection.
@@ -629,6 +640,9 @@ export class SqlEditorBinding implements vscode.Disposable {
                 connectionId,
                 service,
             });
+            if (CHANGES_SCHEMA.test(script)) {
+                await this.#readSchema(uri, connectionId);
+            }
         } catch (error) {
             const message = reportError(
                 this.log, error, `run the script on ${uri}`);
@@ -664,6 +678,28 @@ export class SqlEditorBinding implements vscode.Disposable {
             for (const listener of this.#runListeners) {
                 listener(uri, script);
             }
+        }
+    }
+
+    /**
+     * Reads the schema a session is in, for the language server, which
+     * reads its catalogs on a session of its own.
+     *
+     * @param uri The connection.
+     * @param connectionId The session the script ran on.
+     *
+     * @returns Nothing; a read that fails is logged.
+     */
+    async #readSchema(uri: string, connectionId: string): Promise<void> {
+        try {
+            const api = await this.connections.api();
+            const value = firstCell(
+                await api.executeSql(connectionId, SCHEMA_QUERY));
+            this.sqlModes.recordSchema(uri,
+                typeof value === "string" ? value : null);
+        } catch (error) {
+            this.log(`Could not read the schema in use on ${uri}: `
+                + `${errorText(error)}`);
         }
     }
 

@@ -60,6 +60,8 @@ export interface IDbCallHost {
     connect(uri: string): Promise<string>;
     /** The MCP server's API, starting it if need be. */
     api(): Promise<IMariaDbApi>;
+    /** Notes what was refused, where a mismatch would otherwise go unseen. */
+    log(message: string): void;
 }
 
 /** The tools the server may ask for; anything else is refused. */
@@ -71,15 +73,29 @@ const TOOLS = new Set([
 ]);
 
 /**
- * The statements `db.execute_sql` may run, character for character: the
- * server's own, so it cannot run anything else on the user's credentials.
- * Kept in sync by hand with lsp-server (`k_server_sql` in
+ * A statement as it is compared: runs of blanks as one space, no blanks
+ * or `;` at the ends - so the server may lay its statement out anew.
+ *
+ * @param sql The statement.
+ *
+ * @returns Its comparable form.
+ */
+const normalized = (sql: string): string => {
+    return sql.replace(/\s+/gu, " ").trim().replace(/\s*;$/u, "");
+};
+
+/**
+ * The statements `db.execute_sql` may run, compared as {@link normalized}
+ * says: the server's own, so it cannot run anything else on the user's
+ * credentials. Kept in sync by hand with lsp-server (`k_server_sql` in
  * `libs/mariadblanguageserver/src/mcp_catalog.cc`): a statement the server
- * adds there is refused here until it is added to this list too.
+ * adds or changes there is refused here until this list has it too.
  */
 export const ALLOWED_SQL: ReadonlySet<string> = new Set([
     "SELECT @@sql_mode AS sql_mode, VERSION() AS version, DATABASE() AS schema_name",
 ]);
+
+const ALLOWED = new Set([...ALLOWED_SQL].map(normalized));
 
 const text = (args: Record<string, unknown>, name: string): string => {
     const value = args[name];
@@ -116,10 +132,17 @@ export const answerDbCall = async (
             `the extension does not serve ${params.tool}`, true);
     }
     // Checked before anything is opened for it.
-    if (params.tool === "db.execute_sql"
-        && !ALLOWED_SQL.has(text(params.arguments, "sql"))) {
-        throw new DbCallError(
-            "the extension runs only the server's own statements", true);
+    if (params.tool === "db.execute_sql") {
+        const sql = text(params.arguments, "sql");
+        if (!ALLOWED.has(normalized(sql))) {
+            // Refused for good, so the server will not say it again: a
+            // server newer than ALLOWED_SQL shows here, or nowhere.
+            host.log("Refused SQL the language server asked to run, which "
+                + "is not in ALLOWED_SQL (src/lsp/dbCall.ts; a mariadb-lsp "
+                + `newer than this extension?): ${sql}`);
+            throw new DbCallError(
+                "the extension runs only the server's own statements", true);
+        }
     }
     // Only a configured connection is opened: the URI came out of a file's
     // header, and the server would retry one that is not there yet - it

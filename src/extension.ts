@@ -571,6 +571,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
         onDidRunScript: (listener) => {
             return editors.onDidRunScript(listener);
         },
+        sessionOf: (connection) => {
+            return sqlModes.sessionOf(connection);
+        },
+        onDidChangeSession: (listener) => {
+            return sqlModes.onDidChangeSession(listener);
+        },
         // The server's catalog reads, made on this extension's MCP server
         // and the tree's session on the URI, as the Connections view reads
         // it: an editor's would make completion wait for whatever the
@@ -587,6 +593,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 api: async () => {
                     return await connections.api();
                 },
+                log,
             }, params);
         },
     });
@@ -1470,9 +1477,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         + "be formatted. See the MariaDB output for why.");
                     break;
                 case "unchanged":
-                    void vscode.window.setStatusBarMessage("MariaDB: nothing "
-                        + "to format (only SELECT and WITH statements that "
-                        + "parse are laid out).", 4000);
+                    // Says what happened, not why: a request that failed
+                    // is reported by the client itself, in its output.
+                    void vscode.window.setStatusBarMessage("MariaDB: "
+                        + "formatting changed nothing. Only SELECT and WITH "
+                        + "statements that parse are laid out.", 4000);
                     break;
                 default:
                     break;

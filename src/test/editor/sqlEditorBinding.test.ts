@@ -23,6 +23,7 @@ import type { IStatementResult } from "../../mcp/types.js";
 import {
     buildConnectionHeader,
     readConnectionHeader,
+    SCHEMA_QUERY,
     SqlEditorBinding,
 } from "../../editor/sqlEditorBinding.js";
 import type { IViewState } from "../../webview/protocol.js";
@@ -84,7 +85,12 @@ const createEditor = (text: string, languageId = "sql") => {
  */
 const createBinding = (
     defaultConnection?: string,
-    server: { sqlMode?: string; defaultResults?: IStatementResult[] } = {},
+    server: {
+        sqlMode?: string;
+        defaultResults?: IStatementResult[];
+        /** The schema `SELECT DATABASE()` answers. */
+        schema?: string | null;
+    } = {},
 ) => {
     const api = createFakeApi({
         connections: ["dba@localhost:3310", "app@localhost:3311"],
@@ -93,6 +99,16 @@ const createBinding = (
             "app@localhost:3311": "uuid-app",
         },
         sqlMode: server.sqlMode,
+        ...(server.schema === undefined ? {} : {
+            sqlResults: {
+                [SCHEMA_QUERY]: {
+                    result_sets: [{
+                        columns: ["DATABASE()"],
+                        rows: [{ "DATABASE()": server.schema }],
+                    }],
+                },
+            },
+        }),
         defaultResults: server.defaultResults ?? [{
             affected_items_count: 0,
             warnings_count: 0,
@@ -341,6 +357,24 @@ describe("SqlEditorBinding", () => {
             expect(binding.ansiQuotesFor(editor.document as never)).toBe(true);
             await binding.run(editor as never);
             expect(api.scriptOptions?.ansiQuotes).toBe(true);
+            binding.dispose();
+        });
+
+    it("reads the schema in use after a run with a USE, for the server",
+        async () => {
+            const { api, binding, sqlModes } = createBinding(
+                "dba@localhost:3310", { schema: "shop" });
+
+            await binding.run(createEditor("SELECT 1;") as never);
+            expect(api.statements.map((s) => { return s.sql; }))
+                .not.toContain(SCHEMA_QUERY);
+            expect(sqlModes.sessionOf("dba@localhost:3310")).toEqual({});
+
+            await binding.run(createEditor("use shop;") as never);
+            expect(api.statements.map((s) => { return s.sql; }))
+                .toContain(SCHEMA_QUERY);
+            expect(sqlModes.sessionOf("dba@localhost:3310").schema)
+                .toBe("shop");
             binding.dispose();
         });
 

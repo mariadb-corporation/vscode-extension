@@ -15,7 +15,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | --- | --- |
 | `locator.ts` | Finds the binary: `mariadb.lsp.path` alone when set, else `mariadb-lsp` on the PATH, else `~/.local/bin/mariadb-lsp` (`.exe` on Windows, under the home directory there too). Each candidate is probed with `--version`, which has to print `mariadb-lsp <x.y.z>` at least `MINIMUM_LSP_VERSION` (26.9.4, the first with `--version`). Shares `ShellEnvironment` and the version helpers with the shell lookup. |
 | `languageServer.ts` | `LanguageServer`, the controller: states `stopped` / `starting` / `running` / `unavailable`, the restart on settings changes, the `mariadb/documentContext` notifications. Talks to the client through `ILanguageClientHandle`, so it is tested with a fake. |
-| `dbCall.ts` | `answerDbCall`: the server's `mariadb/dbCall` requests (`{connection, tool, arguments}`) made as typed `db.*` calls on the MCP server, on the tree's session (`UI_BACKEND_SESSION`) on that URI, opened if need be. Only `db.list_schemas`, `db.list_objects`, `db.get_object_details` and `db.execute_sql`, the last only for the statements in `ALLOWED_SQL` (character for character; see PROJECT_CONTEXT.md, "Kept in sync with lsp-server"); anything else, and a bad argument, is refused for good (`DbCallError.permanent`), before anything is opened. A URI that is not a configured connection is refused but may be asked again: it may be added later. |
+| `dbCall.ts` | `answerDbCall`: the server's `mariadb/dbCall` requests (`{connection, tool, arguments}`) made as typed `db.*` calls on the MCP server, on the tree's session (`UI_BACKEND_SESSION`) on that URI, opened if need be. Only `db.list_schemas`, `db.list_objects`, `db.get_object_details` and `db.execute_sql`, the last only for the statements in `ALLOWED_SQL` (compared with runs of blanks as one space and no `;` at the end; see PROJECT_CONTEXT.md, "Kept in sync with lsp-server"); anything else, and a bad argument, is refused for good (`DbCallError.permanent`), before anything is opened. A refused statement is logged in the MariaDB channel, the one place a server newer than the list shows. A URI that is not a configured connection is refused but may be asked again: it may be added later. |
 | `settings.ts` | `serverSettings`: the `mariadb.lsp.*` settings under the server's option names (`progressThresholdMB` becomes bytes; values the server would refuse are left out), and which settings restart the server and which are sent to it. |
 | `parseProgress.ts` | `ParseProgressStatus`: the status bar entry for `mariadb/parseProgress`. |
 | `nodeClient.ts` | The only file importing `vscode-languageclient/node`: the `LanguageClient` (id `mariadb.lsp`, output channel **MariaDB SQL Language Server**), the document selector (`mariadb-sql` and `sql`, `file` and `untitled`), and the middleware. `extension.test.ts` mocks this module, since the library needs the real `vscode`. The server process is spawned here (server options as a function) rather than by the library, which keeps its process private and, after a failed start, neither stops nor kills it: the handle kills it after a failed start and after `stop()`. All clients share one output channel; the library's own is not disposed on `stop()`, so every restart left another behind. |
@@ -49,8 +49,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   `editor.action.formatDocument`: one formatting path for the button,
   the commands and format-on-save. Another SQL formatter set as
   `editor.defaultFormatter` takes the button too, for `sql` files above
-  all. A warning when no server runs, a status bar note when nothing
-  changed.
+  all. A warning when no server runs; nothing done when another editor
+  became active while the server started (`"skipped"`); a status bar note
+  when the document did not change, which says only that: a request that
+  failed is reported by the language client, in its output channel.
   UI tests: Format Document, the button with and without a selection.
 - **Outline**: the server's `textDocument/documentSymbol` (schema >
   tables with columns and keys, views, routines, ...) reaches VS Code's
@@ -94,7 +96,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   the Connections view reads it: on an editor's session completion would
   wait for whatever the editor runs. A file bound to a connection opens
   it when the server first reads its catalog. Collapsing the connection
-  in the tree does not close that session; Disconnect closes every one. A reading lists names only; the details of a
+  in the tree does not close that session; Disconnect closes every one,
+  and one still being opened is closed as it arrives
+  (`ConnectionManager`'s abandoned opens). That session does not follow
+  a `SET sql_mode` or `USE` run in an editor, so the editors' session's
+  state goes with each document's context (below). A reading lists names only; the details of a
   table, view or routine are one `db.get_object_details` call each, made
   when a completion, hover or signature help first needs them. A failed call is a JSON-RPC error with
   `data.permanent`; the server retries the others with its back-off, and
@@ -137,9 +143,16 @@ an agent through the MCP server, are seen only after that button or with
 The UI test's completion of the sandbox's tables depends on this: the
 schema is created after the first SQL editor opened.
 
-The `sqlMode` of the message is not sent: `SqlModes` knows only whether
-ANSI_QUOTES is on, and the server reads the full mode from the
-connection.
+**The editors' session.** `SqlModes` also keeps what the editors' session
+on a connection reported (`sessionOf`, `onDidChangeSession`): the full
+`sql_mode` every run reports, and after a run whose script has `USE`,
+`SELECT DATABASE()` read on that session (`SqlEditorBinding`). The
+controller sends them as `sqlMode` and `currentSchema` with the document's
+context, and again when they change. Each message is whole: until a run
+reported something, or once the connection closed, they are left out and
+the server takes the connection's own, which a new session shares. Kept
+per connection, like the ANSI_QUOTES state: two editor sessions on one
+connection share the last report.
 
 ## Progress of a large file's check
 

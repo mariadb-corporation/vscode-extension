@@ -28,11 +28,17 @@ import { createFakeApi, type FakeApi } from "../helpers.js";
 /** A host with one configured connection, open on demand. */
 const host = (api: FakeApi, connections = ["dba@localhost:3310"]): IDbCallHost & {
     opened: string[];
+    lines: string[];
 } => {
     const opened: string[] = [];
+    const lines: string[] = [];
 
     return {
         opened,
+        lines,
+        log: (line) => {
+            lines.push(line);
+        },
         listConnections: () => {
             return Promise.resolve(connections);
         },
@@ -117,11 +123,20 @@ describe("answerDbCall", () => {
         })).rejects.toMatchObject({ permanent: true });
     });
 
-    it("runs no SQL but the server's own, and opens nothing for it",
+    it("runs the server's own SQL however it is laid out", async () => {
+        const h = host(createFakeApi());
+        const sql = [...ALLOWED_SQL][0].replace(/ /gu, "\n    ");
+        await expect(answerDbCall(h, {
+            connection: "dba@localhost:3310", tool: "db.execute_sql",
+            arguments: { sql: ` ${sql};\n` },
+        })).resolves.toMatchObject({ result_sets: [expect.anything()] });
+    });
+
+    it("runs no SQL but the server's own, opens nothing for it, and says so",
         async () => {
             const h = host(createFakeApi());
             for (const sql of ["DROP DATABASE store", "SELECT @@sql_mode",
-                ` ${[...ALLOWED_SQL][0]}`]) {
+                `${[...ALLOWED_SQL][0]}, USER()`]) {
                 await expect(answerDbCall(h, {
                     connection: "dba@localhost:3310", tool: "db.execute_sql",
                     arguments: { sql },
@@ -132,5 +147,8 @@ describe("answerDbCall", () => {
                 });
             }
             expect(h.opened).toEqual([]);
+            expect(h.lines).toHaveLength(3);
+            expect(h.lines[0]).toContain("not in ALLOWED_SQL");
+            expect(h.lines[0]).toContain("DROP DATABASE store");
         });
 });

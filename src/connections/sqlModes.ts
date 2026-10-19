@@ -24,6 +24,11 @@
  * about, and after that taken from what every script run reports - the
  * session's mode once the script is over - so a script that changed it is
  * followed without a query of its own.
+ *
+ * It also keeps what the editors' session reported, for the language
+ * server: the full `sql_mode` after a run, and the schema after a run that
+ * had a `USE`. The server reads its catalogs on a session of its own,
+ * which neither follows.
  */
 
 import { firstCell } from "../mcp/types.js";
@@ -51,6 +56,14 @@ export const hasAnsiQuotes = (sqlMode: string): boolean => {
 /** Called when what is known about a connection changed. */
 export type SqlModeChangeListener = (uri: string) => void;
 
+/** What the editors' session on a connection reported of itself. */
+export interface ISessionState {
+    /** Its `sql_mode` after the last run, as the server spelled it. */
+    sqlMode?: string;
+    /** Its default schema after the last run with a `USE`; null for none. */
+    schema?: string | null;
+}
+
 /** Whether each open connection reads `"..."` as an identifier. */
 export class SqlModes {
     /**
@@ -61,6 +74,9 @@ export class SqlModes {
      */
     readonly #modes = new Map<string, boolean | Promise<boolean>>();
     readonly #listeners = new Set<SqlModeChangeListener>();
+    /** Connection URI -> what its editors' session reported. */
+    readonly #sessions = new Map<string, ISessionState>();
+    readonly #sessionListeners = new Set<SqlModeChangeListener>();
     readonly #unsubscribe: () => void;
 
     /**
@@ -78,6 +94,12 @@ export class SqlModes {
             for (const uri of this.#modes.keys()) {
                 if (!connections.isConnected(uri)) {
                     this.#modes.delete(uri);
+                }
+            }
+            for (const uri of this.#sessions.keys()) {
+                if (!connections.isConnected(uri)) {
+                    this.#sessions.delete(uri);
+                    this.#sessionChanged(uri);
                 }
             }
         });
@@ -145,11 +167,74 @@ export class SqlModes {
      */
     public record(uri: string, sqlMode: string): void {
         this.#set(uri, hasAnsiQuotes(sqlMode));
+        this.#setSession(uri, { sqlMode });
+    }
+
+    /**
+     * Takes the editors' session's schema, as read after a run with a
+     * `USE`.
+     *
+     * @param uri The connection.
+     * @param schema `DATABASE()`: null when no schema is in use.
+     *
+     * @returns Nothing.
+     */
+    public recordSchema(uri: string, schema: string | null): void {
+        this.#setSession(uri, { schema });
+    }
+
+    /**
+     * @param uri The connection.
+     *
+     * @returns What its editors' session reported; nothing until a run did.
+     */
+    public sessionOf(uri: string): ISessionState {
+        return this.#sessions.get(uri) ?? {};
+    }
+
+    /**
+     * Listens for what an editors' session reported changing.
+     *
+     * @param listener Called with the connection's URI.
+     *
+     * @returns A function that stops listening.
+     */
+    public onDidChangeSession(listener: SqlModeChangeListener): () => void {
+        this.#sessionListeners.add(listener);
+
+        return () => {
+            this.#sessionListeners.delete(listener);
+        };
     }
 
     public dispose(): void {
         this.#unsubscribe();
         this.#listeners.clear();
+        this.#sessionListeners.clear();
+    }
+
+    /**
+     * Merges a report into a session's state, and says so when it is news.
+     *
+     * @param uri The connection.
+     * @param report What was reported.
+     *
+     * @returns Nothing.
+     */
+    #setSession(uri: string, report: ISessionState): void {
+        const before = this.#sessions.get(uri) ?? {};
+        const after = { ...before, ...report };
+        if (after.sqlMode === before.sqlMode && after.schema === before.schema) {
+            return;
+        }
+        this.#sessions.set(uri, after);
+        this.#sessionChanged(uri);
+    }
+
+    #sessionChanged(uri: string): void {
+        for (const listener of this.#sessionListeners) {
+            listener(uri);
+        }
     }
 
     /**
