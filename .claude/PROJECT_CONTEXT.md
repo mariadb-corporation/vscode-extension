@@ -129,7 +129,12 @@ change belongs to up to date, and this table with it.
   schema_name`). A statement added or changed there has to be added here,
   in a release no later than the server's, or its catalog readings fail;
   only read-only SELECTs belong on the list. lsp-server's
-  `.claude/PROJECT_CONTEXT.md` carries the same note.
+  `.claude/PROJECT_CONTEXT.md` carries the same note, and its
+  `tests/e2e/test_allowed_sql.py` fails when a statement the server sends
+  is not on the list: it reads this file from `$VSCODE_EXTENSION_DIR`,
+  else `../vscode-extension`, else GitHub at `$VSCODE_EXTENSION_REF`
+  (default `main`). Nothing on this side checks it, so a change to the
+  list is best tried against that test.
 
 ## Origin, and re-syncing from mariadb-shell-plugins
 
