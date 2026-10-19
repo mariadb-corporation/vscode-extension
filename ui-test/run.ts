@@ -40,7 +40,8 @@ import { delimiter, join, resolve } from "node:path";
  * the `mariadb-shell-plugins` folder next to this repository.
  *
  * The tests are split into suites by area - `core` (startup, connections,
- * SQL and results, the sandbox lifecycle), `mrs` and `dump-load` - so a
+ * SQL and results, the sandbox lifecycle), `mrs`, `dump-load`, `restd`
+ * and `lsp` - so a
  * change to one area is tested without running the rest. Each suite runs
  * in a VS Code of its own with a sandbox of its own: `01-sandbox` deploys
  * it and creates the `uitest` schema every suite works on, and
@@ -52,9 +53,10 @@ import { delimiter, join, resolve } from "node:path";
  * suite puts a wrapper there that starts the given shell with a
  * configuration home of its own: its connections, its sandboxes (in a
  * directory of the suite's), its secrets (the plaintext credential
- * helper of a development build, in that home) and this repository's
- * plugins, never the user's. `mariadbd` has to be on the PATH for the
- * sandboxes. Everything a suite made is removed when it ends, also when
+ * helper of a development build, in that home) and the plugins above,
+ * never the user's. `mariadbd` has to be on the PATH for the
+ * sandboxes, and `mariadb-lsp` for the language server (or named with
+ * `MARIADB_LSP`). Everything a suite made is removed when it ends, also when
  * its tests fail.
  *
  * Arguments that name no suite are passed to `extest setup-and-run`;
@@ -105,6 +107,7 @@ const SUITES: Record<string, string[]> = {
     mrs: [SETUP, "02-mrs", CLEANUP],
     "dump-load": [SETUP, "06-dump-load", CLEANUP],
     restd: [SETUP, "07-restd", CLEANUP],
+    lsp: [SETUP, "08-lsp", CLEANUP],
 };
 
 /** The signals that end the run, with the exit code each ends it with. */
@@ -249,6 +252,11 @@ const runFiles = async (
     writeFileSync(wrapper, "#!/bin/sh\n"
         + `MARIADB_SHELL_USER_CONFIG_HOME='${home}' exec '${shell}' "$@"\n`);
     chmodSync(wrapper, 0o755);
+    // The language server: MARIADB_LSP if given, else whatever the PATH has.
+    const lsp = process.env.MARIADB_LSP;
+    if (lsp !== undefined && lsp !== "") {
+        symlinkSync(resolve(lsp), join(bin, "mariadb-lsp"));
+    }
 
     const storage = join(root, ".vscode-test", "extest");
     // A run started from inside VS Code - its terminal, or an agent in its

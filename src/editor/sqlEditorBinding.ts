@@ -28,6 +28,7 @@ import {
     STOP_ON_ERROR_CONTEXT_KEY,
 } from "../connections/settings.js";
 import { reportError } from "../errorMessages.js";
+import { firstCell } from "../mcp/types.js";
 import {
     captionFor,
     describeStatements,
@@ -38,6 +39,7 @@ import {
 import { quoteIdentifier } from "../sql/queryBuilder.js";
 import { splitStatements } from "../sql/splitStatements.js";
 import { statementAtOffset } from "../sql/statementAtOffset.js";
+import { errorText } from "../text.js";
 import type { SqlModes } from "../connections/sqlModes.js";
 import { AnsiQuotesHighlighter } from "./ansiQuotes.js";
 import { isSqlDocument, MARIADB_SQL_LANGUAGE_ID } from "./sqlLanguage.js";
@@ -64,6 +66,16 @@ export const CONNECTION_HEADER_PREFIX = "-- MariaDB connection:";
 
 /** How far into a file the connection header is looked for. */
 const HEADER_SEARCH_LINES = 5;
+
+/**
+ * Whether a script may have changed its session's schema: a `USE`, or
+ * dropping a schema, which may be the one in use. A plain word match: one
+ * read too many is cheap.
+ */
+const CHANGES_SCHEMA = /\bUSE\b|\bDROP\s+(DATABASE|SCHEMA)\b/i;
+
+/** What the session is asked for its schema after such a script. */
+export const SCHEMA_QUERY = "SELECT DATABASE()";
 
 /**
  * Builds the header line recording a file's connection.
@@ -136,6 +148,11 @@ export class SqlEditorBinding implements vscode.Disposable {
     readonly #statusItem: vscode.StatusBarItem;
     /** Colours `"..."` as an identifier where ANSI_QUOTES is on. */
     readonly #ansiQuotes: AnsiQuotesHighlighter;
+    /** Told when a document is bound to another connection. */
+    readonly #bindListeners = new Set<() => void>();
+    /** Told when a script has run, whether it succeeded or not. */
+    readonly #runListeners =
+        new Set<(uri: string, script: string) => void>();
     readonly #disposables: vscode.Disposable[] = [];
 
     /**
@@ -272,6 +289,42 @@ export class SqlEditorBinding implements vscode.Disposable {
         this.updateStatusBar();
         // Another connection may have another sql_mode.
         this.#ansiQuotes.refresh();
+        for (const listener of this.#bindListeners) {
+            listener();
+        }
+    }
+
+    /**
+     * Listens for scripts that have run, failed ones too: a script that
+     * failed part way may still have changed the schema.
+     *
+     * @param listener Called with the connection and the script.
+     *
+     * @returns A function that stops listening.
+     */
+    public onDidRunScript(
+        listener: (uri: string, script: string) => void,
+    ): () => void {
+        this.#runListeners.add(listener);
+
+        return () => {
+            this.#runListeners.delete(listener);
+        };
+    }
+
+    /**
+     * Listens for a document bound to a connection by hand.
+     *
+     * @param listener Called after each.
+     *
+     * @returns A function that stops listening.
+     */
+    public onDidBindConnection(listener: () => void): () => void {
+        this.#bindListeners.add(listener);
+
+        return () => {
+            this.#bindListeners.delete(listener);
+        };
     }
 
     /**
@@ -557,8 +610,9 @@ export class SqlEditorBinding implements vscode.Disposable {
         });
         await this.resultView.startRun(uri, run, into);
 
+        let connectionId: string | undefined;
         try {
-            const connectionId = await this.connections.connect(uri);
+            connectionId = await this.connections.connect(uri);
             // Read on the first run, known from the last one after that.
             const known = await this.sqlModes.ansiQuotes(uri);
             if (known !== ansiQuotes) {
@@ -619,6 +673,36 @@ export class SqlEditorBinding implements vscode.Disposable {
                 }],
                 resultSets: [],
             });
+        } finally {
+            // Also after a run that failed part way, past its USE.
+            if (connectionId !== undefined && CHANGES_SCHEMA.test(script)) {
+                await this.#readSchema(uri, connectionId);
+            }
+            for (const listener of this.#runListeners) {
+                listener(uri, script);
+            }
+        }
+    }
+
+    /**
+     * Reads the schema a session is in, for the language server, which
+     * reads its catalogs on a session of its own.
+     *
+     * @param uri The connection.
+     * @param connectionId The session the script ran on.
+     *
+     * @returns Nothing; a read that fails is logged.
+     */
+    async #readSchema(uri: string, connectionId: string): Promise<void> {
+        try {
+            const api = await this.connections.api();
+            const value = firstCell(
+                await api.executeSql(connectionId, SCHEMA_QUERY));
+            this.sqlModes.recordSchema(uri,
+                typeof value === "string" ? value : null);
+        } catch (error) {
+            this.log(`Could not read the schema in use on ${uri}: `
+                + `${errorText(error)}`);
         }
     }
 

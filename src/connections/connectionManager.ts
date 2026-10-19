@@ -91,8 +91,32 @@ export type ConnectionChangeListener = () => void;
  * which it is. The UUIDs the MCP server hands out live only here, for as
  * long as the connections are open.
  */
+/** The key of an open under way: the URI and the label. */
+const openKey = (uri: string, label: string): string => {
+    return `${uri}\n${label}`;
+};
+
+/** An open under way, which callers asking meanwhile share. */
+interface IPendingOpen {
+    uri: string;
+    label: string;
+    opening: Promise<string>;
+    /**
+     * Set by a disconnect that came first: what it opens is closed again
+     * rather than kept, and it is no longer shared.
+     */
+    abandoned: boolean;
+}
+
 export class ConnectionManager {
     readonly #open: IOpenConnection[] = [];
+    /** URI and label -> the open under way for them. */
+    readonly #connecting = new Map<string, IPendingOpen>();
+    /**
+     * The URIs disconnected as a whole and not opened since; see
+     * {@link wasDisconnected}.
+     */
+    readonly #disconnected = new Set<string>();
     readonly #listeners = new Set<ConnectionChangeListener>();
     /** The API last handed out, with the one built over it. */
     #logged?: { plain: IMariaDbApi; logging: IMariaDbApi };
@@ -352,16 +376,70 @@ export class ConnectionManager {
      * @returns The UUID identifying the open connection.
      */
     public async connect(uri: string, name?: string): Promise<string> {
+        this.#disconnected.delete(uri);
         const label = this.labelFor(uri, name);
         const existing = this.#find(uri, label);
         if (existing !== undefined) {
             return existing.connectionId;
         }
+        // Callers that ask at once - the language server's catalog reads,
+        // a run - share one open rather than each opening a session.
+        const key = openKey(uri, label);
+        const pending = this.#connecting.get(key);
+        if (pending !== undefined) {
+            return await pending.opening;
+        }
+        const attempt: IPendingOpen = {
+            uri, label, opening: Promise.resolve(""), abandoned: false,
+        };
+        attempt.opening = this.#openNew(attempt);
+        this.#connecting.set(key, attempt);
+        try {
+            return await attempt.opening;
+        } finally {
+            // A disconnect may have let a newer open take the key.
+            if (this.#connecting.get(key) === attempt) {
+                this.#connecting.delete(key);
+            }
+        }
+    }
 
+    /**
+     * Whether a connection was disconnected as a whole - in the tree, or
+     * before its sandbox stopped - and nothing opened it since. What opens
+     * connections on its own account, the language server's catalog reads,
+     * leaves those alone rather than undo the disconnect.
+     *
+     * @param uri The connection.
+     *
+     * @returns True until the next connect on it.
+     */
+    public wasDisconnected(uri: string): boolean {
+        return this.#disconnected.has(uri);
+    }
+
+    /**
+     * Opens a connection that is not open yet.
+     *
+     * @param attempt The open, whose URI and label say what to open.
+     *
+     * @returns The UUID identifying the open connection.
+     */
+    async #openNew(attempt: IPendingOpen): Promise<string> {
+        const { uri, label } = attempt;
         const api = await this.apiProvider();
         const when = new Date();
         const startedMs = Date.now();
         const connectionId = await api.connect(uri);
+        if (attempt.abandoned) {
+            try {
+                await api.close(connectionId);
+            } catch {
+                // Closed or not, it is not kept.
+            }
+            throw new Error(
+                `Disconnected from ${uri} while it was being opened.`);
+        }
         this.#open.push({ uri, label, connectionId });
         this.report?.({
             connection: uri,
@@ -386,6 +464,18 @@ export class ConnectionManager {
      * @returns Nothing.
      */
     public async disconnect(uri: string, name?: string): Promise<void> {
+        if (name === undefined) {
+            this.#disconnected.add(uri);
+        }
+        // An open still under way would add what it opens after this; a
+        // connect from now on starts one of its own.
+        for (const [key, attempt] of this.#connecting) {
+            if (attempt.uri === uri
+                && (name === undefined || attempt.label === name)) {
+                attempt.abandoned = true;
+                this.#connecting.delete(key);
+            }
+        }
         const closing = name === undefined
             ? this.sessionsOf(uri)
             : this.#open.filter((open) => {
@@ -425,7 +515,11 @@ export class ConnectionManager {
      * @returns Nothing.
      */
     public async disconnectAll(): Promise<void> {
-        const uris = this.openConnections;
+        // With the ones only being opened, which would otherwise be kept.
+        const uris = [...new Set([...this.openConnections,
+            ...[...this.#connecting.values()].map((attempt) => {
+                return attempt.uri;
+            })])];
         await Promise.all(uris.map(async (uri) => {
             try {
                 await this.disconnect(uri);

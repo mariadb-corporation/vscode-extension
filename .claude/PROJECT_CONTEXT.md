@@ -15,6 +15,7 @@ extension grows.
 | --- | --- |
 | `src/extension.ts` | Activation entry point. Wires everything together and registers the commands. |
 | `src/shell/` | Finding, installing and launching the MariaDB Shell; `shellResolver.ts`, the one lookup both servers share. |
+| `src/lsp/` | The MariaDB SQL language server, `mariadb-lsp`: finding it, the language client, telling it each document's connection, answering its `db.*` calls (see [`context/language-server.md`](context/language-server.md)). |
 | `src/copilot/` | The MCP server definition provider that gives Copilot the shell's MCP server (see [`context/copilot.md`](context/copilot.md)). |
 | `skills/` | The MariaDB agent skills contributed to Copilot - a gitignored cache of the ai-plugins release `aiPlugins.release` in `package.json` pins, filled by `tools/syncAiSkills.mts`. |
 | `src/mcp/` | The MCP client: the one-at-a-time server startup, session lifecycle, wire decoding, typed `db.*` and `sandbox.*` APIs. |
@@ -51,6 +52,7 @@ change belongs to up to date, and this table with it.
 | File | What is in it |
 | --- | --- |
 | [`context/toolchain.md`](context/toolchain.md) | The two Vite builds and two Vitest projects, the npm scripts, the pinned Node and the lockfile churn, packaging, releasing with `/release` (GitHub and the Marketplace), the Marketplace icon, CI. |
+| [`context/language-server.md`](context/language-server.md) | `mariadb-lsp`: the lookup (setting, PATH, the MariaDB Shell's installation), the lazy start and restarts, `mariadb/documentContext`, catalogs read through this extension's MCP server (`--mcp`, `mariadb/dbCall`, details on demand), settings and the progress entry, why the server's semantic tokens are switched off, what P6 still lacks. |
 | [`context/copilot.md`](context/copilot.md) | GitHub Copilot: the skills (`chatSkills`, the pinned ai-plugins release and the uncommitted cache) and the MCP server definition provider, agent mode without `--gui`, the shared shell lookup, the setting. |
 | [`context/shell-and-mcp.md`](context/shell-and-mcp.md) | `src/shell/` and `src/mcp/` file by file, the lazy startup and shell lookup, GUI mode (`--gui`) and the two connection lists, the MCP wire format. |
 | [`context/connection-editor.md`](context/connection-editor.md) | The connection editor: its files and tabs, what it deliberately leaves out, the URI box and its rules, its own vite build. |
@@ -113,6 +115,26 @@ change belongs to up to date, and this table with it.
   ANSI_QUOTES identifiers are semantic tokens, so a theme with semantic
   highlighting off shows them as strings and they appear a moment after
   the grammar's colours. See [`context/sql-grammar.md`](context/sql-grammar.md).
+
+## Kept in sync with lsp-server
+
+- **The SQL the language server may run.** `ALLOWED_SQL` in
+  `src/lsp/dbCall.ts` lists the statements the extension runs for the
+  server's `db.execute_sql` calls, compared with runs of blanks as one
+  space and no `;` at the end (a new layout is fine, any other change is
+  not); anything else is refused, and logged in the MariaDB channel, so
+  the server cannot run arbitrary SQL on the user's credentials. It mirrors `k_server_sql` in lsp-server's
+  `libs/mariadblanguageserver/src/mcp_catalog.cc` (today the one
+  `SELECT @@sql_mode AS sql_mode, VERSION() AS version, DATABASE() AS
+  schema_name`). A statement added or changed there has to be added here,
+  in a release no later than the server's, or its catalog readings fail;
+  only read-only SELECTs belong on the list. lsp-server's
+  `.claude/PROJECT_CONTEXT.md` carries the same note, and its
+  `tests/e2e/test_allowed_sql.py` fails when a statement the server sends
+  is not on the list: it reads this file from `$VSCODE_EXTENSION_DIR`,
+  else `../vscode-extension`, else GitHub at `$VSCODE_EXTENSION_REF`
+  (default `main`). Nothing on this side checks it, so a change to the
+  list is best tried against that test.
 
 ## Origin, and re-syncing from mariadb-shell-plugins
 

@@ -132,6 +132,16 @@ vi.mock("../shell/nodeRuntime.js", async () => {
     };
 });
 
+// vscode-languageclient needs the real `vscode` module; no SQL file is
+// open in these tests, so the client is never built anyway.
+vi.mock("../lsp/nodeClient.js", () => {
+    return {
+        createNodeLanguageClient: () => {
+            throw new Error("No language client in these tests.");
+        },
+    };
+});
+
 vi.mock("../mcp/sdkConnector.js", async () => {
     const helpers = await import("./helpers.js");
 
@@ -331,8 +341,10 @@ describe("activate", () => {
             "mariadb.dumpTables",
             "mariadb.editConnection",
             "mariadb.exportTable",
+            "mariadb.formatSql",
             "mariadb.importTable",
             "mariadb.loadDump",
+            "mariadb.lsp.restart",
             "mariadb.newFolder",
             "mariadb.newFolderWithSelection",
             "mariadb.newSqlEditor",

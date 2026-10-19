@@ -52,7 +52,8 @@ interface IRecorded {
     monitor?: TaskMonitor;
     connected: string[];
     started: Array<{ name: string; args: unknown[] }>;
-    refreshed: number;
+    /** The connections refresh was called for, in order. */
+    refreshed: string[];
     logs: string[];
     /** The tasks that did not start: connection, title, call, error. */
     failedStarts: string[][];
@@ -72,7 +73,7 @@ const done = (taskId: string): IUtilTaskState => {
 /** Commands over a fake API whose every task completes at once. */
 const setUp = (failStart?: string): IRecorded => {
     const recorded: IRecorded = {
-        connected: [], started: [], refreshed: 0, logs: [], failedStarts: [],
+        connected: [], started: [], refreshed: [], logs: [], failedStarts: [],
         shownActions: [],
     };
     const start = (name: string) => {
@@ -114,7 +115,7 @@ const setUp = (failStart?: string): IRecorded => {
         },
         utilApi: () => { return Promise.resolve(api); },
         monitor,
-        refresh: () => { recorded.refreshed += 1; },
+        refresh: (uri) => { recorded.refreshed.push(uri); },
         defaultFolder: () => { return "/home/me"; },
         // The real look at the disk has its own test below.
         checkDumpFolder: (folder) => {
@@ -195,7 +196,7 @@ describe("the dump and load commands", () => {
             args: [`id-of-${URI}`, ["shop", "crm"], "/d", { threads: 8 }] }]);
         expect(panel().disposed).toBe(true);
         // a dump changes nothing the tree shows
-        expect(recorded.refreshed).toBe(0);
+        expect(recorded.refreshed).toEqual([]);
     });
 
     it("reads the tree again after a load", async () => {
@@ -210,7 +211,7 @@ describe("the dump and load commands", () => {
 
         expect(recorded.started[0]).toEqual({ name: "loadDump",
             args: [`id-of-${URI}`, "/dump", { schema: "copy_of_shop" }] });
-        expect(recorded.refreshed).toBe(1);
+        expect(recorded.refreshed).toEqual([URI]);
     });
 
     it("resumes a load that stopped, without starting over", async () => {
@@ -265,6 +266,8 @@ describe("the dump and load commands", () => {
         expect(recorded.started[0]).toEqual({ name: "copyTables",
             args: [`id-of-${URI}`, "shop", ["orders", "items"],
                 "id-of-root@other:3306", {}] });
+        // what changed is the target's server, not the source's
+        expect(recorded.refreshed).toEqual(["root@other:3306"]);
     });
 
     it("exports a table under a quoted name, and imports into it", async () => {

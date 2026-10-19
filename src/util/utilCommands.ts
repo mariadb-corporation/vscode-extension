@@ -55,8 +55,13 @@ export interface IUtilCommandsHost {
     connectionUris(): Promise<string[]>;
     utilApi(): Promise<IUtilApi>;
     monitor: TaskMonitor;
-    /** Reads the Connections view again, after a load changed a server. */
-    refresh(): void;
+    /**
+     * Reads the Connections view again, after a load or a copy changed a
+     * server.
+     *
+     * @param uri The connection whose server changed.
+     */
+    refresh(uri: string): void;
     /** Where a new dump goes, unless the user picks another place. */
     defaultFolder(): string;
     /** Checks a dump folder; {@link dumpFolderProblem} where not given. */
@@ -362,7 +367,7 @@ export class UtilCommands {
                 resume,
                 onDone: (state) => {
                     if (state.status !== "failed") {
-                        this.host.refresh();
+                        this.host.refresh(resume.uri);
                     }
                 },
             });
@@ -428,8 +433,9 @@ export class UtilCommands {
                         ...(start.resume === undefined ? {}
                             : { resume: start.resume(options, paths) }),
                         onDone: (state) => {
+                            // A copy changes the server it goes to.
                             if (start.changes && state.status !== "failed") {
-                                this.host.refresh();
+                                this.host.refresh(target ?? start.uri);
                             }
                         },
                     });

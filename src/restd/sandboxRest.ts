@@ -106,7 +106,7 @@ export const setupDetail = (setup: IRestdSetup): string => {
  * Has this system trust the REST Daemons' HTTPS certificate, as a step.
  *
  * @param group The action it is a step of.
- * @param restdApi The REST API.
+ * @param restdApi The REST Daemon API.
  */
 export const trustCertificateStep = async (
     group: ActionGroup,

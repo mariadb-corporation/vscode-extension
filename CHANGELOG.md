@@ -8,6 +8,34 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Added
 
+- **SQL language server.** SQL files get diagnostics, completion, hover,
+  go to definition, references, rename, signature help, the outline and
+  folding from `mariadb-lsp`, the MariaDB SQL language server, which the
+  MariaDB Shell's installation carries (or found on the `PATH`, or at
+  `mariadb.lsp.path`). Completion knows
+  the tables and columns of the file's connection, read through the
+  extension's MCP server and read again after a script that changes them,
+  a load or a copy, or a refresh of the Connections view. Queries are laid
+  out by Format Document, Format Selection and a format button in the SQL
+  editor's toolbar. A large file shows how far its check has got
+  in the status bar. Settings `mariadb.lsp.enabled`, `.path`, `.threads`,
+  `.catalogFiles` (SQL files whose tables every file sees),
+  `.catalogRefreshSeconds`, `.keywordCase`, `.indentation`, `.lineWidth`,
+  `.sqlMode`, `.serverVersion`, `.debounceMs`, `.maxDiagnostics`,
+  `.progressThresholdMB` and `.trace.server`; command **MariaDB: Restart
+  SQL Language Server**.
+
+- **MSM `SOURCE` includes.** In a MariaDB Schema Management development
+  script, the files `SOURCE '<path>'[<start>:<end>];` includes are read
+  with it:
+  - Their objects show in the Outline, each naming its file and line.
+  - Go to definition, hover, references and rename reach into them.
+  - Each path is a link, and completion lists the folders and `.sql` files while a path is typed.
+  - Problems with a directive are marked: a missing file, a bad slice, a nested `SOURCE` that msm does not expand.
+  - A section file opened on its own takes the schema, `sql_mode` and delimiter of an open script that includes it.
+
+  Running such a script still sends the `SOURCE` lines as they are, until MariaDB Shell's `db.execute_sql_script` expands them.
+
 - **GitHub Copilot support.** The MariaDB agent skills of an
   [ai-plugins](https://github.com/mariadb-corporation/ai-plugins) release
   are contributed to Copilot (`contributes.chatSkills`), and the MariaDB

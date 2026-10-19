@@ -133,7 +133,10 @@ describe("A sandbox to test with", () => {
         await runCommand("View: Revert and Close Editor");
 
         await waitFor(async () => {
-            await runCommand("MariaDB: Refresh Connections");
+            // The view's own button: the command is hidden from the
+            // palette, where typing its title runs whatever matches.
+            await (await connections.getAction("Refresh Connections"))
+                ?.click();
 
             return (await childLabels(connections, CONNECTION))
                 .includes("uitest");

@@ -52,6 +52,9 @@ import {
 import { McpSession } from "./mcp/session.js";
 import type { IMariaDbApi } from "./mcp/types.js";
 import { registerCopilotMcpServer } from "./copilot/mcpServerProvider.js";
+import { answerDbCall, DbCallError } from "./lsp/dbCall.js";
+import { LanguageServer } from "./lsp/languageServer.js";
+import { createNodeLanguageClient } from "./lsp/nodeClient.js";
 import { ensureShell, type BootstrapResult } from "./shell/bootstrap.js";
 import { MINIMUM_SHELL_VERSION } from "./shell/constants.js";
 import { buildMcpServerCommand } from "./shell/mcpServer.js";
@@ -140,6 +143,7 @@ import { VALUE_SCHEME } from "./webview/valueDocuments.js";
 interface IExtensionState {
     session: McpSession;
     connections: ConnectionManager;
+    languageServer?: LanguageServer;
 }
 
 let state: IExtensionState | undefined;
@@ -278,8 +282,16 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
     // One lookup for both servers on the shell - this extension's and
     // Copilot's - so they never run the installer side by side.
-    const shell = new ShellResolver((onInstalling) => {
-        return locateOrInstallShell(log, onInstalling);
+    // Told once the language server exists, which then looks again for
+    // the mariadb-lsp an installed shell carries.
+    let shellInstalled = (): void => { /* set below */ };
+    const shell = new ShellResolver(async (onInstalling) => {
+        const result = await locateOrInstallShell(log, onInstalling);
+        if (result.installed) {
+            shellInstalled();
+        }
+
+        return result;
     });
     const session = new McpSession(createSdkConnector(), log);
     const starter = new ServerStarter((onPhase) => {
@@ -546,6 +558,65 @@ export const activate = (context: vscode.ExtensionContext): void => {
             return editors.ansiQuotesFor(document);
         },
     });
+    // Diagnostics, completion, hover and the rest for SQL files, from
+    // mariadb-lsp; started when the first SQL file is open.
+    const languageServer = new LanguageServer({
+        createClient: createNodeLanguageClient,
+        environment: createNodeShellEnvironment(log),
+        log,
+        connectionFor: (document) => {
+            return editors.connectionFor(document);
+        },
+        onDidChangeConnections: (listener) => {
+            const unbind = editors.onDidBindConnection(listener);
+            const unwatch = connections.onDidChange(listener);
+
+            return () => {
+                unbind();
+                unwatch();
+            };
+        },
+        onDidRunScript: (listener) => {
+            return editors.onDidRunScript(listener);
+        },
+        sessionOf: (connection) => {
+            return sqlModes.sessionOf(connection);
+        },
+        onDidChangeSession: (listener) => {
+            return sqlModes.onDidChangeSession(listener);
+        },
+        // The server's catalog reads, made on this extension's MCP server
+        // and the tree's session on the URI, as the Connections view reads
+        // it: an editor's would make completion wait for whatever the
+        // editor runs.
+        dbCall: async (params) => {
+            return await answerDbCall({
+                listConnections: async () => {
+                    return await connections.listConnections();
+                },
+                connect: async (uri) => {
+                    // Asked again with the server's back-off, so it reads
+                    // the catalog once something opens the connection.
+                    if (connections.wasDisconnected(uri)) {
+                        throw new DbCallError(`${uri} was disconnected`,
+                            false);
+                    }
+
+                    return await connections.connect(uri,
+                        UI_BACKEND_SESSION);
+                },
+                api: async () => {
+                    return await connections.api();
+                },
+                log,
+            }, params);
+        },
+    });
+    context.subscriptions.push(languageServer);
+    state.languageServer = languageServer;
+    shellInstalled = () => {
+        void languageServer.shellInstalled();
+    };
     // A connection whose sql_mode turned out to have ANSI_QUOTES, or
     // whose script changed it, may end its statements elsewhere.
     const stopFollowingSqlModes = sqlModes.onDidChange(() => {
@@ -693,7 +764,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
         },
         utilApi,
         monitor: taskMonitor,
-        refresh: () => { tree.refresh(); },
+        // What the task changed is new to completion too.
+        refresh: (uri) => {
+            tree.refresh();
+            languageServer.refreshCatalog(uri);
+        },
         defaultFolder: () => {
             return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
                 ?? os.homedir();
@@ -869,6 +944,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
             // everything else works from what was read last.
             connections.invalidateStoredConnections();
             tree.refresh();
+            // Where one looks when something is missing; completion may
+            // miss it too, after a change made outside the editors.
+            languageServer.refreshCatalog();
         }),
 
         vscode.commands.registerCommand(
@@ -1401,6 +1479,36 @@ export const activate = (context: vscode.ExtensionContext): void => {
         vscode.commands.registerCommand("mariadb.showMcpServerLog", () => {
             output.show(true);
         }),
+
+        // The toolbar's format button: the selection's statements when
+        // something is selected, else the whole file.
+        vscode.commands.registerCommand("mariadb.formatSql", async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                return;
+            }
+
+            switch (await languageServer.format(editor)) {
+                case "unavailable":
+                    void vscode.window.showWarningMessage("MariaDB: the SQL "
+                        + "language server is not running, so the file cannot "
+                        + "be formatted. See the MariaDB output for why.");
+                    break;
+                case "unchanged":
+                    // Says what happened, not why: a request that failed
+                    // is reported by the client itself, in its output.
+                    void vscode.window.setStatusBarMessage("MariaDB: "
+                        + "formatting changed nothing. Only SELECT and WITH "
+                        + "statements that parse are laid out.", 4000);
+                    break;
+                default:
+                    break;
+            }
+        }),
+
+        vscode.commands.registerCommand("mariadb.lsp.restart", async () => {
+            await languageServer.restart();
+        }),
     );
 
     // Nothing is started here: the server comes up the first time
@@ -1427,6 +1535,7 @@ export const deactivate = async (): Promise<void> => {
     SandboxEditorPanel.disposeCurrent();
     MrsDialogPanel.disposeAll();
 
+    await current.languageServer?.stop();
     await current.connections.disconnectAll();
     await current.session.stop();
 };

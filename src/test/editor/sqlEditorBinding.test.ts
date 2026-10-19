@@ -23,6 +23,7 @@ import type { IStatementResult } from "../../mcp/types.js";
 import {
     buildConnectionHeader,
     readConnectionHeader,
+    SCHEMA_QUERY,
     SqlEditorBinding,
 } from "../../editor/sqlEditorBinding.js";
 import type { IViewState } from "../../webview/protocol.js";
@@ -84,7 +85,12 @@ const createEditor = (text: string, languageId = "sql") => {
  */
 const createBinding = (
     defaultConnection?: string,
-    server: { sqlMode?: string; defaultResults?: IStatementResult[] } = {},
+    server: {
+        sqlMode?: string;
+        defaultResults?: IStatementResult[];
+        /** The schema `SELECT DATABASE()` answers. */
+        schema?: string | null;
+    } = {},
 ) => {
     const api = createFakeApi({
         connections: ["dba@localhost:3310", "app@localhost:3311"],
@@ -93,6 +99,16 @@ const createBinding = (
             "app@localhost:3311": "uuid-app",
         },
         sqlMode: server.sqlMode,
+        ...(server.schema === undefined ? {} : {
+            sqlResults: {
+                [SCHEMA_QUERY]: {
+                    result_sets: [{
+                        columns: ["DATABASE()"],
+                        rows: [{ "DATABASE()": server.schema }],
+                    }],
+                },
+            },
+        }),
         defaultResults: server.defaultResults ?? [{
             affected_items_count: 0,
             warnings_count: 0,
@@ -344,6 +360,30 @@ describe("SqlEditorBinding", () => {
             binding.dispose();
         });
 
+    it("reads the schema in use after a run with a USE, for the server",
+        async () => {
+            const { api, binding, sqlModes } = createBinding(
+                "dba@localhost:3310", { schema: "shop" });
+
+            await binding.run(createEditor("SELECT 1;") as never);
+            expect(api.statements.map((s) => { return s.sql; }))
+                .not.toContain(SCHEMA_QUERY);
+            expect(sqlModes.sessionOf("dba@localhost:3310")).toEqual({});
+
+            await binding.run(createEditor("use shop;") as never);
+            expect(api.statements.map((s) => { return s.sql; }))
+                .toContain(SCHEMA_QUERY);
+            expect(sqlModes.sessionOf("dba@localhost:3310").schema)
+                .toBe("shop");
+
+            // Dropping a schema may drop the one in use.
+            const reads = api.statements.length;
+            await binding.run(createEditor("DROP SCHEMA old;") as never);
+            expect(api.statements.slice(reads).map((s) => { return s.sql; }))
+                .toEqual([SCHEMA_QUERY]);
+            binding.dispose();
+        });
+
     it("runs the file and shows the results in the view", async () => {
         const { api, view, binding } = createBinding("dba@localhost:3310");
         const editor = createEditor("SELECT 1 AS a;");
@@ -487,6 +527,40 @@ describe("SqlEditorBinding", () => {
 
         binding.dispose();
     });
+
+    it("says when a document is pinned and when a script has run",
+        async () => {
+            const { api, binding } = createBinding("dba@localhost:3310");
+            const pinned: number[] = [];
+            const ran: Array<[string, string]> = [];
+            const stopPinned = binding.onDidBindConnection(() => {
+                pinned.push(1);
+            });
+            binding.onDidRunScript((uri, script) => {
+                ran.push([uri, script]);
+            });
+            const editor = createEditor("CREATE TABLE t (id INT);");
+            binding.bindConnection(editor.document as never,
+                "app@localhost:3311");
+            expect(pinned).toHaveLength(1);
+            stopPinned();
+            binding.bindConnection(editor.document as never,
+                "dba@localhost:3310");
+            expect(pinned).toHaveLength(1);
+
+            await binding.run(editor as never);
+            // A failed run too: it may have got part way.
+            api.connect = () => {
+                return Promise.reject(new Error("Access denied"));
+            };
+            await binding.run(editor as never);
+            expect(ran).toEqual([
+                ["dba@localhost:3310", "CREATE TABLE t (id INT);"],
+                ["dba@localhost:3310", "CREATE TABLE t (id INT);"],
+            ]);
+
+            binding.dispose();
+        });
 
     it("shows a failure to connect in the view", async () => {
         const { api, view, binding } = createBinding("dba@localhost:3310");

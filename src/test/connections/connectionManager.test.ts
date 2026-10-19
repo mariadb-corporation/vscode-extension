@@ -97,6 +97,116 @@ describe("ConnectionManager", () => {
         expect(manager.isConnected("dba@localhost:3310")).toBe(false);
     });
 
+    /** Holds the fake server's connect until `open()` lets it answer. */
+    const gateConnect = (api: ReturnType<typeof createManager>["api"]) => {
+        const connect = api.connect.bind(api);
+        let open = (): void => { /* set below */ };
+        const gate = new Promise<void>((resolve) => { open = resolve; });
+        let calls = 0;
+        api.connect = async (uri: string) => {
+            calls += 1;
+            await gate;
+
+            return await connect(uri);
+        };
+
+        return { open, calls: () => { return calls; } };
+    };
+
+    it("shares an open under way with whoever asks meanwhile", async () => {
+        const { api, manager } = createManager();
+        const gate = gateConnect(api);
+
+        const first = manager.connect("dba@localhost:3310");
+        const second = manager.connect("dba@localhost:3310");
+        gate.open();
+
+        expect(await first).toBe("uuid-dba");
+        expect(await second).toBe("uuid-dba");
+        expect(gate.calls()).toBe(1);
+        expect(manager.sessionsOf("dba@localhost:3310")).toHaveLength(1);
+    });
+
+    it("closes what an open under way brings when a disconnect came first",
+        async () => {
+            const { api, manager } = createManager();
+            const gate = gateConnect(api);
+
+            const opening = manager.connect("dba@localhost:3310",
+                UI_BACKEND_SESSION);
+            await manager.disconnect("dba@localhost:3310");
+            gate.open();
+
+            await expect(opening).rejects.toThrow(
+                "Disconnected from dba@localhost:3310 while it was being "
+                + "opened.");
+            expect(api.closed).toEqual(["uuid-dba"]);
+            expect(manager.isConnected("dba@localhost:3310")).toBe(false);
+
+            // Asked again later, it opens as usual.
+            expect(await manager.connect("dba@localhost:3310",
+                UI_BACKEND_SESSION)).toBe("uuid-dba-2");
+        });
+
+    it("opens anew for a connect made after the disconnect", async () => {
+        const { api, manager } = createManager();
+        const gate = gateConnect(api);
+
+        const abandoned = manager.connect("dba@localhost:3310");
+        await manager.disconnect("dba@localhost:3310");
+        const fresh = manager.connect("dba@localhost:3310");
+        gate.open();
+
+        await expect(abandoned).rejects.toThrow("while it was being opened");
+        // Its own open, not the abandoned one's failure.
+        expect(await fresh).toBe("uuid-dba-2");
+        expect(gate.calls()).toBe(2);
+        expect(manager.isConnected("dba@localhost:3310")).toBe(true);
+    });
+
+    it("remembers a connection disconnected as a whole until it is opened",
+        async () => {
+            const { manager } = createManager();
+            await manager.connect("dba@localhost:3310");
+            await manager.connect("dba@localhost:3310", UI_BACKEND_SESSION);
+
+            // One session of it: not the connection.
+            await manager.disconnect("dba@localhost:3310", UI_BACKEND_SESSION);
+            expect(manager.wasDisconnected("dba@localhost:3310")).toBe(false);
+
+            await manager.disconnect("dba@localhost:3310");
+            expect(manager.wasDisconnected("dba@localhost:3310")).toBe(true);
+
+            await manager.connect("dba@localhost:3310");
+            expect(manager.wasDisconnected("dba@localhost:3310")).toBe(false);
+        });
+
+    it("closes what was only being opened when everything is closed",
+        async () => {
+            const { api, manager } = createManager();
+            const gate = gateConnect(api);
+
+            const opening = manager.connect("dba@localhost:3310");
+            await manager.disconnectAll();
+            gate.open();
+
+            await expect(opening).rejects.toThrow("while it was being opened");
+            expect(api.closed).toEqual(["uuid-dba"]);
+            expect(manager.openConnections).toEqual([]);
+        });
+
+    it("leaves an open under way of another name alone", async () => {
+        const { api, manager } = createManager();
+        const gate = gateConnect(api);
+
+        const opening = manager.connect("dba@localhost:3310");
+        await manager.disconnect("dba@localhost:3310", UI_BACKEND_SESSION);
+        gate.open();
+
+        expect(await opening).toBe("uuid-dba");
+        expect(manager.isConnected("dba@localhost:3310", "1")).toBe(true);
+    });
+
     it("is a no-op when closing something that is not open", async () => {
         const { api, manager } = createManager();
 
