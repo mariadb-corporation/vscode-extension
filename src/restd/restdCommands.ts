@@ -256,7 +256,7 @@ export class RestdCommands {
             ? { doing: `Starting ${daemon}`, done: `Started ${daemon}` }
             : { doing: `Stopping ${daemon}`, done: `Stopped ${daemon}` };
         await this.#singleStep(node, change === "start" ? "starting" : "stopping",
-            words, `rest.${change}_restd(directory='${node.directory}')`,
+            words, `restd.${change}_restd(directory='${node.directory}')`,
             async () => {
                 const api = await this.host.restdApi();
                 await (change === "start"
