@@ -98,6 +98,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Changed
 
+- The `LICENSE` file is updated to include the licenses of the latest
+  third-party components.
 - **The MCP server's REST groups are renamed.** The REST Service tree and
   dialogs call the REST Service tools as `rest.*` (were `mrs.*`), and the
   REST Daemon features call the daemon tools as `restd.*` (were `rest.*`),
