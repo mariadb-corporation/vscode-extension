@@ -22,9 +22,10 @@
  *
  * The rules are the msm plugin's own (`msm_plugin/lib/management.py`),
  * checked here so that a dialog says what is wrong beside the field
- * rather than after a round trip: the plugin's own schema name check is
- * inverted - it checks only where special characters are allowed - so
- * without this one a schema name of digits only would be accepted.
+ * rather than after a round trip. The schema name is checked here too: a
+ * plugin older than mariadb-shell-plugins #67 has its own check inverted -
+ * it checks only where special characters are allowed - and accepts a
+ * name of digits only.
  */
 
 /** The dialogs, by what they do. */

@@ -52,21 +52,24 @@ first four with input boxes one after another; Deploy is new.
   above it (unless staying), a version released or scripted already
   (unless replacing), a project folder that exists, a target folder that
   does not. The schema-name rule (basic Latin, digits, `$`, `_`; not digits
-  only; 64 at most) is checked here because the plugin's own
-  `check_mysql_identifier` is inverted: it checks only when special
-  characters are allowed, so `123` passes it.
+  only; 64 at most) is checked here too: a shell whose bundled plugin
+  predates mariadb-shell-plugins #67 has `check_mysql_identifier` inverted
+  (it checks only when special characters are allowed, so `123` passes
+  it), and even a fixed one says so only after a round trip.
 - A problem shows once its field is typed into, or for all on the button;
   a problem with no field (nothing released yet) at once.
 
 ## Known gaps
 
-- **Releasing under another version than the development one breaks the
-  schema's version** (msm_plugin): `prepare_release(version='1.0.0')` on a
-  0.0.1 development script leaves `SELECT 0, 0, 1` in the released script's
-  `msm_schema_version` view, so the deployed schema reports 0.0.1 and any
-  later update is refused ("version 0.0.1 cannot be updated"). Seen against
-  MariaDB 12.3. The dialog defaults to the development version, which
-  works; the UI test keeps to it.
+- **Releasing under another version than the development one** broke the
+  schema's version in msm_plugin before mariadb-shell-plugins #67 / #68:
+  `prepare_release(version='1.0.0')` on a 0.0.1 development script left
+  `SELECT 0, 0, 1` in the released script's `msm_schema_version` view, so
+  the deployed schema reported 0.0.1 and any later update was refused
+  ("version 0.0.1 cannot be updated"). Fixed there (the release keeps the
+  template's section 910); a shell whose bundled plugin predates it still
+  has it. The dialog defaults to the development version, which works with
+  either; the UI test keeps to it.
 - The MCP tools take no `substitutions`, so a project declaring them cannot
   be deployed from here; `msm.set_development_version` is not offered.
 - The scripts the plugin writes still carry MySQL settings

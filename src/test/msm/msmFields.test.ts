@@ -141,7 +141,7 @@ describe("New MSM Project", () => {
             }
         });
 
-    // The plugin's own check is inverted and lets this through.
+    // A plugin older than mariadb-shell-plugins #67 lets this through.
     it("refuses a name of digits only", () => {
         expect(createProblem(create({ schemaName: "123" }))?.message)
             .toMatch(/digits only/u);
