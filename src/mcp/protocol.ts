@@ -163,3 +163,24 @@ export const decodeScalar = (
 export const decodeVoid = (toolName: string, result: IToolResult): void => {
     textContents(toolName, result);
 };
+
+/**
+ * Decodes a tool by its structured result: the one shape that keeps a
+ * list of lists apart. Its `content` flattens one - `[[1, 0, 0]]` arrives
+ * as the three text items "1", "0", "0" - and has no items at all for an
+ * empty list and for None alike.
+ *
+ * @param toolName The tool that was called.
+ * @param result The result it answered with.
+ *
+ * @returns The value the tool returned, or undefined where it sent no
+ *          structured result.
+ */
+export const decodeStructured = (
+    toolName: string,
+    result: IToolResult,
+): unknown => {
+    textContents(toolName, result);
+
+    return result.structuredContent?.result;
+};

@@ -39,6 +39,7 @@ describe("McpSession", () => {
         expect(session.api).toBe(api);
         // One server serves both halves.
         expect(session.sandboxApi).toBeDefined();
+        expect(session.msmApi).toBeDefined();
         expect(log.lines[0]).toContain("Starting MCP server:");
         expect(log.lines).toContain("MCP server ready.");
     });
@@ -92,6 +93,7 @@ describe("McpSession", () => {
         expect(session.isRunning).toBe(false);
         expect(session.api).toBeUndefined();
         expect(session.sandboxApi).toBeUndefined();
+        expect(session.msmApi).toBeUndefined();
     });
 
     it("starts a fresh server after a stop", async () => {

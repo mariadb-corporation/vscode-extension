@@ -21,6 +21,7 @@ import {
     decodeList,
     decodeObject,
     decodeScalar,
+    decodeStructured,
     decodeVoid,
     McpToolError,
     parseMaybeJson,
@@ -167,5 +168,41 @@ describe("decodeVoid", () => {
                 isError: true,
             });
         }).toThrow(/no such connection/);
+    });
+});
+
+describe("decodeStructured", () => {
+    it("keeps a list of lists that the content flattens", () => {
+        // msm.get_released_versions with one release, 1.0.0.
+        expect(decodeStructured("msm.get_released_versions", {
+            content: [
+                { type: "text", text: "1" }, { type: "text", text: "0" },
+                { type: "text", text: "0" },
+            ],
+            structuredContent: { result: [[1, 0, 0]] },
+            isError: false,
+        })).toEqual([[1, 0, 0]]);
+    });
+
+    it("tells None and an empty list apart, which the content cannot", () => {
+        expect(decodeStructured("t", {
+            content: [], structuredContent: { result: null },
+        })).toBeNull();
+        expect(decodeStructured("t", {
+            content: [], structuredContent: { result: [] },
+        })).toEqual([]);
+    });
+
+    it("answers undefined where no structured result was sent", () => {
+        expect(decodeStructured("t", { content: [] })).toBeUndefined();
+    });
+
+    it("throws the reported error", () => {
+        expect(() => {
+            return decodeStructured("msm.prepare_release", {
+                content: [{ type: "text", text: "already exists" }],
+                isError: true,
+            });
+        }).toThrow(McpToolError);
     });
 });

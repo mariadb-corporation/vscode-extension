@@ -1012,6 +1012,31 @@
         "title": "Resume Load",
         "category": "MariaDB",
         "icon": "$(debug-restart)"
+      },
+      {
+        "command": "mariadb.msm.createProject",
+        "title": "New MSM Project...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.showProjectInformation",
+        "title": "Show MSM Project Information...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.prepareRelease",
+        "title": "Prepare MSM Release...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.generateDeploymentScript",
+        "title": "Generate MSM Deployment Script...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deploySchema",
+        "title": "Deploy MSM Schema...",
+        "category": "MariaDB"
       }
     ],
     "menus": {
@@ -2005,6 +2030,11 @@
           "submenu": "mariadb.mrs.explorer",
           "when": "explorerResourceIsFolder",
           "group": "7_mariadb@1"
+        },
+        {
+          "submenu": "mariadb.msm.explorer",
+          "when": "explorerResourceIsFolder",
+          "group": "7_mariadb@2"
         }
       ],
       "mariadb.mrs.explorer": [
@@ -2117,6 +2147,33 @@
           "when": "view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view)$/",
           "group": "3_copy@1"
         }
+      ],
+      "mariadb.msm.explorer": [
+        {
+          "command": "mariadb.msm.createProject",
+          "when": "explorerResourceIsFolder && !(resourceFilename =~ /\\.msm\\.project$/)",
+          "group": "1_create@1"
+        },
+        {
+          "command": "mariadb.msm.showProjectInformation",
+          "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
+          "group": "2_project@1"
+        },
+        {
+          "command": "mariadb.msm.prepareRelease",
+          "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
+          "group": "3_release@1"
+        },
+        {
+          "command": "mariadb.msm.generateDeploymentScript",
+          "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
+          "group": "3_release@2"
+        },
+        {
+          "command": "mariadb.msm.deploySchema",
+          "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
+          "group": "4_deploy@1"
+        }
       ]
     },
     "keybindings": [
@@ -2205,6 +2262,10 @@
       {
         "id": "mariadb.dumpLoad",
         "label": "Dump and Load"
+      },
+      {
+        "id": "mariadb.msm.explorer",
+        "label": "MariaDB Schema Management"
       }
     ],
     "mcpServerDefinitionProviders": [
@@ -2569,7 +2630,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "build:extension": "vite build",
-    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.modeler.config.ts",
+    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.modeler.config.ts",
     "watch:webview": "vite build --config vite.webview.config.ts --watch",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "grammar:sync": "node tools/grammar.mts sync",
@@ -2581,7 +2642,8 @@
     "ui-test:mrs": "npm run ui-test -- mrs",
     "ui-test:dump-load": "npm run ui-test -- dump-load",
     "ui-test:restd": "npm run ui-test -- restd",
-    "ui-test:lsp": "npm run ui-test -- lsp"
+    "ui-test:lsp": "npm run ui-test -- lsp",
+    "ui-test:msm": "npm run ui-test -- msm"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",

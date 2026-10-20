@@ -26,6 +26,7 @@ extension grows.
 | `src/mrs/` | The MariaDB REST Service: REST SQL builders, the data mapping model, the dialogs' fields, the API, the dialog panel and the commands, and what goes to the Actions tab (`mrsActions.ts`, `mrsActivity.ts`) (see [`context/mrs.md`](context/mrs.md)). |
 | `src/util/` | Dump and Load: the operations' fields, the dialog, the commands, the task monitor, the Tasks view, a task's Actions row (`taskActions.ts`) and its log file (`taskLogs.ts`) (see [`context/dump-and-load.md`](context/dump-and-load.md)). |
 | `src/sandboxes/` | The New Sandbox dialog: its fields, protocol and panel. |
+| `src/msm/` | MariaDB Schema Management from the Explorer's folder menu: the dialogs' fields, protocol and panel, and the commands, each an action of the Actions tab (see [`context/msm.md`](context/msm.md)). |
 | `src/restd/` | The MariaDB REST Daemon: a sandbox deployed with the REST Service, its daemon following it, the REST Daemons view's commands, and `ActionGroup`, one Actions row with a row per step (see [`context/restd.md`](context/restd.md)). |
 | `src/modeler/` | The schema diagram viewer's extension side: the `msm_schema_diagrams` rows (`mwb-schema/1`, `mwb-diagram/1`) and their queries, the Diagram session's service, the page model (A4 sheets the diagram is printed on), and the panel (see [`context/modeler.md`](context/modeler.md)). |
 | `src/sql/` | The statement scanner, statement splitting, single-table detection, the edit query builder and the execution service. |
@@ -35,12 +36,12 @@ extension grows.
 | `tools/grammar.mts` | `grammar:sync` reads the word lists out of the mariadb-server and mariadb-shell checkouts; `grammar:build` makes the grammar from the template. |
 | `language-configuration.json` | Comments, brackets and auto-closing pairs of the MariaDB SQL language. |
 | `src/webview/` | The result view host, its message protocol and the edit-collection logic; a maximized result set's editor tab (`maximizedResult.ts`); grid values as files - saved / loaded (`valueFiles.ts`) and opened in editors (`valueDocuments.ts`); what every webview shares - the HTML, CSP and options (`html.ts`), the hold-until-`ready` queue (`readyQueue.ts`), the dialogs' common messages (`dialogProtocol.ts`). |
-| `webview/src/` | The Preact frontends: the result view, the connection editor, New Sandbox, the Dump and Load dialog, the MRS dialogs and the schema model viewer. |
+| `webview/src/` | The Preact frontends: the result view, the connection editor, New Sandbox, the Dump and Load dialog, the MRS dialogs, the MSM dialogs and the schema model viewer. |
 | `webview/src/canvas/` | The three.js canvas: 2D / 3D views, paper and grid, selection, moves, undo, the Navigator - generic, showing a figure set (see [`context/modeler.md`](context/modeler.md)). |
 | `webview/src/modeler/` | The EER diagram as a figure set of the canvas (tables, layers, connections), and the model viewer. |
 | `src/test/` | The extension-side test suite, mirroring the source layout; `grammar/` tokenizes with VS Code's own TextMate engine (word coverage, token classes, corpus snapshots). |
 | `webview/test/` | The frontend test suite, run under jsdom. |
-| `ui-test/` | The ExTester UI tests: the runner and its suites (`core`, `mrs`, `dump-load`, `lsp`, `restd`, each with a sandbox of its own), the helpers, the test files (see [`context/testing-and-debugging.md`](context/testing-and-debugging.md)). |
+| `ui-test/` | The ExTester UI tests: the runner and its suites (`core`, `mrs`, `dump-load`, `lsp`, `restd`, `msm`, each with a sandbox of its own), the helpers, the test files (see [`context/testing-and-debugging.md`](context/testing-and-debugging.md)). |
 | `images/` | Icons: `light/` and `dark/` variants, the activity bar icon `mariadb-code-ext.svg`, and `marketplace-icon.png`. |
 
 ## Context files
@@ -61,6 +62,7 @@ change belongs to up to date, and this table with it.
 | [`context/running-sql.md`](context/running-sql.md) | The two run commands and stop on error, which connection a file runs on, the MariaDB SQL language and its ANSI_QUOTES highlight, the statement scanner, splitting agreeing with the server, what makes a result set editable, the gutter markers. |
 | [`context/sql-grammar.md`](context/sql-grammar.md) | The MariaDB SQL TextMate grammar: one language, ANSI_QUOTES as semantic tokens (and why not two languages), what a tokenizer can and cannot do and the policy for each, the generated word lists and the sync workflow, the three test layers. |
 | [`context/dump-and-load.md`](context/dump-and-load.md) | The Dump and Load submenu, its dialog, the background tasks (`util.*` tools) with their notification and the Tasks view, each task as a row of the Actions tab, and a log file per task. |
+| [`context/msm.md`](context/msm.md) | MariaDB Schema Management: the Explorer submenu on folders and `*.msm.project` folders, the five dialogs, the `msm.*` tools (and why version lists are read from `structuredContent`), every operation as an action, the checks the plugin gets wrong, the release-version bug. |
 | [`context/restd.md`](context/restd.md) | The MariaDB REST Daemon: New Sandbox's REST Service option and its steps, Set Up MariaDB REST Daemon, the REST Daemons view, the sub-rows and the log button. |
 | [`context/sandboxes.md`](context/sandboxes.md) | The Sandboxes view, its Start / Stop / Delete, the New Sandbox dialog, the per-call timeouts, and what it needs from the shell. |
 | [`context/result-view.md`](context/result-view.md) | The panel webview: layout, per-connection state, the two pickers (and when General Actions is shown), fonts and surfaces, the SQL preview, the shared code. |

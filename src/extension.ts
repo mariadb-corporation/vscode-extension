@@ -40,6 +40,8 @@ import {
     TasksTreeProvider,
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
+import type { IMsmApi } from "./mcp/msmApi.js";
+import { MsmCommands } from "./msm/msmCommands.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
 import { reportError } from "./errorMessages.js";
@@ -781,6 +783,47 @@ export const activate = (context: vscode.ExtensionContext): void => {
     });
     context.subscriptions.push(taskOutput, taskMonitor, tasksTree, tasksView,
         ...utilCommands.register());
+
+    // MariaDB Schema Management, from the Explorer's menu on folders: each
+    // thing it does is an action of the Actions tab.
+    const msmApi = async (): Promise<IMsmApi> => {
+        if (session.msmApi === undefined) {
+            await starter.start();
+        }
+        const api = session.msmApi;
+        if (api === undefined) {
+            throw new Error("The MCP server is not running.");
+        }
+
+        return api;
+    };
+    const msmCommands = new MsmCommands({
+        extensionUri: context.extensionUri,
+        msmApi,
+        connect: (uri) => {
+            return connections.connect(uri, UI_BACKEND_SESSION);
+        },
+        connectionUris: async () => {
+            return (await connections.listStoredConnections())
+                .map((stored) => { return stored.uri; });
+        },
+        defaultConnection: () => { return connections.defaultConnection; },
+        defaultFolder: () => {
+            return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+                ?? os.homedir();
+        },
+        put: putAction,
+        showActions: (connection) => {
+            void resultView.showActions(connection);
+        },
+        // A deployed schema is new to the tree and to completion.
+        refresh: (uri) => {
+            tree.refresh();
+            languageServer.refreshCatalog(uri);
+        },
+        log,
+    });
+    context.subscriptions.push(...msmCommands.register());
 
     context.subscriptions.push(
         // Draws a connection's color on its row (see connectionColors.ts).

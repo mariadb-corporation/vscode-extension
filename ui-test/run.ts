@@ -108,7 +108,16 @@ const SUITES: Record<string, string[]> = {
     "dump-load": [SETUP, "06-dump-load", CLEANUP],
     restd: [SETUP, "07-restd", CLEANUP],
     lsp: [SETUP, "08-lsp", CLEANUP],
+    msm: [SETUP, "09-msm", CLEANUP],
 };
+
+/**
+ * The suites whose VS Code opens a folder of its own, `files/workspace`:
+ * the Explorer's menus are on the files of a workspace, which the others
+ * do without. It is opened at the start, as opening a folder later
+ * reloads the window.
+ */
+const WORKSPACE_SUITES = new Set(["msm"]);
 
 /** The signals that end the run, with the exit code each ends it with. */
 const STOP_SIGNALS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 } as const;
@@ -221,6 +230,7 @@ const freePort = async (): Promise<number> => {
  * @param testFiles The files, in the order they run.
  * @param extraArgs Passed on to `extest setup-and-run`.
  * @param timeoutMs How long the run may take.
+ * @param workspace Whether VS Code opens a workspace folder.
  *
  * @returns The exit code of the run.
  */
@@ -229,13 +239,16 @@ const runFiles = async (
     testFiles: string[],
     extraArgs: string[],
     timeoutMs: number,
+    workspace = false,
 ): Promise<number> => {
     const work = mkdtempSync(join(tmpdir(), "mariadb-ui-test-"));
     const home = join(work, "shell-home");
     const bin = join(work, "bin");
     const sandboxes = join(work, "sandboxes");
     const files = join(work, "files");
-    for (const dir of [join(home, "plugins"), bin, sandboxes, files]) {
+    const folder = join(files, "workspace");
+    for (const dir of [join(home, "plugins"), bin, sandboxes, files,
+        ...(workspace ? [folder] : [])]) {
         mkdirSync(dir, { recursive: true });
     }
     for (const plugin of PLUGINS) {
@@ -283,6 +296,7 @@ const runFiles = async (
         UI_TEST_PORT: String(await freePort()),
         UI_TEST_PORT2: String(await freePort()),
         UI_TEST_FILES: files,
+        ...(workspace ? { UI_TEST_WORKSPACE: folder } : {}),
         UI_TEST_SCREENSHOTS: join(storage, "screenshots"),
         UI_TEST_STORAGE: storage,
     };
@@ -291,6 +305,8 @@ const runFiles = async (
         return await runGroup(join(root, "node_modules", ".bin", "extest"), [
             "setup-and-run",
             ...testFiles,
+            // Before the next option: it takes every argument up to one.
+            ...(workspace ? ["--open_resource", folder] : []),
             "--storage", storage,
             "--extensions_dir", join(storage, "extensions"),
             "--code_settings", join(root, "ui-test", "settings.json"),
@@ -337,7 +353,7 @@ const main = async (): Promise<number> => {
     }
     if (process.env.UI_TEST_GLOB !== undefined) {
         return await runFiles(shell, [process.env.UI_TEST_GLOB], extraArgs,
-            timeoutMs);
+            timeoutMs, process.env.UI_TEST_GLOB.includes("msm"));
     }
 
     const outcomes: Array<[string, number]> = [];
@@ -353,7 +369,8 @@ const main = async (): Promise<number> => {
             return `${compiled}/${file}.test.js`;
         });
         outcomes.push(
-            [name, await runFiles(shell, files, extraArgs, timeoutMs)]);
+            [name, await runFiles(shell, files, extraArgs, timeoutMs,
+                WORKSPACE_SUITES.has(name))]);
     }
 
     if (outcomes.length > 1) {

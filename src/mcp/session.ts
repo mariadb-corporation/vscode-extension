@@ -19,6 +19,7 @@ import type { McpServerCommand } from "../shell/mcpServer.js";
 import { MariaDbApi, type IToolCaller } from "./mariaDbApi.js";
 import type { IMrsAction } from "../mrs/mrsActions.js";
 import { RestToolsApi } from "../mrs/mrsApi.js";
+import { MsmApi, type IMsmApi } from "./msmApi.js";
 import { RestdApi, type IRestdApi } from "./restdApi.js";
 import { SandboxApi, type ISandboxApi } from "./sandboxApi.js";
 import { UtilApi, type IUtilApi } from "./utilApi.js";
@@ -69,6 +70,7 @@ export class McpSession {
     /** Where what each `rest.*` tool call did is reported. */
     public onMrsAction?: (action: IMrsAction) => void;
     #utilApi?: IUtilApi;
+    #msmApi?: IMsmApi;
 
     public constructor(
         private readonly connector: IMcpConnector,
@@ -123,6 +125,14 @@ export class McpSession {
     }
 
     /**
+     * @returns The `msm.*` tools on the same server, if one is already
+     *          running, else undefined.
+     */
+    public get msmApi(): IMsmApi | undefined {
+        return this.#msmApi;
+    }
+
+    /**
      * Starts the MCP server if it is not already running.
      *
      * @param command The shell command hosting the MCP server.
@@ -156,6 +166,7 @@ export class McpSession {
         this.#restdApi = undefined;
         this.#restTools = undefined;
         this.#utilApi = undefined;
+        this.#msmApi = undefined;
         if (!connection) {
             return;
         }
@@ -191,6 +202,7 @@ export class McpSession {
             this.onMrsAction?.(action);
         });
         this.#utilApi = new UtilApi(connection);
+        this.#msmApi = new MsmApi(connection);
         this.log("MCP server ready.");
 
         return this.#api;
