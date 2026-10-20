@@ -86,7 +86,9 @@ first four with input boxes one after another; Deploy is new.
 - UI: `ui-test/tests/09-msm.test.ts`, suite `msm` (`npm run ui-test:msm`):
   create, the duplicate refused, the information, a release, a second one
   refused, the deployment script, the deploy onto the suite's sandbox (its
-  table in the Connections view), and an unreadable project reported. The
+  table in the Connections view; backup unticked, as a new schema has
+  nothing to dump), and an unreadable project reported (its
+  `msm.project.json` moved aside, then back). The
   suite's VS Code opens `files/workspace` (`WORKSPACE_SUITES` in
   `ui-test/run.ts`, passed as `--open_resource`; opening a folder later
   would reload the window); the Explorer helpers are `explorerItem`,

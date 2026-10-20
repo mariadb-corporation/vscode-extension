@@ -166,6 +166,10 @@ runner end anyway. A spawn that fails is reported with its error.
     false`, such as Refresh Connections) cannot be run with
     `runCommand`: ExTester types its title and presses Enter on whatever
     matches instead. Click the view's toolbar button (`getAction`).
+  - New Sandbox in `01-sandbox` now and then fails with "stale element
+    reference" while a field is typed into: the dialog redraws when its
+    server version list arrives. A rerun passes; it is not the suite's
+    own test failing.
   - Tabulator rebuilds its cell editor right after the click. Type into
     `switchTo().activeElement()`, not into an element found earlier.
   - Untitled SQL editors would ask "Save changes?" when VS Code closes.
