@@ -790,6 +790,18 @@ export const isDialogOpen = async (title: string): Promise<boolean> => {
 };
 
 /**
+ * @param error What a WebDriver call on a webview threw.
+ *
+ * @returns Whether it says the webview went while the call ran: its
+ *          elements, or the frame itself, gone. Quick work closes a dialog
+ *          while it is being looked at, in any of these ways.
+ */
+const isGoneWebviewError = (error: unknown): boolean => {
+    return /NoSuchElement|StaleElementReference|stale element|frame detached|no such frame/u
+        .test(String(error));
+};
+
+/**
  * Presses a dialog's OK (or whatever its button says) and waits for the
  * dialog to close, failing at once with the dialog's own message when it
  * shows an error instead - a failed save is reported in the dialog, and
@@ -822,8 +834,16 @@ export const submitDialog = async (
             // The dialog's own bar: VS Code's workbench has one too, which
             // a view loading meanwhile shows, should the search run outside
             // the dialog's frame.
-            const bars = await view.findWebElements(
-                By.css(".dialog-busy [role='progressbar']"));
+            let bars: WebElement[] = [];
+            try {
+                bars = await view.findWebElements(
+                    By.css(".dialog-busy [role='progressbar']"));
+            } catch (error) {
+                // Closed under the lookup; whether it is gone is seen below.
+                if (!isGoneWebviewError(error)) {
+                    throw error;
+                }
+            }
             if (bars.length > 0) {
                 return bars[0];
             }
@@ -853,8 +873,7 @@ export const submitDialog = async (
         } catch (error) {
             // Done while it was looked at: a webview that has closed has no
             // elements left, the bar and the buttons included.
-            if (!/NoSuchElement|StaleElementReference|stale element/u
-                .test(String(error))) {
+            if (!isGoneWebviewError(error)) {
                 throw error;
             }
             await view.switchBack();

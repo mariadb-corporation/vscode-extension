@@ -184,7 +184,8 @@ runner end anyway. A spawn that fails is reported with its error.
     `hasTreeItem` instead.
   - Quick work can close a dialog before its progress bar is seen, or
     while the bar and the buttons are being looked at (an MSM create
-    takes 7 ms); `submitDialog` accepts both where the dialog has closed,
+    takes 7 ms); `submitDialog` accepts both where the dialog has closed
+    (`isGoneWebviewError`: no such element, a stale one, a detached frame),
     but a dialog still open must show the bar.
   - The Explorer compacts a folder holding one folder into one row
     (`projects / msm_shop.msm.project`); `ui-test/settings.json` turns
