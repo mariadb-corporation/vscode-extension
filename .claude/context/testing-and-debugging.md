@@ -146,11 +146,40 @@ runner end anyway. A spawn that fails is reported with its error.
   (TIMEOUT 10 s, SERVER_TIMEOUT 15 s, DEPLOY_TIMEOUT 90 s), and dialogs
   fail at once on an in-dialog `.message.error` or an error
   notification. Screenshots go to `.vscode-test/extest/screenshots`.
+- **The test VS Code opens on a display of its own** where the Mac has a
+  second one (`ui-test/lib/window.ts`; `UI_TEST_DISPLAY`: unset the
+  second display, `main` the main one, a number that display, 1 being
+  main). ExTester deletes the user data folder and writes it anew in one
+  function right before launching, so the window's bounds
+  (`windowsState.lastActiveWindow.uiState` in
+  `User/globalStorage/storage.json`) are written from a wrapper around the
+  one call in between, `codeUtil.getDefaultSettings`, installed as the
+  test files load (`placeWindow`, from `ui.ts`). Both are internals: a
+  version changing either leaves the window where VS Code puts it.
+- **The focus goes back to the app that had it** (macOS): macOS gives the
+  test VS Code the focus as it opens, so keys typed into another app
+  landed in it. `rememberFrontApp` notes the front app (`lsappinfo`, no
+  permission needed) as the test files load, and a root `before` hook of
+  `ui.ts`, which runs after ExTester's has VS Code up, activates it again
+  by its path (`open -a`), twice, 1.5 s apart. `UI_TEST_FOCUS=vscode`
+  leaves the focus with VS Code.
 - ExTester traps:
-  - The tests drive the real window: typing or clicking on the machine
-    while they run makes them fail. An occasional "element not
-    interactable" in the command palette, or a completion timeout, that
-    passes on a rerun is that kind of flake, not a defect.
+  - The tests drive the real window: typing or clicking in it while
+    they run makes them fail. Keys and clicks go through
+    ChromeDriver, not the OS, so another app may have focus meanwhile -
+    but each suite's VS Code takes focus as it starts. One thing does go
+    by the window's focus: VS Code closes a quick input - the command
+    palette, `answerInput`, `pickQuick`, the simple file dialog
+    `openResources` and `answerFileDialog` use - once its window loses
+    focus, which was the "element not interactable" in the palette while
+    the user worked in another app. `ui-test/settings.json` turns
+    `workbench.quickOpen.closeOnFocusLost` off. The clipboard is
+    the machine's: `03-connections` and `02-mrs` clear it and read what a
+    Copy command put there (`clipboard()`), so copying meanwhile fails
+    them. The runner keeps the clipboard's text and gives it back on exit
+    (`saveClipboard` / `restoreClipboard` in `run.ts`; text only). A
+    completion timeout that passes on a rerun is a flake of that kind,
+    not a defect.
   - VS Code's Outline sorts by position: an inline `PRIMARY KEY` is
     listed right after its column, so a test that wants the keys last
     declares them in a clause of their own.
@@ -168,10 +197,13 @@ runner end anyway. A spawn that fails is reported with its error.
     false`, such as Refresh Connections) cannot be run with
     `runCommand`: ExTester types its title and presses Enter on whatever
     matches instead. Click the view's toolbar button (`getAction`).
-  - New Sandbox in `01-sandbox` now and then fails with "stale element
-    reference" while a field is typed into: the dialog redraws when its
-    server version list arrives. A rerun passes; it is not the suite's
-    own test failing.
+  - New Sandbox draws its fields empty at once and replaces them all when
+    the host's load arrives (after reading the server versions, the
+    connections and the certificate): typing before that is lost, or hits
+    a stale element, and a lost port falls back to the suggested 3310,
+    which a server of the machine's own may hold. `inSandboxDialog` opens
+    it and waits for the suggested port, which the load always brings;
+    every test opening New Sandbox goes through it.
   - Tabulator rebuilds its cell editor right after the click. Type into
     `switchTo().activeElement()`, not into an element found earlier.
   - Untitled SQL editors would ask "Save changes?" when VS Code closes.

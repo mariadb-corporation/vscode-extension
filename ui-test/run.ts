@@ -174,7 +174,39 @@ for (const [signal, code] of Object.entries(STOP_SIGNALS)) {
 }
 process.on("exit", () => {
     stopRunningGroup("the runner exited");
+    restoreClipboard();
 });
+
+/**
+ * The clipboard's text as the run found it, while the run has it. Two
+ * tests check what a Copy command put there (`clipboard()` in
+ * `lib/ui.ts`), clearing it first: the clipboard is the whole machine's,
+ * so they would take away what the user had copied. It is given back when
+ * the runner exits, however - finished, failed or interrupted. Text only:
+ * `pbpaste` reads nothing else, so an image copied is not given back (and
+ * an empty clipboard is left as the tests left it).
+ */
+let savedClipboard: string | undefined;
+
+/** Keeps the clipboard's text, on macOS, where the tests use it. */
+const saveClipboard = (): void => {
+    if (process.platform !== "darwin") {
+        return;
+    }
+    const pasted = spawnSync("pbpaste", { encoding: "utf8" });
+    if (pasted.status === 0 && pasted.stdout !== "") {
+        savedClipboard = pasted.stdout;
+    }
+};
+
+/** Gives the clipboard's text back, once. */
+const restoreClipboard = (): void => {
+    if (savedClipboard === undefined) {
+        return;
+    }
+    spawnSync("pbcopy", { input: savedClipboard });
+    savedClipboard = undefined;
+};
 
 /**
  * Runs a command in a process group of its own, stopping the whole group
@@ -335,6 +367,7 @@ const runFiles = async (
 };
 
 const main = async (): Promise<number> => {
+    saveClipboard();
     const shell = process.env.MARIADB_SHELL;
     if (shell === undefined || shell === "") {
         console.error("Set MARIADB_SHELL to the mariadb-shell to test with.");

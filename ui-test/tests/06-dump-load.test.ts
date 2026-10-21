@@ -42,6 +42,7 @@ import {
     DEPLOY_TIMEOUT,
     dialogText,
     inDialog,
+    inSandboxDialog,
     inlineAction,
     FILES,
     hasTreeItem,
@@ -414,7 +415,7 @@ describe("Dump and Load", () => {
 
     it("copies a schema to another server", async () => {
         await runCommand("MariaDB: New Sandbox…");
-        await inDialog("New Sandbox", async (view) => {
+        await inSandboxDialog(async (view) => {
             await setFieldByCaption(view, "Port", String(SECOND_PORT));
             // A password of its own, which the later tests log in with.
             await setChecked(view, "generatePassword", false);

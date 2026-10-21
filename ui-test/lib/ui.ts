@@ -47,6 +47,18 @@ import {
     Workbench,
 } from "vscode-extension-tester";
 
+import { giveFocusBack, placeWindow, rememberFrontApp } from "./window";
+
+// Every test file imports this module, and Mocha loads them all before
+// ExTester's root hook launches VS Code: in time to say where it opens,
+// and to note the app in front. A root hook registered here runs after
+// ExTester's, with VS Code up: the focus goes back to that app.
+placeWindow();
+rememberFrontApp();
+before(async () => {
+    await giveFocusBack();
+});
+
 /**
  * What the UI tests share: finding rows in the MariaDB views, their
  * context menus, the dialogs' webviews, VS Code's own prompts, and the
@@ -661,6 +673,31 @@ export const inDialog = async <T>(
     } finally {
         await view.switchBack();
     }
+};
+
+/**
+ * Works in New Sandbox once it has loaded. It draws its fields empty at
+ * once, and replaces all of them when the host's load comes - the server
+ * versions, the connections and the certificate read first - so typing
+ * before that is lost: the port typed went back to the one suggested. The
+ * load always suggests a port, so a port is what says it came.
+ *
+ * @param work What to do inside it.
+ *
+ * @returns What `work` returns.
+ */
+export const inSandboxDialog = async <T>(
+    work: (view: WebView) => Promise<T>,
+): Promise<T> => {
+    return await inDialog("New Sandbox", async (view) => {
+        await waitFor(async () => {
+            const port = await view.findWebElement(byCaption("Port"));
+
+            return (await port.getAttribute("value") ?? "") !== "";
+        }, "New Sandbox to load");
+
+        return await work(view);
+    });
 };
 
 /**
