@@ -23,7 +23,10 @@ webview/**
 !dist/**/*.css
 !dist/**/*.svg
 !dist/**/*.ttf
-!images/**
+# The images by type too: `!images/**` would bring back what a Mac's Finder
+# leaves there, `.DS_Store`.
+!images/**/*.svg
+!images/**/*.png
 ui-test/**
 out/**
 

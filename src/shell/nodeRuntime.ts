@@ -18,8 +18,13 @@
 import { execFile, spawn, type ExecFileException } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
+import * as path from "node:path";
 
-import type { InstallCommand, ProcessRunner } from "./installer.js";
+import type {
+    InstallCommand,
+    InstallScripts,
+    ProcessRunner,
+} from "./installer.js";
 import { LineReader } from "./lineReader.js";
 import type { ShellEnvironment } from "./locator.js";
 
@@ -154,6 +159,7 @@ export const createNodeProcessRunner = (): ProcessRunner => {
             return await new Promise<number>((resolve, reject) => {
                 const posix = process.platform !== "win32";
                 const child = spawn(command.command, command.args, {
+                    env: { ...process.env, ...command.env },
                     windowsHide: true,
                     // Its own process group on POSIX, so that cancelling
                     // ends the curl and bash the shell started as well as
@@ -200,6 +206,47 @@ export const createNodeProcessRunner = (): ProcessRunner => {
                     resolve(code ?? -1);
                 });
             });
+        },
+    };
+};
+
+/**
+ * Downloads install scripts with Node's own `fetch`, which follows the
+ * redirect GitHub's `raw` links answer with, each into a folder of its own
+ * in the system's temporary folder. The folder is made once the script is
+ * in, so a failed download leaves nothing behind.
+ *
+ * @returns The install scripts' download.
+ */
+export const createNodeInstallScripts = (): InstallScripts => {
+    return {
+        fetch: async (url, signal) => {
+            const response = await fetch(url, { signal });
+            if (!response.ok) {
+                throw new Error(`HTTP ${String(response.status)} `
+                    + response.statusText);
+            }
+            // The bytes as served: `text()` would drop a byte order mark,
+            // which Windows PowerShell 5.1 needs to read a script as UTF-8.
+            const content = Buffer.from(await response.arrayBuffer());
+            const folder = await fs.mkdtemp(
+                path.join(os.tmpdir(), "mariadb-shell-install-"));
+            const file = path.join(folder,
+                path.posix.basename(new URL(url).pathname));
+            try {
+                await fs.writeFile(file, content, { mode: 0o700 });
+            } catch (error) {
+                await fs.rm(folder, { recursive: true, force: true })
+                    .catch(() => { /* The system's temporary folder. */ });
+                throw error;
+            }
+
+            return {
+                path: file,
+                remove: async () => {
+                    await fs.rm(folder, { recursive: true, force: true });
+                },
+            };
         },
     };
 };

@@ -61,6 +61,7 @@ import { ensureShell, type BootstrapResult } from "./shell/bootstrap.js";
 import { MINIMUM_SHELL_VERSION } from "./shell/constants.js";
 import { buildMcpServerCommand } from "./shell/mcpServer.js";
 import {
+    createNodeInstallScripts,
     createNodeProcessRunner,
     createNodeShellEnvironment,
 } from "./shell/nodeRuntime.js";
@@ -167,6 +168,7 @@ const locateOrInstallShell = async (
     const result = await ensureShell({
         environment: createNodeShellEnvironment(log),
         runner: createNodeProcessRunner(),
+        scripts: createNodeInstallScripts(),
         progress: createNotificationProgressHost(),
         log,
         minimumVersion: MINIMUM_SHELL_VERSION,

@@ -19,16 +19,19 @@ import { describe, expect, it } from "vitest";
 
 import {
     createFakeEnvironment,
+    createFakeInstallScripts,
     createFakeRunner,
     createRecordingLog,
+    createRecordingProgress,
     type FakeEnvironmentOptions,
+    fakeScriptPath,
 } from "../helpers.js";
-import { ensureShell } from "../../shell/bootstrap.js";
-import { MINIMUM_SHELL_VERSION } from "../../shell/constants.js";
 import {
-    buildInstallCommand,
-    type ProgressHost,
-} from "../../shell/installer.js";
+    ensureShell,
+    type BootstrapDependencies,
+} from "../../shell/bootstrap.js";
+import { MINIMUM_SHELL_VERSION } from "../../shell/constants.js";
+import { buildInstallCommand } from "../../shell/installer.js";
 
 const MINIMUM = "26.9.3";
 const PREFIX = "/Users/mzinner/.local/share/mariadb-shell";
@@ -46,38 +49,22 @@ const versionLine = (version: string): string => {
         + "- for MariaDB 13.1.0-MariaDB (Source distribution)";
 };
 
-/**
- * Builds a progress host that records what it was shown.
- *
- * @returns The host and its recordings.
- */
-const createRecordingProgress = (): ProgressHost & {
-    titles: string[];
-    messages: string[];
-} => {
-    const titles: string[] = [];
-    const messages: string[] = [];
-
-    return {
-        titles,
-        messages,
-        withProgress: async <T>(
-            title: string,
-            task: (
-                report: (message: string) => void,
-                signal: AbortSignal,
-            ) => Promise<T>,
-        ) => {
-            titles.push(title);
-
-            return await task((message) => {
-                messages.push(message);
-            }, new AbortController().signal);
-        },
-    };
-};
-
 describe("ensureShell", () => {
+    /** What the lookup is given, but what a test changes. */
+    const deps = (
+        changes: Partial<BootstrapDependencies>
+            & Pick<BootstrapDependencies, "environment">,
+    ): BootstrapDependencies => {
+        return {
+            runner: createFakeRunner(),
+            scripts: createFakeInstallScripts(),
+            progress: createRecordingProgress(),
+            log: createRecordingLog(),
+            minimumVersion: MINIMUM,
+            ...changes,
+        };
+    };
+
     it("uses a shell that is already on the PATH", async () => {
         const environment = createFakeEnvironment({
             versions: { "mariadb-shell": versionLine("26.9.3") },
@@ -85,13 +72,11 @@ describe("ensureShell", () => {
         const runner = createFakeRunner();
         const log = createRecordingLog();
 
-        const result = await ensureShell({
+        const result = await ensureShell(deps({
             environment,
             runner,
-            progress: createRecordingProgress(),
             log,
-            minimumVersion: MINIMUM,
-        });
+        }));
 
         expect(result.installed).toBe(false);
         expect(result.location.source).toBe("path");
@@ -109,13 +94,10 @@ describe("ensureShell", () => {
             });
             const runner = createFakeRunner();
 
-            const result = await ensureShell({
+            const result = await ensureShell(deps({
                 environment,
                 runner,
-                progress: createRecordingProgress(),
-                log: createRecordingLog(),
-                minimumVersion: MINIMUM,
-            });
+            }));
 
             expect(result.installed).toBe(false);
             expect(result.location).toEqual({
@@ -169,16 +151,15 @@ describe("ensureShell", () => {
         };
 
         const log = createRecordingLog();
-        const result = await ensureShell({
+        const result = await ensureShell(deps({
             environment: live,
             runner,
             progress,
             log,
-            minimumVersion: MINIMUM,
-        });
+        }));
 
         expect(runner.calls).toEqual([
-            buildInstallCommand("darwin", MINIMUM),
+            buildInstallCommand("darwin", MINIMUM, fakeScriptPath()),
         ]);
         expect(result.installed).toBe(true);
         expect(result.location.binaryPath).toBe(MANAGED_BINARY);
@@ -198,16 +179,13 @@ describe("ensureShell", () => {
         });
         const runner = createFakeRunner();
 
-        await expect(ensureShell({
+        await expect(ensureShell(deps({
             environment,
             runner,
-            progress: createRecordingProgress(),
-            log: createRecordingLog(),
-            minimumVersion: MINIMUM,
-        })).rejects.toThrow(/no MariaDB Shell 26.9.3 or newer could be found/);
+        }))).rejects.toThrow(/no MariaDB Shell 26.9.3 or newer could be found/);
 
         expect(runner.calls).toEqual([
-            buildInstallCommand("darwin", MINIMUM),
+            buildInstallCommand("darwin", MINIMUM, fakeScriptPath()),
         ]);
     });
 
@@ -215,13 +193,10 @@ describe("ensureShell", () => {
         const environment = createFakeEnvironment();
         const runner = createFakeRunner(["install.sh: no curl"], 127);
 
-        await expect(ensureShell({
+        await expect(ensureShell(deps({
             environment,
             runner,
-            progress: createRecordingProgress(),
-            log: createRecordingLog(),
-            minimumVersion: MINIMUM,
-        })).rejects.toThrow(
+        }))).rejects.toThrow(
             "MariaDB Shell 26.9.3 could not be installed: no curl "
             + "(the installer exited with code 127).",
         );
@@ -237,13 +212,11 @@ describe("ensureShell", () => {
             });
             const log = createRecordingLog();
 
-            await expect(ensureShell({
+            await expect(ensureShell(deps({
                 environment,
                 runner: createFakeRunner([], 0),
-                progress: createRecordingProgress(),
                 log,
-                minimumVersion: MINIMUM,
-            })).rejects.toThrow(/could be found afterwards in/);
+            }))).rejects.toThrow(/could be found afterwards in/);
 
             const text = log.lines.join("\n");
             expect(text).toContain(
@@ -260,14 +233,11 @@ describe("ensureShell", () => {
     it("says when it starts the installer", async () => {
         const phases: string[] = [];
 
-        await expect(ensureShell({
+        await expect(ensureShell(deps({
             environment: createFakeEnvironment(),
             runner: createFakeRunner([], 1),
-            progress: createRecordingProgress(),
-            log: createRecordingLog(),
-            minimumVersion: MINIMUM,
             onInstalling: () => { phases.push("installing"); },
-        })).rejects.toThrow();
+        }))).rejects.toThrow();
 
         expect(phases).toEqual(["installing"]);
     });
@@ -280,13 +250,10 @@ describe("ensureShell", () => {
         });
         const runner = createFakeRunner();
 
-        await expect(ensureShell({
+        await expect(ensureShell(deps({
             environment,
             runner,
-            progress: createRecordingProgress(),
-            log: createRecordingLog(),
-            minimumVersion: MINIMUM,
-        })).rejects.toThrow();
+        }))).rejects.toThrow();
 
         expect(runner.calls[0].command).toBe("powershell.exe");
     });
@@ -298,11 +265,12 @@ describe("ensureShell", () => {
         await expect(ensureShell({
             environment,
             runner,
+            scripts: createFakeInstallScripts(),
             progress: createRecordingProgress(),
             log: createRecordingLog(),
         })).rejects.toThrow();
 
-        expect(runner.calls[0].args.at(-1))
-            .toContain(`MARIADB_SHELL_TAG=v${MINIMUM_SHELL_VERSION}`);
+        expect(runner.calls[0].env)
+            .toEqual({ MARIADB_SHELL_TAG: `v${MINIMUM_SHELL_VERSION}` });
     });
 });

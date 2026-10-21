@@ -23,6 +23,7 @@
     },
     "include": [
         "src/**/*.ts",
+        "tools/checkPackage.mts",
         "tools/syncAiSkills.mts",
         "vite.config.ts",
         "vite.webview.config.ts",

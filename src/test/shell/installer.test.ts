@@ -17,81 +17,61 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFakeRunner, createRecordingLog } from "../helpers.js";
+import {
+    createFakeInstallScripts,
+    createFakeRunner,
+    createRecordingLog,
+    createRecordingProgress,
+    fakeScriptPath,
+} from "../helpers.js";
+import { installScriptUrl } from "../../shell/constants.js";
 import {
     buildInstallCommand,
     cleanInstallerLine,
     summarizeInstallerFailure,
     installerProgressMessage,
     installShell,
+    type InstallDependencies,
     type ProgressHost,
 } from "../../shell/installer.js";
 
-/**
- * Builds a progress host that records the titles and messages it was given.
- *
- * @returns The host and the recordings it collects.
- */
-const createRecordingProgress = (): ProgressHost & {
-    titles: string[];
-    messages: string[];
-} => {
-    const titles: string[] = [];
-    const messages: string[] = [];
+const SCRIPT = fakeScriptPath();
 
-    return {
-        titles,
-        messages,
-        withProgress: async <T>(
-            title: string,
-            task: (
-                report: (message: string) => void,
-                signal: AbortSignal,
-            ) => Promise<T>,
-        ) => {
-            titles.push(title);
-
-            return await task((message) => {
-                messages.push(message);
-            }, new AbortController().signal);
-        },
-    };
-};
+describe("installScriptUrl", () => {
+    it("takes the script of the release's own tag", () => {
+        expect(installScriptUrl("darwin", "26.10.3")).toBe(
+            "https://github.com/mariadb-corporation/mariadb-shell/raw/"
+            + "v26.10.3/install.sh");
+        expect(installScriptUrl("linux", "26.10.3"))
+            .toBe(installScriptUrl("darwin", "26.10.3"));
+        expect(installScriptUrl("win32", "26.10.3")).toBe(
+            "https://github.com/mariadb-corporation/mariadb-shell/raw/"
+            + "v26.10.3/install.ps1");
+    });
+});
 
 describe("buildInstallCommand", () => {
-    it("builds the documented curl-into-bash line on macOS", () => {
-        const command = buildInstallCommand("darwin", "26.9.2");
+    it("runs the downloaded install.sh with sh on macOS and Linux", () => {
+        const command = buildInstallCommand("darwin", "26.9.2", SCRIPT);
 
-        expect(command.command).toBe("/bin/sh");
-        expect(command.args[0]).toBe("-c");
-        expect(command.args[1]).toBe(
-            "script=$(curl -fsSL https://github.com/mariadb-corporation/"
-            + "mariadb-shell/raw/main/install.sh) || exit $?; "
-            + "printf '%s\\n' \"$script\" | MARIADB_SHELL_TAG=v26.9.2 bash",
-        );
+        expect(command).toEqual({
+            command: "/bin/sh",
+            args: [SCRIPT],
+            env: { MARIADB_SHELL_TAG: "v26.9.2" },
+        });
+        expect(buildInstallCommand("linux", "26.9.2", SCRIPT))
+            .toEqual(command);
     });
 
-    it("builds the same line on Linux", () => {
-        expect(buildInstallCommand("linux", "26.9.2"))
-            .toEqual(buildInstallCommand("darwin", "26.9.2"));
-    });
+    it("runs the downloaded install.ps1 as a file on Windows", () => {
+        const script = "C:\\Temp\\install.ps1";
 
-    it("builds the PowerShell line on Windows", () => {
-        const command = buildInstallCommand("win32", "26.9.2");
-
-        expect(command.command).toBe("powershell.exe");
-        expect(command.args).toContain("-NoProfile");
-        expect(command.args).toContain("-ExecutionPolicy");
-        expect(command.args.at(-1)).toBe(
-            "$env:MARIADB_SHELL_TAG = 'v26.9.2'; "
-            + "irm https://github.com/mariadb-corporation/mariadb-shell"
-            + "/raw/main/install.ps1 | iex",
-        );
-    });
-
-    it("pins the tag that was asked for", () => {
-        expect(buildInstallCommand("darwin", "27.0.0").args[1])
-            .toContain("MARIADB_SHELL_TAG=v27.0.0");
+        expect(buildInstallCommand("win32", "26.9.2", script)).toEqual({
+            command: "powershell.exe",
+            args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy",
+                "RemoteSigned", "-File", script],
+            env: { MARIADB_SHELL_TAG: "v26.9.2" },
+        });
     });
 });
 
@@ -122,33 +102,58 @@ describe("installShell", () => {
         "==> Verifying checksum",
         "==> Unpacking into /Users/mzinner/.local/share/mariadb-shell",
     ];
+    const url = installScriptUrl("darwin", "26.9.2");
 
-    it("runs the installer for the current platform", async () => {
-        const runner = createFakeRunner(transcript);
-        const progress = createRecordingProgress();
+    /** An install on macOS where nothing goes wrong, but what is changed. */
+    const deps = (
+        changes: Partial<InstallDependencies> = {},
+    ): InstallDependencies => {
+        return {
+            platform: "darwin",
+            runner: createFakeRunner(),
+            scripts: createFakeInstallScripts(),
+            progress: createRecordingProgress(),
+            ...changes,
+        };
+    };
 
-        await installShell(
-            { platform: "darwin", runner, progress },
-            "26.9.2",
-        );
+    it("downloads the release's script, runs it as a file and removes it",
+        async () => {
+            const runner = createFakeRunner(transcript);
+            const scripts = createFakeInstallScripts();
 
-        expect(runner.calls).toHaveLength(1);
-        expect(runner.calls[0]).toEqual(
-            buildInstallCommand("darwin", "26.9.2"),
-        );
+            await installShell(deps({ runner, scripts }), "26.9.2");
+
+            expect(scripts.downloads).toEqual([url]);
+            expect(runner.calls).toEqual([
+                buildInstallCommand("darwin", "26.9.2", SCRIPT),
+            ]);
+            expect(scripts.removed).toEqual([SCRIPT]);
+        });
+
+    it("runs install.ps1 on Windows", async () => {
+        const runner = createFakeRunner();
+        const scripts = createFakeInstallScripts();
+
+        await installShell(deps({ platform: "win32", runner, scripts }),
+            "26.9.2");
+
+        expect(scripts.downloads)
+            .toEqual([installScriptUrl("win32", "26.9.2")]);
+        expect(runner.calls[0].args.at(-1))
+            .toBe(fakeScriptPath("install.ps1"));
     });
 
     it("reports download and extraction progress", async () => {
-        const runner = createFakeRunner(transcript);
         const progress = createRecordingProgress();
 
-        await installShell(
-            { platform: "darwin", runner, progress },
-            "26.9.2",
-        );
+        await installShell(deps({
+            runner: createFakeRunner(transcript), progress,
+        }), "26.9.2");
 
         expect(progress.titles).toEqual(["Installing MariaDB Shell 26.9.2"]);
         expect(progress.messages).toEqual([
+            "Downloading the installer...",
             "Starting the installer...",
             "Detected: macos 15, arm64",
             "Fetching package list from the v26.9.2 release",
@@ -158,57 +163,61 @@ describe("installShell", () => {
         ]);
     });
 
-    it("throws when the installer fails", async () => {
-        const runner = createFakeRunner(
-            ["install.sh: required command not found: curl"],
-            1,
-        );
-        const progress = createRecordingProgress();
+    it("throws when the installer fails, and removes its file", async () => {
+        const scripts = createFakeInstallScripts();
 
-        await expect(installShell(
-            { platform: "darwin", runner, progress },
-            "26.9.2",
-        )).rejects.toThrow(
+        await expect(installShell(deps({
+            runner: createFakeRunner(
+                ["install.sh: required command not found: curl"], 1),
+            scripts,
+        }), "26.9.2")).rejects.toThrow(
             "MariaDB Shell 26.9.2 could not be installed: required command "
             + "not found: curl (the installer exited with code 1).",
         );
+        expect(scripts.removed).toEqual([SCRIPT]);
     });
 
     it("says only the exit code when the installer gave no reason",
         async () => {
-            await expect(installShell(
-                {
-                    platform: "darwin",
-                    runner: createFakeRunner(["==> Downloading"], 2),
-                    progress: createRecordingProgress(),
-                },
-                "26.9.2",
-            )).rejects.toThrow("MariaDB Shell 26.9.2 could not be installed: "
-                + "the installer exited with code 2.");
+            await expect(installShell(deps({
+                runner: createFakeRunner(["==> Downloading"], 2),
+            }), "26.9.2")).rejects.toThrow("MariaDB Shell 26.9.2 could not "
+                + "be installed: the installer exited with code 2.");
         });
 
-    it("logs the command, everything it printed and how it ended",
+    it("says the script could not be downloaded, running nothing", async () => {
+        const runner = createFakeRunner();
+        const log = createRecordingLog();
+        const said = "The MariaDB Shell installer could not be downloaded "
+            + `from ${url}: HTTP 404 Not Found`;
+
+        await expect(installShell(deps({
+            runner, scripts: createFakeInstallScripts("HTTP 404 Not Found"),
+            log,
+        }), "26.9.2")).rejects.toThrow(said);
+        expect(runner.calls).toEqual([]);
+        expect(log.lines.at(-1)).toBe(said);
+    });
+
+    it("logs the script, the command, everything it printed and how it ended",
         async () => {
             const log = createRecordingLog();
 
-            await installShell(
-                {
-                    platform: "darwin",
-                    runner: createFakeRunner([
-                        "==> Downloading",
-                        "\r###      12.0%\r##########  100.0%",
-                        "some noise",
-                    ]),
-                    progress: createRecordingProgress(),
-                    log,
-                },
-                "26.9.2",
-            );
+            await installShell(deps({
+                runner: createFakeRunner([
+                    "==> Downloading",
+                    "\r###      12.0%\r##########  100.0%",
+                    "some noise",
+                ]),
+                log,
+            }), "26.9.2");
 
-            expect(log.lines[0]).toMatch(
-                /^Installing MariaDB Shell 26\.9\.2: \/bin\/sh -c "script=/);
+            expect(log.lines[0])
+                .toBe(`Installing MariaDB Shell 26.9.2 with ${url}.`);
+            expect(log.lines[1]).toBe("Running the installer: "
+                + `MARIADB_SHELL_TAG=v26.9.2 /bin/sh ${SCRIPT}`);
             // The progress bar is not worth a log line of its own.
-            expect(log.lines.slice(1, -1)).toEqual([
+            expect(log.lines.slice(2, -1)).toEqual([
                 "  installer: ==> Downloading",
                 "  installer: some noise",
             ]);
@@ -223,15 +232,9 @@ describe("installShell", () => {
             },
         };
 
-        await expect(installShell(
-            {
-                platform: "darwin",
-                runner,
-                progress: createRecordingProgress(),
-            },
-            "26.9.2",
-        )).rejects.toThrow("The MariaDB Shell installer could not be run "
-            + "(/bin/sh): spawn /bin/sh ENOENT");
+        await expect(installShell(deps({ runner }), "26.9.2")).rejects
+            .toThrow("The MariaDB Shell installer could not be run "
+                + "(/bin/sh): spawn /bin/sh ENOENT");
     });
 
     it("says it was cancelled when the user cancelled it", async () => {
@@ -257,10 +260,8 @@ describe("installShell", () => {
             },
         };
 
-        await expect(installShell(
-            { platform: "darwin", runner, progress },
-            "26.9.2",
-        )).rejects.toThrow("Installing MariaDB Shell 26.9.2 was cancelled.");
+        await expect(installShell(deps({ runner, progress }), "26.9.2"))
+            .rejects.toThrow("Installing MariaDB Shell 26.9.2 was cancelled.");
     });
 });
 

@@ -77,8 +77,21 @@ export const AGENT_MCP_SERVER_ARGS = [
  */
 export const MCP_SERVER_ARGS = [...AGENT_MCP_SERVER_ARGS, "--gui"];
 
-export const INSTALL_SCRIPT_URL_POSIX =
-    "https://github.com/mariadb-corporation/mariadb-shell/raw/main/install.sh";
-
-export const INSTALL_SCRIPT_URL_WINDOWS =
-    "https://github.com/mariadb-corporation/mariadb-shell/raw/main/install.ps1";
+/**
+ * Where a release's install script is: the one in the shell repository at
+ * that release's tag, so the script is the one released with the shell it
+ * installs rather than whatever `main` holds today.
+ *
+ * @param platform The platform it installs on.
+ * @param version The release, without the leading `v`.
+ *
+ * @returns The script's URL: `install.ps1` on Windows, `install.sh`
+ *          elsewhere.
+ */
+export const installScriptUrl = (
+    platform: NodeJS.Platform,
+    version: string,
+): string => {
+    return "https://github.com/mariadb-corporation/mariadb-shell/raw/"
+        + `v${version}/${platform === "win32" ? "install.ps1" : "install.sh"}`;
+};

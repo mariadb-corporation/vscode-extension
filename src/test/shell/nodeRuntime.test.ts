@@ -16,12 +16,15 @@
  */
 
 import * as fs from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+    createNodeInstallScripts,
     createNodeProcessRunner,
     createNodeShellEnvironment,
 } from "../../shell/nodeRuntime.js";
@@ -151,6 +154,20 @@ describe("createNodeProcessRunner", () => {
                 .toEqual(["==> Downloading", "==> Unpacking"]);
         });
 
+    it("sets the command's variables beside the host's own", async () => {
+        const runner = createNodeProcessRunner();
+        const lines: string[] = [];
+
+        await runner.run({
+            command: process.execPath,
+            args: ["-e", "console.log(process.env.MARIADB_SHELL_TAG, "
+                + "process.env.PATH === undefined ? 'no PATH' : 'PATH');"],
+            env: { MARIADB_SHELL_TAG: "v26.10.3" },
+        }, (line) => { lines.push(line); });
+
+        expect(lines).toEqual(["v26.10.3 PATH"]);
+    });
+
     it("reports a non-zero exit code", async () => {
         const runner = createNodeProcessRunner();
 
@@ -211,4 +228,85 @@ describe("createNodeProcessRunner", () => {
                     .toThrow();
             });
         }, 10_000);
+});
+
+describe("createNodeInstallScripts", () => {
+    let server: Server;
+    let base: string;
+
+    beforeAll(async () => {
+        // GitHub's raw links answer with a redirect, which the download
+        // has to follow.
+        server = createServer((request, response) => {
+            if (request.url === "/raw/v1/install.sh") {
+                response.writeHead(302, { location: "/files/install.sh" });
+                response.end();
+            } else if (request.url === "/files/install.sh") {
+                response.end("#!/bin/sh\necho \"tag $MARIADB_SHELL_TAG\"\n");
+            } else {
+                response.writeHead(404, "Not Found");
+                response.end();
+            }
+        });
+        await new Promise<void>((resolve) => {
+            server.listen(0, "127.0.0.1", resolve);
+        });
+        const { port } = server.address() as AddressInfo;
+        base = `http://127.0.0.1:${String(port)}`;
+    });
+
+    afterAll(async () => {
+        await new Promise((resolve) => { server.close(resolve); });
+    });
+
+    /** The folders downloads were made in, as the system's tmp lists them. */
+    const installFolders = async (): Promise<string[]> => {
+        return (await fs.readdir(os.tmpdir())).filter((name) => {
+            return name.startsWith("mariadb-shell-install-");
+        });
+    };
+
+    it("downloads a script into a folder of its own, named as the URL names it",
+        async () => {
+            const script = await createNodeInstallScripts().fetch(
+                `${base}/raw/v1/install.sh`, new AbortController().signal);
+
+            expect(path.basename(script.path)).toBe("install.sh");
+            expect(await fs.readFile(script.path, "utf8"))
+                .toBe("#!/bin/sh\necho \"tag $MARIADB_SHELL_TAG\"\n");
+            await script.remove();
+            await expect(fs.stat(path.dirname(script.path))).rejects
+                .toThrow(/ENOENT/u);
+        });
+
+    it("refuses an answer that is not the script, leaving nothing behind",
+        async () => {
+            const before = await installFolders();
+
+            await expect(createNodeInstallScripts().fetch(
+                `${base}/raw/v1/missing.sh`, new AbortController().signal))
+                .rejects.toThrow("HTTP 404 Not Found");
+            expect(await installFolders()).toEqual(before);
+        });
+
+    it("runs a fetched script as a file, the tag in its environment",
+        async () => {
+            if (process.platform === "win32") {
+                return;
+            }
+            const script = await createNodeInstallScripts().fetch(
+                `${base}/raw/v1/install.sh`, new AbortController().signal);
+            const lines: string[] = [];
+            try {
+                const code = await createNodeProcessRunner().run({
+                    command: "/bin/sh", args: [script.path],
+                    env: { MARIADB_SHELL_TAG: "v26.10.3" },
+                }, (line) => { lines.push(line); });
+
+                expect(code).toBe(0);
+                expect(lines).toEqual(["tag v26.10.3"]);
+            } finally {
+                await script.remove();
+            }
+        });
 });

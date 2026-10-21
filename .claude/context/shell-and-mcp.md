@@ -15,12 +15,12 @@ which is what most of GUI mode exists for, is in
 | `constants.ts` | Minimum shell version, MCP server arguments, installer URLs. |
 | `version.ts` | Version parsing and comparison, including the `mariadb-shell --version` line. |
 | `locator.ts` | Finds a usable shell on the PATH or among the managed installations. |
-| `installer.ts` | Builds and runs the platform installer, reporting its progress. |
+| `installer.ts` | Downloads the release's install script (`InstallScripts`), runs it as a file, reporting its progress. |
 | `bootstrap.ts` | `ensureShell()` — locate, else install, else fail. |
 | `shellResolver.ts` | `ShellResolver` — runs that lookup once however many callers ask, for both servers on the shell (this extension's and Copilot's, see [copilot.md](copilot.md)), telling each caller, late joiners too, when the installer runs. |
 | `mcpServer.ts` | Builds the command that makes a shell host the MCP server, for this extension (`gui`) or for an agent such as Copilot (`agent`, without `--gui`). |
 | `lineReader.ts` | Reassembles whole lines from chunked child process output. |
-| `nodeRuntime.ts` | The real `child_process` / `fs` implementations of the interfaces above. |
+| `nodeRuntime.ts` | The real `child_process` / `fs` / `fetch` implementations of the interfaces above, `createNodeInstallScripts` among them. |
 | `vscodeProgress.ts` | The `vscode.window.withProgress` implementation of `ProgressHost`. |
 
 ## `src/mcp/`
@@ -61,17 +61,26 @@ drives the shell lookup:
    binary at `<version>/bin/mariadb-shell` is probed, and what it reports
    wins over what the directory is called.
 3. **Install** — if neither has a new enough shell, run the official
-   installer for the platform (curl-into-bash, or PowerShell on Windows)
-   with `MARIADB_SHELL_TAG` pinned. It runs inside
+   installer for the platform with `MARIADB_SHELL_TAG` pinned: the
+   release tag's own `install.sh` / `install.ps1`
+   (`installScriptUrl`, `raw/v<version>/...`), downloaded with `fetch`
+   into a temporary folder and run as a file - `/bin/sh <file>`, or
+   `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy
+   RemoteSigned -File <file>` - then deleted. **Never piped into an
+   interpreter**: curl-into-bash and `irm | iex`, what the shell's own
+   documentation has users paste, are what malware does, and the
+   Marketplace refused the extension with "suspicious content" while it
+   carried them (`tools/checkPackage.mts` keeps them out of the package). `RemoteSigned` is
+   enough on Windows, whose default policy runs no script at all: a file
+   the extension wrote has no mark of having come from the internet. A
+   download that fails is an error of its own, naming the URL. It runs inside
    `vscode.window.withProgress()` at `ProgressLocation.Notification`; both
    installer scripts prefix their progress with `==> `, so `Downloading`,
    `Verifying checksum` and `Unpacking into ...` become the notification's
-   message as they arrive. The notification is **cancellable**: the runner
-   spawns the installer in its own process group (POSIX) and kills the
-   group, so curl and bash go too. The POSIX command fetches the script
-   into a variable first (`script=$(curl ...) || exit $?`) instead of
-   piping curl into bash - a pipe's status is bash's, so a failed
-   download would exit 0 and surface as "no shell found afterwards".
+   message as they arrive. The notification is **cancellable**: the
+   script's download is aborted, and the runner spawns the installer in
+   its own process group (POSIX) and kills the group, so the curl the
+   script runs goes too.
 
 `McpSession` then starts
 `<shell> -- mcp start-server --transport=stdio --gui` through the MCP SDK's
@@ -100,7 +109,8 @@ something failed:
   and why it was not used, the local installations found and why each
   was skipped. `createNodeShellEnvironment(log)` adds why a probe could
   not run: not found, not executable (EACCES), timed out, or the error.
-- The install: the full command, every installer line (curl's
+- The install: the script's URL, the full command (with
+  `MARIADB_SHELL_TAG`), every installer line (curl's
   carriage-return progress bar filtered out), exit code and duration.
   The thrown error quotes the installer's own `install.sh:` /
   `install.ps1:` message and curl's error (`summarizeInstallerFailure`).

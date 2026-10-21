@@ -2620,6 +2620,8 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "package": "vsce package --no-dependencies",
+    "postpackage": "npm run check:package",
+    "check:package": "node tools/checkPackage.mts",
     "build": "npm run clean && npm run sync:skills && npm run build:extension && npm run build:webview",
     "sync:skills": "node tools/syncAiSkills.mts",
     "watch": "vite build --watch",

@@ -44,7 +44,12 @@ import type {
     IMrsStatus,
     IMrsUser,
 } from "../mrs/mrsTypes.js";
-import type { InstallCommand, ProcessRunner } from "../shell/installer.js";
+import type {
+    InstallCommand,
+    InstallScripts,
+    ProcessRunner,
+    ProgressHost,
+} from "../shell/installer.js";
 import type { ShellEnvironment } from "../shell/locator.js";
 import type { McpServerCommand } from "../shell/mcpServer.js";
 
@@ -131,6 +136,90 @@ export const createFakeRunner = (
             }
 
             return Promise.resolve(exitCode);
+        },
+    };
+};
+
+/** Where the fake install scripts say they saved a script. */
+export const FAKE_SCRIPT_FOLDER = "/tmp/mariadb-shell-install-test";
+
+/**
+ * @param name The script's file name.
+ *
+ * @returns Where the fake install scripts save it.
+ */
+export const fakeScriptPath = (name = "install.sh"): string => {
+    return `${FAKE_SCRIPT_FOLDER}/${name}`;
+};
+
+export interface FakeInstallScripts extends InstallScripts {
+    /** The URLs fetched, in order. */
+    downloads: string[];
+    /** The files removed again. */
+    removed: string[];
+}
+
+/**
+ * Builds install scripts that download nothing: every URL is "saved" to
+ * {@link fakeScriptPath} under the name it ends in, or fails.
+ *
+ * @param fail Why every download fails, where it is to.
+ *
+ * @returns The fake, recording what it was asked for.
+ */
+export const createFakeInstallScripts = (fail?: string): FakeInstallScripts => {
+    const downloads: string[] = [];
+    const removed: string[] = [];
+
+    return {
+        downloads,
+        removed,
+        fetch: (url) => {
+            downloads.push(url);
+            if (fail !== undefined) {
+                return Promise.reject(new Error(fail));
+            }
+            const path = fakeScriptPath(url.slice(url.lastIndexOf("/") + 1));
+
+            return Promise.resolve({
+                path,
+                remove: () => {
+                    removed.push(path);
+
+                    return Promise.resolve();
+                },
+            });
+        },
+    };
+};
+
+/**
+ * Builds a progress host that records the titles and messages it was given.
+ *
+ * @returns The host and the recordings it collects.
+ */
+export const createRecordingProgress = (): ProgressHost & {
+    titles: string[];
+    messages: string[];
+} => {
+    const titles: string[] = [];
+    const messages: string[] = [];
+
+    return {
+        titles,
+        messages,
+        withProgress: async <T>(
+            title: string,
+            task: (
+                report: (message: string) => void,
+                signal: AbortSignal,
+            ) => Promise<T>,
+        ) => {
+            titles.push(title);
+
+            return await task((message) => {
+                messages.push(message);
+            }, new AbortController().signal);
         },
     };
 };

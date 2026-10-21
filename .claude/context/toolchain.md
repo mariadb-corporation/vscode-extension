@@ -48,6 +48,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | --- | --- |
 | `npm run build` | Clean `dist/`, fetch the Copilot skills, then bundle the extension and the webview. |
 | `npm run sync:skills` | Fill the `skills/` cache from the ai-plugins release `aiPlugins.release` pins and match `contributes.chatSkills` to it (`--latest` moves the pin to the newest release first). See [copilot.md](copilot.md). |
+| `npm run check:package` | Check what the `.vsix` is made of (`vsce ls`) for what the Marketplace refuses; `npm run package` runs it. See Packaging. |
 | `npm run clean` | Remove `dist/`. |
 | `npm run watch` | Rebuild the extension on change. |
 | `npm run watch:webview` | Rebuild the webview on change. |
@@ -100,11 +101,26 @@ since those come from `contributes`, not from the name.
 - **`--no-dependencies` is required.** The four runtime dependencies are
   bundled into `dist/` by Vite; without the flag vsce ships their
   `node_modules` as well, thousands of files for nothing.
+- **`npm run package` checks the package afterwards** (`postpackage`
+  runs `check:package`, `tools/checkPackage.mts`; a post script, so that
+  `npm run package -- --pre-release` still hands the flag to vsce), for what the Marketplace refuses as
+  "suspicious content" without saying what: any text file that pipes a
+  script into a shell (`curl ... | bash`, `... | VAR=x bash`), runs one
+  with `iex` / `Invoke-Expression`, passes `-ExecutionPolicy Bypass` or
+  `-EncodedCommand`; and a dotfile, a source map or TypeScript in the
+  package. It refused 26.10.1 for the installer's old download cradles and
+  a Mac's `images/.DS_Store`, which the check flags in that package. The
+  skills come from ai-plugins, so a skill documenting `curl ... | sh` is
+  caught here too. CI packages on Linux, which has no `.DS_Store`, so the
+  check matters most on the Mac `/release` packages on.
 - **`.vscodeignore` decides what ships**, and it is an allow-by-exception
   list: sources, tests, configs, the grammar tooling, the context notes, the
   workspace file and the CI workflow stay out; `dist/` (without its source
   maps) and `images/` go in. A file added at the repository root ships
   unless it is listed there - check with `npx vsce ls --no-dependencies`.
+  A negated pattern (`!images/**`) wins over every ignore, `.DS_Store`
+  included, so what ships from a folder is listed by type
+  (`!images/**/*.svg`).
 - **The README's links are absolute** on purpose: vsce rewrites relative
   links against the repository root, and in the plugins monorepo that
   pointed them at the wrong directory. `LICENSE` is packaged as

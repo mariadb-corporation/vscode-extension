@@ -129,6 +129,9 @@ vi.mock("../shell/nodeRuntime.js", async () => {
 
             return runtime.runner;
         },
+        createNodeInstallScripts: () => {
+            return helpers.createFakeInstallScripts();
+        },
     };
 });
 
