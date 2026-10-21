@@ -16,7 +16,7 @@
  */
 
 import { mkdirSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -334,7 +334,7 @@ describe("New MSM Project", () => {
             expect(recorded.revealed).toEqual([]);
         });
 
-    it("is one General Action, with a row per call under it", async () => {
+    it("is a General Action, and reading the new project another", async () => {
         const recorded = setUp();
         await run(MSM_COMMANDS.create, folder("/work"));
         const load = await loaded();
@@ -343,20 +343,52 @@ describe("New MSM Project", () => {
             copyrightHolder: "Ada",
         } });
 
-        const { connection, row } = lastAction(recorded);
-        expect(connection).toBe(GENERAL_ACTIONS);
-        expect(row.role).toBe("run");
-        expect(row.kind).toBe("info");
-        expect(row.message).toBe("Created MSM project for schema sakila");
-        expect(row.summary).toBe(PROJECT);
-        expect(row.children?.map((child) => { return child.message; }))
-            .toEqual(["Created the project folder", "Read the new project"]);
-        expect(row.children?.[0].statement).toBe(PROJECT);
+        const [created, read] = [...actions(recorded).values()]
+            .filter((put) => { return put.row.role === "run"; });
+        expect(created.connection).toBe(GENERAL_ACTIONS);
+        expect(created.row.kind).toBe("info");
+        expect(created.row.message)
+            .toBe("Created MSM project for schema sakila");
+        expect(created.row.summary).toBe(PROJECT);
+        expect(created.row.children?.map((child) => { return child.message; }))
+            .toEqual(["Created the project folder"]);
+        expect(created.row.children?.[0].statement).toBe(PROJECT);
+        expect(read.connection).toBe(GENERAL_ACTIONS);
+        expect(read.row.kind).toBe("info");
+        expect(read.row.message)
+            .toBe("Read the new MSM project sakila.msm.project");
         // Every row was up while it ran, the spinner on it.
         expect(recorded.rows[0].row.kind).toBe("pending");
         expect(recorded.rows[0].row.message)
             .toBe("Creating MSM project for schema sakila…");
     });
+
+    it("says on its own that the new project cannot be read, it being made",
+        async () => {
+            const recorded = setUp({
+                fail: ["projectInformation", "Timed out."],
+            });
+            await run(MSM_COMMANDS.create, folder("/work"));
+            const load = await loaded();
+            await receive({ type: "submit", values: {
+                ...(load.values as IMsmCreateValues), schemaName: "sakila",
+                copyrightHolder: "Ada",
+            } });
+
+            // Created: the dialog closed, its action done.
+            expect(panel().disposed).toBe(true);
+            expect(errorsPosted()).toEqual([]);
+            const [created, read] = [...actions(recorded).values()]
+                .filter((put) => { return put.row.role === "run"; });
+            expect(created.row.kind).toBe("info");
+            // The reading is the failure, and says so.
+            expect(read.row.kind).toBe("error");
+            const said = new RegExp("sakila\\.msm\\.project was created, but "
+                + "could not be read: Timed out\\.", "u");
+            expect(errorMessages.join("\n")).toMatch(said);
+            expect(shownDocuments).toEqual([]);
+            expect(recorded.revealed).toEqual([]);
+        });
 
     it("says on its own that the new script cannot be opened, the project made",
         async () => {
@@ -424,6 +456,25 @@ describe("New MSM Project", () => {
             expect(recorded.calls[0].args[0]).toMatchObject({
                 targetPath: "/nowhere", enforceTargetPath: true,
             });
+        });
+
+    it("reads ~ as the home folder, and leaves a relative one to the server",
+        async () => {
+            const recorded = setUp({ existing: [homedir()] });
+            for (const targetPath of ["~", "projects"]) {
+                await run(MSM_COMMANDS.create, folder("/work"));
+                const load = await loaded();
+                await receive({ type: "submit", values: {
+                    ...(load.values as IMsmCreateValues),
+                    schemaName: "sakila", copyrightHolder: "Ada", targetPath,
+                } });
+            }
+
+            expect(recorded.calls.filter((call) => {
+                return call.name === "createProject";
+            }).map((call) => {
+                return (call.args[0] as { targetPath: string }).targetPath;
+            })).toEqual(["~", "projects"]);
         });
 
     it("refuses to replace a project unless told to", async () => {
@@ -866,7 +917,9 @@ describe("Deploy Schema", () => {
         // Closed however the deploy went.
         expect(recorded.disconnected).toEqual(recorded.sessions);
         expect(recorded.shownActions).toEqual([SERVER]);
-        expect(recorded.refreshed).toEqual([]);
+        // Read again all the same: a script that failed partway may have
+        // made the schema already.
+        expect(recorded.refreshed).toEqual([SERVER]);
         const { connection, row } = lastAction(recorded);
         expect(connection).toBe(SERVER);
         expect(row.kind).toBe("error");

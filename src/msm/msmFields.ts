@@ -96,7 +96,7 @@ export interface IMsmDeploymentScriptValues {
 export interface IMsmDeployValues {
     /** The connection's URI; empty until one is picked. */
     connection: string;
-    /** Empty for the newest version with a deployment script. */
+    /** A version with a deployment script; empty only where none has. */
     version: string;
     backup: boolean;
     /** Empty for the project's own `backups` folder. */
@@ -133,8 +133,12 @@ export const MSM_TITLES: Record<MsmDialogKind, string> = {
 /** The suffix that makes a folder a schema project. */
 const MSM_PROJECT_SUFFIX = ".msm.project";
 
-/** A version, as the plugin takes it: major.minor.patch. */
-const VERSION = /^(\d+)\.(\d+)\.(\d+)$/u;
+/**
+ * A version, as the plugin takes it: major.minor.patch, without leading
+ * zeros - the plugin names a release's files by the text, so `01.0.0`
+ * would be a second release of 1.0.0 beside the first.
+ */
+const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 
 /** A schema name usable without quotes. */
 const PLAIN_SCHEMA_NAME = /^[A-Za-z0-9_][A-Za-z0-9_$]*$/u;
@@ -471,8 +475,7 @@ export const deployProblem = (
             message: "Choose the connection to deploy onto.",
         };
     }
-    if (values.version !== ""
-        && !project.deploymentScriptVersions.includes(values.version)) {
+    if (!project.deploymentScriptVersions.includes(values.version)) {
         return {
             field: "version",
             message: "Choose a version with a deployment script.",

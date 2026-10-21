@@ -15,7 +15,8 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { basename, join } from "node:path";
+import { homedir } from "node:os";
+import { basename, isAbsolute, join } from "node:path";
 
 import * as vscode from "vscode";
 
@@ -37,8 +38,7 @@ import {
     type IMsmReleaseOptions,
 } from "../mcp/msmApi.js";
 import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
-import { counted } from "../text.js";
-import { newestFirst } from "../versionOrder.js";
+import { counted, errorText } from "../text.js";
 import {
     createDefaults,
     deployDefaults,
@@ -246,7 +246,13 @@ export class MsmCommands {
                 + `project folder: its name has to end in .msm.project.`);
         }
 
-        await this.#show(kind, await this.#read(projectPath));
+        // Deploy Schema's connections are read side by side with it.
+        const connections = kind === "deploy"
+            ? this.host.connectionUris() : undefined;
+        // Handled where it is awaited; not left unhandled should the
+        // project's reading fail first.
+        connections?.catch(() => { /* awaited in #show */ });
+        await this.#show(kind, await this.#read(projectPath), connections);
     }
 
     /**
@@ -254,10 +260,13 @@ export class MsmCommands {
      *
      * @param kind The dialog.
      * @param project The project.
+     * @param connectionUris The connections Deploy Schema offers, where
+     *                       they are being read already.
      */
     async #show(
         kind: ProjectDialogKind,
         project: IMsmProjectContext,
+        connectionUris?: Promise<string[]>,
     ): Promise<void> {
         const title = `${MSM_TITLES[kind]} - ${project.schemaName}`;
         const show = <K extends ProjectDialogKind>(
@@ -308,10 +317,11 @@ export class MsmCommands {
             }
 
             default: {
-                const connections = (await this.host.connectionUris())
-                    .map((uri) => {
-                        return { uri, label: connectionLabel(uri) };
-                    });
+                const uris = await (connectionUris
+                    ?? this.host.connectionUris());
+                const connections = uris.map((uri) => {
+                    return { uri, label: connectionLabel(uri) };
+                });
                 show({
                     kind, connections,
                     values: deployDefaults(project, connections,
@@ -399,7 +409,15 @@ export class MsmCommands {
         values: IMsmCreateValues,
     ): Promise<IMsmProblem | undefined> {
         const exists = this.host.exists ?? pathExists;
-        const target = values.targetPath.trim();
+        // As the plugin reads it: `~` is the home folder. A relative path
+        // it resolves against its own folder, which is not known here, so
+        // that is left to it.
+        const typed = values.targetPath.trim();
+        const target = /^~(?=$|[\\/])/u.test(typed)
+            ? homedir() + typed.slice(1) : typed;
+        if (!isAbsolute(target)) {
+            return undefined;
+        }
         if (!values.createTargetPath && !await exists(target)) {
             return {
                 field: "targetPath",
@@ -433,41 +451,61 @@ export class MsmCommands {
             doing: `Creating MSM project for schema ${schemaName}`,
             done: `Created MSM project for schema ${schemaName}`,
         });
-        const { projectPath, info } = await group.run(async () => {
-            const api = await this.host.msmApi();
-            const options: IMsmCreateOptions = {
-                schemaName, targetPath, copyrightHolder,
-                license: values.license,
-                allowSpecialChars: values.allowSpecialChars,
-                overwriteExisting: values.overwriteExisting,
-                enforceTargetPath: values.createTargetPath,
-            };
-            const created = await group.step({
+        const options: IMsmCreateOptions = {
+            schemaName, targetPath, copyrightHolder,
+            license: values.license,
+            allowSpecialChars: values.allowSpecialChars,
+            overwriteExisting: values.overwriteExisting,
+            enforceTargetPath: values.createTargetPath,
+        };
+        const projectPath = await group.run(() => {
+            return group.step({
                 doing: "Creating the project folder",
                 done: "Created the project folder",
             }, msmCall("msm.create_project",
-                msmToolArgs.createProject(options)), () => {
-                return api.createProject(options);
+                msmToolArgs.createProject(options)), async () => {
+                return (await this.host.msmApi()).createProject(options);
             }, { detail: (path) => { return path; } });
-            const read = await group.step({
-                doing: "Reading the new project",
-                done: "Read the new project",
-            }, msmCall("msm.get_project_information",
-                msmToolArgs.project(created)), () => {
-                return api.projectInformation(created);
-            }, {
-                detail: (project) => {
-                    return project.schemaDevelopmentFilePath;
-                },
-            });
+        }, (path) => { return path; });
 
-            return { projectPath: created, info: read };
-        }, (done) => { return done.projectPath; });
-
+        // The project is made once the folder is: reading it back, to open
+        // its development script, is not the creation failing - pressing
+        // Create again would be refused, the folder being there.
         this.#afterwards(async () => {
+            const info = await this.#readBack(projectPath);
             await this.#showFile(info.schemaDevelopmentFilePath);
             await this.#reveal(projectPath);
         });
+    }
+
+    /**
+     * Reads a project just created, as an action of its own.
+     *
+     * @param projectPath The project folder.
+     *
+     * @returns Its information.
+     */
+    async #readBack(projectPath: string): Promise<IMsmProjectInfo> {
+        const name = basename(projectPath);
+        const words = {
+            doing: `Reading the new MSM project ${name}`,
+            done: `Read the new MSM project ${name}`,
+        };
+        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
+        try {
+            return await group.run(() => {
+                return group.step(words, msmCall("msm.get_project_information",
+                    msmToolArgs.project(projectPath)), async () => {
+                    return (await this.host.msmApi())
+                        .projectInformation(projectPath);
+                }, {
+                    detail: (info) => { return info.schemaDevelopmentFilePath; },
+                });
+            }, (info) => { return info.schemaDevelopmentFilePath; });
+        } catch (error) {
+            throw new Error(`${name} was created, but could not be read: `
+                + errorText(error));
+        }
     }
 
     /**
@@ -551,7 +589,8 @@ export class MsmCommands {
 
     /**
      * Deploys the schema onto a connection, as an action of that
-     * connection's, and has the tree and completion read it again.
+     * connection's, on a session of its own, and has the tree and
+     * completion read the server again.
      *
      * @param project The project.
      * @param values What Deploy Schema says.
@@ -560,53 +599,56 @@ export class MsmCommands {
         project: IMsmProjectContext,
         values: IMsmDeployValues,
     ): Promise<void> {
-        const version = values.version === ""
-            ? newestFirst(project.deploymentScriptVersions)[0]
-            : values.version;
+        const { version } = values;
         const backupDirectory = values.backup
             && values.backupDirectory.trim() !== ""
             ? values.backupDirectory.trim() : undefined;
         const server = connectionLabel(values.connection);
-        const what = `${project.schemaName} ${version ?? ""} onto ${server}`;
+        const what = `${project.schemaName} ${version} onto ${server}`;
         const group = new ActionGroup(this.host.put, values.connection, {
             doing: `Deploying ${what}`,
             done: `Deployed ${what}`,
         });
         deploys += 1;
         const session = `${MSM_DEPLOY_SESSION} ${String(deploys)}`;
-        await group.run(async () => {
-            const connectionId = await group.step({
-                doing: `Connecting to ${server}`,
-                done: `Connected to ${server}`,
-            }, msmCall("db.connect", { uri: values.connection }), () => {
-                return this.host.connect(values.connection, session);
-            });
+        try {
+            await group.run(async () => {
+                const connectionId = await group.step({
+                    doing: `Connecting to ${server}`,
+                    done: `Connected to ${server}`,
+                }, msmCall("db.connect", { uri: values.connection }), () => {
+                    return this.host.connect(values.connection, session);
+                });
+                const options: IMsmDeployOptions = {
+                    projectPath: project.projectPath, connectionId, version,
+                    backup: values.backup,
+                    ...(backupDirectory === undefined
+                        ? {} : { backupDirectory }),
+                };
 
-            const options: IMsmDeployOptions = {
-                projectPath: project.projectPath, connectionId,
-                ...(version === undefined ? {} : { version }),
-                backup: values.backup,
-                ...(backupDirectory === undefined ? {} : { backupDirectory }),
-            };
-
-            try {
-                return await group.step({
-                    doing: `Deploying schema ${project.schemaName}`,
-                    done: `Deployed schema ${project.schemaName}`,
-                }, msmCall("msm.deploy_schema",
-                    msmToolArgs.deploySchema(options)), async () => {
-                    return (await this.host.msmApi()).deploySchema(options);
-                }, { detail: (said) => { return said; } });
-            } finally {
-                // Its work done, whichever way: nothing else uses it.
-                await this.host.disconnect(values.connection, session)
-                    .catch((error: unknown) => {
-                        this.host.log(`Closing ${session} on ${server} `
-                            + `failed: ${String(error)}`);
-                    });
-            }
-        }, (said) => { return said; });
-        this.host.refresh(values.connection);
+                try {
+                    return await group.step({
+                        doing: `Deploying schema ${project.schemaName}`,
+                        done: `Deployed schema ${project.schemaName}`,
+                    }, msmCall("msm.deploy_schema",
+                        msmToolArgs.deploySchema(options)), async () => {
+                        return (await this.host.msmApi())
+                            .deploySchema(options);
+                    }, { detail: (said) => { return said; } });
+                } finally {
+                    // Its work done, whichever way: nothing else uses it.
+                    await this.host.disconnect(values.connection, session)
+                        .catch((error: unknown) => {
+                            this.host.log(`Closing ${session} on ${server} `
+                                + `failed: ${String(error)}`);
+                        });
+                }
+            }, (said) => { return said; });
+        } finally {
+            // However it went: a script that failed partway may have made
+            // or changed the schema already, or a backup been loaded back.
+            this.host.refresh(values.connection);
+        }
     }
 
     /**

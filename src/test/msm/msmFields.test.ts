@@ -67,7 +67,8 @@ describe("versions", () => {
     it("parses major.minor.patch and nothing else", () => {
         expect(parseVersion("1.2.3")).toEqual([1, 2, 3]);
         expect(parseVersion(" 10.0.12 ")).toEqual([10, 0, 12]);
-        for (const bad of ["1.2", "1.2.3.4", "v1.2.3", "1.2.x", "", "1..3"]) {
+        for (const bad of ["1.2", "1.2.3.4", "v1.2.3", "1.2.x", "", "1..3",
+            "01.0.0", "1.0.00"]) {
             expect(parseVersion(bad)).toBeUndefined();
         }
     });
@@ -296,6 +297,8 @@ describe("Deploy Schema", () => {
 
         expect(deployProblem(PROJECT, values)).toBeUndefined();
         expect(deployProblem(PROJECT, { ...values, version: "1.0.0" })?.field)
+            .toBe("version");
+        expect(deployProblem(PROJECT, { ...values, version: "" })?.field)
             .toBe("version");
     });
 });

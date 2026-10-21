@@ -49,7 +49,16 @@ first four with input boxes one after another; Deploy is new.
   Connections view and completion would otherwise wait behind and see.
 - **What the work wrote is shown once its dialog closed** (`#afterwards`):
   a file that cannot be opened is a notification of its own, not the work
-  failing - the work was done, and doing it again would be refused. A
+  failing - the work was done, and doing it again would be refused. A new
+  project is read back the same way, as an action of its own ("Read the
+  new MSM project ..."): the creation is done once the folder is.
+- **A deploy has the tree and completion read the server again however it
+  went**: a script that failed partway may have made the schema already,
+  or a backup been loaded back.
+- The `~` of a typed target folder is the home folder, as the plugin reads
+  it; a relative one is the server's to resolve, so it is not checked.
+  Versions with leading zeros are refused: the plugin names a release's
+  files by the version text. A
   failure ends the group failed, brings the panel up on it
   (`showActions`), and is shown in the dialog.
 - **Lists of versions come from `structuredContent`**: the version tools
