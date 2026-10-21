@@ -212,26 +212,25 @@ export const createNodeProcessRunner = (): ProcessRunner => {
 
 /**
  * Downloads install scripts with Node's own `fetch`, which follows the
- * redirect GitHub's `raw` links answer with, and keeps each in a folder of
- * its own in the system's temporary folder while it runs.
+ * redirect GitHub's `raw` links answer with, each into a folder of its own
+ * in the system's temporary folder. The folder is made once the script is
+ * in, so a failed download leaves nothing behind.
  *
- * @returns The install scripts' download and files.
+ * @returns The install scripts' download.
  */
 export const createNodeInstallScripts = (): InstallScripts => {
     return {
-        download: async (url, signal) => {
+        fetch: async (url, signal) => {
             const response = await fetch(url, { signal });
             if (!response.ok) {
                 throw new Error(`HTTP ${String(response.status)} `
                     + response.statusText);
             }
-
-            return await response.text();
-        },
-        save: async (name, text) => {
+            const text = await response.text();
             const folder = await fs.mkdtemp(
                 path.join(os.tmpdir(), "mariadb-shell-install-"));
-            const file = path.join(folder, name);
+            const file = path.join(folder,
+                path.posix.basename(new URL(url).pathname));
             await fs.writeFile(file, text, { mode: 0o700 });
 
             return {

@@ -238,11 +238,11 @@ describe("createNodeInstallScripts", () => {
         // GitHub's raw links answer with a redirect, which the download
         // has to follow.
         server = createServer((request, response) => {
-            if (request.url === "/raw/install.sh") {
+            if (request.url === "/raw/v1/install.sh") {
                 response.writeHead(302, { location: "/files/install.sh" });
                 response.end();
             } else if (request.url === "/files/install.sh") {
-                response.end("#!/bin/sh\necho installed\n");
+                response.end("#!/bin/sh\necho \"tag $MARIADB_SHELL_TAG\"\n");
             } else {
                 response.writeHead(404, "Not Found");
                 response.end();
@@ -251,56 +251,62 @@ describe("createNodeInstallScripts", () => {
         await new Promise<void>((resolve) => {
             server.listen(0, "127.0.0.1", resolve);
         });
-        base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
+        const { port } = server.address() as AddressInfo;
+        base = `http://127.0.0.1:${String(port)}`;
     });
 
     afterAll(async () => {
         await new Promise((resolve) => { server.close(resolve); });
     });
 
-    it("downloads a script, following a redirect", async () => {
-        const text = await createNodeInstallScripts().download(
-            `${base}/raw/install.sh`, new AbortController().signal);
+    /** The folders downloads were made in, as the system's tmp lists them. */
+    const installFolders = async (): Promise<string[]> => {
+        return (await fs.readdir(os.tmpdir())).filter((name) => {
+            return name.startsWith("mariadb-shell-install-");
+        });
+    };
 
-        expect(text).toBe("#!/bin/sh\necho installed\n");
-    });
-
-    it("refuses an answer that is not the script", async () => {
-        await expect(createNodeInstallScripts().download(
-            `${base}/raw/missing.sh`, new AbortController().signal))
-            .rejects.toThrow("HTTP 404 Not Found");
-    });
-
-    it("keeps a script in a folder of its own until it is removed",
+    it("downloads a script into a folder of its own, named as the URL names it",
         async () => {
-            const saved = await createNodeInstallScripts()
-                .save("install.sh", "#!/bin/sh\nexit 0\n");
+            const script = await createNodeInstallScripts().fetch(
+                `${base}/raw/v1/install.sh`, new AbortController().signal);
 
-            expect(path.basename(saved.path)).toBe("install.sh");
-            expect(await fs.readFile(saved.path, "utf8"))
-                .toBe("#!/bin/sh\nexit 0\n");
-            await saved.remove();
-            await expect(fs.stat(path.dirname(saved.path))).rejects
+            expect(path.basename(script.path)).toBe("install.sh");
+            expect(await fs.readFile(script.path, "utf8"))
+                .toBe("#!/bin/sh\necho \"tag $MARIADB_SHELL_TAG\"\n");
+            await script.remove();
+            await expect(fs.stat(path.dirname(script.path))).rejects
                 .toThrow(/ENOENT/u);
         });
 
-    it("runs a saved script as a file", async () => {
-        if (process.platform === "win32") {
-            return;
-        }
-        const saved = await createNodeInstallScripts().save("install.sh",
-            "#!/bin/sh\necho \"tag $MARIADB_SHELL_TAG\"\n");
-        const lines: string[] = [];
-        try {
-            const code = await createNodeProcessRunner().run({
-                command: "/bin/sh", args: [saved.path],
-                env: { MARIADB_SHELL_TAG: "v26.10.3" },
-            }, (line) => { lines.push(line); });
+    it("refuses an answer that is not the script, leaving nothing behind",
+        async () => {
+            const before = await installFolders();
 
-            expect(code).toBe(0);
-            expect(lines).toEqual(["tag v26.10.3"]);
-        } finally {
-            await saved.remove();
-        }
-    });
+            await expect(createNodeInstallScripts().fetch(
+                `${base}/raw/v1/missing.sh`, new AbortController().signal))
+                .rejects.toThrow("HTTP 404 Not Found");
+            expect(await installFolders()).toEqual(before);
+        });
+
+    it("runs a fetched script as a file, the tag in its environment",
+        async () => {
+            if (process.platform === "win32") {
+                return;
+            }
+            const script = await createNodeInstallScripts().fetch(
+                `${base}/raw/v1/install.sh`, new AbortController().signal);
+            const lines: string[] = [];
+            try {
+                const code = await createNodeProcessRunner().run({
+                    command: "/bin/sh", args: [script.path],
+                    env: { MARIADB_SHELL_TAG: "v26.10.3" },
+                }, (line) => { lines.push(line); });
+
+                expect(code).toBe(0);
+                expect(lines).toEqual(["tag v26.10.3"]);
+            } finally {
+                await script.remove();
+            }
+        });
 });

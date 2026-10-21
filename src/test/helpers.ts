@@ -48,6 +48,7 @@ import type {
     InstallCommand,
     InstallScripts,
     ProcessRunner,
+    ProgressHost,
 } from "../shell/installer.js";
 import type { ShellEnvironment } from "../shell/locator.js";
 import type { McpServerCommand } from "../shell/mcpServer.js";
@@ -142,19 +143,25 @@ export const createFakeRunner = (
 /** Where the fake install scripts say they saved a script. */
 export const FAKE_SCRIPT_FOLDER = "/tmp/mariadb-shell-install-test";
 
+/**
+ * @param name The script's file name.
+ *
+ * @returns Where the fake install scripts save it.
+ */
+export const fakeScriptPath = (name = "install.sh"): string => {
+    return `${FAKE_SCRIPT_FOLDER}/${name}`;
+};
+
 export interface FakeInstallScripts extends InstallScripts {
-    /** The URLs downloaded, in order. */
+    /** The URLs fetched, in order. */
     downloads: string[];
-    /** The files saved, by path, with their text. */
-    saved: Map<string, string>;
     /** The files removed again. */
     removed: string[];
 }
 
 /**
- * Builds install scripts that download nothing: every URL answers with
- * the same text, or fails, and a script is saved to a path under
- * {@link FAKE_SCRIPT_FOLDER} named as asked.
+ * Builds install scripts that download nothing: every URL is "saved" to
+ * {@link fakeScriptPath} under the name it ends in, or fails.
  *
  * @param fail Why every download fails, where it is to.
  *
@@ -162,23 +169,17 @@ export interface FakeInstallScripts extends InstallScripts {
  */
 export const createFakeInstallScripts = (fail?: string): FakeInstallScripts => {
     const downloads: string[] = [];
-    const saved = new Map<string, string>();
     const removed: string[] = [];
 
     return {
         downloads,
-        saved,
         removed,
-        download: (url) => {
+        fetch: (url) => {
             downloads.push(url);
-
-            return fail === undefined
-                ? Promise.resolve(`#!/bin/sh\n# the script at ${url}\n`)
-                : Promise.reject(new Error(fail));
-        },
-        save: (name, text) => {
-            const path = `${FAKE_SCRIPT_FOLDER}/${name}`;
-            saved.set(path, text);
+            if (fail !== undefined) {
+                return Promise.reject(new Error(fail));
+            }
+            const path = fakeScriptPath(url.slice(url.lastIndexOf("/") + 1));
 
             return Promise.resolve({
                 path,
@@ -188,6 +189,37 @@ export const createFakeInstallScripts = (fail?: string): FakeInstallScripts => {
                     return Promise.resolve();
                 },
             });
+        },
+    };
+};
+
+/**
+ * Builds a progress host that records the titles and messages it was given.
+ *
+ * @returns The host and the recordings it collects.
+ */
+export const createRecordingProgress = (): ProgressHost & {
+    titles: string[];
+    messages: string[];
+} => {
+    const titles: string[] = [];
+    const messages: string[] = [];
+
+    return {
+        titles,
+        messages,
+        withProgress: async <T>(
+            title: string,
+            task: (
+                report: (message: string) => void,
+                signal: AbortSignal,
+            ) => Promise<T>,
+        ) => {
+            titles.push(title);
+
+            return await task((message) => {
+                messages.push(message);
+            }, new AbortController().signal);
         },
     };
 };

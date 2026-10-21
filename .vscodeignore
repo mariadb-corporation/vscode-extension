@@ -7,7 +7,6 @@ coverage/**
 src/**
 webview/**
 .gitignore
-**/.DS_Store
 .nvmrc
 .yarnrc
 **/tsconfig.json

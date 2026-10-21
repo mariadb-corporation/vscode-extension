@@ -70,7 +70,7 @@ drives the shell lookup:
    interpreter**: curl-into-bash and `irm | iex`, what the shell's own
    documentation has users paste, are what malware does, and the
    Marketplace refused the extension with "suspicious content" while it
-   carried them (a test pins that no command does). `RemoteSigned` is
+   carried them (`tools/checkPackage.mts` keeps them out of the package). `RemoteSigned` is
    enough on Windows, whose default policy runs no script at all: a file
    the extension wrote has no mark of having come from the internet. A
    download that fails is an error of its own, naming the URL. It runs inside

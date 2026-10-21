@@ -21,7 +21,8 @@ import {
     createFakeInstallScripts,
     createFakeRunner,
     createRecordingLog,
-    FAKE_SCRIPT_FOLDER,
+    createRecordingProgress,
+    fakeScriptPath,
 } from "../helpers.js";
 import { installScriptUrl } from "../../shell/constants.js";
 import {
@@ -30,41 +31,11 @@ import {
     summarizeInstallerFailure,
     installerProgressMessage,
     installShell,
+    type InstallDependencies,
     type ProgressHost,
 } from "../../shell/installer.js";
 
-/**
- * Builds a progress host that records the titles and messages it was given.
- *
- * @returns The host and the recordings it collects.
- */
-const createRecordingProgress = (): ProgressHost & {
-    titles: string[];
-    messages: string[];
-} => {
-    const titles: string[] = [];
-    const messages: string[] = [];
-
-    return {
-        titles,
-        messages,
-        withProgress: async <T>(
-            title: string,
-            task: (
-                report: (message: string) => void,
-                signal: AbortSignal,
-            ) => Promise<T>,
-        ) => {
-            titles.push(title);
-
-            return await task((message) => {
-                messages.push(message);
-            }, new AbortController().signal);
-        },
-    };
-};
-
-const SCRIPT = `${FAKE_SCRIPT_FOLDER}/install.sh`;
+const SCRIPT = fakeScriptPath();
 
 describe("installScriptUrl", () => {
     it("takes the script of the release's own tag", () => {
@@ -102,23 +73,6 @@ describe("buildInstallCommand", () => {
             env: { MARIADB_SHELL_TAG: "v26.9.2" },
         });
     });
-
-    // What malware does - a download piped into an interpreter, a script
-    // run from memory, the execution policy switched off - makes the
-    // Marketplace refuse the extension, whatever it is for.
-    it("pipes nothing into an interpreter and bypasses no policy", () => {
-        for (const platform of ["darwin", "linux", "win32"] as const) {
-            const command = buildInstallCommand(platform, "26.9.2", SCRIPT);
-            const line = [command.command, ...command.args].join(" ");
-
-            expect(line).not.toMatch(/\|\s*(ba)?sh|\biex\b|Invoke-Expression|irm\b|curl|Bypass/u);
-        }
-    });
-
-    it("pins the tag that was asked for", () => {
-        expect(buildInstallCommand("darwin", "27.0.0", SCRIPT).env)
-            .toEqual({ MARIADB_SHELL_TAG: "v27.0.0" });
-    });
 });
 
 describe("installerProgressMessage", () => {
@@ -150,45 +104,52 @@ describe("installShell", () => {
     ];
     const url = installScriptUrl("darwin", "26.9.2");
 
+    /** An install on macOS where nothing goes wrong, but what is changed. */
+    const deps = (
+        changes: Partial<InstallDependencies> = {},
+    ): InstallDependencies => {
+        return {
+            platform: "darwin",
+            runner: createFakeRunner(),
+            scripts: createFakeInstallScripts(),
+            progress: createRecordingProgress(),
+            ...changes,
+        };
+    };
+
     it("downloads the release's script, runs it as a file and removes it",
         async () => {
             const runner = createFakeRunner(transcript);
             const scripts = createFakeInstallScripts();
 
-            await installShell({
-                platform: "darwin", runner, scripts,
-                progress: createRecordingProgress(),
-            }, "26.9.2");
+            await installShell(deps({ runner, scripts }), "26.9.2");
 
             expect(scripts.downloads).toEqual([url]);
-            expect(scripts.saved.get(SCRIPT)).toContain(url);
             expect(runner.calls).toEqual([
                 buildInstallCommand("darwin", "26.9.2", SCRIPT),
             ]);
             expect(scripts.removed).toEqual([SCRIPT]);
         });
 
-    it("saves install.ps1 on Windows", async () => {
+    it("runs install.ps1 on Windows", async () => {
+        const runner = createFakeRunner();
         const scripts = createFakeInstallScripts();
 
-        await installShell({
-            platform: "win32", runner: createFakeRunner(), scripts,
-            progress: createRecordingProgress(),
-        }, "26.9.2");
+        await installShell(deps({ platform: "win32", runner, scripts }),
+            "26.9.2");
 
         expect(scripts.downloads)
             .toEqual([installScriptUrl("win32", "26.9.2")]);
-        expect([...scripts.saved.keys()])
-            .toEqual([`${FAKE_SCRIPT_FOLDER}/install.ps1`]);
+        expect(runner.calls[0].args.at(-1))
+            .toBe(fakeScriptPath("install.ps1"));
     });
 
     it("reports download and extraction progress", async () => {
         const progress = createRecordingProgress();
 
-        await installShell({
-            platform: "darwin", runner: createFakeRunner(transcript),
-            scripts: createFakeInstallScripts(), progress,
-        }, "26.9.2");
+        await installShell(deps({
+            runner: createFakeRunner(transcript), progress,
+        }), "26.9.2");
 
         expect(progress.titles).toEqual(["Installing MariaDB Shell 26.9.2"]);
         expect(progress.messages).toEqual([
@@ -205,12 +166,11 @@ describe("installShell", () => {
     it("throws when the installer fails, and removes its file", async () => {
         const scripts = createFakeInstallScripts();
 
-        await expect(installShell({
-            platform: "darwin",
+        await expect(installShell(deps({
             runner: createFakeRunner(
                 ["install.sh: required command not found: curl"], 1),
-            scripts, progress: createRecordingProgress(),
-        }, "26.9.2")).rejects.toThrow(
+            scripts,
+        }), "26.9.2")).rejects.toThrow(
             "MariaDB Shell 26.9.2 could not be installed: required command "
             + "not found: curl (the installer exited with code 1).",
         );
@@ -219,51 +179,38 @@ describe("installShell", () => {
 
     it("says only the exit code when the installer gave no reason",
         async () => {
-            await expect(installShell(
-                {
-                    platform: "darwin",
-                    runner: createFakeRunner(["==> Downloading"], 2),
-                    scripts: createFakeInstallScripts(),
-                    progress: createRecordingProgress(),
-                },
-                "26.9.2",
-            )).rejects.toThrow("MariaDB Shell 26.9.2 could not be installed: "
-                + "the installer exited with code 2.");
+            await expect(installShell(deps({
+                runner: createFakeRunner(["==> Downloading"], 2),
+            }), "26.9.2")).rejects.toThrow("MariaDB Shell 26.9.2 could not "
+                + "be installed: the installer exited with code 2.");
         });
 
     it("says the script could not be downloaded, running nothing", async () => {
         const runner = createFakeRunner();
         const log = createRecordingLog();
+        const said = "The MariaDB Shell installer could not be downloaded "
+            + `from ${url}: HTTP 404 Not Found`;
 
-        await expect(installShell({
-            platform: "darwin", runner,
-            scripts: createFakeInstallScripts("HTTP 404 Not Found"),
-            progress: createRecordingProgress(), log,
-        }, "26.9.2")).rejects.toThrow("The MariaDB Shell installer could not "
-            + `be downloaded from ${url}: HTTP 404 Not Found`);
+        await expect(installShell(deps({
+            runner, scripts: createFakeInstallScripts("HTTP 404 Not Found"),
+            log,
+        }), "26.9.2")).rejects.toThrow(said);
         expect(runner.calls).toEqual([]);
-        expect(log.lines.at(-1)).toBe(
-            "The installer could not be downloaded: HTTP 404 Not Found");
+        expect(log.lines.at(-1)).toBe(said);
     });
 
     it("logs the script, the command, everything it printed and how it ended",
         async () => {
             const log = createRecordingLog();
 
-            await installShell(
-                {
-                    platform: "darwin",
-                    runner: createFakeRunner([
-                        "==> Downloading",
-                        "\r###      12.0%\r##########  100.0%",
-                        "some noise",
-                    ]),
-                    scripts: createFakeInstallScripts(),
-                    progress: createRecordingProgress(),
-                    log,
-                },
-                "26.9.2",
-            );
+            await installShell(deps({
+                runner: createFakeRunner([
+                    "==> Downloading",
+                    "\r###      12.0%\r##########  100.0%",
+                    "some noise",
+                ]),
+                log,
+            }), "26.9.2");
 
             expect(log.lines[0])
                 .toBe(`Installing MariaDB Shell 26.9.2 with ${url}.`);
@@ -285,16 +232,9 @@ describe("installShell", () => {
             },
         };
 
-        await expect(installShell(
-            {
-                platform: "darwin",
-                runner,
-                scripts: createFakeInstallScripts(),
-                progress: createRecordingProgress(),
-            },
-            "26.9.2",
-        )).rejects.toThrow("The MariaDB Shell installer could not be run "
-            + "(/bin/sh): spawn /bin/sh ENOENT");
+        await expect(installShell(deps({ runner }), "26.9.2")).rejects
+            .toThrow("The MariaDB Shell installer could not be run "
+                + "(/bin/sh): spawn /bin/sh ENOENT");
     });
 
     it("says it was cancelled when the user cancelled it", async () => {
@@ -320,11 +260,8 @@ describe("installShell", () => {
             },
         };
 
-        await expect(installShell({
-            platform: "darwin", runner,
-            scripts: createFakeInstallScripts(), progress,
-        }, "26.9.2")).rejects.toThrow(
-            "Installing MariaDB Shell 26.9.2 was cancelled.");
+        await expect(installShell(deps({ runner, progress }), "26.9.2"))
+            .rejects.toThrow("Installing MariaDB Shell 26.9.2 was cancelled.");
     });
 });
 
