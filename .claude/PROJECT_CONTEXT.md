@@ -1,4 +1,4 @@
-# MariaDB for VS Code — Project Context
+# MariaDB Shell for VS Code — Project Context
 
 The **MariaDB** VS Code extension. Written in TypeScript, it talks to the
 MariaDB Shell backend through the [`mcp_plugin`](https://github.com/mariadb-corporation/mariadb-shell-plugins/tree/main/mcp_plugin), which

@@ -84,6 +84,6 @@ jobs:
       - name: Keep the .vsix
         uses: actions/upload-artifact@v4
         with:
-          name: mariadb-dev-vsix
+          name: mariadb-shell-vsix
           path: '*.vsix'
           if-no-files-found: error
