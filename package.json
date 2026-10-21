@@ -7,7 +7,7 @@
     "type": "git",
     "url": "https://github.com/mariadb-corporation/vscode-extension.git"
   },
-  "version": "26.10.0",
+  "version": "26.10.1",
   "icon": "images/marketplace-icon.png",
   "engines": {
     "vscode": "^1.138.0",
