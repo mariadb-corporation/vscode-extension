@@ -44,7 +44,11 @@ import type {
     IMrsStatus,
     IMrsUser,
 } from "../mrs/mrsTypes.js";
-import type { InstallCommand, ProcessRunner } from "../shell/installer.js";
+import type {
+    InstallCommand,
+    InstallScripts,
+    ProcessRunner,
+} from "../shell/installer.js";
 import type { ShellEnvironment } from "../shell/locator.js";
 import type { McpServerCommand } from "../shell/mcpServer.js";
 
@@ -131,6 +135,59 @@ export const createFakeRunner = (
             }
 
             return Promise.resolve(exitCode);
+        },
+    };
+};
+
+/** Where the fake install scripts say they saved a script. */
+export const FAKE_SCRIPT_FOLDER = "/tmp/mariadb-shell-install-test";
+
+export interface FakeInstallScripts extends InstallScripts {
+    /** The URLs downloaded, in order. */
+    downloads: string[];
+    /** The files saved, by path, with their text. */
+    saved: Map<string, string>;
+    /** The files removed again. */
+    removed: string[];
+}
+
+/**
+ * Builds install scripts that download nothing: every URL answers with
+ * the same text, or fails, and a script is saved to a path under
+ * {@link FAKE_SCRIPT_FOLDER} named as asked.
+ *
+ * @param fail Why every download fails, where it is to.
+ *
+ * @returns The fake, recording what it was asked for.
+ */
+export const createFakeInstallScripts = (fail?: string): FakeInstallScripts => {
+    const downloads: string[] = [];
+    const saved = new Map<string, string>();
+    const removed: string[] = [];
+
+    return {
+        downloads,
+        saved,
+        removed,
+        download: (url) => {
+            downloads.push(url);
+
+            return fail === undefined
+                ? Promise.resolve(`#!/bin/sh\n# the script at ${url}\n`)
+                : Promise.reject(new Error(fail));
+        },
+        save: (name, text) => {
+            const path = `${FAKE_SCRIPT_FOLDER}/${name}`;
+            saved.set(path, text);
+
+            return Promise.resolve({
+                path,
+                remove: () => {
+                    removed.push(path);
+
+                    return Promise.resolve();
+                },
+            });
         },
     };
 };

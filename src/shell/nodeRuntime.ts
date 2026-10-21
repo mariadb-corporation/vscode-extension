@@ -18,8 +18,13 @@
 import { execFile, spawn, type ExecFileException } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
+import * as path from "node:path";
 
-import type { InstallCommand, ProcessRunner } from "./installer.js";
+import type {
+    InstallCommand,
+    InstallScripts,
+    ProcessRunner,
+} from "./installer.js";
 import { LineReader } from "./lineReader.js";
 import type { ShellEnvironment } from "./locator.js";
 
@@ -154,6 +159,7 @@ export const createNodeProcessRunner = (): ProcessRunner => {
             return await new Promise<number>((resolve, reject) => {
                 const posix = process.platform !== "win32";
                 const child = spawn(command.command, command.args, {
+                    env: { ...process.env, ...command.env },
                     windowsHide: true,
                     // Its own process group on POSIX, so that cancelling
                     // ends the curl and bash the shell started as well as
@@ -200,6 +206,40 @@ export const createNodeProcessRunner = (): ProcessRunner => {
                     resolve(code ?? -1);
                 });
             });
+        },
+    };
+};
+
+/**
+ * Downloads install scripts with Node's own `fetch`, which follows the
+ * redirect GitHub's `raw` links answer with, and keeps each in a folder of
+ * its own in the system's temporary folder while it runs.
+ *
+ * @returns The install scripts' download and files.
+ */
+export const createNodeInstallScripts = (): InstallScripts => {
+    return {
+        download: async (url, signal) => {
+            const response = await fetch(url, { signal });
+            if (!response.ok) {
+                throw new Error(`HTTP ${String(response.status)} `
+                    + response.statusText);
+            }
+
+            return await response.text();
+        },
+        save: async (name, text) => {
+            const folder = await fs.mkdtemp(
+                path.join(os.tmpdir(), "mariadb-shell-install-"));
+            const file = path.join(folder, name);
+            await fs.writeFile(file, text, { mode: 0o700 });
+
+            return {
+                path: file,
+                remove: async () => {
+                    await fs.rm(folder, { recursive: true, force: true });
+                },
+            };
         },
     };
 };

@@ -19,9 +19,11 @@ import { describe, expect, it } from "vitest";
 
 import {
     createFakeEnvironment,
+    createFakeInstallScripts,
     createFakeRunner,
     createRecordingLog,
     type FakeEnvironmentOptions,
+    FAKE_SCRIPT_FOLDER,
 } from "../helpers.js";
 import { ensureShell } from "../../shell/bootstrap.js";
 import { MINIMUM_SHELL_VERSION } from "../../shell/constants.js";
@@ -88,6 +90,7 @@ describe("ensureShell", () => {
         const result = await ensureShell({
             environment,
             runner,
+            scripts: createFakeInstallScripts(),
             progress: createRecordingProgress(),
             log,
             minimumVersion: MINIMUM,
@@ -112,6 +115,7 @@ describe("ensureShell", () => {
             const result = await ensureShell({
                 environment,
                 runner,
+                scripts: createFakeInstallScripts(),
                 progress: createRecordingProgress(),
                 log: createRecordingLog(),
                 minimumVersion: MINIMUM,
@@ -172,13 +176,14 @@ describe("ensureShell", () => {
         const result = await ensureShell({
             environment: live,
             runner,
+            scripts: createFakeInstallScripts(),
             progress,
             log,
             minimumVersion: MINIMUM,
         });
 
         expect(runner.calls).toEqual([
-            buildInstallCommand("darwin", MINIMUM),
+            buildInstallCommand("darwin", MINIMUM, `${FAKE_SCRIPT_FOLDER}/install.sh`),
         ]);
         expect(result.installed).toBe(true);
         expect(result.location.binaryPath).toBe(MANAGED_BINARY);
@@ -201,13 +206,14 @@ describe("ensureShell", () => {
         await expect(ensureShell({
             environment,
             runner,
+            scripts: createFakeInstallScripts(),
             progress: createRecordingProgress(),
             log: createRecordingLog(),
             minimumVersion: MINIMUM,
         })).rejects.toThrow(/no MariaDB Shell 26.9.3 or newer could be found/);
 
         expect(runner.calls).toEqual([
-            buildInstallCommand("darwin", MINIMUM),
+            buildInstallCommand("darwin", MINIMUM, `${FAKE_SCRIPT_FOLDER}/install.sh`),
         ]);
     });
 
@@ -218,6 +224,7 @@ describe("ensureShell", () => {
         await expect(ensureShell({
             environment,
             runner,
+            scripts: createFakeInstallScripts(),
             progress: createRecordingProgress(),
             log: createRecordingLog(),
             minimumVersion: MINIMUM,
@@ -240,6 +247,7 @@ describe("ensureShell", () => {
             await expect(ensureShell({
                 environment,
                 runner: createFakeRunner([], 0),
+                scripts: createFakeInstallScripts(),
                 progress: createRecordingProgress(),
                 log,
                 minimumVersion: MINIMUM,
@@ -263,6 +271,7 @@ describe("ensureShell", () => {
         await expect(ensureShell({
             environment: createFakeEnvironment(),
             runner: createFakeRunner([], 1),
+            scripts: createFakeInstallScripts(),
             progress: createRecordingProgress(),
             log: createRecordingLog(),
             minimumVersion: MINIMUM,
@@ -283,6 +292,7 @@ describe("ensureShell", () => {
         await expect(ensureShell({
             environment,
             runner,
+            scripts: createFakeInstallScripts(),
             progress: createRecordingProgress(),
             log: createRecordingLog(),
             minimumVersion: MINIMUM,
@@ -298,11 +308,12 @@ describe("ensureShell", () => {
         await expect(ensureShell({
             environment,
             runner,
+            scripts: createFakeInstallScripts(),
             progress: createRecordingProgress(),
             log: createRecordingLog(),
         })).rejects.toThrow();
 
-        expect(runner.calls[0].args.at(-1))
-            .toContain(`MARIADB_SHELL_TAG=v${MINIMUM_SHELL_VERSION}`);
+        expect(runner.calls[0].env)
+            .toEqual({ MARIADB_SHELL_TAG: `v${MINIMUM_SHELL_VERSION}` });
     });
 });

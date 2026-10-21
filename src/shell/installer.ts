@@ -15,10 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import {
-    INSTALL_SCRIPT_URL_POSIX,
-    INSTALL_SCRIPT_URL_WINDOWS,
-} from "./constants.js";
+import { installScriptUrl } from "./constants.js";
 import { errorText } from "../text.js";
 
 export interface InstallCommand {
@@ -26,6 +23,36 @@ export interface InstallCommand {
     command: string;
     /** Its arguments, already split - nothing is passed through a shell. */
     args: string[];
+    /** Variables set for it, beside the extension host's own. */
+    env?: Record<string, string>;
+}
+
+/** An install script saved to a file, for as long as it runs. */
+export interface SavedScript {
+    path: string;
+    /** Deletes the file, and the folder made for it. */
+    remove(): Promise<void>;
+}
+
+/**
+ * Fetching the install script and keeping it in a file while it runs,
+ * behind an interface so the install flow can be tested without a network.
+ */
+export interface InstallScripts {
+    /**
+     * @param url The script's URL.
+     * @param signal Ends the download when aborted.
+     *
+     * @returns The script. Rejects where it could not be fetched.
+     */
+    download(url: string, signal: AbortSignal): Promise<string>;
+    /**
+     * @param name The file's name: `install.sh` or `install.ps1`.
+     * @param text The script.
+     *
+     * @returns The file it is in.
+     */
+    save(name: string, text: string): Promise<SavedScript>;
 }
 
 /**
@@ -74,52 +101,47 @@ export interface ProgressHost {
 }
 
 /**
- * Builds the command that installs a pinned MariaDB Shell release.
+ * Builds the command that runs a release's install script, downloaded to
+ * a file, with the release pinned by `MARIADB_SHELL_TAG`.
  *
- * On macOS and Linux this is the documented curl-into-bash one liner with
- * MARIADB_SHELL_TAG pinned, split in two so that a failed download fails
- * the command; on Windows the PowerShell equivalent. Both are
- * handed to an interpreter as a single script argument, so no part of them
- * is re-split by an intermediate shell.
+ * The script runs as a file, not piped into an interpreter: what the
+ * MariaDB Shell's documentation has users paste - curl into bash,
+ * `irm | iex` - is what malware does, and the Marketplace refuses an
+ * extension carrying it. The file is the script of the release's own tag
+ * (see {@link installScriptUrl}). On Windows PowerShell's default policy
+ * runs no script at all; `RemoteSigned` lets a local one run, and a file
+ * the extension wrote carries no mark of having come from the internet.
  *
  * @param platform The platform to install on.
  * @param version The release to install, without the leading `v`.
+ * @param scriptPath The file the script is in.
  *
  * @returns The command to run.
  */
 export const buildInstallCommand = (
     platform: NodeJS.Platform,
     version: string,
+    scriptPath: string,
 ): InstallCommand => {
-    const tag = `v${version}`;
+    const env = { MARIADB_SHELL_TAG: `v${version}` };
 
     if (platform === "win32") {
-        const script = `$env:MARIADB_SHELL_TAG = '${tag}'; `
-            + `irm ${INSTALL_SCRIPT_URL_WINDOWS} | iex`;
-
         return {
             command: "powershell.exe",
             args: [
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                script,
+                "RemoteSigned",
+                "-File",
+                scriptPath,
             ],
+            env,
         };
     }
 
-    // Fetched first rather than piped straight into bash: a pipe's status
-    // is its last command's, so a curl that fails - offline, say - would
-    // hand bash an empty script, which succeeds, and the reason curl gave
-    // would end up behind "no shell could be found afterwards". POSIX sh
-    // has no pipefail to rely on, so the failure is caught here instead.
-    const script = `script=$(curl -fsSL ${INSTALL_SCRIPT_URL_POSIX}) `
-        + "|| exit $?; "
-        + `printf '%s\\n' "$script" | MARIADB_SHELL_TAG=${tag} bash`;
-
-    return { command: "/bin/sh", args: ["-c", script] };
+    // install.sh is a POSIX sh script (`#!/bin/sh`).
+    return { command: "/bin/sh", args: [scriptPath], env };
 };
 
 /**
@@ -220,7 +242,11 @@ export const summarizeInstallerFailure = (
  * @returns The command and its arguments on one line.
  */
 const formatCommand = (command: InstallCommand): string => {
-    return [command.command, ...command.args].map((part) => {
+    const env = Object.entries(command.env ?? {}).map(([name, value]) => {
+        return `${name}=${value}`;
+    });
+
+    return [...env, command.command, ...command.args].map((part) => {
         return /\s/.test(part) ? JSON.stringify(part) : part;
     }).join(" ");
 };
@@ -228,19 +254,22 @@ const formatCommand = (command: InstallCommand): string => {
 export interface InstallDependencies {
     platform: NodeJS.Platform;
     runner: ProcessRunner;
+    scripts: InstallScripts;
     progress: ProgressHost;
     /** Receives the command, every line it prints and how it ended. */
     log?: (message: string) => void;
 }
 
 /**
- * Downloads and unpacks the pinned MariaDB Shell release, reporting the
- * installer's own progress messages into a notification.
+ * Downloads the pinned MariaDB Shell release's install script and runs
+ * it, which downloads and unpacks the release, reporting the installer's
+ * own progress messages into a notification.
  *
  * Everything the installer prints goes to the log, since a failure is only
  * ever explained there; the reason it gave is also what the error says.
  *
- * @param dependencies The platform, process runner, progress UI and log.
+ * @param dependencies The platform, process runner, install scripts,
+ *                     progress UI and log.
  * @param version The release to install, without the leading `v`.
  *
  * @returns Nothing; it throws if the installer fails or is cancelled.
@@ -250,12 +279,16 @@ export const installShell = async (
     version: string,
 ): Promise<void> => {
     const log = dependencies.log ?? (() => { /* not wanted */ });
-    const command = buildInstallCommand(dependencies.platform, version);
+    const url = installScriptUrl(dependencies.platform, version);
+    const name = dependencies.platform === "win32"
+        ? "install.ps1" : "install.sh";
     const diagnostics: string[] = [];
     const started = Date.now();
     let cancelled = false;
+    // Where it failed, for what the error says.
+    let command: InstallCommand | undefined;
 
-    log(`Installing MariaDB Shell ${version}: ${formatCommand(command)}`);
+    log(`Installing MariaDB Shell ${version} with ${url}.`);
 
     let exitCode: number;
     try {
@@ -265,22 +298,34 @@ export const installShell = async (
                 signal.addEventListener("abort", () => {
                     cancelled = true;
                 });
-                report("Starting the installer...");
+                report("Downloading the installer...");
+                const text = await dependencies.scripts.download(url, signal);
+                const script = await dependencies.scripts.save(name, text);
+                try {
+                    command = buildInstallCommand(dependencies.platform,
+                        version, script.path);
+                    log(`Running the installer: ${formatCommand(command)}`);
+                    report("Starting the installer...");
 
-                return await dependencies.runner.run(command, (raw) => {
-                    const line = cleanInstallerLine(raw);
-                    if (line === undefined) {
-                        return;
-                    }
+                    return await dependencies.runner.run(command, (raw) => {
+                        const line = cleanInstallerLine(raw);
+                        if (line === undefined) {
+                            return;
+                        }
 
-                    log(`  installer: ${line}`);
-                    const message = installerProgressMessage(line);
-                    if (message) {
-                        report(message);
-                    } else {
-                        diagnostics.push(raw.split("\r").at(-1) ?? raw);
-                    }
-                }, signal);
+                        log(`  installer: ${line}`);
+                        const message = installerProgressMessage(line);
+                        if (message) {
+                            report(message);
+                        } else {
+                            diagnostics.push(raw.split("\r").at(-1) ?? raw);
+                        }
+                    }, signal);
+                } finally {
+                    await script.remove().catch(() => {
+                        // A file in the temporary folder: the system's.
+                    });
+                }
             },
         );
     } catch (error) {
@@ -292,6 +337,13 @@ export const installShell = async (
         }
 
         const message = errorText(error);
+        if (command === undefined) {
+            log(`The installer could not be downloaded: ${message}`);
+            throw new Error(
+                `The MariaDB Shell installer could not be downloaded from `
+                + `${url}: ${message}`,
+            );
+        }
         log(`The installer could not be run: ${message}`);
         throw new Error(
             `The MariaDB Shell installer could not be run `

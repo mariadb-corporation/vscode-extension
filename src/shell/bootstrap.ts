@@ -18,6 +18,7 @@
 import { MINIMUM_SHELL_VERSION } from "./constants.js";
 import {
     installShell,
+    type InstallScripts,
     type ProcessRunner,
     type ProgressHost,
 } from "./installer.js";
@@ -32,6 +33,7 @@ import {
 export interface BootstrapDependencies {
     environment: ShellEnvironment;
     runner: ProcessRunner;
+    scripts: InstallScripts;
     progress: ProgressHost;
     log: (message: string) => void;
     /** Overridable so tests need not pin themselves to the shipped value. */
@@ -59,7 +61,7 @@ export interface BootstrapResult {
 export const ensureShell = async (
     dependencies: BootstrapDependencies,
 ): Promise<BootstrapResult> => {
-    const { environment, runner, progress, log } = dependencies;
+    const { environment, runner, scripts, progress, log } = dependencies;
     const minimumVersion = dependencies.minimumVersion
         ?? MINIMUM_SHELL_VERSION;
 
@@ -79,6 +81,7 @@ export const ensureShell = async (
         {
             platform: environment.platform,
             runner,
+            scripts,
             progress,
             log,
         },

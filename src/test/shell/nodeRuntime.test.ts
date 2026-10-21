@@ -16,12 +16,15 @@
  */
 
 import * as fs from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+    createNodeInstallScripts,
     createNodeProcessRunner,
     createNodeShellEnvironment,
 } from "../../shell/nodeRuntime.js";
@@ -151,6 +154,20 @@ describe("createNodeProcessRunner", () => {
                 .toEqual(["==> Downloading", "==> Unpacking"]);
         });
 
+    it("sets the command's variables beside the host's own", async () => {
+        const runner = createNodeProcessRunner();
+        const lines: string[] = [];
+
+        await runner.run({
+            command: process.execPath,
+            args: ["-e", "console.log(process.env.MARIADB_SHELL_TAG, "
+                + "process.env.PATH === undefined ? 'no PATH' : 'PATH');"],
+            env: { MARIADB_SHELL_TAG: "v26.10.3" },
+        }, (line) => { lines.push(line); });
+
+        expect(lines).toEqual(["v26.10.3 PATH"]);
+    });
+
     it("reports a non-zero exit code", async () => {
         const runner = createNodeProcessRunner();
 
@@ -211,4 +228,79 @@ describe("createNodeProcessRunner", () => {
                     .toThrow();
             });
         }, 10_000);
+});
+
+describe("createNodeInstallScripts", () => {
+    let server: Server;
+    let base: string;
+
+    beforeAll(async () => {
+        // GitHub's raw links answer with a redirect, which the download
+        // has to follow.
+        server = createServer((request, response) => {
+            if (request.url === "/raw/install.sh") {
+                response.writeHead(302, { location: "/files/install.sh" });
+                response.end();
+            } else if (request.url === "/files/install.sh") {
+                response.end("#!/bin/sh\necho installed\n");
+            } else {
+                response.writeHead(404, "Not Found");
+                response.end();
+            }
+        });
+        await new Promise<void>((resolve) => {
+            server.listen(0, "127.0.0.1", resolve);
+        });
+        base = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
+    });
+
+    afterAll(async () => {
+        await new Promise((resolve) => { server.close(resolve); });
+    });
+
+    it("downloads a script, following a redirect", async () => {
+        const text = await createNodeInstallScripts().download(
+            `${base}/raw/install.sh`, new AbortController().signal);
+
+        expect(text).toBe("#!/bin/sh\necho installed\n");
+    });
+
+    it("refuses an answer that is not the script", async () => {
+        await expect(createNodeInstallScripts().download(
+            `${base}/raw/missing.sh`, new AbortController().signal))
+            .rejects.toThrow("HTTP 404 Not Found");
+    });
+
+    it("keeps a script in a folder of its own until it is removed",
+        async () => {
+            const saved = await createNodeInstallScripts()
+                .save("install.sh", "#!/bin/sh\nexit 0\n");
+
+            expect(path.basename(saved.path)).toBe("install.sh");
+            expect(await fs.readFile(saved.path, "utf8"))
+                .toBe("#!/bin/sh\nexit 0\n");
+            await saved.remove();
+            await expect(fs.stat(path.dirname(saved.path))).rejects
+                .toThrow(/ENOENT/u);
+        });
+
+    it("runs a saved script as a file", async () => {
+        if (process.platform === "win32") {
+            return;
+        }
+        const saved = await createNodeInstallScripts().save("install.sh",
+            "#!/bin/sh\necho \"tag $MARIADB_SHELL_TAG\"\n");
+        const lines: string[] = [];
+        try {
+            const code = await createNodeProcessRunner().run({
+                command: "/bin/sh", args: [saved.path],
+                env: { MARIADB_SHELL_TAG: "v26.10.3" },
+            }, (line) => { lines.push(line); });
+
+            expect(code).toBe(0);
+            expect(lines).toEqual(["tag v26.10.3"]);
+        } finally {
+            await saved.remove();
+        }
+    });
 });
