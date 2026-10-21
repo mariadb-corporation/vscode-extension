@@ -82,11 +82,10 @@ change belongs to up to date, and this table with it.
   per-statement script results from 26.9.4). 26.10.0 is the first release
   whose bundled `mcp_plugin` has connection folders / captions / colors,
   `sandbox.list_instances` and `mcp_access`, paging (`has_more_pages`) and
-  `column_metadata`. The REST Service tree needs the MRS module
-  (mariadb-shell #71) with the `mrs` MCP group, which 26.10.1 lacks: it
-  takes a later shell release (see the shell repo's `gh release list`), and
-  the version is to be raised once one carries it. Dump and Load works with
-  any of them: the server runs each task in a shell process of its own.
+  `column_metadata`. 26.10.3 is the first with the MRS module
+  (mariadb-shell #71) and mcp_plugin's `rest` group, which the REST Service
+  tree needs. Dump and Load works with any of them: the server runs each
+  task in a shell process of its own.
 - The result grid edits every value as text; there is no type-aware editor
   (date picker, BLOB viewer) yet. Its cell menu has Save / Load Value and
   Set Field to Null only - none of the MySQL Shell's Copy items.
@@ -105,13 +104,13 @@ change belongs to up to date, and this table with it.
   on it.
 - **CI runs nothing that needs a shell.** `code-ext-ci.yml` runs the unit
   tests, which sit behind fakes, and no UI test: those need a MariaDB Shell
-  whose bundled plugins carry the MRS module (mariadb-shell #71). Options
-  weighed, none done: use a shell release once one carries it; let a PR
-  name the shell build it needs and download it (shell PR CI would have to
-  upload its Linux package; `rocky-linux.yml` can build one on dispatch);
-  skip tests whose feature the shell lacks.
-- The UI tests need a shell with #71, which mariadb-shell `main` has: a
-  local build of the shell's `main`, named with `MARIADB_SHELL=...`.
+  with the MRS module (mariadb-shell #71), which releases carry from
+  26.10.3. Options weighed, none done: download a shell release in CI; let
+  a PR name the shell build it needs and download it (shell PR CI would
+  have to upload its Linux package; `rocky-linux.yml` can build one on
+  dispatch); skip tests whose feature the shell lacks.
+- The UI tests need shell 26.10.3 or later, or a local build of the
+  shell's `main`, named with `MARIADB_SHELL=...`.
 - **Highlighting is lexical.** Non-reserved keywords used as names are
   coloured as keywords, data types have no scope of their own, and the
   ANSI_QUOTES identifiers are semantic tokens, so a theme with semantic
