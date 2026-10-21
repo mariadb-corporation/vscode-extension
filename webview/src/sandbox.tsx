@@ -19,6 +19,7 @@ import { render } from "preact";
 
 import { SandboxEditor } from "./SandboxEditor.js";
 import "./editorStyles.css";
+import "./dialogStyles.css";
 import "./sandboxStyles.css";
 
 const root = document.getElementById("root");

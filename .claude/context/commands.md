@@ -45,6 +45,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.resumeTask` | Resume Load | Inline on, and context menu of, a load in the Tasks view that did not complete (`mariadbTask.finished.resumable`). Hidden from the palette |
 | `mariadb.showTaskLog` | Show Log | A task's click and context menu: that task's own log file |
 | `mariadb.showTaskOutput` / `clearFinishedTasks` | Show Task Output / Clear Finished Tasks | The Tasks view's title bar; Show Task Output (every task's messages, in one channel) also on a task's menu |
+| `mariadb.msm.createProject` | New MSM Project... | MariaDB Schema Management submenu of an Explorer folder not named `*.msm.project`; the palette (the first workspace folder). Opens the dialog (see [msm.md](msm.md)) |
+| `mariadb.msm.showProjectInformation` | Show MSM Project Information... | MariaDB Schema Management submenu of a `*.msm.project` folder; the palette asks for the folder |
+| `mariadb.msm.prepareRelease` | Prepare MSM Release... | As above |
+| `mariadb.msm.generateDeploymentScript` | Generate MSM Deployment Script... | As above |
+| `mariadb.msm.deploySchema` | Deploy MSM Schema... | As above; onto a configured connection |
 | `mariadb.clearResultView` | Clear Actions | Result view toolbar |
 | `mariadb.selectEditorConnection` | Select Connection for this SQL File | SQL editor toolbar, status bar |
 | `mariadb.runSqlFile` | Run SQL Script | SQL editor toolbar, `Ctrl`/`Cmd`+`Enter` |

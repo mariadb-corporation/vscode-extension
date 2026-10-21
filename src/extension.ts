@@ -40,6 +40,8 @@ import {
     TasksTreeProvider,
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
+import type { IMsmApi } from "./mcp/msmApi.js";
+import { MsmCommands } from "./msm/msmCommands.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
 import { reportError } from "./errorMessages.js";
@@ -103,6 +105,8 @@ import { reportMrsAction } from "./mrs/mrsActivity.js";
 import { MrsApi } from "./mrs/mrsApi.js";
 import { MrsCommands } from "./mrs/mrsCommands.js";
 import { MrsDialogPanel } from "./mrs/mrsDialogPanel.js";
+import { MsmDialogPanel } from "./msm/msmDialogPanel.js";
+import { UtilDialogPanel } from "./util/utilDialogPanel.js";
 import { MrsModel } from "./tree/mrsModel.js";
 import { sandboxConnectionUri } from "./sandboxes/sandboxFields.js";
 import {
@@ -297,6 +301,19 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const starter = new ServerStarter((onPhase) => {
         return startServer(session, shell, onPhase);
     }, log);
+    // A part of the server's tools, by the session's getter for it: asking
+    // for one starts the server, which serves them all.
+    const serverApi = async <T>(get: () => T | undefined): Promise<T> => {
+        if (get() === undefined) {
+            await starter.start();
+        }
+        const api = get();
+        if (api === undefined) {
+            throw new Error("The MCP server is not running.");
+        }
+
+        return api;
+    };
     context.subscriptions.push(registerCopilotMcpServer(shell, log));
     showStartupInView(starter);
     // The actions are the workspace's, kept for its next session.
@@ -405,17 +422,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         restdUrl: (uri, schema) => { return restdUrl(uri, schema); },
         extensionUri: context.extensionUri,
         api: mrsApi,
-        tools: async () => {
-            if (session.restTools === undefined) {
-                await starter.start();
-            }
-            const tools = session.restTools;
-            if (tools === undefined) {
-                throw new Error("The MCP server is not running.");
-            }
-
-            return tools;
-        },
+        tools: () => { return serverApi(() => { return session.restTools; }); },
         model: mrsModel,
         connections,
         refresh: () => { tree.refresh(); },
@@ -431,15 +438,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // kept with the API it was built over, as `ConnectionManager.api` does.
     let loggedSandboxApi: { plain: ISandboxApi; logging: ISandboxApi } |
         undefined;
-    const plainSandboxApi = async (): Promise<ISandboxApi> => {
-        if (session.sandboxApi === undefined) {
-            await starter.start();
-        }
-        if (session.sandboxApi === undefined) {
-            throw new Error("The MCP server is not running.");
-        }
-
-        return session.sandboxApi;
+    const plainSandboxApi = (): Promise<ISandboxApi> => {
+        return serverApi(() => { return session.sandboxApi; });
     };
     const sandboxApi = async (): Promise<ISandboxApi> => {
         const plain = await plainSandboxApi();
@@ -463,16 +463,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const sandboxStore = new SandboxStore(sandboxApi);
     const sandboxes = new SandboxesTreeProvider(sandboxStore, log, starter);
     // The REST Daemons: a sandbox's, set up with it, and any connection's.
-    const restdApi = async (): Promise<IRestdApi> => {
-        if (session.restdApi === undefined) {
-            await starter.start();
-        }
-        const api = session.restdApi;
-        if (api === undefined) {
-            throw new Error("The MCP server is not running.");
-        }
-
-        return api;
+    const restdApi = (): Promise<IRestdApi> => {
+        return serverApi(() => { return session.restdApi; });
     };
     const restdTree = new RestdTreeProvider(async () => {
         return (await restdApi()).getStatus();
@@ -688,16 +680,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
     context.subscriptions.push(...mrsCommands.register());
     // Dumps, loads, copies, exports and imports run as tasks in the server;
     // the monitor follows them, and the Tasks view lists them.
-    const utilApi = async (): Promise<IUtilApi> => {
-        if (session.utilApi === undefined) {
-            await starter.start();
-        }
-        const api = session.utilApi;
-        if (api === undefined) {
-            throw new Error("The MCP server is not running.");
-        }
-
-        return api;
+    const utilApi = (): Promise<IUtilApi> => {
+        return serverApi(() => { return session.utilApi; });
     };
     const taskOutput = vscode.window.createOutputChannel("MariaDB Tasks");
     // Kept in the workspace state, so the tasks of the last window are
@@ -753,6 +737,16 @@ export const activate = (context: vscode.ExtensionContext): void => {
             }
         })();
     };
+    // Where a dialog starts a folder, and what reads a changed server again:
+    // its tree and its completion. Shared by Dump and Load and by MSM.
+    const workspaceFolder = (): string => {
+        return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+            ?? os.homedir();
+    };
+    const refreshServer = (uri: string): void => {
+        tree.refresh();
+        languageServer.refreshCatalog(uri);
+    };
     const utilCommands = new UtilCommands({
         extensionUri: context.extensionUri,
         connect: async (uri) => {
@@ -765,14 +759,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
         utilApi,
         monitor: taskMonitor,
         // What the task changed is new to completion too.
-        refresh: (uri) => {
-            tree.refresh();
-            languageServer.refreshCatalog(uri);
-        },
-        defaultFolder: () => {
-            return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-                ?? os.homedir();
-        },
+        refresh: refreshServer,
+        defaultFolder: workspaceFolder,
         startFailed: (connection, title, call, error) => {
             taskActions.startFailed(connection, title, call, error);
         },
@@ -781,6 +769,36 @@ export const activate = (context: vscode.ExtensionContext): void => {
     });
     context.subscriptions.push(taskOutput, taskMonitor, tasksTree, tasksView,
         ...utilCommands.register());
+
+    // MariaDB Schema Management, from the Explorer's menu on folders: each
+    // thing it does is an action of the Actions tab.
+    const msmApi = (): Promise<IMsmApi> => {
+        return serverApi(() => { return session.msmApi; });
+    };
+    const msmCommands = new MsmCommands({
+        extensionUri: context.extensionUri,
+        msmApi,
+        connect: (uri, session) => {
+            return connections.connect(uri, session);
+        },
+        disconnect: (uri, session) => {
+            return connections.disconnect(uri, session);
+        },
+        connectionUris: async () => {
+            return (await connections.listStoredConnections())
+                .map((stored) => { return stored.uri; });
+        },
+        defaultConnection: () => { return connections.defaultConnection; },
+        defaultFolder: workspaceFolder,
+        put: putAction,
+        showActions: (connection) => {
+            void resultView.showActions(connection);
+        },
+        // A deployed schema is new to the tree and to completion.
+        refresh: refreshServer,
+        log,
+    });
+    context.subscriptions.push(...msmCommands.register());
 
     context.subscriptions.push(
         // Draws a connection's color on its row (see connectionColors.ts).
@@ -1534,6 +1552,8 @@ export const deactivate = async (): Promise<void> => {
     ConnectionEditorPanel.disposeCurrent();
     SandboxEditorPanel.disposeCurrent();
     MrsDialogPanel.disposeAll();
+    UtilDialogPanel.disposeCurrent();
+    MsmDialogPanel.disposeCurrent();
 
     await current.languageServer?.stop();
     await current.connections.disconnectAll();

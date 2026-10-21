@@ -31,9 +31,12 @@ import {
     By,
     CustomTreeItem,
     CustomTreeSection,
+    DefaultTreeSection,
     EditorView,
     InputBox,
     Key,
+    SideBarView,
+    type TreeItem,
     ModalDialog,
     NotificationType,
     VSBrowser,
@@ -43,6 +46,18 @@ import {
     WebviewView,
     Workbench,
 } from "vscode-extension-tester";
+
+import { giveFocusBack, placeWindow, rememberFrontApp } from "./window";
+
+// Every test file imports this module, and Mocha loads them all before
+// ExTester's root hook launches VS Code: in time to say where it opens,
+// and to note the app in front. A root hook registered here runs after
+// ExTester's, with VS Code up: the focus goes back to that app.
+placeWindow();
+rememberFrontApp();
+before(async () => {
+    await giveFocusBack();
+});
 
 /**
  * What the UI tests share: finding rows in the MariaDB views, their
@@ -71,6 +86,12 @@ export const SECOND_PORT = Number(process.env.UI_TEST_PORT2 ?? "3398");
 
 /** A directory the tests may write files into. */
 export const FILES = process.env.UI_TEST_FILES ?? "/tmp";
+
+/**
+ * The folder the runner had VS Code open as its workspace, for the suites
+ * that need one: the Explorer's menus are on its files.
+ */
+export const WORKSPACE = process.env.UI_TEST_WORKSPACE ?? "";
 
 /** The sandbox's root password. */
 export const SANDBOX_PASSWORD = "UiTest_root_1";
@@ -203,6 +224,28 @@ export const screenshot = async (name: string): Promise<void> => {
 export const VIEW_CONTAINER = "MariaDB";
 
 /**
+ * @param container An activity bar entry.
+ *
+ * @returns Its side bar view, opened.
+ */
+const openContainer = async (container: string): Promise<SideBarView> => {
+    const control = await waitFor(async () => {
+        return await new ActivityBar().getViewControl(container);
+    }, `the ${container} activity bar entry`);
+
+    return await control.openView();
+};
+
+/**
+ * @param error What a WebDriver call threw.
+ *
+ * @returns Whether the element it was made on was redrawn meanwhile.
+ */
+const isStale = (error: unknown): boolean => {
+    return /StaleElementReference|stale element/u.test(String(error));
+};
+
+/**
  * Opens one of the MariaDB views, or a view of another container.
  *
  * @param title The view's title: `Connections`, `Sandboxes` or `Tasks`,
@@ -215,10 +258,7 @@ export const openSection = async (
     title: string,
     container = VIEW_CONTAINER,
 ): Promise<CustomTreeSection> => {
-    const control = await waitFor(async () => {
-        return await new ActivityBar().getViewControl(container);
-    }, `the ${container} activity bar entry`);
-    const view = await control.openView();
+    const view = await openContainer(container);
 
     const section = await waitFor(async () => {
         return await view.getContent().getSection(title, CustomTreeSection);
@@ -423,7 +463,7 @@ export const childLabels = async (
  * @returns Nothing.
  */
 export const contextMenu = async (
-    item: CustomTreeItem,
+    item: TreeItem,
     ...path: string[]
 ): Promise<void> => {
     const menu = await item.openContextMenu();
@@ -467,6 +507,131 @@ export const inlineAction = async (
     await button.click();
 };
 
+// --- the Explorer -------------------------------------------------------
+
+/**
+ * Opens the Explorer on the workspace folder's files.
+ *
+ * @returns Its tree.
+ */
+export const explorerSection = async (): Promise<DefaultTreeSection> => {
+    const view = await openContainer("Explorer");
+    const name = WORKSPACE.split(/[\\/]/u).pop()?.toLowerCase() ?? "";
+
+    return await waitFor(async () => {
+        for (const section of await view.getContent().getSections()) {
+            if ((await section.getTitle()).toLowerCase() === name) {
+                if (!await section.isExpanded()) {
+                    await section.expand();
+                }
+
+                return section as DefaultTreeSection;
+            }
+        }
+
+        return undefined;
+    }, `the Explorer on ${name}`);
+};
+
+/**
+ * Finds a file or folder of the workspace, the folders on the way to it
+ * opened: a file made outside VS Code shows once its watcher saw it.
+ *
+ * @param path The names on the way to it, below the workspace folder.
+ *
+ * @returns Its row.
+ */
+export const explorerItem = async (...path: string[]): Promise<TreeItem> => {
+    let section = await explorerSection();
+
+    return await waitFor(async () => {
+        try {
+            if (path.length > 1) {
+                await section.openItem(...path.slice(0, -1)).catch(() => {
+                    return [];
+                });
+            }
+
+            return await section.findItem(path.at(-1)!, path.length);
+        } catch (error) {
+            // The view was redrawn: found again for the next poll.
+            if (!isStale(error)) {
+                throw error;
+            }
+            section = await explorerSection();
+
+            return undefined;
+        }
+    }, `the Explorer row ${path.join("/")}`, SERVER_TIMEOUT);
+};
+
+/**
+ * @param path The names on the way to a folder of the workspace.
+ * @param submenu The submenu of its context menu to read.
+ *
+ * @returns The entries of that submenu, or none where it is not there.
+ */
+export const explorerSubmenuEntries = async (
+    path: string[],
+    submenu: string,
+): Promise<string[]> => {
+    const menu = await (await explorerItem(...path)).openContextMenu();
+    await sleep(200);
+    try {
+        if (!await menu.hasItem(submenu)) {
+            return [];
+        }
+        const opened = await (await menu.getItem(submenu))?.select();
+        const entries = await Promise.all((await opened?.getItems() ?? [])
+            .map(async (entry) => { return await entry.getLabel(); }));
+
+        return entries.filter((entry) => { return entry !== ""; });
+    } finally {
+        await new Workbench().getDriver().actions()
+            .sendKeys(Key.ESCAPE).perform();
+    }
+};
+
+/**
+ * Picks an entry of a workspace folder's context menu until what it does
+ * shows up, as {@link menuAction} does for the MariaDB views.
+ *
+ * @param path The names on the way to the folder.
+ * @param menu The menu entries, a submenu's name first.
+ * @param done Whether the entry's effect is there.
+ * @param what The effect, for the failure message.
+ *
+ * @returns Nothing.
+ */
+export const explorerMenuAction = async (
+    path: string[],
+    menu: string[],
+    done: () => Promise<boolean>,
+    what: string,
+): Promise<void> => {
+    await menuActionOn(() => { return explorerItem(...path); },
+        path.join("/"), menu, done, what);
+};
+
+/**
+ * Opens a dialog from a workspace folder's context menu.
+ *
+ * @param path The names on the way to the folder.
+ * @param menu The menu entries, a submenu's name first.
+ * @param title The dialog's tab title.
+ *
+ * @returns Nothing.
+ */
+export const openExplorerDialog = async (
+    path: string[],
+    menu: string[],
+    title: string,
+): Promise<void> => {
+    await explorerMenuAction(path, menu, async () => {
+        return await isDialogOpen(title);
+    }, `the dialog "${title}"`);
+};
+
 // --- dialogs --------------------------------------------------------
 
 /**
@@ -508,6 +673,31 @@ export const inDialog = async <T>(
     } finally {
         await view.switchBack();
     }
+};
+
+/**
+ * Works in New Sandbox once it has loaded. It draws its fields empty at
+ * once, and replaces all of them when the host's load comes - the server
+ * versions, the connections and the certificate read first - so typing
+ * before that is lost: the port typed went back to the one suggested. The
+ * load always suggests a port, so a port is what says it came.
+ *
+ * @param work What to do inside it.
+ *
+ * @returns What `work` returns.
+ */
+export const inSandboxDialog = async <T>(
+    work: (view: WebView) => Promise<T>,
+): Promise<T> => {
+    return await inDialog("New Sandbox", async (view) => {
+        await waitFor(async () => {
+            const port = await view.findWebElement(byCaption("Port"));
+
+            return (await port.getAttribute("value") ?? "") !== "";
+        }, "New Sandbox to load");
+
+        return await work(view);
+    });
 };
 
 /**
@@ -559,13 +749,35 @@ export const menuAction = async (
     done: () => Promise<boolean>,
     what: string,
 ): Promise<void> => {
+    await menuActionOn(() => { return treeItem(section, path); },
+        path.join(" > "), menu, done, what);
+};
+
+/**
+ * What {@link menuAction} does, on whatever row `find` finds: a row of the
+ * MariaDB views, or of the Explorer.
+ *
+ * @param find Finds the row, afresh each attempt.
+ * @param where The row, for the failure message.
+ * @param menu The menu entries, a submenu's name first.
+ * @param done Whether the action's effect is there.
+ * @param what The effect, for the failure message.
+ *
+ * @returns Nothing.
+ */
+const menuActionOn = async (
+    find: () => Promise<TreeItem>,
+    where: string,
+    menu: string[],
+    done: () => Promise<boolean>,
+    what: string,
+): Promise<void> => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-            await contextMenu(await treeItem(section, path), ...menu);
+            await contextMenu(await find(), ...menu);
         } catch (error) {
             // The row was redrawn while its menu opened: find it again.
-            if (String(error).includes("StaleElementReference")
-                || String(error).includes("stale element")) {
+            if (isStale(error)) {
                 await sleep(500);
                 continue;
             }
@@ -591,7 +803,7 @@ export const menuAction = async (
         }
     }
 
-    throw new Error(`${what} did not come from ${path.join(" > ")} > `
+    throw new Error(`${what} did not come from ${where} > `
         + `${menu.join(" > ")}. The extension's log:\n${extensionLog()}`);
 };
 
@@ -630,6 +842,21 @@ export const isDialogOpen = async (title: string): Promise<boolean> => {
 };
 
 /**
+ * @param error What a WebDriver call on a webview threw.
+ *
+ * @returns Whether it says the webview went while the call ran: its
+ *          elements, or the frame itself, gone - or a call into it that
+ *          never came back. Quick work closes a dialog while it is being
+ *          looked at, in any of these ways; the callers check from outside
+ *          whether it did.
+ */
+const isGoneWebviewError = (error: unknown): boolean => {
+    return isStale(error)
+        || /NoSuchElement|frame detached|no such frame|ScriptTimeout|script timeout/u
+            .test(String(error));
+};
+
+/**
  * Presses a dialog's OK (or whatever its button says) and waits for the
  * dialog to close, failing at once with the dialog's own message when it
  * shows an error instead - a failed save is reported in the dialog, and
@@ -662,8 +889,16 @@ export const submitDialog = async (
             // The dialog's own bar: VS Code's workbench has one too, which
             // a view loading meanwhile shows, should the search run outside
             // the dialog's frame.
-            const bars = await view.findWebElements(
-                By.css(".dialog-busy [role='progressbar']"));
+            let bars: WebElement[] = [];
+            try {
+                bars = await view.findWebElements(
+                    By.css(".dialog-busy [role='progressbar']"));
+            } catch (error) {
+                // Closed under the lookup; whether it is gone is seen below.
+                if (!isGoneWebviewError(error)) {
+                    throw error;
+                }
+            }
             if (bars.length > 0) {
                 return bars[0];
             }
@@ -678,16 +913,30 @@ export const submitDialog = async (
         if (bar === "closed") {
             return;
         }
-        const label = await bar.getAttribute("aria-label");
-        if (label !== expectProgress) {
-            throw new Error(`The progress bar says "${label}"`);
-        }
-        for (const text of [button, "Cancel"]) {
-            const element = await view.findWebElement(
-                By.xpath(`//button[normalize-space()='${text}']`));
-            if (await element.isEnabled()) {
-                throw new Error(`${text} is enabled while the dialog saves`);
+        try {
+            const label = await bar.getAttribute("aria-label");
+            if (label !== expectProgress) {
+                throw new Error(`The progress bar says "${label}"`);
             }
+            for (const text of [button, "Cancel"]) {
+                const element = await view.findWebElement(
+                    By.xpath(`//button[normalize-space()='${text}']`));
+                if (await element.isEnabled()) {
+                    throw new Error(
+                        `${text} is enabled while the dialog saves`);
+                }
+            }
+        } catch (error) {
+            // Done while it was looked at: a webview that has closed has no
+            // elements left, the bar and the buttons included.
+            if (!isGoneWebviewError(error)) {
+                throw error;
+            }
+            await view.switchBack();
+            if (title !== undefined && !await isDialogOpen(title)) {
+                return;
+            }
+            throw error;
         }
     }
     const end = Date.now() + timeout;

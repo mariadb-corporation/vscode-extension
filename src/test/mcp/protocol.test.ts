@@ -169,3 +169,50 @@ describe("decodeVoid", () => {
         }).toThrow(/no such connection/);
     });
 });
+
+describe("decodeList with a structured result", () => {
+    it("keeps a list of lists that the text items flatten", () => {
+        // msm.get_released_versions with one release, 1.0.0.
+        expect(decodeList("msm.get_released_versions", {
+            content: [
+                { type: "text", text: "1" }, { type: "text", text: "0" },
+                { type: "text", text: "0" },
+            ],
+            structuredContent: { result: [[1, 0, 0]] },
+            isError: false,
+        })).toEqual([[1, 0, 0]]);
+    });
+
+    it("reads None and an empty list as no elements", () => {
+        expect(decodeList("t", {
+            content: [], structuredContent: { result: null },
+        })).toEqual([]);
+        expect(decodeList("t", {
+            content: [], structuredContent: { result: [] },
+        })).toEqual([]);
+    });
+
+    it("keeps strings that would parse as JSON as the strings they are", () => {
+        expect(decodeList("t", {
+            content: [{ type: "text", text: "123" }],
+            structuredContent: { result: ["123"] },
+        })).toEqual(["123"]);
+    });
+
+    it("reads the text items where the structured result is not a list", () => {
+        expect(decodeList("t", {
+            content: [{ type: "text", text: "{\"a\": 1}" }],
+            structuredContent: { result: { a: 1 } },
+        })).toEqual([{ a: 1 }]);
+    });
+
+    it("throws the reported error", () => {
+        expect(() => {
+            return decodeList("msm.prepare_release", {
+                content: [{ type: "text", text: "already exists" }],
+                structuredContent: { result: [] },
+                isError: true,
+            });
+        }).toThrow(McpToolError);
+    });
+});

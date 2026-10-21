@@ -65,6 +65,7 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `mrs` | `02-mrs` | `ui-test:mrs` |
 | `dump-load` | `06-dump-load` | `ui-test:dump-load` |
 | `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), the walk from `SELECT ` through schema, table and column to the FROM clause and a foreign-key join (`pickCompletion` opens the list and clicks an item; a dotted item reopens it by itself), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches); Format Document and the toolbar's format button with and without a selection; the Explorer's Outline (schema > table > columns and key, a view, a function) and a click on a symbol moving the cursor; an MSM script's `SOURCE` section in the Outline and in path completion. Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
+| `msm` | `09-msm`: MariaDB Schema Management from the Explorer, a project created, released, scripted and deployed onto the sandbox, through the dialogs (see [msm.md](msm.md)). Its VS Code opens `files/workspace` (`WORKSPACE_FILES`, `--open_resource`), the one suite with a workspace folder; `UI_TEST_WORKSPACE` names it | `ui-test:msm` |
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
@@ -121,6 +122,10 @@ runner end anyway. A spawn that fails is reported with its error.
   - `03-connections`
   - `04-sql-results`
   - `05-lifecycle`: sandbox stop/start, MCP restart and log
+  - `09-msm`: MSM from the Explorer's folder menu (see msm.md); the
+    Explorer is a `DefaultTreeSection`, so it has helpers of its own
+    (`explorerItem`, `explorerSubmenuEntries`, `explorerMenuAction`,
+    `openExplorerDialog`)
   - `06-dump-load`: Dump and Load (see dump-and-load.md); a second
     sandbox on `UI_TEST_PORT2` to copy to, deleted again. It checks the
     server's state with the shell on the command line, outside the UI.
@@ -141,18 +146,49 @@ runner end anyway. A spawn that fails is reported with its error.
   (TIMEOUT 10 s, SERVER_TIMEOUT 15 s, DEPLOY_TIMEOUT 90 s), and dialogs
   fail at once on an in-dialog `.message.error` or an error
   notification. Screenshots go to `.vscode-test/extest/screenshots`.
+- **The test VS Code opens on a display of its own** where the Mac has a
+  second one (`ui-test/lib/window.ts`; `UI_TEST_DISPLAY`: unset the
+  second display, `main` the main one, a number that display, 1 being
+  main). ExTester deletes the user data folder and writes it anew in one
+  function right before launching, so the window's bounds
+  (`windowsState.lastActiveWindow.uiState` in
+  `User/globalStorage/storage.json`) are written from a wrapper around the
+  one call in between, `codeUtil.getDefaultSettings`, installed as the
+  test files load (`placeWindow`, from `ui.ts`). Both are internals: a
+  version changing either leaves the window where VS Code puts it.
+- **The focus goes back to the app that had it** (macOS): macOS gives the
+  test VS Code the focus as it opens, so keys typed into another app
+  landed in it. `rememberFrontApp` notes the front app (`lsappinfo`, no
+  permission needed) as the test files load, and a root `before` hook of
+  `ui.ts`, which runs after ExTester's has VS Code up, activates it again
+  by its path (`open -a`), twice, 1.5 s apart. `UI_TEST_FOCUS=vscode`
+  leaves the focus with VS Code.
 - ExTester traps:
-  - The tests drive the real window: typing or clicking on the machine
-    while they run makes them fail. An occasional "element not
-    interactable" in the command palette, or a completion timeout, that
-    passes on a rerun is that kind of flake, not a defect.
+  - The tests drive the real window: typing or clicking in it while
+    they run makes them fail. Keys and clicks go through
+    ChromeDriver, not the OS, so another app may have focus meanwhile -
+    but each suite's VS Code takes focus as it starts. One thing does go
+    by the window's focus: VS Code closes a quick input - the command
+    palette, `answerInput`, `pickQuick`, the simple file dialog
+    `openResources` and `answerFileDialog` use - once its window loses
+    focus, which was the "element not interactable" in the palette while
+    the user worked in another app. `ui-test/settings.json` turns
+    `workbench.quickOpen.closeOnFocusLost` off. The clipboard is
+    the machine's: `03-connections` and `02-mrs` clear it and read what a
+    Copy command put there (`clipboard()`), so copying meanwhile fails
+    them. The runner keeps the clipboard's text and gives it back on exit
+    (`saveClipboard` / `restoreClipboard` in `run.ts`; text only). A
+    completion timeout that passes on a rerun is a flake of that kind,
+    not a defect.
   - VS Code's Outline sorts by position: an inline `PRIMARY KEY` is
     listed right after its column, so a test that wants the keys last
     declares them in a clause of their own.
   - Tree rows are virtualized and their DOM is reused. Re-find a row by
     label and `aria-level` (`treeItem`); never hold on to one.
   - Context-menu clicks are sometimes lost when a tree refresh closes the
-    menu. `menuAction`, `openDialog` and `menuConfirm` retry 3×.
+    menu. `menuAction`, `openDialog` and `menuConfirm` retry 3×, as the
+    Explorer's `explorerMenuAction` does: one loop, `menuActionOn`, given
+    how to find the row afresh.
   - A webview that has closed answers lookups with nothing, so
     `submitDialog` checks the editor tab from outside.
   - Palette commands do not reach a focused webview: bring an editor
@@ -161,6 +197,13 @@ runner end anyway. A spawn that fails is reported with its error.
     false`, such as Refresh Connections) cannot be run with
     `runCommand`: ExTester types its title and presses Enter on whatever
     matches instead. Click the view's toolbar button (`getAction`).
+  - New Sandbox draws its fields empty at once and replaces them all when
+    the host's load arrives (after reading the server versions, the
+    connections and the certificate): typing before that is lost, or hits
+    a stale element, and a lost port falls back to the suggested 3310,
+    which a server of the machine's own may hold. `inSandboxDialog` opens
+    it and waits for the suggested port, which the load always brings;
+    every test opening New Sandbox goes through it.
   - Tabulator rebuilds its cell editor right after the click. Type into
     `switchTo().activeElement()`, not into an element found earlier.
   - Untitled SQL editors would ask "Save changes?" when VS Code closes.
@@ -177,8 +220,15 @@ runner end anyway. A spawn that fails is reported with its error.
   - ExTester cannot read the rows of an empty tree: `getVisibleItems`
     throws "element not interactable". Wait for a row to be gone with
     `hasTreeItem` instead.
-  - Quick work can close a dialog before its progress bar is seen;
-    `submitDialog` accepts that, but a dialog still open must show the bar.
+  - Quick work can close a dialog before its progress bar is seen, or
+    while the bar and the buttons are being looked at (an MSM create
+    takes 7 ms); `submitDialog` accepts both where the dialog has closed
+    (`isGoneWebviewError`: no such element, a stale one, a detached frame,
+    a script timeout),
+    but a dialog still open must show the bar.
+  - The Explorer compacts a folder holding one folder into one row
+    (`projects / msm_shop.msm.project`); `ui-test/settings.json` turns
+    `explorer.compactFolders` off so each folder is a row to right-click.
 
 ## Debugging in VS Code
 

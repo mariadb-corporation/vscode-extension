@@ -20,7 +20,6 @@ import { describe, expect, it } from "vitest";
 import type { IMrsAction } from "../../mrs/mrsActions.js";
 import { MrsApi } from "../../mrs/mrsApi.js";
 import {
-    compareVersions,
     isMrsNode,
     mrsHasChildren,
     MrsModel,
@@ -601,23 +600,5 @@ describe("isMrsNode", () => {
             "folder", "connectionStatus", "mrs"]) {
             expect(isMrsNode({ kind }), kind).toBe(false);
         }
-    });
-});
-
-describe("compareVersions", () => {
-    it("compares part by part, as numbers", () => {
-        expect(compareVersions("26.10.0", "26.9.4")).toBeGreaterThan(0);
-        expect(compareVersions("26.9.4", "26.10.0")).toBeLessThan(0);
-        expect(compareVersions("26.10.0", "26.10.0")).toBe(0);
-    });
-
-    it("takes a missing part as 0", () => {
-        expect(compareVersions("26.10", "26.10.0")).toBe(0);
-        expect(compareVersions("26.10.1", "26.10")).toBeGreaterThan(0);
-    });
-
-    it("reads a dash as a separator and text as 0", () => {
-        expect(compareVersions("26.10.0-1", "26.10.0")).toBeGreaterThan(0);
-        expect(compareVersions("x.1", "0.1")).toBe(0);
     });
 });

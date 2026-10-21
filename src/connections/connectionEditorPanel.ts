@@ -33,7 +33,8 @@ import type {
     ISaveMessage,
 } from "./editorProtocol.js";
 import { errorText } from "../text.js";
-import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
+import { DialogPanel } from "../webview/dialogPanel.js";
+import { buildWebviewHtml } from "../webview/html.js";
 
 /**
  * The webview panel behind the connection editor.
@@ -84,21 +85,20 @@ export const buildEditorHtml = (
  * that is already up, rather than leaving two dialogs able to save over each
  * other.
  */
-export class ConnectionEditorPanel {
+export class ConnectionEditorPanel
+    extends DialogPanel<EditorHostMessage, EditorWebviewMessage> {
     static #current: ConnectionEditorPanel | undefined;
 
-    #panel: vscode.WebviewPanel;
     #connection: IStoredConnection | undefined;
     /** The folder a new connection starts in. */
     #newIn = ROOT_FOLDER;
-    #disposables: vscode.Disposable[] = [];
 
     private constructor(
-        panel: vscode.WebviewPanel,
+        title: string,
         private readonly extensionUri: vscode.Uri,
         private readonly host: IConnectionEditorHost,
     ) {
-        this.#panel = panel;
+        super(CONNECTION_EDITOR_VIEW_TYPE, title, extensionUri);
     }
 
     /**
@@ -126,8 +126,8 @@ export class ConnectionEditorPanel {
             const existing = ConnectionEditorPanel.#current;
             existing.#connection = connection;
             existing.#newIn = newIn;
-            existing.#panel.title = title;
-            existing.#panel.reveal(vscode.ViewColumn.Active);
+            existing.panel.title = title;
+            existing.panel.reveal(vscode.ViewColumn.Active);
             // Reloading the HTML restarts the webview, which then asks for
             // its state again - so the dialog cannot be left showing the
             // connection it was opened on last time.
@@ -136,28 +136,10 @@ export class ConnectionEditorPanel {
             return;
         }
 
-        const panel = vscode.window.createWebviewPanel(
-            CONNECTION_EDITOR_VIEW_TYPE,
-            title,
-            vscode.ViewColumn.Active,
-            { ...webviewOptions(extensionUri), retainContextWhenHidden: true },
-        );
-
-        const editor = new ConnectionEditorPanel(panel, extensionUri, host);
+        const editor = new ConnectionEditorPanel(title, extensionUri, host);
         editor.#connection = connection;
         editor.#newIn = newIn;
         ConnectionEditorPanel.#current = editor;
-
-        panel.onDidDispose(() => { editor.dispose(); }, undefined,
-            editor.#disposables);
-        panel.webview.onDidReceiveMessage(
-            (message: EditorWebviewMessage) => {
-                void editor.#onMessage(message);
-            },
-            undefined,
-            editor.#disposables,
-        );
-
         editor.#render();
     }
 
@@ -167,12 +149,11 @@ export class ConnectionEditorPanel {
      * @returns Nothing.
      */
     public static disposeCurrent(): void {
-        // Not `#current?.#panel`: an optional chain cannot carry a private
-        // name, so the check is spelled out.
-        const current = ConnectionEditorPanel.#current;
-        if (current !== undefined) {
-            current.#panel.dispose();
-        }
+        ConnectionEditorPanel.#current?.close();
+    }
+
+    protected onDisposed(): void {
+        ConnectionEditorPanel.#current = undefined;
     }
 
     /**
@@ -181,19 +162,8 @@ export class ConnectionEditorPanel {
      * @returns Nothing.
      */
     #render(): void {
-        this.#panel.webview.html =
-            buildEditorHtml(this.#panel.webview, this.extensionUri);
-    }
-
-    /**
-     * Sends a message to the webview.
-     *
-     * @param message The message to send.
-     *
-     * @returns Nothing.
-     */
-    #post(message: EditorHostMessage): void {
-        void this.#panel.webview.postMessage(message);
+        this.panel.webview.html =
+            buildEditorHtml(this.panel.webview, this.extensionUri);
     }
 
     /**
@@ -203,7 +173,7 @@ export class ConnectionEditorPanel {
      *
      * @returns Nothing.
      */
-    async #onMessage(message: EditorWebviewMessage): Promise<void> {
+    protected async onMessage(message: EditorWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
                 const state = this.#connection === undefined
@@ -216,7 +186,7 @@ export class ConnectionEditorPanel {
                     }
                     : fieldsOf(this.#connection);
 
-                this.#post({
+                this.post({
                     type: "load",
                     uri: this.#connection?.uri,
                     fields: state.fields,
@@ -245,7 +215,7 @@ export class ConnectionEditorPanel {
             }
 
             case "paste": {
-                this.#post({
+                this.post({
                     type: "clipboard",
                     text: await vscode.env.clipboard.readText(),
                 });
@@ -258,7 +228,7 @@ export class ConnectionEditorPanel {
             }
 
             default: {
-                this.#panel.dispose();
+                this.close();
             }
         }
     }
@@ -297,19 +267,19 @@ export class ConnectionEditorPanel {
         fields: Parameters<typeof testConnection>[1],
         password: string | undefined,
     ): Promise<void> {
-        this.#post({ type: "busy", busy: true });
+        this.post({ type: "busy", busy: true });
         try {
             const api = await this.host.api();
             const message = await testConnection(api, fields, password);
-            this.#post({ type: "testResult", ok: true, message });
+            this.post({ type: "testResult", ok: true, message });
         } catch (error) {
-            this.#post({
+            this.post({
                 type: "testResult",
                 ok: false,
                 message: errorText(error),
             });
         } finally {
-            this.#post({ type: "busy", busy: false });
+            this.post({ type: "busy", busy: false });
         }
     }
 
@@ -324,8 +294,7 @@ export class ConnectionEditorPanel {
      * @returns Nothing.
      */
     async #save(message: ISaveMessage): Promise<void> {
-        this.#post({ type: "busy", busy: true });
-        try {
+        await this.runBusy(async () => {
             const api = await this.host.api();
             const result = await saveConnection(api, {
                 fields: message.fields,
@@ -338,32 +307,17 @@ export class ConnectionEditorPanel {
             });
 
             if (result.error !== undefined) {
-                this.#post({ type: "saveError", message: result.error });
+                this.post({ type: "saveError", message: result.error });
 
-                return;
+                return false;
             }
 
             this.host.log(`Saved the connection '${result.uri}'.`);
             this.host.onSaved();
-            this.#panel.dispose();
-        } catch (error) {
-            const text = errorText(error);
-            this.#post({ type: "saveError", message: text });
-        } finally {
-            this.#post({ type: "busy", busy: false });
-        }
-    }
 
-    /**
-     * Tears the panel down.
-     *
-     * @returns Nothing.
-     */
-    public dispose(): void {
-        ConnectionEditorPanel.#current = undefined;
-        for (const disposable of this.#disposables) {
-            disposable.dispose();
-        }
-        this.#disposables = [];
+            return true;
+        }, {
+            message: (text) => { return { type: "saveError", message: text }; },
+        });
     }
 }

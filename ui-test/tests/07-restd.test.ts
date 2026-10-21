@@ -25,6 +25,7 @@ import {
     CONNECTION,
     DEPLOY_TIMEOUT,
     inDialog,
+    inSandboxDialog,
     inResults,
     isDialogOpen,
     menuAction,
@@ -131,7 +132,7 @@ describe("The MariaDB REST Daemon", () => {
     it("deploys a sandbox with the MariaDB REST Service", async () => {
         await openSection("Sandboxes");
         await runCommand("MariaDB: New Sandbox…");
-        await inDialog("New Sandbox", async (view) => {
+        await inSandboxDialog(async (view) => {
             await setFieldByCaption(view, "Port", String(SECOND_PORT));
             await setChecked(view, "generatePassword", false);
             await setFieldByCaption(view, "Root Password", SANDBOX_PASSWORD);

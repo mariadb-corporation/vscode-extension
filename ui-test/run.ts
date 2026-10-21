@@ -108,6 +108,26 @@ const SUITES: Record<string, string[]> = {
     "dump-load": [SETUP, "06-dump-load", CLEANUP],
     restd: [SETUP, "07-restd", CLEANUP],
     lsp: [SETUP, "08-lsp", CLEANUP],
+    msm: [SETUP, "09-msm", CLEANUP],
+};
+
+/**
+ * The test files that need a workspace folder, `files/workspace`: the
+ * Explorer's menus are on the files of a workspace, which the others do
+ * without. A run of one of them opens it at the start, as opening a folder
+ * later reloads the window.
+ */
+const WORKSPACE_FILES = ["09-msm"];
+
+/**
+ * @param testFiles A run's test files, or the glob naming them.
+ *
+ * @returns Whether one of them needs a workspace folder.
+ */
+const needsWorkspace = (testFiles: string[]): boolean => {
+    return testFiles.some((file) => {
+        return WORKSPACE_FILES.some((name) => { return file.includes(name); });
+    });
 };
 
 /** The signals that end the run, with the exit code each ends it with. */
@@ -154,7 +174,39 @@ for (const [signal, code] of Object.entries(STOP_SIGNALS)) {
 }
 process.on("exit", () => {
     stopRunningGroup("the runner exited");
+    restoreClipboard();
 });
+
+/**
+ * The clipboard's text as the run found it, while the run has it. Two
+ * tests check what a Copy command put there (`clipboard()` in
+ * `lib/ui.ts`), clearing it first: the clipboard is the whole machine's,
+ * so they would take away what the user had copied. It is given back when
+ * the runner exits, however - finished, failed or interrupted. Text only:
+ * `pbpaste` reads nothing else, so an image copied is not given back (and
+ * an empty clipboard is left as the tests left it).
+ */
+let savedClipboard: string | undefined;
+
+/** Keeps the clipboard's text, on macOS, where the tests use it. */
+const saveClipboard = (): void => {
+    if (process.platform !== "darwin") {
+        return;
+    }
+    const pasted = spawnSync("pbpaste", { encoding: "utf8" });
+    if (pasted.status === 0 && pasted.stdout !== "") {
+        savedClipboard = pasted.stdout;
+    }
+};
+
+/** Gives the clipboard's text back, once. */
+const restoreClipboard = (): void => {
+    if (savedClipboard === undefined) {
+        return;
+    }
+    spawnSync("pbcopy", { input: savedClipboard });
+    savedClipboard = undefined;
+};
 
 /**
  * Runs a command in a process group of its own, stopping the whole group
@@ -230,12 +282,15 @@ const runFiles = async (
     extraArgs: string[],
     timeoutMs: number,
 ): Promise<number> => {
+    const workspace = needsWorkspace(testFiles);
     const work = mkdtempSync(join(tmpdir(), "mariadb-ui-test-"));
     const home = join(work, "shell-home");
     const bin = join(work, "bin");
     const sandboxes = join(work, "sandboxes");
     const files = join(work, "files");
-    for (const dir of [join(home, "plugins"), bin, sandboxes, files]) {
+    const folder = join(files, "workspace");
+    for (const dir of [join(home, "plugins"), bin, sandboxes, files,
+        ...(workspace ? [folder] : [])]) {
         mkdirSync(dir, { recursive: true });
     }
     for (const plugin of PLUGINS) {
@@ -283,6 +338,7 @@ const runFiles = async (
         UI_TEST_PORT: String(await freePort()),
         UI_TEST_PORT2: String(await freePort()),
         UI_TEST_FILES: files,
+        ...(workspace ? { UI_TEST_WORKSPACE: folder } : {}),
         UI_TEST_SCREENSHOTS: join(storage, "screenshots"),
         UI_TEST_STORAGE: storage,
     };
@@ -291,6 +347,8 @@ const runFiles = async (
         return await runGroup(join(root, "node_modules", ".bin", "extest"), [
             "setup-and-run",
             ...testFiles,
+            // Before the next option: it takes every argument up to one.
+            ...(workspace ? ["--open_resource", folder] : []),
             "--storage", storage,
             "--extensions_dir", join(storage, "extensions"),
             "--code_settings", join(root, "ui-test", "settings.json"),
@@ -309,6 +367,7 @@ const runFiles = async (
 };
 
 const main = async (): Promise<number> => {
+    saveClipboard();
     const shell = process.env.MARIADB_SHELL;
     if (shell === undefined || shell === "") {
         console.error("Set MARIADB_SHELL to the mariadb-shell to test with.");

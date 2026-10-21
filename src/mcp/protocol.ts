@@ -24,8 +24,14 @@
  * - a tool returning a list produces one text item per element,
  * - a tool returning a dict produces one text item holding its JSON,
  * - a tool returning a scalar produces one text item holding it verbatim,
- *   plus `structuredContent.result`,
  * - a tool that raised produces `isError: true` and the message as text.
+ *
+ * A tool whose return annotation is typed (`Optional[list]`, `str`, ...)
+ * also sends its value as `structuredContent.result`; one annotated with a
+ * bare `list` or `dict` does not. Where it is sent it is the value itself,
+ * which the text items are not always: they flatten a list of lists -
+ * `[[1, 0, 0]]` arrives as "1", "0", "0" - and are empty for both `[]`
+ * and None.
  *
  * These helpers are pure, so the mapping is testable without a server.
  */
@@ -99,10 +105,20 @@ export const textContents = (
  * @param toolName The tool that was called.
  * @param result The result it answered with.
  *
- * @returns One decoded element per text item.
+ * @returns The structured result where it is a list, none where it is
+ *          null, else one decoded element per text item.
  */
 export const decodeList = <T>(toolName: string, result: IToolResult): T[] => {
-    return textContents(toolName, result).map((text) => {
+    const texts = textContents(toolName, result);
+    const structured = result.structuredContent?.result;
+    if (Array.isArray(structured)) {
+        return structured as T[];
+    }
+    if (structured === null) {
+        return [];
+    }
+
+    return texts.map((text) => {
         return parseMaybeJson(text) as T;
     });
 };

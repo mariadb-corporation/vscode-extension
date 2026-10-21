@@ -18,9 +18,8 @@
 import * as vscode from "vscode";
 
 import { connectionLabel } from "../connections/connectionUri.js";
-import { showErrorWithLog } from "../errorMessages.js";
-import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
-import { errorText } from "../text.js";
+import { DialogPanel, pickFolder } from "../webview/dialogPanel.js";
+import { buildWebviewHtml } from "../webview/html.js";
 import type { UtilOptions } from "../mcp/utilApi.js";
 import {
     buildUtilOptions,
@@ -63,19 +62,18 @@ export const UTIL_DIALOG_VIEW_TYPE = "mariadb.utilDialog";
  * time, as the other dialogs are. It closes once the work started; its
  * progress is shown by the task's notification and the Tasks view.
  */
-export class UtilDialogPanel {
+export class UtilDialogPanel
+    extends DialogPanel<UtilHostMessage, UtilWebviewMessage> {
     static #current: UtilDialogPanel | undefined;
 
-    #panel: vscode.WebviewPanel;
-    #disposed = false;
-    #disposables: vscode.Disposable[] = [];
-
     private constructor(
-        panel: vscode.WebviewPanel,
+        extensionUri: vscode.Uri,
         private readonly spec: IUtilOperationSpec,
         private readonly host: IUtilDialogHost,
     ) {
-        this.#panel = panel;
+        super(UTIL_DIALOG_VIEW_TYPE, spec.title, extensionUri);
+        this.panel.webview.html = buildWebviewHtml(this.panel.webview,
+            extensionUri, "util", spec.title);
     }
 
     /**
@@ -90,50 +88,25 @@ export class UtilDialogPanel {
         spec: IUtilOperationSpec,
         host: IUtilDialogHost,
     ): void {
-        const open = UtilDialogPanel.#current;
-        if (open !== undefined) {
-            open.#panel.dispose();
-        }
-
-        const panel = vscode.window.createWebviewPanel(
-            UTIL_DIALOG_VIEW_TYPE,
-            spec.title,
-            vscode.ViewColumn.Active,
-            { ...webviewOptions(extensionUri), retainContextWhenHidden: true },
-        );
-        const dialog = new UtilDialogPanel(panel, spec, host);
-        UtilDialogPanel.#current = dialog;
-
-        panel.onDidDispose(() => { dialog.dispose(); }, undefined,
-            dialog.#disposables);
-        panel.webview.onDidReceiveMessage(
-            (message: UtilWebviewMessage) => {
-                void dialog.#onMessage(message);
-            },
-            undefined,
-            dialog.#disposables,
-        );
-        panel.webview.html = buildWebviewHtml(panel.webview, extensionUri,
-            "util", spec.title);
+        UtilDialogPanel.disposeCurrent();
+        UtilDialogPanel.#current =
+            new UtilDialogPanel(extensionUri, spec, host);
     }
 
     public static disposeCurrent(): void {
-        const open = UtilDialogPanel.#current;
-        if (open !== undefined) {
-            open.#panel.dispose();
+        UtilDialogPanel.#current?.close();
+    }
+
+    protected onDisposed(): void {
+        if (UtilDialogPanel.#current === this) {
+            UtilDialogPanel.#current = undefined;
         }
     }
 
-    #post(message: UtilHostMessage): void {
-        if (!this.#disposed) {
-            void this.#panel.webview.postMessage(message);
-        }
-    }
-
-    async #onMessage(message: UtilWebviewMessage): Promise<void> {
+    protected async onMessage(message: UtilWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
-                this.#post({
+                this.post({
                     type: "load",
                     spec: this.spec,
                     values: initialUtilValues(this.spec,
@@ -148,7 +121,7 @@ export class UtilDialogPanel {
             case "browse": {
                 const path = await this.#browse(message.current);
                 if (path !== undefined) {
-                    this.#post({ type: "browsed", path });
+                    this.post({ type: "browsed", path });
                 }
                 break;
             }
@@ -157,43 +130,40 @@ export class UtilDialogPanel {
                 // Checked again here: this is what starts the work.
                 const built = buildUtilOptions(this.spec, message.values);
                 if ("problem" in built) {
-                    this.#post({
+                    this.post({
                         type: "startError", message: built.problem.message,
                         field: built.problem.field,
                     });
                     break;
                 }
 
-                this.#post({ type: "busy", busy: true });
-                try {
+                const failed = (text: string): string => {
+                    return `${this.spec.title} did not start: ${text}`;
+                };
+                await this.runBusy(async () => {
                     const problem = await this.host.check?.(built.paths);
                     if (problem !== undefined) {
-                        this.#post({ type: "startError", ...problem });
-                        break;
+                        this.post({ type: "startError", ...problem });
+
+                        return false;
                     }
                     await this.host.start(built.options, built.paths,
                         built.target);
-                    this.#panel.dispose();
-                } catch (error) {
-                    const text = errorText(error);
-                    this.host.log(`${this.spec.title} did not start: ${text}`);
-                    if (this.#disposed) {
-                        // Closed while it started: nowhere left to say it
-                        // but a notification.
-                        void showErrorWithLog(
-                            `${this.spec.title} did not start: ${text}`);
-                    } else {
-                        this.#post({ type: "startError", message: text });
-                    }
-                    this.host.onFailed?.();
-                } finally {
-                    this.#post({ type: "busy", busy: false });
-                }
+
+                    return true;
+                }, {
+                    message: (text) => {
+                        return { type: "startError", message: text };
+                    },
+                    log: (text) => { this.host.log(failed(text)); },
+                    notify: failed,
+                    onFailed: () => { this.host.onFailed?.(); },
+                });
                 break;
             }
 
             default: {
-                this.#panel.dispose();
+                this.close();
             }
         }
     }
@@ -205,12 +175,17 @@ export class UtilDialogPanel {
      */
     async #browse(current: string): Promise<string | undefined> {
         const browse = this.spec.path?.browse;
-        const start = current.trim() === ""
-            ? undefined : vscode.Uri.file(current.split(",")[0].trim());
+        const first = current.split(",")[0].trim();
+        const title = this.spec.path?.label;
 
+        if (browse === "folder") {
+            return pickFolder(title ?? this.spec.title, first);
+        }
+
+        const start = first === "" ? undefined : vscode.Uri.file(first);
         if (browse === "saveFile") {
             const picked = await vscode.window.showSaveDialog({
-                title: this.spec.path?.label,
+                title,
                 ...(start === undefined ? {} : { defaultUri: start }),
             });
 
@@ -218,11 +193,11 @@ export class UtilDialogPanel {
         }
 
         const picked = await vscode.window.showOpenDialog({
-            title: this.spec.path?.label,
-            canSelectFolders: browse === "folder",
+            title,
+            canSelectFolders: false,
             canSelectFiles: browse === "openFiles",
             canSelectMany: browse === "openFiles",
-            openLabel: browse === "folder" ? "Select Folder" : "Select",
+            openLabel: "Select",
             ...(start === undefined ? {} : { defaultUri: start }),
         });
         if (picked === undefined || picked.length === 0) {
@@ -230,16 +205,5 @@ export class UtilDialogPanel {
         }
 
         return picked.map((uri) => { return uri.fsPath; }).join(", ");
-    }
-
-    public dispose(): void {
-        this.#disposed = true;
-        if (UtilDialogPanel.#current === this) {
-            UtilDialogPanel.#current = undefined;
-        }
-        for (const disposable of this.#disposables) {
-            disposable.dispose();
-        }
-        this.#disposables = [];
     }
 }

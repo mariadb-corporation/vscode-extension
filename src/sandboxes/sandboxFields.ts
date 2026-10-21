@@ -21,6 +21,7 @@ import {
     usesSshTunnel,
 } from "../connections/connectionUri.js";
 import type { ISandboxDeployOptions } from "../mcp/sandboxApi.js";
+import { newestFirst } from "../versionOrder.js";
 import {
     passwordProblems,
     portProblem,
@@ -249,39 +250,6 @@ export const suggestSandboxPort = (taken: readonly number[]): number => {
     return port;
 };
 
-/**
- * @param version `major.minor.patch`, as the server lists them.
- *
- * @returns Its numbers, for comparing: `11.10` is newer than `11.9`, which
- *          a comparison of the text would get backwards.
- */
-const versionNumbers = (version: string): number[] => {
-    return version.replace(/^v/, "").split(".").map((part) => {
-        return Number(part) || 0;
-    });
-};
-
-/**
- * Orders versions newest first.
- *
- * @param versions The versions, in any order.
- *
- * @returns A sorted copy.
- */
-export const newestFirst = (versions: readonly string[]): string[] => {
-    return [...versions].sort((a, b) => {
-        const left = versionNumbers(a);
-        const right = versionNumbers(b);
-        for (let at = 0; at < Math.max(left.length, right.length); at += 1) {
-            const difference = (right[at] ?? 0) - (left[at] ?? 0);
-            if (difference !== 0) {
-                return difference;
-            }
-        }
-
-        return 0;
-    });
-};
 
 /**
  * @param text The Server Version field, as typed.

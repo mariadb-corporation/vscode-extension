@@ -2,6 +2,8 @@
     "window.dialogStyle": "custom",
     "files.simpleDialog.enable": true,
     "workbench.startupEditor": "none",
+    "explorer.compactFolders": false,
+    "workbench.quickOpen.closeOnFocusLost": false,
     "workbench.tips.enabled": false,
     "workbench.enableExperiments": false,
     "security.workspace.trust.enabled": false,

@@ -415,8 +415,14 @@ export const configurationUpdates: Array<{
     target: ConfigurationTarget;
 }> = [];
 
+/** A workspace folder: its name, and where it is where a test says. */
+export interface IMockWorkspaceFolder {
+    name: string;
+    uri?: Uri;
+}
+
 /** Set to a non-empty array to make the mock look like a workspace. */
-export let workspaceFolders: Array<{ name: string }> | undefined;
+export let workspaceFolders: IMockWorkspaceFolder[] | undefined;
 
 /**
  * Sets what `workspace.workspaceFolders` reports.
@@ -426,7 +432,7 @@ export let workspaceFolders: Array<{ name: string }> | undefined;
  * @returns Nothing.
  */
 export const setWorkspaceFolders = (
-    folders: Array<{ name: string }> | undefined,
+    folders: IMockWorkspaceFolder[] | undefined,
 ): void => {
     workspaceFolders = folders;
     workspace.workspaceFolders = folders;
@@ -1118,7 +1124,17 @@ export const window = {
 };
 
 export const workspace = {
-    workspaceFolders: undefined as Array<{ name: string }> | undefined,
+    workspaceFolders: undefined as IMockWorkspaceFolder[] | undefined,
+
+    /** The folder holding a path: one whose `uri` it is, or is below. */
+    getWorkspaceFolder: (uri: Uri): IMockWorkspaceFolder | undefined => {
+        return workspaceFolders?.find((folder) => {
+            const root = folder.uri?.fsPath;
+
+            return root !== undefined && (uri.fsPath === root
+                || uri.fsPath.startsWith(`${root}/`));
+        });
+    },
 
     textDocuments,
 

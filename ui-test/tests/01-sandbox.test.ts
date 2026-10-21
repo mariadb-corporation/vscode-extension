@@ -22,7 +22,7 @@ import { EditorView, TextEditor, VSBrowser } from "vscode-extension-tester";
 import {
     childLabels,
     CONNECTION,
-    inDialog,
+    inSandboxDialog,
     inlineAction,
     openSection,
     runCommand,
@@ -76,7 +76,7 @@ describe("A sandbox to test with", () => {
     it("deploys a sandbox with the New Sandbox dialog", async () => {
         await openSection("Sandboxes");
         await runCommand("MariaDB: New Sandbox…");
-        await inDialog("New Sandbox", async (view) => {
+        await inSandboxDialog(async (view) => {
             await setFieldByCaption(view, "Port", String(SANDBOX_PORT));
             // A password of its own, which the later tests log in with.
             await setChecked(view, "generatePassword", false);

@@ -20,6 +20,7 @@ import { render } from "preact";
 import { Tooltips } from "./dialogParts.js";
 import { UtilDialog } from "./UtilDialog.js";
 import "./editorStyles.css";
+import "./dialogStyles.css";
 import "./utilStyles.css";
 
 const root = document.getElementById("root");
