@@ -96,7 +96,7 @@ the summary and go on.
 
 - this repository's tags (`git tag -l 'v*' | sort -V`);
 - the versions on the Marketplace
-  (`npx vsce show MariaDB.mariadb-dev --json`, its `versions[].version`).
+  (`npx vsce show MariaDB.mariadb-shell --json`, its `versions[].version`).
   The command prints `undefined` while the extension has never been
   published.
 
@@ -279,12 +279,12 @@ git diff --exit-code package.json
 
 Then check the package:
 
-- `mariadb-dev-<version>.vsix` exists.
-- `unzip -l mariadb-dev-<version>.vsix | grep -c 'extension/skills/.*/SKILL.md'`
+- `mariadb-shell-<version>.vsix` exists.
+- `unzip -l mariadb-shell-<version>.vsix | grep -c 'extension/skills/.*/SKILL.md'`
   equals the number of `chatSkills` entries.
 - `extension/skills/skills-source.json` in it names `v<skills>`.
 - The channel is the one intended:
-  `unzip -p mariadb-dev-<version>.vsix extension.vsixmanifest | grep -c 'Microsoft.VisualStudio.Code.PreRelease" Value="true"'`
+  `unzip -p mariadb-shell-<version>.vsix extension.vsixmanifest | grep -c 'Microsoft.VisualStudio.Code.PreRelease" Value="true"'`
   prints `1` for a pre-release and `0` with `--stable`.
 
 If anything fails, stop and show the failure. Do not open the PR on a red
@@ -322,7 +322,7 @@ git rev-parse HEAD          # must be the PR's merge commit
 npm ci
 npm run package -- --pre-release    # plain npm run package with --stable
 git status --short          # must be empty: the build changed nothing
-shasum -a 256 mariadb-dev-<version>.vsix
+shasum -a 256 mariadb-shell-<version>.vsix
 ```
 
 Check the package as in step 5. If `HEAD` is not the merge commit (`main`
@@ -343,7 +343,7 @@ body is the release notes: a short prose summary for users, covering:
 git push origin v<version>
 git ls-remote --tags origin v<version>      # the tag object you created
 git tag -l --format='%(contents:body)' v<version> > <scratch>/notes.md
-gh release create v<version> mariadb-dev-<version>.vsix --repo mariadb-corporation/vscode-extension --title v<version> --notes-file <scratch>/notes.md --verify-tag
+gh release create v<version> mariadb-shell-<version>.vsix --repo mariadb-corporation/vscode-extension --title v<version> --notes-file <scratch>/notes.md --verify-tag
 ```
 
 Add `--prerelease` unless the release is `--stable`. `gh` refuses `--notes-from-tag` together
@@ -353,7 +353,7 @@ Marketplace.
 
 ## 9. Upload to the VS Code Marketplace (by hand)
 
-The extension is `MariaDB.mariadb-dev`: `publisher` and `name` in
+The extension is `MariaDB.mariadb-shell`: `publisher` and `name` in
 `package.json`. **The user uploads the `.vsix` in the browser; this command
 does not publish it.** Uploading through the web page signs in with the
 user's Microsoft account, so no token or Azure identity is involved. Never
@@ -361,7 +361,7 @@ ask for a token, and never run `vsce publish` or `vsce login` here.
 
 Stop and hand over:
 
-- the file: the absolute path of `mariadb-dev-<version>.vsix` from step 7,
+- the file: the absolute path of `mariadb-shell-<version>.vsix` from step 7,
   the same file that is attached to the GitHub release;
 - its SHA-256 from step 7, so the user can check that they pick the right
   file;
@@ -385,7 +385,7 @@ Remind the user of two things:
 
 Wait until the user says the upload is done. The Marketplace verifies an
 upload before listing it, which takes a few minutes. Then confirm that
-`npx vsce show MariaDB.mariadb-dev --json` lists `<version>`. If it is still
+`npx vsce show MariaDB.mariadb-shell --json` lists `<version>`. If it is still
 missing after about ten minutes, report that, and ask the user what the
 Manage page shows for it. Never upload again on the user's behalf.
 
@@ -407,7 +407,7 @@ release is published, with:
 - the tag `v<version>` and its tag object;
 - the GitHub release URL;
 - the Marketplace page,
-  `https://marketplace.visualstudio.com/items?itemName=MariaDB.mariadb-dev`,
+  `https://marketplace.visualstudio.com/items?itemName=MariaDB.mariadb-shell`,
   and the channel;
 - the shell floor and the skills release it ships, and whether each moved;
 - anything that did not go as expected.

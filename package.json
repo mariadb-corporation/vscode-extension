@@ -1,6 +1,6 @@
 {
-  "name": "mariadb-dev",
-  "displayName": "MariaDB",
+  "name": "mariadb-shell",
+  "displayName": "MariaDB Shell",
   "description": "The power of MariaDB Shell inside your favorite editor.",
   "publisher": "MariaDB",
   "repository": {

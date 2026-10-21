@@ -434,7 +434,7 @@ const headers = (): Record<string, string> => {
     const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
 
     return {
-        "User-Agent": "mariadb-dev-skill-sync",
+        "User-Agent": "mariadb-shell-skill-sync",
         Accept: "application/vnd.github+json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };

@@ -92,8 +92,8 @@ locked tree and never writes the lockfile back.
 
 `npm run package` runs `vsce package --no-dependencies` (`@vscode/vsce` is a
 devDependency), which first runs `vscode:prepublish`, the build, and writes
-`mariadb-dev-<version>.vsix` into the repository root (gitignored). The
-extension identifier is `MariaDB.mariadb-dev`: `publisher` and `name` in
+`mariadb-shell-<version>.vsix` into the repository root (gitignored). The
+extension identifier is `MariaDB.mariadb-shell`: `publisher` and `name` in
 `package.json`. The settings namespace and every command id stay `mariadb.*`,
 since those come from `contributes`, not from the name.
 
@@ -186,7 +186,7 @@ needs Node and nothing else. The last step builds (through
 bundle, where an import that only resolves under the test aliases, or an
 asset that is not copied, is invisible to the type check and the tests
 alike; the packing so that what `.vscodeignore` lets through is seen on
-every change. The `.vsix` is kept as the run's `mariadb-dev-vsix` artifact.
+every change. The `.vsix` is kept as the run's `mariadb-shell-vsix` artifact.
 `skills/` is restored by `actions/cache`, keyed on the pinned release, so
 the sync downloads only when the pin is new to the cache - from codeload,
 not GitHub's rate-limited API. It runs before the tests, which hold

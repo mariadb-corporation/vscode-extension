@@ -1,4 +1,4 @@
-# MariaDB for VS Code
+# MariaDB Shell for VS Code
 
 The power of MariaDB Shell inside your favorite editor.
 
@@ -183,7 +183,7 @@ and commit the changed `package.json`; to change a skill, change it in ai-plugin
 
 ## Licensing
 
-The MariaDB for VS Code extension is a part of the MariaDB Shell and licensed
+The MariaDB Shell for VS Code extension is a part of the MariaDB Shell and licensed
 under the GPLv2. See
 [LICENSE](https://github.com/mariadb-corporation/vscode-extension/blob/main/LICENSE)
 for more details.
