@@ -41,7 +41,8 @@ const SUSPICIOUS: ReadonlyArray<[RegExp, string]> = [
     // fetched first and then `printf ... | VAR=x bash`. The shell ends a
     // command - a space, a quote, `;`, `&`, the line's end - so `to(pl|sh)`
     // in a bundled library's regular expression is not one.
-    [/(?<!\|)\|\s*(?:sudo\s+)?(?:[A-Za-z_]\w*=\S*\s+)*(?:ba|z|da)?sh(?=[\s"'`;&]|$)/mu,
+    // `sudo -E`, `env` and a path (`/bin/bash`) in front count as well.
+    [/(?<!\|)\|\s*(?:sudo(?:\s+-\S+)*\s+)?(?:env\s+)?(?:[A-Za-z_]\w*=\S*\s+)*(?:(?:\/[\w.-]+)*\/)?(?:ba|z|da)?sh(?=[\s"'`;&]|$)/mu,
         "a script piped into a shell"],
     [/\|\s*iex\b|\bInvoke-Expression\b/iu, "a script run with iex"],
     [/ExecutionPolicy["',\s]+Bypass/iu, "PowerShell's execution policy bypassed"],

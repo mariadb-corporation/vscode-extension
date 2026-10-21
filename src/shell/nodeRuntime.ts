@@ -226,12 +226,20 @@ export const createNodeInstallScripts = (): InstallScripts => {
                 throw new Error(`HTTP ${String(response.status)} `
                     + response.statusText);
             }
-            const text = await response.text();
+            // The bytes as served: `text()` would drop a byte order mark,
+            // which Windows PowerShell 5.1 needs to read a script as UTF-8.
+            const content = Buffer.from(await response.arrayBuffer());
             const folder = await fs.mkdtemp(
                 path.join(os.tmpdir(), "mariadb-shell-install-"));
             const file = path.join(folder,
                 path.posix.basename(new URL(url).pathname));
-            await fs.writeFile(file, text, { mode: 0o700 });
+            try {
+                await fs.writeFile(file, content, { mode: 0o700 });
+            } catch (error) {
+                await fs.rm(folder, { recursive: true, force: true })
+                    .catch(() => { /* The system's temporary folder. */ });
+                throw error;
+            }
 
             return {
                 path: file,
