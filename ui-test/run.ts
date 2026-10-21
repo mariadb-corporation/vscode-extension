@@ -112,12 +112,23 @@ const SUITES: Record<string, string[]> = {
 };
 
 /**
- * The suites whose VS Code opens a folder of its own, `files/workspace`:
- * the Explorer's menus are on the files of a workspace, which the others
- * do without. It is opened at the start, as opening a folder later
- * reloads the window.
+ * The test files that need a workspace folder, `files/workspace`: the
+ * Explorer's menus are on the files of a workspace, which the others do
+ * without. A run of one of them opens it at the start, as opening a folder
+ * later reloads the window.
  */
-const WORKSPACE_SUITES = new Set(["msm"]);
+const WORKSPACE_FILES = ["09-msm"];
+
+/**
+ * @param testFiles A run's test files, or the glob naming them.
+ *
+ * @returns Whether one of them needs a workspace folder.
+ */
+const needsWorkspace = (testFiles: string[]): boolean => {
+    return testFiles.some((file) => {
+        return WORKSPACE_FILES.some((name) => { return file.includes(name); });
+    });
+};
 
 /** The signals that end the run, with the exit code each ends it with. */
 const STOP_SIGNALS = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 } as const;
@@ -230,7 +241,6 @@ const freePort = async (): Promise<number> => {
  * @param testFiles The files, in the order they run.
  * @param extraArgs Passed on to `extest setup-and-run`.
  * @param timeoutMs How long the run may take.
- * @param workspace Whether VS Code opens a workspace folder.
  *
  * @returns The exit code of the run.
  */
@@ -239,8 +249,8 @@ const runFiles = async (
     testFiles: string[],
     extraArgs: string[],
     timeoutMs: number,
-    workspace = false,
 ): Promise<number> => {
+    const workspace = needsWorkspace(testFiles);
     const work = mkdtempSync(join(tmpdir(), "mariadb-ui-test-"));
     const home = join(work, "shell-home");
     const bin = join(work, "bin");
@@ -353,7 +363,7 @@ const main = async (): Promise<number> => {
     }
     if (process.env.UI_TEST_GLOB !== undefined) {
         return await runFiles(shell, [process.env.UI_TEST_GLOB], extraArgs,
-            timeoutMs, process.env.UI_TEST_GLOB.includes("msm"));
+            timeoutMs);
     }
 
     const outcomes: Array<[string, number]> = [];
@@ -369,8 +379,7 @@ const main = async (): Promise<number> => {
             return `${compiled}/${file}.test.js`;
         });
         outcomes.push(
-            [name, await runFiles(shell, files, extraArgs, timeoutMs,
-                WORKSPACE_SUITES.has(name))]);
+            [name, await runFiles(shell, files, extraArgs, timeoutMs)]);
     }
 
     if (outcomes.length > 1) {

@@ -20,6 +20,7 @@ import { render } from "preact";
 import { Tooltips } from "./dialogParts.js";
 import { MsmDialog } from "./MsmDialog.js";
 import "./editorStyles.css";
+import "./dialogStyles.css";
 import "./msmStyles.css";
 
 const root = document.getElementById("root");

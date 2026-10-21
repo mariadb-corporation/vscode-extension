@@ -21,7 +21,6 @@ import {
     decodeList,
     decodeObject,
     decodeScalar,
-    decodeStructured,
     decodeVoid,
     McpToolError,
     parseMaybeJson,
@@ -171,10 +170,10 @@ describe("decodeVoid", () => {
     });
 });
 
-describe("decodeStructured", () => {
-    it("keeps a list of lists that the content flattens", () => {
+describe("decodeList with a structured result", () => {
+    it("keeps a list of lists that the text items flatten", () => {
         // msm.get_released_versions with one release, 1.0.0.
-        expect(decodeStructured("msm.get_released_versions", {
+        expect(decodeList("msm.get_released_versions", {
             content: [
                 { type: "text", text: "1" }, { type: "text", text: "0" },
                 { type: "text", text: "0" },
@@ -184,23 +183,34 @@ describe("decodeStructured", () => {
         })).toEqual([[1, 0, 0]]);
     });
 
-    it("tells None and an empty list apart, which the content cannot", () => {
-        expect(decodeStructured("t", {
+    it("reads None and an empty list as no elements", () => {
+        expect(decodeList("t", {
             content: [], structuredContent: { result: null },
-        })).toBeNull();
-        expect(decodeStructured("t", {
+        })).toEqual([]);
+        expect(decodeList("t", {
             content: [], structuredContent: { result: [] },
         })).toEqual([]);
     });
 
-    it("answers undefined where no structured result was sent", () => {
-        expect(decodeStructured("t", { content: [] })).toBeUndefined();
+    it("keeps strings that would parse as JSON as the strings they are", () => {
+        expect(decodeList("t", {
+            content: [{ type: "text", text: "123" }],
+            structuredContent: { result: ["123"] },
+        })).toEqual(["123"]);
+    });
+
+    it("reads the text items where the structured result is not a list", () => {
+        expect(decodeList("t", {
+            content: [{ type: "text", text: "{\"a\": 1}" }],
+            structuredContent: { result: { a: 1 } },
+        })).toEqual([{ a: 1 }]);
     });
 
     it("throws the reported error", () => {
         expect(() => {
-            return decodeStructured("msm.prepare_release", {
+            return decodeList("msm.prepare_release", {
                 content: [{ type: "text", text: "already exists" }],
+                structuredContent: { result: [] },
                 isError: true,
             });
         }).toThrow(McpToolError);

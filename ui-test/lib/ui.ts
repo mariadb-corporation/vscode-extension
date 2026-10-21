@@ -35,6 +35,7 @@ import {
     EditorView,
     InputBox,
     Key,
+    SideBarView,
     type TreeItem,
     ModalDialog,
     NotificationType,
@@ -211,6 +212,28 @@ export const screenshot = async (name: string): Promise<void> => {
 export const VIEW_CONTAINER = "MariaDB";
 
 /**
+ * @param container An activity bar entry.
+ *
+ * @returns Its side bar view, opened.
+ */
+const openContainer = async (container: string): Promise<SideBarView> => {
+    const control = await waitFor(async () => {
+        return await new ActivityBar().getViewControl(container);
+    }, `the ${container} activity bar entry`);
+
+    return await control.openView();
+};
+
+/**
+ * @param error What a WebDriver call threw.
+ *
+ * @returns Whether the element it was made on was redrawn meanwhile.
+ */
+const isStale = (error: unknown): boolean => {
+    return /StaleElementReference|stale element/u.test(String(error));
+};
+
+/**
  * Opens one of the MariaDB views, or a view of another container.
  *
  * @param title The view's title: `Connections`, `Sandboxes` or `Tasks`,
@@ -223,10 +246,7 @@ export const openSection = async (
     title: string,
     container = VIEW_CONTAINER,
 ): Promise<CustomTreeSection> => {
-    const control = await waitFor(async () => {
-        return await new ActivityBar().getViewControl(container);
-    }, `the ${container} activity bar entry`);
-    const view = await control.openView();
+    const view = await openContainer(container);
 
     const section = await waitFor(async () => {
         return await view.getContent().getSection(title, CustomTreeSection);
@@ -431,7 +451,7 @@ export const childLabels = async (
  * @returns Nothing.
  */
 export const contextMenu = async (
-    item: CustomTreeItem,
+    item: TreeItem,
     ...path: string[]
 ): Promise<void> => {
     const menu = await item.openContextMenu();
@@ -483,10 +503,7 @@ export const inlineAction = async (
  * @returns Its tree.
  */
 export const explorerSection = async (): Promise<DefaultTreeSection> => {
-    const control = await waitFor(async () => {
-        return await new ActivityBar().getViewControl("Explorer");
-    }, "the Explorer activity bar entry");
-    const view = await control.openView();
+    const view = await openContainer("Explorer");
     const name = WORKSPACE.split(/[\\/]/u).pop()?.toLowerCase() ?? "";
 
     return await waitFor(async () => {
@@ -513,15 +530,26 @@ export const explorerSection = async (): Promise<DefaultTreeSection> => {
  * @returns Its row.
  */
 export const explorerItem = async (...path: string[]): Promise<TreeItem> => {
-    return await waitFor(async () => {
-        const section = await explorerSection();
-        if (path.length > 1) {
-            await section.openItem(...path.slice(0, -1)).catch(() => {
-                return [];
-            });
-        }
+    let section = await explorerSection();
 
-        return await section.findItem(path.at(-1)!, path.length);
+    return await waitFor(async () => {
+        try {
+            if (path.length > 1) {
+                await section.openItem(...path.slice(0, -1)).catch(() => {
+                    return [];
+                });
+            }
+
+            return await section.findItem(path.at(-1)!, path.length);
+        } catch (error) {
+            // The view was redrawn: found again for the next poll.
+            if (!isStale(error)) {
+                throw error;
+            }
+            section = await explorerSection();
+
+            return undefined;
+        }
     }, `the Explorer row ${path.join("/")}`, SERVER_TIMEOUT);
 };
 
@@ -569,43 +597,8 @@ export const explorerMenuAction = async (
     done: () => Promise<boolean>,
     what: string,
 ): Promise<void> => {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-            const opened = await (await explorerItem(...path))
-                .openContextMenu();
-            // As contextMenu: a pick right after the menu opened is ignored.
-            await sleep(200);
-            await opened.select(...menu);
-        } catch (error) {
-            if (String(error).includes("StaleElementReference")
-                || String(error).includes("stale element")) {
-                await sleep(500);
-                continue;
-            }
-            throw error;
-        }
-        try {
-            await waitFor(async () => {
-                if (await done()) {
-                    return true;
-                }
-                await failOnErrorNotification();
-
-                return false;
-            }, what, 5000);
-
-            return;
-        } catch (error) {
-            if (String(error).includes("Error notification")) {
-                throw error;
-            }
-            await screenshot(`explorer-menu-miss-${menu.at(-1)}-${attempt}`
-                .replace(/[^A-Za-z0-9-]+/g, "_"));
-        }
-    }
-
-    throw new Error(`${what} did not come from ${path.join("/")} > `
-        + `${menu.join(" > ")}. The extension's log:\n${extensionLog()}`);
+    await menuActionOn(() => { return explorerItem(...path); },
+        path.join("/"), menu, done, what);
 };
 
 /**
@@ -719,13 +712,35 @@ export const menuAction = async (
     done: () => Promise<boolean>,
     what: string,
 ): Promise<void> => {
+    await menuActionOn(() => { return treeItem(section, path); },
+        path.join(" > "), menu, done, what);
+};
+
+/**
+ * What {@link menuAction} does, on whatever row `find` finds: a row of the
+ * MariaDB views, or of the Explorer.
+ *
+ * @param find Finds the row, afresh each attempt.
+ * @param where The row, for the failure message.
+ * @param menu The menu entries, a submenu's name first.
+ * @param done Whether the action's effect is there.
+ * @param what The effect, for the failure message.
+ *
+ * @returns Nothing.
+ */
+const menuActionOn = async (
+    find: () => Promise<TreeItem>,
+    where: string,
+    menu: string[],
+    done: () => Promise<boolean>,
+    what: string,
+): Promise<void> => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-            await contextMenu(await treeItem(section, path), ...menu);
+            await contextMenu(await find(), ...menu);
         } catch (error) {
             // The row was redrawn while its menu opened: find it again.
-            if (String(error).includes("StaleElementReference")
-                || String(error).includes("stale element")) {
+            if (isStale(error)) {
                 await sleep(500);
                 continue;
             }
@@ -751,7 +766,7 @@ export const menuAction = async (
         }
     }
 
-    throw new Error(`${what} did not come from ${path.join(" > ")} > `
+    throw new Error(`${what} did not come from ${where} > `
         + `${menu.join(" > ")}. The extension's log:\n${extensionLog()}`);
 };
 
@@ -797,8 +812,8 @@ export const isDialogOpen = async (title: string): Promise<boolean> => {
  *          while it is being looked at, in any of these ways.
  */
 const isGoneWebviewError = (error: unknown): boolean => {
-    return /NoSuchElement|StaleElementReference|stale element|frame detached|no such frame/u
-        .test(String(error));
+    return isStale(error)
+        || /NoSuchElement|frame detached|no such frame/u.test(String(error));
 };
 
 /**

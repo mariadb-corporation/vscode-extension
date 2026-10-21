@@ -168,5 +168,13 @@ decodes all four shapes, which were read off the running server:
 | --- | --- |
 | a list | one text item per element (JSON for dicts, bare text for strings) |
 | a dict | one text item holding its JSON |
-| a scalar | one text item, plus `structuredContent.result` |
+| a scalar | one text item |
 | an error | `isError: true`, the message as text |
+
+A tool with a typed return annotation (`Optional[list]`, `str`, ...) also
+sends the value itself as `structuredContent.result`; one annotated with a
+bare `list` or `dict` does not. The text items are not always the value:
+they flatten a list of lists (`[[1, 0, 0]]` arrives as "1", "0", "0") and
+are empty for both `[]` and None. So `decodeList` takes the structured
+result where it is a list (null: none), and the text items otherwise;
+`decodeScalar` takes it where it is a string.

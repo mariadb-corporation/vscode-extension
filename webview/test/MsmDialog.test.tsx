@@ -222,6 +222,8 @@ describe("New MSM Project", () => {
             await openCreate();
             await change("schemaName", "sakila");
             await change("copyrightHolder", "Ada");
+            // The host's answer to Create.
+            await click("Create");
             await send({ type: "error", field: "targetPath",
                 message: "This folder does not exist." });
 
@@ -358,7 +360,7 @@ describe("Prepare Release", () => {
         await click("Prepare Release");
 
         expect(submitted()).toEqual([]);
-        expect(host.querySelector(".msm-problem")?.textContent)
+        expect(host.querySelector(".field-problem")?.textContent)
             .toContain("1.0.0 has been released already");
 
         await change("overwriteExisting", true);

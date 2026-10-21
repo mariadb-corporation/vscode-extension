@@ -160,7 +160,8 @@ Five things about it are load bearing:
 - **Saving does not verify**, as in the original. Test Connection is its own
   button; a server that is down must not stop its connection being configured.
 
-The editor is **its own vite build** (`vite.editor.config.ts`), not a second
+The editor is **its own vite build** (`vite.editor.config.ts`, through
+`dialogBuild` in `vite.dialog.ts`, as every dialog's), not a second
 entry beside the result view. One build with two entries makes Rollup hoist
 what they share into a common chunk, which each entry pulls in with a static
 `import` - and a webview's `script-src 'nonce-...'` does NOT extend to a

@@ -62,6 +62,21 @@ const describeProbeFailure = (
 };
 
 /**
+ * @param target A path.
+ *
+ * @returns Whether there is anything at it.
+ */
+export const pathExists = async (target: string): Promise<boolean> => {
+    try {
+        await fs.access(target);
+
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+/**
  * The real environment, backed by the file system and child processes.
  *
  * @param log Where to say why a binary that was probed could not be run.
@@ -102,15 +117,7 @@ export const createNodeShellEnvironment = (
             });
         },
 
-        pathExists: async (target: string) => {
-            try {
-                await fs.access(target);
-
-                return true;
-            } catch {
-                return false;
-            }
-        },
+        pathExists,
 
         listDirectories: async (target: string) => {
             try {

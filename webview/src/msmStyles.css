@@ -16,40 +16,9 @@
  */
 
 /*
- * The MariaDB Schema Management dialogs, on top of the editor's own
- * styles.
+ * The MariaDB Schema Management dialogs, on top of the editor's and the
+ * dialogs' shared styles.
  */
-
-/* What spans both columns of the grid: a path with its Browse button. */
-.msm-wide {
-    grid-column: 1 / -1;
-    min-width: 0;
-}
-
-.msm-path input {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.msm-path button {
-    flex: none;
-}
-
-/* The boxes to tick, in columns of their own. */
-.msm-flags {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-    gap: 0.5rem 1rem;
-}
-
-.msm-flags .msm-problem {
-    grid-column: 1 / -1;
-    margin: 0;
-}
-
-.msm-problem {
-    color: var(--vscode-errorForeground, #f14c4c);
-}
 
 .msm-summary {
     display: flex;
@@ -59,12 +28,6 @@
 
 .msm-summary code {
     overflow-wrap: anywhere;
-}
-
-input.invalid + .field-hint,
-select.invalid + .field-hint,
-.row:has(input.invalid) + .field-hint {
-    color: var(--vscode-errorForeground, #f14c4c);
 }
 
 /* --- the project's information ------------------------------------------ */

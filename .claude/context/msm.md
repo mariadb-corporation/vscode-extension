@@ -11,11 +11,11 @@ MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
 
 | File | Purpose |
 | --- | --- |
-| `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the seven `msm.*` tools used, typed. `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
+| `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the seven `msm.*` tools used, typed; `msmToolArgs`, each tool's arguments by the server's names, which the Actions tab shows the call with (all but `connection_id`). `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
 | `src/msm/msmFields.ts` | Pure, shared with the webview: per dialog its values, defaults and `*Problem` checks, version parsing / comparing (numbers, so 1.10 > 1.9), `projectFolderName` as the plugin names it. |
-| `src/msm/msmProtocol.ts`, `msmDialogPanel.ts` | The dialog's messages and panel: one at a time, checks the values again (and `host.check`, the disk) before `host.submit`; a failure stays in the dialog, or is notified once it was closed. |
+| `src/msm/msmProtocol.ts`, `msmDialogPanel.ts` | The dialog's messages and panel, a `DialogPanel` typed by the dialog's kind: one at a time, checks the values again (and `host.check`, the disk) before `host.submit`; a failure stays in the dialog, or is notified once it was closed. |
 | `src/msm/msmCommands.ts` | `MsmCommands`: the five commands, reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`). |
-| `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds; its own bundle. |
+| `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds; its own bundle, on `dialogStyles.css` as Dump and Load's and New Sandbox's. |
 
 ## The commands
 
@@ -36,17 +36,22 @@ first four with input boxes one after another; Deploy is new.
 
 - **Every operation is an action**, the project read included (the user's
   request): `ActionGroup` puts a run row with a row per call under it,
-  each showing the call (`msmCall`: `msm.prepare_release(version='0.0.1',
-  next_version='0.0.2')`) and, once done, what it came to. Reading a project
-  is "Read MSM project <folder>" with three steps (information, released
-  versions, deployment scripts). File work is filed under General Actions;
+  each showing the call (`msmCall`, through `callArguments` as every
+  other call: `msm.prepare_release(version=0.0.1, next_version=0.0.2)`)
+  and, once done, what it came to; `ActionGroup.run` ends the whole as its
+  steps went. Reading a project is "Read MSM project <folder>" with three
+  steps (information, released versions, deployment scripts). File work is filed under General Actions;
   a deploy under its connection, with `db.connect` as its first step. A
   failure ends the group failed, brings the panel up on it
   (`showActions`), and is shown in the dialog.
-- **Lists of versions are read from `structuredContent`**
-  (`decodeStructured` in `protocol.ts`): FastMCP flattens a list of lists in
-  `content` - `[[1, 0, 0]]` arrives as the text items "1", "0", "0" - and
-  sends no items at all for both `[]` and None. Read off the running server.
+- **Lists of versions come from `structuredContent`**: the version tools
+  answer with a list of `[major, minor, patch]`, which the text items
+  flatten, so `decodeList` reads the structured result where one is sent
+  (see the wire format in [shell-and-mcp.md](shell-and-mcp.md)).
+- **A project is read before each dialog**, its information first (it says
+  whether the folder is a project at all), then its releases and its
+  deployment scripts side by side. The information dialog's buttons go on
+  with the project as read, not reading it again.
 - **The dialog checks what the plugin would refuse**, beside its field,
   before calling it: a version below the last release, a next version not
   above it (unless staying), a version released or scripted already
@@ -78,7 +83,7 @@ first four with input boxes one after another; Deploy is new.
 ## Tests
 
 - `src/test/mcp/msmApi.test.ts` (the answers of a real `--gui` server,
-  word for word), `src/test/mcp/protocol.test.ts` (`decodeStructured`).
+  word for word), `src/test/mcp/protocol.test.ts` (`decodeList` with a structured result).
 - `src/test/msm/msmFields.test.ts`, `msmCommands.test.ts` (through the
   dialog panel: calls, every action row, failures, Browse, the palette),
   `msmPackage.test.ts` (the submenu's `when` clauses judged per folder).

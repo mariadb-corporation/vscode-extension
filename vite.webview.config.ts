@@ -26,8 +26,8 @@ import { defineConfig } from "vite";
  * a bundle. The output file names are fixed rather than hashed, because the
  * extension has to reference them from the webview's HTML.
  *
- * The connection editor is a THIRD build, in `vite.editor.config.ts`, and
- * the two are deliberately not one build with two entries: Rollup would then
+ * Every dialog is a build of its own (`vite.dialog.ts`, one config each),
+ * deliberately not one build with several entries: Rollup would then
  * hoist what they share - Preact, `vscodeApi` - into a common chunk, which
  * each entry pulls in with a static `import`. A webview is served under
  * `script-src 'nonce-...'`, and a nonce does NOT carry to a module the

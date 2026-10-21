@@ -17,8 +17,8 @@
 
 import * as vscode from "vscode";
 
-import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
-import { showErrorWithLog } from "../errorMessages.js";
+import { DialogPanel } from "../webview/dialogPanel.js";
+import { buildWebviewHtml } from "../webview/html.js";
 import {
     defaultServerVersion,
     emptySandboxFields,
@@ -117,18 +117,17 @@ export const buildSandboxEditorHtml = (
  * one that is up - and, unlike the connection editor, does NOT reload it,
  * since a deploy may be running in it.
  */
-export class SandboxEditorPanel {
+export class SandboxEditorPanel
+    extends DialogPanel<SandboxHostMessage, SandboxWebviewMessage> {
     static #current: SandboxEditorPanel | undefined;
 
-    #panel: vscode.WebviewPanel;
-    #disposed = false;
-    #disposables: vscode.Disposable[] = [];
-
     private constructor(
-        panel: vscode.WebviewPanel,
+        extensionUri: vscode.Uri,
         private readonly host: ISandboxEditorHost,
     ) {
-        this.#panel = panel;
+        super(SANDBOX_EDITOR_VIEW_TYPE, TITLE, extensionUri);
+        this.panel.webview.html = buildSandboxEditorHtml(this.panel.webview,
+            extensionUri);
     }
 
     /**
@@ -144,32 +143,12 @@ export class SandboxEditorPanel {
         host: ISandboxEditorHost,
     ): void {
         if (SandboxEditorPanel.#current) {
-            SandboxEditorPanel.#current.#panel.reveal(vscode.ViewColumn.Active);
+            SandboxEditorPanel.#current.panel.reveal(vscode.ViewColumn.Active);
 
             return;
         }
 
-        const panel = vscode.window.createWebviewPanel(
-            SANDBOX_EDITOR_VIEW_TYPE,
-            TITLE,
-            vscode.ViewColumn.Active,
-            { ...webviewOptions(extensionUri), retainContextWhenHidden: true },
-        );
-
-        const editor = new SandboxEditorPanel(panel, host);
-        SandboxEditorPanel.#current = editor;
-
-        panel.onDidDispose(() => { editor.dispose(); }, undefined,
-            editor.#disposables);
-        panel.webview.onDidReceiveMessage(
-            (message: SandboxWebviewMessage) => {
-                void editor.#onMessage(message);
-            },
-            undefined,
-            editor.#disposables,
-        );
-
-        panel.webview.html = buildSandboxEditorHtml(panel.webview, extensionUri);
+        SandboxEditorPanel.#current = new SandboxEditorPanel(extensionUri, host);
     }
 
     /**
@@ -178,24 +157,11 @@ export class SandboxEditorPanel {
      * @returns Nothing.
      */
     public static disposeCurrent(): void {
-        const current = SandboxEditorPanel.#current;
-        if (current !== undefined) {
-            current.#panel.dispose();
-        }
+        SandboxEditorPanel.#current?.close();
     }
 
-    /**
-     * Sends a message to the webview, unless it has been closed - which a
-     * deploy that outlives its dialog finds it has.
-     *
-     * @param message The message to send.
-     *
-     * @returns Nothing.
-     */
-    #post(message: SandboxHostMessage): void {
-        if (!this.#disposed) {
-            void this.#panel.webview.postMessage(message);
-        }
+    protected onDisposed(): void {
+        SandboxEditorPanel.#current = undefined;
     }
 
     /**
@@ -205,7 +171,7 @@ export class SandboxEditorPanel {
      *
      * @returns Nothing.
      */
-    async #onMessage(message: SandboxWebviewMessage): Promise<void> {
+    protected async onMessage(message: SandboxWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
                 // Only the sandboxes' ports are refused outright; one a
@@ -222,7 +188,7 @@ export class SandboxEditorPanel {
                 // server on the PATH is whatever happens to be installed,
                 // and is a choice rather than the default.
                 const offered = newestFirst(versions);
-                this.#post({
+                this.post({
                     type: "load",
                     fields: emptySandboxFields(
                         String(suggestSandboxPort(
@@ -242,7 +208,7 @@ export class SandboxEditorPanel {
             }
 
             default: {
-                this.#panel.dispose();
+                this.close();
             }
         }
     }
@@ -318,14 +284,13 @@ export class SandboxEditorPanel {
         // about to start a server.
         const built = sandboxDeployOptions(fields, this.host.store.ports);
         if ("problem" in built) {
-            this.#post({ type: "createError", message: built.problem.message });
+            this.post({ type: "createError", message: built.problem.message });
 
             return;
         }
 
         const rest = sandboxRestOptions(fields, this.#restCertificateTrusted);
-        this.#post({ type: "busy", busy: true });
-        try {
+        await this.runBusy(async () => {
             const deploy = async (): Promise<string> => {
                 return rest === undefined || this.host.deployWithRest === undefined
                     ? await this.host.store.deploy(built.options)
@@ -337,35 +302,13 @@ export class SandboxEditorPanel {
 
             this.host.log(message);
             this.host.onCreated(message);
-            this.#panel.dispose();
-        } catch (error) {
-            const text = errorText(error);
-            this.host.log(`Failed to deploy the sandbox on port `
-                + `${built.options.port}: ${text}`);
-            if (this.#disposed) {
-                // The dialog was closed while the deploy ran, so there is
-                // nowhere left to show the reason but a notification.
-                void showErrorWithLog(text);
-            } else {
-                this.#post({ type: "createError", message: text });
-            }
-            this.host.onFailed?.();
-        } finally {
-            this.#post({ type: "busy", busy: false });
-        }
-    }
-
-    /**
-     * Tears the panel down.
-     *
-     * @returns Nothing.
-     */
-    public dispose(): void {
-        this.#disposed = true;
-        SandboxEditorPanel.#current = undefined;
-        for (const disposable of this.#disposables) {
-            disposable.dispose();
-        }
-        this.#disposables = [];
+        }, {
+            message: (text) => { return { type: "createError", message: text }; },
+            log: (text) => {
+                this.host.log(`Failed to deploy the sandbox on port `
+                    + `${built.options.port}: ${text}`);
+            },
+            onFailed: () => { this.host.onFailed?.(); },
+        });
     }
 }

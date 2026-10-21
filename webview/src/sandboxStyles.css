@@ -31,13 +31,6 @@ textarea {
     resize: vertical;
 }
 
-/* A field's hint turns into its problem, and reads as one. */
-input.invalid + .field-hint,
-input.invalid ~ .field-hint,
-.combo:has(input.invalid) ~ .field-hint {
-    color: var(--vscode-errorForeground, #f14c4c);
-}
-
 /* --- the combo box (ComboBox.tsx) ------------------------------------ */
 
 .combo {

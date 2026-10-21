@@ -1,0 +1,63 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+/*
+ * What the dialogs whose field hints turn into their problems share - Dump
+ * and Load, MSM, New Sandbox - on top of the editor's own styles.
+ */
+
+/* What spans both columns of a field grid. */
+.wide {
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+
+/* A path with its Browse button: the input takes the room. */
+.path-row input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.path-row button {
+    flex: none;
+}
+
+/* The boxes to tick, in columns of their own. */
+.flags {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: 0.5rem 1rem;
+}
+
+.flags .field-problem {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+/* A problem shown on its own, beside a box rather than under a field. */
+.field-problem {
+    color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/* A field's hint turns into its problem, and reads as one. */
+input.invalid + .field-hint,
+input.invalid ~ .field-hint,
+select.invalid + .field-hint,
+.row:has(input.invalid) + .field-hint,
+.combo:has(input.invalid) ~ .field-hint {
+    color: var(--vscode-errorForeground, #f14c4c);
+}

@@ -299,6 +299,19 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const starter = new ServerStarter((onPhase) => {
         return startServer(session, shell, onPhase);
     }, log);
+    // A part of the server's tools, by the session's getter for it: asking
+    // for one starts the server, which serves them all.
+    const serverApi = async <T>(get: () => T | undefined): Promise<T> => {
+        if (get() === undefined) {
+            await starter.start();
+        }
+        const api = get();
+        if (api === undefined) {
+            throw new Error("The MCP server is not running.");
+        }
+
+        return api;
+    };
     context.subscriptions.push(registerCopilotMcpServer(shell, log));
     showStartupInView(starter);
     // The actions are the workspace's, kept for its next session.
@@ -407,17 +420,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         restdUrl: (uri, schema) => { return restdUrl(uri, schema); },
         extensionUri: context.extensionUri,
         api: mrsApi,
-        tools: async () => {
-            if (session.restTools === undefined) {
-                await starter.start();
-            }
-            const tools = session.restTools;
-            if (tools === undefined) {
-                throw new Error("The MCP server is not running.");
-            }
-
-            return tools;
-        },
+        tools: () => { return serverApi(() => { return session.restTools; }); },
         model: mrsModel,
         connections,
         refresh: () => { tree.refresh(); },
@@ -433,15 +436,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // kept with the API it was built over, as `ConnectionManager.api` does.
     let loggedSandboxApi: { plain: ISandboxApi; logging: ISandboxApi } |
         undefined;
-    const plainSandboxApi = async (): Promise<ISandboxApi> => {
-        if (session.sandboxApi === undefined) {
-            await starter.start();
-        }
-        if (session.sandboxApi === undefined) {
-            throw new Error("The MCP server is not running.");
-        }
-
-        return session.sandboxApi;
+    const plainSandboxApi = (): Promise<ISandboxApi> => {
+        return serverApi(() => { return session.sandboxApi; });
     };
     const sandboxApi = async (): Promise<ISandboxApi> => {
         const plain = await plainSandboxApi();
@@ -465,16 +461,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const sandboxStore = new SandboxStore(sandboxApi);
     const sandboxes = new SandboxesTreeProvider(sandboxStore, log, starter);
     // The REST Daemons: a sandbox's, set up with it, and any connection's.
-    const restdApi = async (): Promise<IRestdApi> => {
-        if (session.restdApi === undefined) {
-            await starter.start();
-        }
-        const api = session.restdApi;
-        if (api === undefined) {
-            throw new Error("The MCP server is not running.");
-        }
-
-        return api;
+    const restdApi = (): Promise<IRestdApi> => {
+        return serverApi(() => { return session.restdApi; });
     };
     const restdTree = new RestdTreeProvider(async () => {
         return (await restdApi()).getStatus();
@@ -690,16 +678,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
     context.subscriptions.push(...mrsCommands.register());
     // Dumps, loads, copies, exports and imports run as tasks in the server;
     // the monitor follows them, and the Tasks view lists them.
-    const utilApi = async (): Promise<IUtilApi> => {
-        if (session.utilApi === undefined) {
-            await starter.start();
-        }
-        const api = session.utilApi;
-        if (api === undefined) {
-            throw new Error("The MCP server is not running.");
-        }
-
-        return api;
+    const utilApi = (): Promise<IUtilApi> => {
+        return serverApi(() => { return session.utilApi; });
     };
     const taskOutput = vscode.window.createOutputChannel("MariaDB Tasks");
     // Kept in the workspace state, so the tasks of the last window are
@@ -755,6 +735,16 @@ export const activate = (context: vscode.ExtensionContext): void => {
             }
         })();
     };
+    // Where a dialog starts a folder, and what reads a changed server again:
+    // its tree and its completion. Shared by Dump and Load and by MSM.
+    const workspaceFolder = (): string => {
+        return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+            ?? os.homedir();
+    };
+    const refreshServer = (uri: string): void => {
+        tree.refresh();
+        languageServer.refreshCatalog(uri);
+    };
     const utilCommands = new UtilCommands({
         extensionUri: context.extensionUri,
         connect: async (uri) => {
@@ -767,14 +757,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
         utilApi,
         monitor: taskMonitor,
         // What the task changed is new to completion too.
-        refresh: (uri) => {
-            tree.refresh();
-            languageServer.refreshCatalog(uri);
-        },
-        defaultFolder: () => {
-            return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-                ?? os.homedir();
-        },
+        refresh: refreshServer,
+        defaultFolder: workspaceFolder,
         startFailed: (connection, title, call, error) => {
             taskActions.startFailed(connection, title, call, error);
         },
@@ -786,16 +770,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
     // MariaDB Schema Management, from the Explorer's menu on folders: each
     // thing it does is an action of the Actions tab.
-    const msmApi = async (): Promise<IMsmApi> => {
-        if (session.msmApi === undefined) {
-            await starter.start();
-        }
-        const api = session.msmApi;
-        if (api === undefined) {
-            throw new Error("The MCP server is not running.");
-        }
-
-        return api;
+    const msmApi = (): Promise<IMsmApi> => {
+        return serverApi(() => { return session.msmApi; });
     };
     const msmCommands = new MsmCommands({
         extensionUri: context.extensionUri,
@@ -808,19 +784,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 .map((stored) => { return stored.uri; });
         },
         defaultConnection: () => { return connections.defaultConnection; },
-        defaultFolder: () => {
-            return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-                ?? os.homedir();
-        },
+        defaultFolder: workspaceFolder,
         put: putAction,
         showActions: (connection) => {
             void resultView.showActions(connection);
         },
         // A deployed schema is new to the tree and to completion.
-        refresh: (uri) => {
-            tree.refresh();
-            languageServer.refreshCatalog(uri);
-        },
+        refresh: refreshServer,
         log,
     });
     context.subscriptions.push(...msmCommands.register());

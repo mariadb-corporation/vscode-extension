@@ -13,12 +13,14 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   only, and the bundle of every other dependency came out byte for byte
   the same with it.
   `vite.webview.config.ts` builds the Preact frontend into
-  `dist/webview/main.js` and `main.css` for the browser. The two dialogs
-  are a build each as well - `vite.editor.config.ts` (the connection
-  editor, `editor.js`/`editor.css`) and `vite.sandbox.config.ts` (New
-  Sandbox, `sandbox.js`/`sandbox.css`) - because one build with several
-  entries hoists a shared chunk that a webview's script nonce refuses (see
-  [connection-editor.md](connection-editor.md)). `build:webview` runs all three. The extension
+  `dist/webview/main.js` and `main.css` for the browser. Every dialog and
+  the model viewer is a build of its own as well - `vite.<bundle>.config.ts`
+  for `editor`, `sandbox`, `mrs`, `util`, `msm` and `modeler`, each one call
+  of `dialogBuild` (`vite.dialog.ts`) giving `<bundle>.js`/`<bundle>.css` -
+  because one build with several entries hoists a shared chunk that a
+  webview's script nonce refuses (see
+  [connection-editor.md](connection-editor.md)). `build:webview` runs all
+  seven. The extension
   build has `emptyOutDir: false` on purpose: it runs again on every change
   in watch mode, and emptying `dist/` would delete the panel's assets out
   from under a running extension host. `npm run clean` wipes `dist/`, and

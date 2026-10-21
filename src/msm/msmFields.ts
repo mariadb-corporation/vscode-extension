@@ -15,6 +15,8 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import { compareVersions, newestFirst } from "../versionOrder.js";
+
 /**
  * The MariaDB Schema Management dialogs' fields: what each starts with,
  * what it refuses and why. Pure, so the dialog checks as the user types
@@ -129,7 +131,7 @@ export const MSM_TITLES: Record<MsmDialogKind, string> = {
 };
 
 /** The suffix that makes a folder a schema project. */
-export const MSM_PROJECT_SUFFIX = ".msm.project";
+const MSM_PROJECT_SUFFIX = ".msm.project";
 
 /** A version, as the plugin takes it: major.minor.patch. */
 const VERSION = /^(\d+)\.(\d+)\.(\d+)$/u;
@@ -154,34 +156,7 @@ export const parseVersion = (
         : [Number(match[1]), Number(match[2]), Number(match[3])];
 };
 
-/**
- * @param a A version.
- * @param b Another.
- *
- * @returns Below zero where `a` is lower, zero where they are the same,
- *          above zero where `a` is higher; numbers compared as numbers, so
- *          1.10.0 is above 1.9.0.
- */
-export const compareVersions = (a: string, b: string): number => {
-    const left = parseVersion(a) ?? [0, 0, 0];
-    const right = parseVersion(b) ?? [0, 0, 0];
-    for (let i = 0; i < 3; i++) {
-        if (left[i] !== right[i]) {
-            return left[i] - right[i];
-        }
-    }
-
-    return 0;
-};
-
-/**
- * @param versions Versions in any order.
- *
- * @returns Them newest first.
- */
-export const newestFirst = (versions: readonly string[]): string[] => {
-    return [...versions].sort((a, b) => { return compareVersions(b, a); });
-};
+export { compareVersions, newestFirst };
 
 /**
  * @param version "1.2.3".

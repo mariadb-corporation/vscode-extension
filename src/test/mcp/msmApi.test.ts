@@ -27,7 +27,7 @@ import {
     MSM_LICENSES,
     MsmApi,
 } from "../../mcp/msmApi.js";
-import { McpToolError, type IToolResult } from "../../mcp/protocol.js";
+import type { IToolResult } from "../../mcp/protocol.js";
 
 interface ICall {
     name: string;
@@ -190,17 +190,17 @@ describe("MsmApi", () => {
         expect(caller.calls[0].args).toEqual({ schema_project_path: PROJECT });
     });
 
-    it("refuses a version list that is not a list", async () => {
-        const caller = createCaller({
-            "msm.get_released_versions": {
-                content: [{ type: "text", text: "x" }],
-                structuredContent: { result: "x" }, isError: false,
-            },
-        });
+    it("reads versions from the text items where no structured result came",
+        async () => {
+            const caller = createCaller({
+                "msm.get_released_versions": {
+                    content: [{ type: "text", text: "[1, 0, 0]" }],
+                },
+            });
 
-        await expect(new MsmApi(caller).releasedVersions(PROJECT))
-            .rejects.toThrow(McpToolError);
-    });
+            expect(await new MsmApi(caller).releasedVersions(PROJECT))
+                .toEqual(["1.0.0"]);
+        });
 
     it("prepares a release and answers with the files written", async () => {
         const file = `${PROJECT}/releases/versions/sakila_1.0.0.sql`;

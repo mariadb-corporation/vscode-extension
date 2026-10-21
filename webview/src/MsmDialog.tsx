@@ -22,7 +22,6 @@ import {
     newestFirst,
     nextPatchVersion,
     projectFolderName,
-    type IMsmConnectionChoice,
     type IMsmCreateValues,
     type IMsmDeployValues,
     type IMsmProblem,
@@ -32,6 +31,7 @@ import {
     type MsmValues,
 } from "../../src/msm/msmFields.js";
 import type {
+    IMsmLoadMessage,
     IMsmOpenMessage,
     MsmHostMessage,
     MsmWebviewMessage,
@@ -47,10 +47,12 @@ import { post } from "./vscodeApi.js";
  * the extension.
  */
 
-/** What each dialog's main button says, and what it says while it works. */
-const ACTIONS: Record<MsmDialogKind, [string, string]> = {
+/**
+ * What each dialog's main button says, and what it says while it works.
+ * The project information has nothing to do: its one button is Close.
+ */
+const ACTIONS: Record<Exclude<MsmDialogKind, "info">, [string, string]> = {
     create: ["Create", "Creating the project..."],
-    info: ["Close", ""],
     release: ["Prepare Release", "Preparing the release..."],
     deploymentScript: ["Generate", "Generating the deployment script..."],
     deploy: ["Deploy", "Deploying the schema..."],
@@ -73,19 +75,14 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
 };
 
 export const MsmDialog = (): preact.JSX.Element => {
-    const [kind, setKind] = useState<MsmDialogKind | undefined>();
-    const [title, setTitle] = useState("");
-    const [project, setProject] = useState<IMsmProjectContext | undefined>();
+    // What the dialog is: set once, by the extension.
+    const [load, setLoad] = useState<IMsmLoadMessage | undefined>();
     const [values, setValues] = useState<MsmValues>({} as MsmValues);
-    const [licenses, setLicenses] = useState<readonly string[]>([]);
-    const [connections, setConnections] = useState<IMsmConnectionChoice[]>([]);
     // The fields typed into; every one once the button was pressed.
     const [touched, setTouched] = useState<Set<string>>(new Set());
     const [submitted, setSubmitted] = useState(false);
     // A problem the host found: shown until something is changed.
     const [hostProblem, setHostProblem] = useState<IMsmProblem | undefined>();
-    // Whether the next version was typed in, rather than following.
-    const [nextTyped, setNextTyped] = useState(false);
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
@@ -93,16 +90,11 @@ export const MsmDialog = (): preact.JSX.Element => {
             const message = event.data;
             switch (message.type) {
                 case "load": {
-                    setKind(message.kind);
-                    setTitle(message.title);
-                    setProject(message.project);
+                    setLoad(message);
                     setValues(message.values);
-                    setLicenses(message.licenses ?? []);
-                    setConnections(message.connections ?? []);
                     setTouched(new Set());
                     setSubmitted(false);
                     setHostProblem(undefined);
-                    setNextTyped(false);
                     break;
                 }
 
@@ -120,9 +112,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                 }
 
                 case "error": {
-                    setHostProblem(message.field === undefined
-                        ? { message: message.message }
-                        : { field: message.field, message: message.message });
+                    setHostProblem(message);
                     break;
                 }
 
@@ -141,32 +131,34 @@ export const MsmDialog = (): preact.JSX.Element => {
         return () => { window.removeEventListener("message", onMessage); };
     }, []);
 
-    if (kind === undefined) {
+    if (load === undefined) {
         return <div class="editor" />;
     }
+    const { kind, title, project } = load;
+    const licenses = load.licenses ?? [];
+    const connections = load.connections ?? [];
 
     const problem = hostProblem ?? msmProblem(kind, project, values);
     // A problem with no field is the dialog's: shown at once, as there
     // is nothing to type that would mend it.
     const shownProblem = problem !== undefined && (problem.field === undefined
-        || submitted || touched.has(problem.field)
-        || problem === hostProblem) ? problem : undefined;
+        || submitted || touched.has(problem.field)) ? problem : undefined;
 
     const update = (name: string, value: boolean | string): void => {
         setValues((current) => {
             const next = { ...current, [name]: value } as MsmValues;
-            if (kind === "release" && name === "version" && !nextTyped) {
-                // The next version follows the released one until it is
-                // typed into itself.
+            const release = current as IMsmReleaseValues;
+            if (kind === "release" && name === "version"
+                && release.nextVersion
+                    === nextPatchVersion(release.version.trim())) {
+                // The next version follows the released one while it is
+                // the one after it, not one typed in.
                 (next as IMsmReleaseValues).nextVersion =
                     nextPatchVersion(String(value).trim());
             }
 
             return next;
         });
-        if (name === "nextVersion") {
-            setNextTyped(true);
-        }
         setTouched((current) => { return new Set([...current, name]); });
         setHostProblem(undefined);
     };
@@ -175,16 +167,20 @@ export const MsmDialog = (): preact.JSX.Element => {
         return shownProblem?.field === field ? shownProblem.message : text;
     };
 
-    const invalid = (field: string): boolean => {
-        return shownProblem?.field === field;
+    const invalid = (name: string): boolean => {
+        return shownProblem?.field === name;
+    };
+
+    /** A field's value, by its name. */
+    const field = (name: string): unknown => {
+        return (values as unknown as Record<string, unknown>)[name];
+    };
+
+    const cancel = (): void => {
+        post<MsmWebviewMessage>({ type: "cancel" });
     };
 
     const submit = (): void => {
-        if (kind === "info") {
-            post<MsmWebviewMessage>({ type: "cancel" });
-
-            return;
-        }
         setSubmitted(true);
         if (problem !== undefined) {
             return;
@@ -196,17 +192,15 @@ export const MsmDialog = (): preact.JSX.Element => {
         post<MsmWebviewMessage>({ type: "open", what });
     };
 
-    const text = (name: string, props: {
-        placeholder?: string;
-    } = {}): preact.JSX.Element => {
+    const text = (name: string, placeholder?: string): preact.JSX.Element => {
         return (
             <input
                 type="text"
                 name={name}
                 class={invalid(name) ? "invalid" : undefined}
                 aria-invalid={invalid(name)}
-                value={String((values as unknown as Record<string, unknown>)[name] ?? "")}
-                placeholder={props.placeholder}
+                value={String(field(name) ?? "")}
+                placeholder={placeholder}
                 spellcheck={false}
                 disabled={busy}
                 onInput={(event) => {
@@ -223,7 +217,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                 <input
                     type="checkbox"
                     name={name}
-                    checked={(values as unknown as Record<string, unknown>)[name] === true}
+                    checked={field(name) === true}
                     disabled={busy}
                     onChange={(event) => {
                         update(name, (event.target as HTMLInputElement).checked);
@@ -234,10 +228,9 @@ export const MsmDialog = (): preact.JSX.Element => {
         );
     };
 
-    const boxProblem = (...names: string[]): preact.JSX.Element | null => {
-        return shownProblem?.field !== undefined
-            && names.includes(shownProblem.field) ? (
-                <p class="field-hint msm-problem">{shownProblem.message}</p>
+    const boxProblem = (name: string): preact.JSX.Element | null => {
+        return shownProblem?.field === name ? (
+                <p class="field-hint field-problem">{shownProblem.message}</p>
             ) : null;
     };
 
@@ -248,7 +241,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                 name={name}
                 class={invalid(name) ? "invalid" : undefined}
                 aria-invalid={invalid(name)}
-                value={String((values as unknown as Record<string, unknown>)[name] ?? "")}
+                value={String(field(name) ?? "")}
                 disabled={busy}
                 onChange={(event) => {
                     update(name, (event.target as HTMLSelectElement).value);
@@ -262,7 +255,7 @@ export const MsmDialog = (): preact.JSX.Element => {
         );
     };
 
-    const browse = (name: string, current: string): preact.JSX.Element => {
+    const browse = (name: string): preact.JSX.Element => {
         return (
             <button
                 type="button"
@@ -272,7 +265,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                     // input instead.
                     event.preventDefault();
                     post<MsmWebviewMessage>({ type: "browse", field: name,
-                        current });
+                        current: String(field(name) ?? "") });
                 }}
             >
                 Browse...
@@ -289,10 +282,10 @@ export const MsmDialog = (): preact.JSX.Element => {
                     : projectFolderName(create.schemaName);
 
                 return (
-                    <section class="grid msm-grid">
+                    <section class="grid">
                         <Field caption="Schema Name" hint={hint("schemaName",
                             `The project folder is ${folder}.`)}>
-                            {text("schemaName", { placeholder: "sakila" })}
+                            {text("schemaName", "sakila")}
                         </Field>
                         <Field caption="License" hint={"The license the "
                             + "project's scripts are put under."}>
@@ -305,16 +298,16 @@ export const MsmDialog = (): preact.JSX.Element => {
                             + "company's: written into every script's header.")}>
                             {text("copyrightHolder")}
                         </Field>
-                        <div class="msm-wide">
+                        <div class="wide">
                             <Field caption="Create In" hint={hint("targetPath",
                                 "The folder the project folder is created in.")}>
-                                <div class="row msm-path">
+                                <div class="row path-row">
                                     {text("targetPath")}
-                                    {browse("targetPath", create.targetPath)}
+                                    {browse("targetPath")}
                                 </div>
                             </Field>
                         </div>
-                        <div class="group msm-flags">
+                        <div class="group flags">
                             {box("createTargetPath", "Create the Folder",
                                 "Create the folder above where it does not "
                                 + "exist yet.")}
@@ -329,14 +322,14 @@ export const MsmDialog = (): preact.JSX.Element => {
             }
 
             case "info": {
-                return info(project);
+                return info();
             }
 
             case "release": {
                 const last = project?.lastReleasedVersion;
 
                 return (
-                    <section class="grid msm-grid">
+                    <section class="grid">
                         {summary(project)}
                         <Field caption="Version to Release" hint={hint(
                             "version", last === undefined
@@ -349,7 +342,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                             + "with.")}>
                             {text("nextVersion")}
                         </Field>
-                        <div class="group msm-flags">
+                        <div class="group flags">
                             {box("allowToStayOnSameVersion",
                                 "Stay on the Same Version",
                                 "Go on developing the version released, "
@@ -368,7 +361,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                 const scripts = project?.deploymentScriptVersions ?? [];
 
                 return (
-                    <section class="grid msm-grid">
+                    <section class="grid">
                         {summary(project)}
                         <Field caption="Version" hint={hint("version",
                             "The released version to deploy.")}>
@@ -378,7 +371,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                                     : version];
                             }))}
                         </Field>
-                        <div class="group msm-flags">
+                        <div class="group flags">
                             {box("overwriteExisting", "Replace Existing File",
                                 "Generate a deployment script again that "
                                 + "exists already.")}
@@ -394,7 +387,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                     project?.deploymentScriptVersions ?? []);
 
                 return (
-                    <section class="grid msm-grid">
+                    <section class="grid">
                         {summary(project)}
                         <Field caption="Connection" hint={hint("connection",
                             connections.length === 0
@@ -412,20 +405,19 @@ export const MsmDialog = (): preact.JSX.Element => {
                                 return [version, version];
                             }))}
                         </Field>
-                        <div class="group msm-flags">
+                        <div class="group flags">
                             {box("backup", "Back Up the Schema First",
                                 "Dump an existing schema before updating it, "
                                 + "and load it back should the update fail.")}
                         </div>
                         {deploy.backup ? (
-                            <div class="msm-wide">
+                            <div class="wide">
                                 <Field caption="Backup Folder" hint={hint(
                                     "backupDirectory", "Left empty, the "
                                     + "project's backups folder.")}>
-                                    <div class="row msm-path">
+                                    <div class="row path-row">
                                         {text("backupDirectory")}
-                                        {browse("backupDirectory",
-                                            deploy.backupDirectory)}
+                                        {browse("backupDirectory")}
                                     </div>
                                 </Field>
                             </div>
@@ -436,7 +428,8 @@ export const MsmDialog = (): preact.JSX.Element => {
         }
     };
 
-    const info = (shown: IMsmProjectContext | undefined): preact.JSX.Element => {
+    const info = (): preact.JSX.Element => {
+        const shown = project;
         if (shown === undefined) {
             return <section />;
         }
@@ -499,7 +492,6 @@ export const MsmDialog = (): preact.JSX.Element => {
 
     const dialogProblem = shownProblem?.field === undefined
         ? shownProblem : undefined;
-    const [action, working] = ACTIONS[kind];
 
     return (
         <div class="editor">
@@ -510,34 +502,35 @@ export const MsmDialog = (): preact.JSX.Element => {
 
             {body()}
 
-            {busy ? <ProgressBar label={working} /> : null}
+            {busy && kind !== "info"
+                ? <ProgressBar label={ACTIONS[kind][1]} /> : null}
             {dialogProblem === undefined ? null : (
                 <p class="message error">{dialogProblem.message}</p>
             )}
 
             <footer class="editor-footer">
                 <span class="spacer" />
-                {kind === "info" ? null : (
-                    <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                            post<MsmWebviewMessage>({ type: "cancel" });
-                        }}
-                    >
-                        Cancel
+                {kind === "info" ? (
+                    <button type="button" class="primary" onClick={cancel}>
+                        Close
                     </button>
+                ) : (
+                    <>
+                        <button type="button" disabled={busy} onClick={cancel}>
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            class="primary"
+                            disabled={busy || (submitted && problem !== undefined)}
+                            title={submitted && problem !== undefined
+                                ? problem.message : undefined}
+                            onClick={submit}
+                        >
+                            {ACTIONS[kind][0]}
+                        </button>
+                    </>
                 )}
-                <button
-                    type="button"
-                    class="primary"
-                    disabled={busy || (submitted && problem !== undefined)}
-                    title={submitted && problem !== undefined
-                        ? problem.message : undefined}
-                    onClick={submit}
-                >
-                    {action}
-                </button>
             </footer>
         </div>
     );
@@ -557,7 +550,7 @@ const summary = (
     }
 
     return (
-        <p class="note msm-wide msm-summary">
+        <p class="note wide msm-summary">
             <code>{project.projectPath}</code>
             <span>
                 {`Development version ${project.currentDevelopmentVersion}`}

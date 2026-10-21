@@ -15,24 +15,28 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import * as vscode from "vscode";
 
-import { GENERAL_ACTIONS } from "../connections/connectionActivity.js";
+import {
+    callArguments,
+    GENERAL_ACTIONS,
+} from "../connections/connectionActivity.js";
 import { connectionLabel } from "../connections/connectionUri.js";
 import { reportError } from "../errorMessages.js";
+import { pathExists } from "../shell/nodeRuntime.js";
 import {
     MSM_LICENSES,
+    msmToolArgs,
     type IMsmApi,
+    type IMsmCreateOptions,
+    type IMsmDeployOptions,
+    type IMsmDeploymentScriptOptions,
     type IMsmProjectInfo,
+    type IMsmReleaseOptions,
 } from "../mcp/msmApi.js";
-import {
-    ActionGroup,
-    type ActionPutter,
-    type IStepWords,
-} from "../restd/actionGroup.js";
+import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
 import { counted } from "../text.js";
 import {
     createDefaults,
@@ -51,7 +55,12 @@ import {
     type IMsmReleaseValues,
     type MsmDialogKind,
 } from "./msmFields.js";
-import { MsmDialogPanel } from "./msmDialogPanel.js";
+import { pickFolder } from "../webview/dialogPanel.js";
+import {
+    MsmDialogPanel,
+    type IMsmDialogHost,
+    type IMsmDialogSpec,
+} from "./msmDialogPanel.js";
 
 /** What the MariaDB Schema Management commands need from the extension. */
 export interface IMsmCommandsHost {
@@ -75,6 +84,9 @@ export interface IMsmCommandsHost {
     log(message: string): void;
 }
 
+/** The dialogs on a project: all but New MSM Project. */
+type ProjectDialogKind = Exclude<MsmDialogKind, "create">;
+
 /** The commands, by the dialog each opens. */
 export const MSM_COMMANDS: Record<MsmDialogKind, string> = {
     create: "mariadb.msm.createProject",
@@ -85,34 +97,19 @@ export const MSM_COMMANDS: Record<MsmDialogKind, string> = {
 };
 
 /**
- * @param value A value of a call.
- *
- * @returns It as the Actions tab shows a call's arguments: a string
- *          quoted, anything else as it is.
- */
-const argument = (value: string | boolean): string => {
-    return typeof value === "string"
-        ? `'${value.replace(/'/gu, "\\'")}'` : String(value);
-};
-
-/**
  * @param name The tool.
- * @param args Its arguments; those undefined are left out.
+ * @param args Its arguments, as `msmToolArgs` builds them.
  *
- * @returns The call as its row shows it: `msm.prepare_release(version=
- *          '1.0.0', next_version='1.0.1')`.
+ * @returns The call as its row shows it, as every other call's is:
+ *          `msm.prepare_release(version=1.0.0, next_version=1.0.1)`. The
+ *          connection's id is left out: a UUID says nothing to a reader,
+ *          and the action names the connection.
  */
 export const msmCall = (
     name: string,
-    args: Record<string, string | boolean | undefined>,
+    args: Record<string, unknown>,
 ): string => {
-    const shown = Object.entries(args).filter(([, value]) => {
-        return value !== undefined;
-    }).map(([key, value]) => {
-        return `${key}=${argument(value as string | boolean)}`;
-    });
-
-    return `${name}(${shown.join(", ")})`;
+    return `${name}(${callArguments({ ...args, connection_id: undefined })})`;
 };
 
 /**
@@ -150,21 +147,6 @@ export const projectContext = (
 };
 
 /**
- * @param path A path.
- *
- * @returns Whether there is anything at it.
- */
-const existsOnDisk = async (path: string): Promise<boolean> => {
-    try {
-        await stat(path);
-
-        return true;
-    } catch {
-        return false;
-    }
-};
-
-/**
  * The Explorer's MariaDB Schema Management submenu: creating a schema
  * project in a folder, and on a `*.msm.project` folder its information,
  * preparing a release, generating a deployment script and deploying the
@@ -196,26 +178,21 @@ export class MsmCommands {
                     }
                 });
         };
-        const pickProject = (): Promise<string | undefined> => {
-            return this.#pickFolder("Choose a Schema Project Folder");
-        };
+        const kinds: ProjectDialogKind[] = [
+            "info", "release", "deploymentScript", "deploy",
+        ];
 
         return [
-            command(MSM_COMMANDS.create, (folder) => {
-                return this.createProject(folder);
+            command(MSM_COMMANDS.create, async (folder) => {
+                this.createProject(folder);
             }, () => { return Promise.resolve(this.host.defaultFolder()); }),
-            command(MSM_COMMANDS.info, (folder) => {
-                return this.open("info", folder);
-            }, pickProject),
-            command(MSM_COMMANDS.release, (folder) => {
-                return this.open("release", folder);
-            }, pickProject),
-            command(MSM_COMMANDS.deploymentScript, (folder) => {
-                return this.open("deploymentScript", folder);
-            }, pickProject),
-            command(MSM_COMMANDS.deploy, (folder) => {
-                return this.open("deploy", folder);
-            }, pickProject),
+            ...kinds.map((kind) => {
+                return command(MSM_COMMANDS[kind], (folder) => {
+                    return this.open(kind, folder);
+                }, () => {
+                    return pickFolder("Choose a Schema Project Folder");
+                });
+            }),
         ];
     }
 
@@ -224,24 +201,18 @@ export class MsmCommands {
      *
      * @param folder The folder the project is to be made in.
      */
-    public createProject(folder: string): Promise<void> {
+    public createProject(folder: string): void {
         MsmDialogPanel.show(this.host.extensionUri, {
             kind: "create",
             title: MSM_TITLES.create,
             values: createDefaults(folder),
             licenses: MSM_LICENSES,
         }, {
-            check: (values) => {
-                return this.#checkCreate(values as IMsmCreateValues);
-            },
-            submit: async (values) => {
-                await this.#create(values as IMsmCreateValues);
-            },
+            check: (values) => { return this.#checkCreate(values); },
+            submit: (values) => { return this.#create(values); },
             onFailed: () => { this.host.showActions(GENERAL_ACTIONS); },
             log: this.host.log,
         });
-
-        return Promise.resolve();
     }
 
     /**
@@ -251,7 +222,7 @@ export class MsmCommands {
      * @param projectPath The `*.msm.project` folder.
      */
     public async open(
-        kind: Exclude<MsmDialogKind, "create">,
+        kind: ProjectDialogKind,
         projectPath: string,
     ): Promise<void> {
         if (!isProjectFolder(projectPath)) {
@@ -259,57 +230,61 @@ export class MsmCommands {
                 + `project folder: its name has to end in .msm.project.`);
         }
 
-        const project = await this.#read(projectPath);
+        await this.#show(kind, await this.#read(projectPath));
+    }
+
+    /**
+     * Opens a dialog on a project read already.
+     *
+     * @param kind The dialog.
+     * @param project The project.
+     */
+    async #show(
+        kind: ProjectDialogKind,
+        project: IMsmProjectContext,
+    ): Promise<void> {
         const title = `${MSM_TITLES[kind]} - ${project.schemaName}`;
+        const show = <K extends ProjectDialogKind>(
+            spec: Omit<IMsmDialogSpec<K>, "title" | "project">,
+            host: Omit<IMsmDialogHost<K>, "log">,
+        ): void => {
+            MsmDialogPanel.show(this.host.extensionUri, {
+                ...spec, title, project,
+            } as IMsmDialogSpec<K>, {
+                onFailed: () => { this.host.showActions(GENERAL_ACTIONS); },
+                ...host,
+                log: this.host.log,
+            });
+        };
 
         switch (kind) {
             case "info": {
-                MsmDialogPanel.show(this.host.extensionUri, {
-                    kind, title, project, values: {},
-                }, {
-                    submit: () => { return Promise.resolve(); },
+                show({ kind, values: {} }, {
                     open: async (what) => {
                         if (what === "developmentFile") {
                             await this.#showFile(
                                 project.schemaDevelopmentFilePath);
                         } else {
-                            await this.open(what, projectPath);
+                            // In its place, on the project as read.
+                            await this.#show(what, project);
                         }
                     },
-                    log: this.host.log,
                 });
                 break;
             }
 
             case "release": {
-                MsmDialogPanel.show(this.host.extensionUri, {
-                    kind, title, project, values: releaseDefaults(project),
-                }, {
-                    submit: async (values) => {
-                        await this.#release(project,
-                            values as IMsmReleaseValues);
-                    },
-                    onFailed: () => {
-                        this.host.showActions(GENERAL_ACTIONS);
-                    },
-                    log: this.host.log,
+                show({ kind, values: releaseDefaults(project) }, {
+                    submit: (values) => { return this.#release(project, values); },
                 });
                 break;
             }
 
             case "deploymentScript": {
-                MsmDialogPanel.show(this.host.extensionUri, {
-                    kind, title, project,
-                    values: deploymentScriptDefaults(project),
-                }, {
-                    submit: async (values) => {
-                        await this.#generate(project,
-                            values as IMsmDeploymentScriptValues);
+                show({ kind, values: deploymentScriptDefaults(project) }, {
+                    submit: (values) => {
+                        return this.#generate(project, values);
                     },
-                    onFailed: () => {
-                        this.host.showActions(GENERAL_ACTIONS);
-                    },
-                    log: this.host.log,
                 });
                 break;
             }
@@ -319,29 +294,24 @@ export class MsmCommands {
                     .map((uri) => {
                         return { uri, label: connectionLabel(uri) };
                     });
-                let target = "";
-                MsmDialogPanel.show(this.host.extensionUri, {
-                    kind, title, project, connections,
+                show({
+                    kind, connections,
                     values: deployDefaults(project, connections,
                         this.host.defaultConnection()),
                 }, {
-                    submit: async (values) => {
-                        target = (values as IMsmDeployValues).connection;
-                        await this.#deploy(project, values as IMsmDeployValues);
+                    submit: (values) => { return this.#deploy(project, values); },
+                    // An action of the connection deployed onto.
+                    onFailed: (values) => {
+                        this.host.showActions(values.connection);
                     },
-                    onFailed: () => {
-                        this.host.showActions(target === ""
-                            ? GENERAL_ACTIONS : target);
-                    },
-                    log: this.host.log,
                 });
             }
         }
     }
 
     /**
-     * Reads a project, as one action: its information, its releases and
-     * its deployment scripts.
+     * Reads a project, as one action: its information, then its releases
+     * and its deployment scripts, side by side.
      *
      * @param projectPath The project folder.
      *
@@ -353,37 +323,43 @@ export class MsmCommands {
             doing: `Reading MSM project ${name}`,
             done: `Read MSM project ${name}`,
         });
+        const at = msmToolArgs.project(projectPath);
         try {
-            const api = await this.host.msmApi();
-            const at = { schema_project_path: projectPath };
-            const info = await group.step({
-                doing: "Reading the project information",
-                done: "Read the project information",
-            }, msmCall("msm.get_project_information", at), () => {
-                return api.projectInformation(projectPath);
-            }, {
-                detail: (read) => {
-                    return `Schema ${read.schemaName}, development version `
-                        + read.currentDevelopmentVersion;
-                },
-            });
-            const released = await group.step({
-                doing: "Listing the released versions",
-                done: "Listed the released versions",
-            }, msmCall("msm.get_released_versions", at), () => {
-                return api.releasedVersions(projectPath);
-            }, { detail: versionsDetail("released version") });
-            const scripts = await group.step({
-                doing: "Listing the deployment scripts",
-                done: "Listed the deployment scripts",
-            }, msmCall("msm.get_deployment_script_versions", at), () => {
-                return api.deploymentScriptVersions(projectPath);
-            }, { detail: versionsDetail("deployment script") });
-            group.finish(`${info.schemaName} ${info.currentDevelopmentVersion}`);
+            return await group.run(async () => {
+                const api = await this.host.msmApi();
+                // First, as it says whether the folder is a project at all.
+                const info = await group.step({
+                    doing: "Reading the project information",
+                    done: "Read the project information",
+                }, msmCall("msm.get_project_information", at), () => {
+                    return api.projectInformation(projectPath);
+                }, {
+                    detail: (read) => {
+                        return `Schema ${read.schemaName}, development `
+                            + `version ${read.currentDevelopmentVersion}`;
+                    },
+                });
+                const [released, scripts] = await Promise.all([
+                    group.step({
+                        doing: "Listing the released versions",
+                        done: "Listed the released versions",
+                    }, msmCall("msm.get_released_versions", at), () => {
+                        return api.releasedVersions(projectPath);
+                    }, { detail: versionsDetail("released version") }),
+                    group.step({
+                        doing: "Listing the deployment scripts",
+                        done: "Listed the deployment scripts",
+                    }, msmCall("msm.get_deployment_script_versions", at), () => {
+                        return api.deploymentScriptVersions(projectPath);
+                    }, { detail: versionsDetail("deployment script") }),
+                ]);
 
-            return projectContext(info, projectPath, released, scripts);
+                return projectContext(info, projectPath, released, scripts);
+            }, (project) => {
+                return `${project.schemaName} `
+                    + project.currentDevelopmentVersion;
+            });
         } catch (error) {
-            group.finish();
             this.host.showActions(GENERAL_ACTIONS);
             throw error;
         }
@@ -401,7 +377,7 @@ export class MsmCommands {
     async #checkCreate(
         values: IMsmCreateValues,
     ): Promise<IMsmProblem | undefined> {
-        const exists = this.host.exists ?? existsOnDisk;
+        const exists = this.host.exists ?? pathExists;
         const target = values.targetPath.trim();
         if (!values.createTargetPath && !await exists(target)) {
             return {
@@ -436,47 +412,37 @@ export class MsmCommands {
             doing: `Creating MSM project for schema ${schemaName}`,
             done: `Created MSM project for schema ${schemaName}`,
         });
-        let projectPath: string;
-        let info: IMsmProjectInfo;
-        try {
+        const { projectPath, info } = await group.run(async () => {
             const api = await this.host.msmApi();
-            projectPath = await group.step({
+            const options: IMsmCreateOptions = {
+                schemaName, targetPath, copyrightHolder,
+                license: values.license,
+                allowSpecialChars: values.allowSpecialChars,
+                overwriteExisting: values.overwriteExisting,
+                enforceTargetPath: values.createTargetPath,
+            };
+            const created = await group.step({
                 doing: "Creating the project folder",
                 done: "Created the project folder",
-            }, msmCall("msm.create_project", {
-                schema_name: schemaName,
-                target_path: targetPath,
-                copyright_holder: copyrightHolder,
-                license: values.license,
-                allow_special_chars: values.allowSpecialChars || undefined,
-                overwrite_existing: values.overwriteExisting || undefined,
-                enforce_target_path: values.createTargetPath || undefined,
-            }), () => {
-                return api.createProject({
-                    schemaName, targetPath, copyrightHolder,
-                    license: values.license,
-                    allowSpecialChars: values.allowSpecialChars,
-                    overwriteExisting: values.overwriteExisting,
-                    enforceTargetPath: values.createTargetPath,
-                });
+            }, msmCall("msm.create_project",
+                msmToolArgs.createProject(options)), () => {
+                return api.createProject(options);
             }, { detail: (path) => { return path; } });
-            info = await group.step({
+            const read = await group.step({
                 doing: "Reading the new project",
                 done: "Read the new project",
             }, msmCall("msm.get_project_information",
-                { schema_project_path: projectPath }), () => {
-                return api.projectInformation(projectPath);
+                msmToolArgs.project(created)), () => {
+                return api.projectInformation(created);
             }, {
-                detail: (read) => { return read.schemaDevelopmentFilePath; },
+                detail: (project) => { return project.schemaDevelopmentFilePath; },
             });
-            group.finish(projectPath);
-        } catch (error) {
-            group.finish();
-            throw error;
-        }
+
+            return { projectPath: created, info: read };
+        }, (done) => { return done.projectPath; });
 
         await this.#showFile(info.schemaDevelopmentFilePath);
-        this.#reveal(projectPath);
+        await this.#reveal(projectPath);
     }
 
     /**
@@ -491,29 +457,35 @@ export class MsmCommands {
     ): Promise<void> {
         const version = values.version.trim();
         const nextVersion = values.nextVersion.trim();
-        const files = await this.#single({
+        const words = {
             doing: `Preparing release ${version} of ${project.schemaName}`,
             done: `Prepared release ${version} of ${project.schemaName}`,
-        }, msmCall("msm.prepare_release", {
-            version,
-            next_version: nextVersion,
-            allow_to_stay_on_same_version:
-                values.allowToStayOnSameVersion || undefined,
-            overwrite_existing: values.overwriteExisting || undefined,
-        }), async () => {
-            return (await this.host.msmApi()).prepareRelease({
-                projectPath: project.projectPath, version, nextVersion,
-                allowToStayOnSameVersion: values.allowToStayOnSameVersion,
-                overwriteExisting: values.overwriteExisting,
+        };
+        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
+        const options: IMsmReleaseOptions = {
+            projectPath: project.projectPath, version, nextVersion,
+            allowToStayOnSameVersion: values.allowToStayOnSameVersion,
+            overwriteExisting: values.overwriteExisting,
+        };
+        const files = await group.run(() => {
+            return group.step(words, msmCall("msm.prepare_release",
+                msmToolArgs.prepareRelease(options)), async () => {
+                return (await this.host.msmApi()).prepareRelease(options);
+            }, {
+                detail: (written) => {
+                    return [`${counted(written.length, "file")} written`,
+                        ...written.map((file) => { return basename(file); })]
+                        .join("\n");
+                },
             });
-        }, (written) => {
-            return [counted(written.length, "file") + " written",
-                ...written.map((file) => { return basename(file); })]
-                .join("\n");
-        }, `Development goes on with ${nextVersion}`);
+        }, () => { return `Development goes on with ${nextVersion}`; });
 
-        for (const file of files) {
-            await this.#showFile(file);
+        // Opened side by side; shown in order, so the tabs keep it.
+        const documents = await Promise.all(files.map((file) => {
+            return vscode.workspace.openTextDocument(vscode.Uri.file(file));
+        }));
+        for (const document of documents) {
+            await vscode.window.showTextDocument(document, { preview: false });
         }
     }
 
@@ -527,20 +499,21 @@ export class MsmCommands {
         project: IMsmProjectContext,
         values: IMsmDeploymentScriptValues,
     ): Promise<void> {
-        const script = await this.#single({
-            doing: `Generating the deployment script for `
-                + `${project.schemaName} ${values.version}`,
-            done: `Generated the deployment script for `
-                + `${project.schemaName} ${values.version}`,
-        }, msmCall("msm.generate_deployment_script", {
+        const what = `the deployment script for ${project.schemaName} `
+            + values.version;
+        const words = { doing: `Generating ${what}`, done: `Generated ${what}` };
+        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
+        const options: IMsmDeploymentScriptOptions = {
+            projectPath: project.projectPath,
             version: values.version,
-            overwrite_existing: values.overwriteExisting || undefined,
-        }), async () => {
-            return (await this.host.msmApi()).generateDeploymentScript({
-                projectPath: project.projectPath,
-                version: values.version,
-                overwriteExisting: values.overwriteExisting,
-            });
+            overwriteExisting: values.overwriteExisting,
+        };
+        const script = await group.run(() => {
+            return group.step(words, msmCall("msm.generate_deployment_script",
+                msmToolArgs.generateDeploymentScript(options)), async () => {
+                return (await this.host.msmApi()).generateDeploymentScript(
+                    options);
+            }, { detail: (path) => { return path; } });
         }, (path) => { return path; });
 
         await this.#showFile(script);
@@ -564,89 +537,35 @@ export class MsmCommands {
             && values.backupDirectory.trim() !== ""
             ? values.backupDirectory.trim() : undefined;
         const server = connectionLabel(values.connection);
+        const what = `${project.schemaName} ${version ?? ""} onto ${server}`;
         const group = new ActionGroup(this.host.put, values.connection, {
-            doing: `Deploying ${project.schemaName} ${version ?? ""} onto `
-                + server,
-            done: `Deployed ${project.schemaName} ${version ?? ""} onto `
-                + server,
+            doing: `Deploying ${what}`,
+            done: `Deployed ${what}`,
         });
-        try {
+        await group.run(async () => {
             const connectionId = await group.step({
                 doing: `Connecting to ${server}`,
                 done: `Connected to ${server}`,
-            }, msmCall("db.connect", { connection: values.connection }), () => {
+            }, msmCall("db.connect", { uri: values.connection }), () => {
                 return this.host.connect(values.connection);
             });
-            const message = await group.step({
+
+            const options: IMsmDeployOptions = {
+                projectPath: project.projectPath, connectionId,
+                ...(version === undefined ? {} : { version }),
+                backup: values.backup,
+                ...(backupDirectory === undefined ? {} : { backupDirectory }),
+            };
+
+            return group.step({
                 doing: `Deploying schema ${project.schemaName}`,
                 done: `Deployed schema ${project.schemaName}`,
-            }, msmCall("msm.deploy_schema", {
-                version,
-                backup: values.backup || undefined,
-                backup_directory: backupDirectory,
-            }), async () => {
-                return (await this.host.msmApi()).deploySchema({
-                    projectPath: project.projectPath, connectionId,
-                    ...(version === undefined ? {} : { version }),
-                    backup: values.backup,
-                    ...(backupDirectory === undefined
-                        ? {} : { backupDirectory }),
-                });
+            }, msmCall("msm.deploy_schema", msmToolArgs.deploySchema(options)),
+            async () => {
+                return (await this.host.msmApi()).deploySchema(options);
             }, { detail: (said) => { return said; } });
-            group.finish(message);
-        } catch (error) {
-            group.finish();
-            throw error;
-        }
+        }, (said) => { return said; });
         this.host.refresh(values.connection);
-    }
-
-    /**
-     * Does one call on a project, as an action of one step under General
-     * Actions.
-     *
-     * @param words What it is called.
-     * @param call The call, as its row shows it.
-     * @param work The call.
-     * @param detail What it came to, for the step's row.
-     * @param summary What it came to, for the action's row.
-     *
-     * @returns What the call returned.
-     */
-    async #single<T>(
-        words: IStepWords,
-        call: string,
-        work: () => Promise<T>,
-        detail: (value: T) => string,
-        summary?: string,
-    ): Promise<T> {
-        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
-        try {
-            const value = await group.step(words, call, work, { detail });
-            group.finish(summary ?? detail(value).split("\n")[0]);
-
-            return value;
-        } catch (error) {
-            group.finish();
-            throw error;
-        }
-    }
-
-    /**
-     * @param title What the picker is for.
-     *
-     * @returns The folder picked, or undefined.
-     */
-    async #pickFolder(title: string): Promise<string | undefined> {
-        const picked = await vscode.window.showOpenDialog({
-            title,
-            canSelectFolders: true,
-            canSelectFiles: false,
-            canSelectMany: false,
-            openLabel: "Select Folder",
-        });
-
-        return picked?.[0]?.fsPath;
     }
 
     /**
@@ -661,16 +580,16 @@ export class MsmCommands {
     }
 
     /**
-     * Shows a folder in the Explorer. Only a nicety: a folder outside the
-     * workspace cannot be shown, which is not worth saying.
+     * Shows a folder in the Explorer, where it is in the workspace: one
+     * outside it the Explorer does not show.
      *
      * @param path The folder.
      */
-    #reveal(path: string): void {
-        void Promise.resolve(vscode.commands.executeCommand(
-            "revealInExplorer", vscode.Uri.file(path))).catch(() => {
-            // Not in the workspace.
-        });
+    async #reveal(path: string): Promise<void> {
+        const uri = vscode.Uri.file(path);
+        if (vscode.workspace.getWorkspaceFolder(uri) !== undefined) {
+            await vscode.commands.executeCommand("revealInExplorer", uri);
+        }
     }
 }
 

@@ -157,7 +157,9 @@ runner end anyway. A spawn that fails is reported with its error.
   - Tree rows are virtualized and their DOM is reused. Re-find a row by
     label and `aria-level` (`treeItem`); never hold on to one.
   - Context-menu clicks are sometimes lost when a tree refresh closes the
-    menu. `menuAction`, `openDialog` and `menuConfirm` retry 3×.
+    menu. `menuAction`, `openDialog` and `menuConfirm` retry 3×, as the
+    Explorer's `explorerMenuAction` does: one loop, `menuActionOn`, given
+    how to find the row afresh.
   - A webview that has closed answers lookups with nothing, so
     `submitDialog` checks the editor tab from outside.
   - Palette commands do not reach a focused webview: bring an editor

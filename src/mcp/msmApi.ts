@@ -16,12 +16,7 @@
  */
 
 import type { IToolCaller } from "./mariaDbApi.js";
-import {
-    decodeObject,
-    decodeScalar,
-    decodeStructured,
-    McpToolError,
-} from "./protocol.js";
+import { decodeList, decodeObject, decodeScalar } from "./protocol.js";
 
 /** One copyright notice of a schema project. */
 export interface IMsmCopyright {
@@ -124,25 +119,74 @@ export interface IMsmApi {
 }
 
 /**
- * @param toolName The tool that answered.
- * @param value What it answered: a list of `[major, minor, patch]`.
+ * @param version `[major, minor, patch]`, as the msm tools list versions.
  *
- * @returns Them as "major.minor.patch", in the order given.
+ * @returns It as "major.minor.patch".
  */
-const versionStrings = (toolName: string, value: unknown): string[] => {
-    if (value === undefined || value === null) {
-        return [];
-    }
-    if (!Array.isArray(value)) {
-        throw new McpToolError(toolName,
-            `${toolName} answered with ${JSON.stringify(value)}, not a list.`);
-    }
+const versionString = (version: unknown): string => {
+    return Array.isArray(version)
+        ? version.map((part) => { return String(part); }).join(".")
+        : String(version);
+};
 
-    return value.map((version) => {
-        return Array.isArray(version)
-            ? version.map((part) => { return String(part); }).join(".")
-            : String(version);
-    });
+/**
+ * @param pairs A tool's arguments.
+ *
+ * @returns Them without those that were not given: undefined, or a flag
+ *          that is off - the tool's own default.
+ */
+const given = (pairs: Record<string, unknown>): Record<string, unknown> => {
+    return Object.fromEntries(Object.entries(pairs).filter(([, value]) => {
+        return value !== undefined && value !== false;
+    }));
+};
+
+/**
+ * The arguments each `msm.*` tool is called with, by the server's names:
+ * what `MsmApi` sends, and what the Actions tab shows a call with.
+ */
+export const msmToolArgs = {
+    project: (projectPath: string): Record<string, unknown> => {
+        return { schema_project_path: projectPath };
+    },
+    createProject: (options: IMsmCreateOptions): Record<string, unknown> => {
+        return given({
+            schema_name: options.schemaName,
+            target_path: options.targetPath,
+            copyright_holder: options.copyrightHolder,
+            license: options.license,
+            overwrite_existing: options.overwriteExisting,
+            allow_special_chars: options.allowSpecialChars,
+            enforce_target_path: options.enforceTargetPath,
+        });
+    },
+    prepareRelease: (options: IMsmReleaseOptions): Record<string, unknown> => {
+        return given({
+            schema_project_path: options.projectPath,
+            version: options.version,
+            next_version: options.nextVersion,
+            allow_to_stay_on_same_version: options.allowToStayOnSameVersion,
+            overwrite_existing: options.overwriteExisting,
+        });
+    },
+    generateDeploymentScript: (
+        options: IMsmDeploymentScriptOptions,
+    ): Record<string, unknown> => {
+        return given({
+            schema_project_path: options.projectPath,
+            version: options.version,
+            overwrite_existing: options.overwriteExisting,
+        });
+    },
+    deploySchema: (options: IMsmDeployOptions): Record<string, unknown> => {
+        return given({
+            connection_id: options.connectionId,
+            schema_project_path: options.projectPath,
+            version: options.version,
+            backup: options.backup,
+            backup_directory: options.backupDirectory,
+        });
+    },
 };
 
 /** The MariaDB Schema Management tools of the MariaDB MCP server. */
@@ -159,20 +203,8 @@ export class MsmApi implements IMsmApi {
     public async createProject(options: IMsmCreateOptions): Promise<string> {
         const name = "msm.create_project";
 
-        return decodeScalar(name, await this.caller.callTool(name, {
-            schema_name: options.schemaName,
-            target_path: options.targetPath,
-            ...(options.copyrightHolder === undefined
-                ? {} : { copyright_holder: options.copyrightHolder }),
-            ...(options.license === undefined
-                ? {} : { license: options.license }),
-            ...(options.overwriteExisting === true
-                ? { overwrite_existing: true } : {}),
-            ...(options.allowSpecialChars === true
-                ? { allow_special_chars: true } : {}),
-            ...(options.enforceTargetPath === true
-                ? { enforce_target_path: true } : {}),
-        }));
+        return decodeScalar(name, await this.caller.callTool(name,
+            msmToolArgs.createProject(options)));
     }
 
     /**
@@ -186,7 +218,7 @@ export class MsmApi implements IMsmApi {
         const name = "msm.get_project_information";
 
         return decodeObject<IMsmProjectInfo>(name, await this.caller.callTool(
-            name, { schema_project_path: projectPath }));
+            name, msmToolArgs.project(projectPath)));
     }
 
     /**
@@ -194,12 +226,8 @@ export class MsmApi implements IMsmApi {
      *
      * @returns The versions released, "1.0.0", oldest first.
      */
-    public async releasedVersions(projectPath: string): Promise<string[]> {
-        const name = "msm.get_released_versions";
-
-        return versionStrings(name, decodeStructured(name,
-            await this.caller.callTool(name,
-                { schema_project_path: projectPath })));
+    public releasedVersions(projectPath: string): Promise<string[]> {
+        return this.#versions("msm.get_released_versions", projectPath);
     }
 
     /**
@@ -207,14 +235,20 @@ export class MsmApi implements IMsmApi {
      *
      * @returns The versions a deployment script was generated for.
      */
-    public async deploymentScriptVersions(
-        projectPath: string,
-    ): Promise<string[]> {
-        const name = "msm.get_deployment_script_versions";
+    public deploymentScriptVersions(projectPath: string): Promise<string[]> {
+        return this.#versions("msm.get_deployment_script_versions",
+            projectPath);
+    }
 
-        return versionStrings(name, decodeStructured(name,
-            await this.caller.callTool(name,
-                { schema_project_path: projectPath })));
+    /**
+     * @param name A tool listing versions of a project.
+     * @param projectPath The project folder.
+     *
+     * @returns Them as "major.minor.patch".
+     */
+    async #versions(name: string, projectPath: string): Promise<string[]> {
+        return decodeList<unknown>(name, await this.caller.callTool(name,
+            msmToolArgs.project(projectPath))).map(versionString);
     }
 
     /**
@@ -228,18 +262,9 @@ export class MsmApi implements IMsmApi {
         options: IMsmReleaseOptions,
     ): Promise<string[]> {
         const name = "msm.prepare_release";
-        const value = decodeStructured(name, await this.caller.callTool(name, {
-            schema_project_path: options.projectPath,
-            version: options.version,
-            next_version: options.nextVersion,
-            ...(options.allowToStayOnSameVersion === true
-                ? { allow_to_stay_on_same_version: true } : {}),
-            ...(options.overwriteExisting === true
-                ? { overwrite_existing: true } : {}),
-        }));
 
-        return Array.isArray(value)
-            ? value.map((file) => { return String(file); }) : [];
+        return decodeList<string>(name, await this.caller.callTool(name,
+            msmToolArgs.prepareRelease(options)));
     }
 
     /**
@@ -255,12 +280,8 @@ export class MsmApi implements IMsmApi {
     ): Promise<string> {
         const name = "msm.generate_deployment_script";
 
-        return decodeScalar(name, await this.caller.callTool(name, {
-            schema_project_path: options.projectPath,
-            version: options.version,
-            ...(options.overwriteExisting === true
-                ? { overwrite_existing: true } : {}),
-        }));
+        return decodeScalar(name, await this.caller.callTool(name,
+            msmToolArgs.generateDeploymentScript(options)));
     }
 
     /**
@@ -274,14 +295,7 @@ export class MsmApi implements IMsmApi {
     public async deploySchema(options: IMsmDeployOptions): Promise<string> {
         const name = "msm.deploy_schema";
 
-        return decodeScalar(name, await this.caller.callTool(name, {
-            connection_id: options.connectionId,
-            schema_project_path: options.projectPath,
-            ...(options.version === undefined
-                ? {} : { version: options.version }),
-            ...(options.backup === true ? { backup: true } : {}),
-            ...(options.backupDirectory === undefined
-                ? {} : { backup_directory: options.backupDirectory }),
-        }, MSM_DEPLOY_TIMEOUT_MS));
+        return decodeScalar(name, await this.caller.callTool(name,
+            msmToolArgs.deploySchema(options), MSM_DEPLOY_TIMEOUT_MS));
     }
 }

@@ -17,9 +17,9 @@
 
 import * as vscode from "vscode";
 
-import { showErrorWithLog } from "../errorMessages.js";
 import { errorText } from "../text.js";
-import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
+import { DialogPanel } from "../webview/dialogPanel.js";
+import { buildWebviewHtml } from "../webview/html.js";
 import { validateDialog, type MrsDialogKind } from "./mrsDialogs.js";
 import type {
     MrsHostMessage,
@@ -89,23 +89,23 @@ export const buildMrsDialogHtml = (
  * Opens MRS dialogs, one per kind: asking for one that is up replaces
  * what it shows, as the connection editor does.
  */
-export class MrsDialogPanel {
+export class MrsDialogPanel
+    extends DialogPanel<MrsHostMessage, MrsWebviewMessage> {
     static readonly #current = new Map<MrsDialogKind, MrsDialogPanel>();
 
-    #panel: vscode.WebviewPanel;
     #spec: IMrsDialogSpec;
     #host: IMrsDialogHost;
-    #disposed = false;
-    #disposables: vscode.Disposable[] = [];
 
     private constructor(
-        panel: vscode.WebviewPanel,
+        extensionUri: vscode.Uri,
         spec: IMrsDialogSpec,
         host: IMrsDialogHost,
     ) {
-        this.#panel = panel;
+        super(MRS_DIALOG_VIEW_TYPE, spec.title, extensionUri);
         this.#spec = spec;
         this.#host = host;
+        this.panel.webview.html = buildMrsDialogHtml(this.panel.webview,
+            extensionUri, spec.title);
     }
 
     /**
@@ -127,36 +127,16 @@ export class MrsDialogPanel {
             // What it shows and who hears of its save are the new caller's.
             open.#spec = spec;
             open.#host = host;
-            open.#panel.title = spec.title;
-            open.#panel.webview.html = buildMrsDialogHtml(
-                open.#panel.webview, extensionUri, spec.title);
-            open.#panel.reveal(vscode.ViewColumn.Active);
+            open.panel.title = spec.title;
+            open.panel.webview.html = buildMrsDialogHtml(
+                open.panel.webview, extensionUri, spec.title);
+            open.panel.reveal(vscode.ViewColumn.Active);
 
             return;
         }
 
-        const panel = vscode.window.createWebviewPanel(
-            MRS_DIALOG_VIEW_TYPE,
-            spec.title,
-            vscode.ViewColumn.Active,
-            { ...webviewOptions(extensionUri), retainContextWhenHidden: true },
-        );
-
-        const dialog = new MrsDialogPanel(panel, spec, host);
-        MrsDialogPanel.#current.set(spec.dialog, dialog);
-
-        panel.onDidDispose(() => { dialog.dispose(); }, undefined,
-            dialog.#disposables);
-        panel.webview.onDidReceiveMessage(
-            (message: MrsWebviewMessage) => {
-                void dialog.#onMessage(message);
-            },
-            undefined,
-            dialog.#disposables,
-        );
-
-        panel.webview.html = buildMrsDialogHtml(panel.webview, extensionUri,
-            spec.title);
+        MrsDialogPanel.#current.set(spec.dialog,
+            new MrsDialogPanel(extensionUri, spec, host));
     }
 
     /**
@@ -166,20 +146,18 @@ export class MrsDialogPanel {
      */
     public static disposeAll(): void {
         for (const dialog of [...MrsDialogPanel.#current.values()]) {
-            dialog.#panel.dispose();
+            dialog.close();
         }
     }
 
-    #post(message: MrsHostMessage): void {
-        if (!this.#disposed) {
-            void this.#panel.webview.postMessage(message);
-        }
+    protected onDisposed(): void {
+        MrsDialogPanel.#current.delete(this.#spec.dialog);
     }
 
-    async #onMessage(message: MrsWebviewMessage): Promise<void> {
+    protected async onMessage(message: MrsWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
-                this.#post({
+                this.post({
                     type: "load",
                     dialog: this.#spec.dialog,
                     title: this.#spec.title,
@@ -201,7 +179,7 @@ export class MrsDialogPanel {
                     canSelectMany: false,
                 });
                 if (picked?.[0] !== undefined) {
-                    this.#post({
+                    this.post({
                         type: "browsed",
                         field: message.field,
                         path: picked[0].fsPath,
@@ -230,7 +208,7 @@ export class MrsDialogPanel {
             }
 
             default: {
-                this.#panel.dispose();
+                this.close();
             }
         }
     }
@@ -241,28 +219,21 @@ export class MrsDialogPanel {
         const problems = validateDialog(this.#spec.dialog, values,
             this.#spec.context);
         if (problems.length > 0) {
-            this.#post({ type: "saveError", message: problems[0].message });
+            this.post({ type: "saveError", message: problems[0].message });
 
             return;
         }
 
-        this.#post({ type: "busy", busy: true });
-        try {
+        await this.runBusy(async () => {
             await this.#spec.save(values);
             this.#host.onSaved();
-            this.#panel.dispose();
-        } catch (error) {
-            const text = errorText(error);
-            this.#host.log(`Failed to save the ${this.#spec.title}: ${text}`);
-            if (this.#disposed) {
-                void showErrorWithLog(text);
-            } else {
-                this.#post({ type: "saveError", message: text });
-            }
-            this.#host.onFailed();
-        } finally {
-            this.#post({ type: "busy", busy: false });
-        }
+        }, {
+            message: (text) => { return { type: "saveError", message: text }; },
+            log: (text) => {
+                this.#host.log(`Failed to save the ${this.#spec.title}: ${text}`);
+            },
+            onFailed: () => { this.#host.onFailed(); },
+        });
     }
 
     async #loadColumns(
@@ -271,18 +242,18 @@ export class MrsDialogPanel {
         table: string,
     ): Promise<void> {
         if (this.#spec.loadColumns === undefined) {
-            this.#post({ type: "columns", requestId, error: "Not available." });
+            this.post({ type: "columns", requestId, error: "Not available." });
 
             return;
         }
         try {
-            this.#post({
+            this.post({
                 type: "columns",
                 requestId,
                 columns: await this.#spec.loadColumns(schema, table),
             });
         } catch (error) {
-            this.#post({ type: "columns", requestId, error: errorText(error) });
+            this.post({ type: "columns", requestId, error: errorText(error) });
         }
     }
 
@@ -291,27 +262,13 @@ export class MrsDialogPanel {
             return;
         }
         try {
-            this.#post({
+            this.post({
                 type: "scripts",
                 directory,
                 ...await this.#spec.analyzeFolder(directory, ignoreList),
             });
         } catch (error) {
-            this.#post({ type: "scripts", directory, error: errorText(error) });
+            this.post({ type: "scripts", directory, error: errorText(error) });
         }
-    }
-
-    /**
-     * Tears the panel down.
-     *
-     * @returns Nothing.
-     */
-    public dispose(): void {
-        this.#disposed = true;
-        MrsDialogPanel.#current.delete(this.#spec.dialog);
-        for (const disposable of this.#disposables) {
-            disposable.dispose();
-        }
-        this.#disposables = [];
     }
 }

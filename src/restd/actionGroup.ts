@@ -132,6 +132,30 @@ export class ActionGroup {
     }
 
     /**
+     * Runs the whole, and ends it: done, with the summary its result gives,
+     * or failed, the error passed on.
+     *
+     * @param work The steps.
+     * @param summary What the result came to, for the Information column.
+     *
+     * @returns What the steps returned.
+     */
+    public async run<T>(
+        work: () => Promise<T>,
+        summary?: (value: T) => string | undefined,
+    ): Promise<T> {
+        try {
+            const value = await work();
+            this.finish(summary?.(value));
+
+            return value;
+        } catch (error) {
+            this.finish();
+            throw error;
+        }
+    }
+
+    /**
      * Ends the whole: done where no step failed, failed where one did.
      *
      * @param summary What it came to, for its Information column.

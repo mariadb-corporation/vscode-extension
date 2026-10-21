@@ -17,52 +17,50 @@
 
 import * as vscode from "vscode";
 
-import { showErrorWithLog } from "../errorMessages.js";
 import { errorText } from "../text.js";
-import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
+import { DialogPanel, pickFolder } from "../webview/dialogPanel.js";
+import { buildWebviewHtml } from "../webview/html.js";
 import {
     msmProblem,
-    type IMsmConnectionChoice,
     type IMsmProblem,
-    type IMsmProjectContext,
+    type IMsmValuesOf,
     type MsmDialogKind,
     type MsmValues,
 } from "./msmFields.js";
 import type {
+    IMsmLoadMessage,
     IMsmOpenMessage,
     MsmHostMessage,
     MsmWebviewMessage,
 } from "./msmProtocol.js";
 
-/** What a dialog is opened with. */
-export interface IMsmDialogSpec {
-    kind: MsmDialogKind;
-    title: string;
-    project?: IMsmProjectContext;
-    values: MsmValues;
-    licenses?: readonly string[];
-    connections?: IMsmConnectionChoice[];
+/** What a dialog is opened with: what its load message says. */
+export interface IMsmDialogSpec<K extends MsmDialogKind = MsmDialogKind>
+    extends Omit<IMsmLoadMessage, "type" | "kind" | "values"> {
+    kind: K;
+    values: IMsmValuesOf[K];
 }
 
 /** What the dialog asks of the extension. */
-export interface IMsmDialogHost {
+export interface IMsmDialogHost<K extends MsmDialogKind = MsmDialogKind> {
     /**
      * Does what the dialog is for. Resolves once done, after which the
-     * dialog closes; a rejection is shown in the dialog.
+     * dialog closes; a rejection is shown in the dialog. The project
+     * information has nothing to do.
      */
-    submit(values: MsmValues): Promise<void>;
+    submit?(values: IMsmValuesOf[K]): Promise<void>;
     /**
      * Checks what only the extension can tell - whether a folder exists -
      * before anything is done, so the dialog stays open and says why.
      */
-    check?(values: MsmValues): Promise<IMsmProblem | undefined>;
+    check?(values: IMsmValuesOf[K]): Promise<IMsmProblem | undefined>;
     /** One of the project information's buttons. */
     open?(what: IMsmOpenMessage["what"]): Promise<void>;
     /**
      * Called after the work failed, once that has been shown: in the
      * dialog, or as a notification where the dialog was closed.
      */
-    onFailed?(): void;
+    onFailed?(values: IMsmValuesOf[K]): void;
     log(message: string): void;
 }
 
@@ -74,19 +72,18 @@ export const MSM_DIALOG_VIEW_TYPE = "mariadb.msmDialog";
  * Schema. One at a time, as the other dialogs are; it closes once the work
  * is done, and the Actions tab has what it did.
  */
-export class MsmDialogPanel {
+export class MsmDialogPanel
+    extends DialogPanel<MsmHostMessage, MsmWebviewMessage> {
     static #current: MsmDialogPanel | undefined;
 
-    #panel: vscode.WebviewPanel;
-    #disposed = false;
-    #disposables: vscode.Disposable[] = [];
-
     private constructor(
-        panel: vscode.WebviewPanel,
+        extensionUri: vscode.Uri,
         private readonly spec: IMsmDialogSpec,
-        private readonly host: IMsmDialogHost,
+        private readonly host: IMsmDialogHost<MsmDialogKind>,
     ) {
-        this.#panel = panel;
+        super(MSM_DIALOG_VIEW_TYPE, spec.title, extensionUri);
+        this.panel.webview.html = buildWebviewHtml(this.panel.webview,
+            extensionUri, "msm", spec.title);
     }
 
     /**
@@ -96,79 +93,38 @@ export class MsmDialogPanel {
      * @param spec What the dialog shows.
      * @param host What it does.
      */
-    public static show(
+    public static show<K extends MsmDialogKind>(
         extensionUri: vscode.Uri,
-        spec: IMsmDialogSpec,
-        host: IMsmDialogHost,
+        spec: IMsmDialogSpec<K>,
+        host: IMsmDialogHost<K>,
     ): void {
         MsmDialogPanel.disposeCurrent();
-
-        const panel = vscode.window.createWebviewPanel(
-            MSM_DIALOG_VIEW_TYPE,
-            spec.title,
-            vscode.ViewColumn.Active,
-            { ...webviewOptions(extensionUri), retainContextWhenHidden: true },
-        );
-        const dialog = new MsmDialogPanel(panel, spec, host);
-        MsmDialogPanel.#current = dialog;
-
-        panel.onDidDispose(() => { dialog.dispose(); }, undefined,
-            dialog.#disposables);
-        panel.webview.onDidReceiveMessage(
-            (message: MsmWebviewMessage) => {
-                void dialog.#onMessage(message);
-            },
-            undefined,
-            dialog.#disposables,
-        );
-        panel.webview.html = buildWebviewHtml(panel.webview, extensionUri,
-            "msm", spec.title);
+        // One kind per dialog: the values it gets back are of that kind.
+        MsmDialogPanel.#current = new MsmDialogPanel(extensionUri, spec,
+            host as IMsmDialogHost<MsmDialogKind>);
     }
 
     public static disposeCurrent(): void {
-        const open = MsmDialogPanel.#current;
-        if (open !== undefined) {
-            open.#panel.dispose();
+        MsmDialogPanel.#current?.close();
+    }
+
+    protected onDisposed(): void {
+        if (MsmDialogPanel.#current === this) {
+            MsmDialogPanel.#current = undefined;
         }
     }
 
-    #post(message: MsmHostMessage): void {
-        if (!this.#disposed) {
-            void this.#panel.webview.postMessage(message);
-        }
-    }
-
-    async #onMessage(message: MsmWebviewMessage): Promise<void> {
+    protected async onMessage(message: MsmWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
-                this.#post({
-                    type: "load",
-                    kind: this.spec.kind,
-                    title: this.spec.title,
-                    values: this.spec.values,
-                    ...(this.spec.project === undefined
-                        ? {} : { project: this.spec.project }),
-                    ...(this.spec.licenses === undefined
-                        ? {} : { licenses: this.spec.licenses }),
-                    ...(this.spec.connections === undefined
-                        ? {} : { connections: this.spec.connections }),
-                });
+                this.post({ type: "load", ...this.spec });
                 break;
             }
 
             case "browse": {
-                const picked = await vscode.window.showOpenDialog({
-                    title: this.spec.title,
-                    canSelectFolders: true,
-                    canSelectFiles: false,
-                    canSelectMany: false,
-                    openLabel: "Select Folder",
-                    ...(message.current.trim() === "" ? {}
-                        : { defaultUri: vscode.Uri.file(message.current) }),
-                });
-                const path = picked?.[0]?.fsPath;
+                const path = await pickFolder(this.spec.title, message.current);
                 if (path !== undefined) {
-                    this.#post({ type: "browsed", field: message.field, path });
+                    this.post({ type: "browsed", field: message.field, path });
                 }
                 break;
             }
@@ -177,7 +133,7 @@ export class MsmDialogPanel {
                 try {
                     await this.host.open?.(message.what);
                 } catch (error) {
-                    this.#post({ type: "error", message: errorText(error) });
+                    this.post({ type: "error", message: errorText(error) });
                 }
                 break;
             }
@@ -188,7 +144,7 @@ export class MsmDialogPanel {
             }
 
             default: {
-                this.#panel.dispose();
+                this.close();
             }
         }
     }
@@ -201,45 +157,29 @@ export class MsmDialogPanel {
     async #submit(values: MsmValues): Promise<void> {
         const problem = msmProblem(this.spec.kind, this.spec.project, values);
         if (problem !== undefined) {
-            this.#post({ type: "error", ...problem });
+            this.post({ type: "error", ...problem });
 
             return;
         }
 
-        this.#post({ type: "busy", busy: true });
-        try {
+        const failed = (text: string): string => {
+            return `${this.spec.title} failed: ${text}`;
+        };
+        await this.runBusy(async () => {
             const found = await this.host.check?.(values);
             if (found !== undefined) {
-                this.#post({ type: "error", ...found });
+                this.post({ type: "error", ...found });
 
-                return;
+                return false;
             }
-            await this.host.submit(values);
-            this.#panel.dispose();
-        } catch (error) {
-            const text = errorText(error);
-            this.host.log(`${this.spec.title} failed: ${text}`);
-            if (this.#disposed) {
-                // Closed while it ran: nowhere left to say it but a
-                // notification.
-                void showErrorWithLog(`${this.spec.title} failed: ${text}`);
-            } else {
-                this.#post({ type: "error", message: text });
-            }
-            this.host.onFailed?.();
-        } finally {
-            this.#post({ type: "busy", busy: false });
-        }
-    }
+            await this.host.submit?.(values);
 
-    public dispose(): void {
-        this.#disposed = true;
-        if (MsmDialogPanel.#current === this) {
-            MsmDialogPanel.#current = undefined;
-        }
-        for (const disposable of this.#disposables) {
-            disposable.dispose();
-        }
-        this.#disposables = [];
+            return true;
+        }, {
+            message: (text) => { return { type: "error", message: text }; },
+            log: (text) => { this.host.log(failed(text)); },
+            notify: failed,
+            onFailed: () => { this.host.onFailed?.(values); },
+        });
     }
 }

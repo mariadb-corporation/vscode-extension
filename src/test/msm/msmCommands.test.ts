@@ -46,6 +46,7 @@ import {
     fileDialogs,
     registeredCommands,
     resetVscodeMock,
+    setWorkspaceFolders,
     shownDocuments,
     Uri,
     webviewPanels,
@@ -120,6 +121,7 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         deploySchema: answer("deploySchema",
             "Schema sakila deployed in version 1.0.0."),
     };
+    setWorkspaceFolders([{ name: "work", uri: Uri.file("/work") }]);
     registeredCommands.set("revealInExplorer", (uri: unknown) => {
         recorded.revealed.push((uri as Uri).fsPath);
     });
@@ -217,10 +219,15 @@ describe("msmCall", () => {
         expect(msmCall("msm.prepare_release", {
             version: "1.0.0", next_version: "1.0.1", overwrite_existing: true,
             allow_to_stay_on_same_version: undefined,
-        })).toBe("msm.prepare_release(version='1.0.0', next_version='1.0.1', "
+        })).toBe("msm.prepare_release(version=1.0.0, next_version=1.0.1, "
             + "overwrite_existing=true)");
-        expect(msmCall("t", { name: "it's" })).toBe("t(name='it\\'s')");
+        // As every other call's row: a URI without its name.
+        expect(msmCall("db.connect", { uri: "mariadb://a" }))
+            .toBe("db.connect(mariadb://a)");
         expect(msmCall("t", {})).toBe("t()");
+        // The connection's id is a UUID: the action names the connection.
+        expect(msmCall("msm.deploy_schema", { connection_id: "c1", version: "1" }))
+            .toBe("msm.deploy_schema(version=1)");
     });
 });
 
@@ -294,6 +301,24 @@ describe("New MSM Project", () => {
                 return document.uri.fsPath;
             })).toEqual([`${PROJECT}/development/sakila_next.sql`]);
             expect(recorded.revealed).toEqual([PROJECT]);
+        });
+
+    it("leaves the Explorer alone for a project outside the workspace",
+        async () => {
+            const recorded = setUp();
+            // The project is created in /work, which is no workspace folder.
+            setWorkspaceFolders([{ name: "other", uri: Uri.file("/other") }]);
+            await run(MSM_COMMANDS.create, folder("/work"));
+            const load = await loaded();
+
+            await receive({ type: "submit", values: {
+                ...(load.values as IMsmCreateValues), schemaName: "sakila",
+                copyrightHolder: "Ada",
+            } });
+
+            expect(panel().disposed).toBe(true);
+            expect(shownDocuments).toHaveLength(1);
+            expect(recorded.revealed).toEqual([]);
         });
 
     it("is one General Action, with a row per call under it", async () => {
@@ -439,7 +464,7 @@ describe("New MSM Project", () => {
             expect(row.children?.[0].message).toBe("Creating the project "
                 + "folder failed: The project folder already exists.");
             expect(row.children?.[0].statement).toMatch(
-                /^msm\.create_project\(schema_name='sakila', target_path='\/work'/u);
+                /^msm\.create_project\(schema_name=sakila, target_path=\/work/u);
             expect(recorded.shownActions).toEqual([GENERAL_ACTIONS]);
             expect(posted().at(-1)).toEqual({ type: "busy", busy: false });
         });
@@ -576,15 +601,18 @@ describe("MSM Project Information", () => {
     });
 
     it("goes on to another dialog on the same project, in its place", async () => {
-        setUp();
+        const recorded = setUp();
         await run(MSM_COMMANDS.info, folder(PROJECT));
         await loaded();
         const first = panel();
+        const reads = recorded.calls.length;
 
         await receive({ type: "open", what: "release" });
 
         expect(first.disposed).toBe(true);
         expect(panel().title).toBe("Prepare Release - sakila");
+        // On the project as read: not read again.
+        expect(recorded.calls).toHaveLength(reads);
     });
 });
 
@@ -655,7 +683,8 @@ describe("Prepare Release", () => {
         expect(lastAction(recorded).row.message)
             .toBe("Preparing release 1.0.1 of sakila failed");
         expect(lastAction(recorded).row.children?.[0].statement)
-            .toBe("msm.prepare_release(version='1.0.1', next_version='1.0.2')");
+            .toBe(`msm.prepare_release(schema_project_path=${PROJECT}, `
+            + "version=1.0.1, next_version=1.0.2)");
         expect(recorded.shownActions).toEqual([GENERAL_ACTIONS]);
         expect(recorded.logs.join("\n")).toMatch(/Prepare Release - sakila failed/u);
     });
@@ -752,7 +781,7 @@ describe("Deploy Schema", () => {
             expect(row.summary).toBe("Schema sakila deployed in version 1.0.0.");
             expect(row.children?.map((child) => { return child.statement; }))
                 .toEqual([
-                    `db.connect(connection='${SERVER}')`,
+                    `db.connect(${SERVER})`,
                     "Schema sakila deployed in version 1.0.0.",
                 ]);
         });
@@ -790,7 +819,8 @@ describe("Deploy Schema", () => {
         expect(connection).toBe(SERVER);
         expect(row.kind).toBe("error");
         expect(row.children?.[1].statement).toBe(
-            "msm.deploy_schema(version='0.9.0', backup=true)");
+            `msm.deploy_schema(schema_project_path=${PROJECT}, `
+            + "version=0.9.0, backup=true)");
     });
 
     it("refuses to deploy before a connection is chosen", async () => {

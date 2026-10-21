@@ -191,7 +191,7 @@ export const UtilDialog = (): preact.JSX.Element => {
                     );
                 })}
                 {boxes.length === 0 ? null : (
-                    <div class="group util-flags">
+                    <div class="group flags">
                         {boxes.map((option) => {
                             return (
                                 <label
@@ -211,7 +211,7 @@ export const UtilDialog = (): preact.JSX.Element => {
                                     />
                                     <span>{option.label}</span>
                                     {problem?.field === option.name ? (
-                                        <span class="field-hint util-problem">
+                                        <span class="field-hint field-problem">
                                             {problem.message}
                                         </span>
                                     ) : null}
@@ -241,7 +241,7 @@ export const UtilDialog = (): preact.JSX.Element => {
                         caption={spec.path.label}
                         hint={hintOf("path", spec.path.hint)}
                     >
-                        <div class="row">
+                        <div class="row path-row">
                             <input
                                 type="text"
                                 name="path"
