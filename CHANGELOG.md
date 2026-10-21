@@ -6,7 +6,20 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [26.10.1] - 2026-10-21
+
 ### Added
+
+- **MariaDB Schema Management in the Explorer.** A **MariaDB Schema
+  Management** submenu on Explorer folders: **New MSM Project...** on a
+  folder, and on a `*.msm.project` folder **Show MSM Project
+  Information...**, **Prepare MSM Release...**, **Generate MSM Deployment
+  Script...** and **Deploy MSM Schema...**, each a dialog that checks what
+  it is given beside its fields. Deploy Schema runs a deployment script on
+  a configured connection, backing the schema up first if asked. Every
+  operation - reading a project included - is a row of the MariaDB
+  panel's Actions tab, with a row per call under it. The commands are in
+  the Command Palette too.
 
 - **SQL language server.** SQL files get diagnostics, completion, hover,
   go to definition, references, rename, signature help, the outline and
@@ -34,11 +47,11 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   - Problems with a directive are marked: a missing file, a bad slice, a nested `SOURCE` that msm does not expand.
   - A section file opened on its own takes the schema, `sql_mode` and delimiter of an open script that includes it.
 
-  Running such a script still sends the `SOURCE` lines as they are, until MariaDB Shell's `db.execute_sql_script` expands them.
+  Running such a script expands its `SOURCE` lines, as MariaDB Shell's `db.execute_sql_script` does from 26.10.3.
 
-- **GitHub Copilot support.** The MariaDB agent skills of an
+- **GitHub Copilot support.** The 85 MariaDB agent skills of the
   [ai-plugins](https://github.com/mariadb-corporation/ai-plugins) release
-  are contributed to Copilot (`contributes.chatSkills`), and the MariaDB
+  v26.10.5 are contributed to Copilot (`contributes.chatSkills`), and the MariaDB
   Shell's MCP server is offered to it as the **MariaDB** server
   (`contributes.mcpServerDefinitionProviders`), started in agent mode -
   without `--gui` - and installing the shell first if there is none. The
@@ -46,7 +59,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   the release (`aiPlugins.release`); `npm run build` fetches its skills
   into the uncommitted `skills/` first (`npm run sync:skills`).
 
-- Startup check for a MariaDB Shell of at least version 26.9.2, looking at
+- Startup check for a MariaDB Shell of at least version 26.10.3, looking at
   the `PATH` first and at the local installation directory second, and
   running the official installer when neither has one. The download and
   extraction are reported in a progress notification.
@@ -98,13 +111,17 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Changed
 
+- **Requires MariaDB Shell 26.10.3** (was 26.10.2), the first release
+  with the MariaDB REST Service module the REST Service tree uses, and the
+  one the extension installs where there is none.
+
 - The `LICENSE` file is updated to include the licenses of the latest
   third-party components.
 - **The MCP server's REST groups are renamed.** The REST Service tree and
   dialogs call the REST Service tools as `rest.*` (were `mrs.*`), and the
   REST Daemon features call the daemon tools as `restd.*` (were `rest.*`),
-  as mariadb-shell-plugins#57 renames them. Needs a MariaDB Shell with
-  that change.
+  as mariadb-shell-plugins#57 renames them, which MariaDB Shell 26.10.3
+  carries.
 - The SQL splitter is now a port of the MySQL Shell's
   `determineStatementRanges`: an offset-based scanner that runs at about
   120 MB/s instead of accumulating each statement's text as it goes. It
@@ -139,13 +156,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   toolbar button toggles it for one file, starting from the setting and
   leaving it alone.
 
-### Changed
-
 - Statement rows now show their own execution time, measured by the
   server, rather than the run's total repeated on every line. The total
   is on the closing line.
-
-### Changed
 
 - The result view now uses the editor's UI font at the UI size
   throughout. The monospace editor font is kept for SQL alone: the
@@ -156,14 +169,14 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   different background. The marker and the message lead the row, with no
   rule between them.
 
+- The extension is now bundled with Vite and tested with Vitest.
+
 ### Fixed
 
 - The result grids came out with a white background in dark themes.
   Tabulator's stylesheet paints the table element behind the rows, and
   its placeholder text, sortable header hover and sort arrows, in fixed
   light colours; all of them now follow the editor's theme.
-
-### Fixed
 
 - A script whose first statement was preceded by a line comment had every
   result paired with the wrong statement, because the server counts such a
@@ -173,7 +186,3 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - An off-by-one carried over from the upstream scanner, where a word
   starting with `d` that is not DELIMITER reported its content as
   starting one character in (`delete from t` as `elete from t`).
-
-### Changed
-
-- The extension is now bundled with Vite and tested with Vitest.
