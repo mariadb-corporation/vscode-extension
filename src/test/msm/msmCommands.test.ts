@@ -50,6 +50,7 @@ import {
     shownDocuments,
     Uri,
     webviewPanels,
+    workspace,
     type MockWebviewPanel,
 } from "../mocks/vscode.js";
 
@@ -73,6 +74,9 @@ interface IRecorded {
     /** Every row put up, by the connection it is filed under. */
     rows: Array<{ connection: string; row: IActionRow }>;
     connected: string[];
+    /** The sessions connected and disconnected, `<uri> <session>` each. */
+    sessions: string[];
+    disconnected: string[];
     shownActions: string[];
     refreshed: string[];
     logs: string[];
@@ -92,7 +96,8 @@ interface ISetUp {
 
 const setUp = (options: ISetUp = {}): IRecorded => {
     const recorded: IRecorded = {
-        calls: [], rows: [], connected: [], shownActions: [], refreshed: [],
+        calls: [], rows: [], connected: [], sessions: [], disconnected: [],
+        shownActions: [], refreshed: [],
         logs: [], revealed: [],
     };
     const answer = <T>(name: keyof IMsmApi, value: T) => {
@@ -129,10 +134,16 @@ const setUp = (options: ISetUp = {}): IRecorded => {
     new MsmCommands({
         extensionUri: Uri.file("/ext") as never,
         msmApi: () => { return Promise.resolve(api); },
-        connect: (uri) => {
+        connect: (uri, session) => {
             recorded.connected.push(uri);
+            recorded.sessions.push(`${uri} ${session}`);
 
             return Promise.resolve(`id-of-${uri}`);
+        },
+        disconnect: (uri, session) => {
+            recorded.disconnected.push(`${uri} ${session}`);
+
+            return Promise.resolve();
         },
         connectionUris: () => {
             return Promise.resolve(options.connections ?? [SERVER]);
@@ -226,7 +237,8 @@ describe("msmCall", () => {
             .toBe("db.connect(mariadb://a)");
         expect(msmCall("t", {})).toBe("t()");
         // The connection's id is a UUID: the action names the connection.
-        expect(msmCall("msm.deploy_schema", { connection_id: "c1", version: "1" }))
+        expect(msmCall("msm.deploy_schema",
+            { connection_id: "c1", version: "1" }))
             .toBe("msm.deploy_schema(version=1)");
     });
 });
@@ -257,17 +269,18 @@ describe("projectContext", () => {
 describe("New MSM Project", () => {
     beforeEach(() => { resetVscodeMock(); });
 
-    it("opens a dialog on the folder right-clicked, with the licenses", async () => {
-        setUp();
-        await run(MSM_COMMANDS.create, folder("/work"));
+    it("opens a dialog on the folder right-clicked, with the licenses",
+        async () => {
+            setUp();
+            await run(MSM_COMMANDS.create, folder("/work"));
 
-        expect(panel().viewType).toBe(MSM_DIALOG_VIEW_TYPE);
-        expect(panel().title).toBe("New MSM Project");
-        const load = await loaded();
-        expect(load.kind).toBe("create");
-        expect((load.values as IMsmCreateValues).targetPath).toBe("/work");
-        expect(load.licenses).toEqual(["None", "BSD", "GPL-2.0", "MIT"]);
-    });
+            expect(panel().viewType).toBe(MSM_DIALOG_VIEW_TYPE);
+            expect(panel().title).toBe("New MSM Project");
+            const load = await loaded();
+            expect(load.kind).toBe("create");
+            expect((load.values as IMsmCreateValues).targetPath).toBe("/work");
+            expect(load.licenses).toEqual(["None", "BSD", "GPL-2.0", "MIT"]);
+        });
 
     it("starts in the workspace folder from the palette", async () => {
         setUp();
@@ -345,6 +358,32 @@ describe("New MSM Project", () => {
             .toBe("Creating MSM project for schema sakila…");
     });
 
+    it("says on its own that the new script cannot be opened, the project made",
+        async () => {
+            const recorded = setUp();
+            const open = workspace.openTextDocument;
+            workspace.openTextDocument = () => {
+                return Promise.reject(new Error("EACCES: permission denied"));
+            };
+            try {
+                await run(MSM_COMMANDS.create, folder("/work"));
+                const load = await loaded();
+                await receive({ type: "submit", values: {
+                    ...(load.values as IMsmCreateValues), schemaName: "sakila",
+                    copyrightHolder: "Ada",
+                } });
+            } finally {
+                workspace.openTextDocument = open;
+            }
+
+            // Done: the dialog closed, the action is done, not failed.
+            expect(panel().disposed).toBe(true);
+            expect(errorsPosted()).toEqual([]);
+            expect(lastAction(recorded).row.kind).toBe("info");
+            expect(recorded.shownActions).toEqual([]);
+            expect(errorMessages.join("\n")).toMatch(/permission denied/u);
+        });
+
     it("keeps the dialog open on a problem in a field, calling nothing",
         async () => {
             const recorded = setUp();
@@ -364,27 +403,28 @@ describe("New MSM Project", () => {
             expect(panel().disposed).toBe(false);
         });
 
-    it("refuses a folder that is not there, unless it is to be made", async () => {
-        const recorded = setUp();
-        await run(MSM_COMMANDS.create, folder("/nowhere"));
-        const load = await loaded();
-        const values = {
-            ...(load.values as IMsmCreateValues), schemaName: "sakila",
-            copyrightHolder: "Ada",
-        };
+    it("refuses a folder that is not there, unless it is to be made",
+        async () => {
+            const recorded = setUp();
+            await run(MSM_COMMANDS.create, folder("/nowhere"));
+            const load = await loaded();
+            const values = {
+                ...(load.values as IMsmCreateValues), schemaName: "sakila",
+                copyrightHolder: "Ada",
+            };
 
-        await receive({ type: "submit", values });
-        expect(posted()).toContainEqual(expect.objectContaining({
-            type: "error", field: "targetPath",
-        }));
-        expect(recorded.calls).toEqual([]);
+            await receive({ type: "submit", values });
+            expect(posted()).toContainEqual(expect.objectContaining({
+                type: "error", field: "targetPath",
+            }));
+            expect(recorded.calls).toEqual([]);
 
-        await receive({ type: "submit",
-            values: { ...values, createTargetPath: true } });
-        expect(recorded.calls[0].args[0]).toMatchObject({
-            targetPath: "/nowhere", enforceTargetPath: true,
+            await receive({ type: "submit",
+                values: { ...values, createTargetPath: true } });
+            expect(recorded.calls[0].args[0]).toMatchObject({
+                targetPath: "/nowhere", enforceTargetPath: true,
+            });
         });
-    });
 
     it("refuses to replace a project unless told to", async () => {
         const recorded = setUp({ existing: ["/work", PROJECT] });
@@ -420,6 +460,7 @@ describe("New MSM Project", () => {
                 return Promise.reject(new Error("not called"));
             },
             connect: () => { return Promise.resolve(""); },
+            disconnect: () => { return Promise.resolve(); },
             connectionUris: () => { return Promise.resolve([]); },
             defaultConnection: () => { return undefined; },
             defaultFolder: () => { return work; },
@@ -600,20 +641,21 @@ describe("MSM Project Information", () => {
         })).toEqual([`${PROJECT}/development/sakila_next.sql`]);
     });
 
-    it("goes on to another dialog on the same project, in its place", async () => {
-        const recorded = setUp();
-        await run(MSM_COMMANDS.info, folder(PROJECT));
-        await loaded();
-        const first = panel();
-        const reads = recorded.calls.length;
+    it("goes on to another dialog on the same project, in its place",
+        async () => {
+            const recorded = setUp();
+            await run(MSM_COMMANDS.info, folder(PROJECT));
+            await loaded();
+            const first = panel();
+            const reads = recorded.calls.length;
 
-        await receive({ type: "open", what: "release" });
+            await receive({ type: "open", what: "release" });
 
-        expect(first.disposed).toBe(true);
-        expect(panel().title).toBe("Prepare Release - sakila");
-        // On the project as read: not read again.
-        expect(recorded.calls).toHaveLength(reads);
-    });
+            expect(first.disposed).toBe(true);
+            expect(panel().title).toBe("Prepare Release - sakila");
+            // On the project as read: not read again.
+            expect(recorded.calls).toHaveLength(reads);
+        });
 });
 
 describe("Prepare Release", () => {
@@ -686,7 +728,8 @@ describe("Prepare Release", () => {
             .toBe(`msm.prepare_release(schema_project_path=${PROJECT}, `
             + "version=1.0.1, next_version=1.0.2)");
         expect(recorded.shownActions).toEqual([GENERAL_ACTIONS]);
-        expect(recorded.logs.join("\n")).toMatch(/Prepare Release - sakila failed/u);
+        expect(recorded.logs.join("\n"))
+            .toMatch(/Prepare Release - sakila failed/u);
     });
 });
 
@@ -697,7 +740,8 @@ describe("Generate Deployment Script", () => {
         const recorded = setUp();
         await run(MSM_COMMANDS.deploymentScript, folder(PROJECT));
         const load = await loaded();
-        expect(load.values).toEqual({ version: "1.0.0", overwriteExisting: false });
+        expect(load.values)
+            .toEqual({ version: "1.0.0", overwriteExisting: false });
 
         await receive({ type: "submit", values: load.values });
 
@@ -708,7 +752,8 @@ describe("Generate Deployment Script", () => {
         });
         expect(shownDocuments.map((document) => {
             return document.uri.fsPath;
-        })).toEqual([`${PROJECT}/releases/deployment/sakila_deployment_1.0.0.sql`]);
+        })).toEqual(
+            [`${PROJECT}/releases/deployment/sakila_deployment_1.0.0.sql`]);
         const { row } = lastAction(recorded);
         expect(row.message)
             .toBe("Generated the deployment script for sakila 1.0.0");
@@ -765,6 +810,11 @@ describe("Deploy Schema", () => {
             } });
 
             expect(recorded.connected).toEqual([SERVER]);
+            // A session of its own, not the tree's, closed once done.
+            expect(recorded.sessions).toEqual([
+                expect.stringMatching(/ MSM Deploy \d+$/u) as unknown as string,
+            ]);
+            expect(recorded.disconnected).toEqual(recorded.sessions);
             expect(recorded.calls.at(-1)).toEqual({
                 name: "deploySchema",
                 args: [{
@@ -813,6 +863,8 @@ describe("Deploy Schema", () => {
         await receive({ type: "submit", values: load.values });
 
         expect(errorsPosted()).toEqual(["Access denied for user 'root'"]);
+        // Closed however the deploy went.
+        expect(recorded.disconnected).toEqual(recorded.sessions);
         expect(recorded.shownActions).toEqual([SERVER]);
         expect(recorded.refreshed).toEqual([]);
         const { connection, row } = lastAction(recorded);

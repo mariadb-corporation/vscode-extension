@@ -167,86 +167,87 @@ export const deploySandboxWithRest = async (
     const steps = async (): Promise<boolean> => {
         // Every call is a step, so whatever fails has its row.
         try {
-            const uri = sandboxConnectionUri(port);
-            const connectionId = await group.step({
-                doing: `Connecting to Sandbox on port ${port}`,
-                done: `Connected to Sandbox on port ${port}`,
-            }, `db.connect('${uri}')`, () => { return host.connect(uri); });
-            const setup = await group.step({
-                doing: rest.restdPort === undefined
-                    ? "Setting up REST Daemon"
-                    : `Setting up REST Daemon on port ${String(rest.restdPort)}`,
-                done: "Set up REST Daemon",
-            }, `restd.configure_restd(sandbox_port=${port}`
-                + (rest.restdPort === undefined
-                    ? "" : `, port=${String(rest.restdPort)}`)
-                + ")", async () => {
-                return (await host.restdApi()).configure({
-                    connectionId,
-                    password: options.password,
-                    sandboxPort: options.port,
-                    ...(rest.restdPort === undefined
-                        ? {} : { port: rest.restdPort }),
+            await group.run(async () => {
+                const uri = sandboxConnectionUri(port);
+                const connectionId = await group.step({
+                    doing: `Connecting to Sandbox on port ${port}`,
+                    done: `Connected to Sandbox on port ${port}`,
+                }, `db.connect('${uri}')`, () => { return host.connect(uri); });
+                const setup = await group.step({
+                    doing: rest.restdPort === undefined
+                        ? "Setting up REST Daemon"
+                        : "Setting up REST Daemon on port "
+                            + String(rest.restdPort),
+                    done: "Set up REST Daemon",
+                }, `restd.configure_restd(sandbox_port=${port}`
+                    + (rest.restdPort === undefined
+                        ? "" : `, port=${String(rest.restdPort)}`)
+                    + ")", async () => {
+                    return (await host.restdApi()).configure({
+                        connectionId,
+                        password: options.password,
+                        sandboxPort: options.port,
+                        ...(rest.restdPort === undefined
+                            ? {} : { port: rest.restdPort }),
+                    });
+                }, {
+                    detail: setupDetail,
+                    logOf: async (error) => {
+                        return host.writeLog(`restd-setup-${port}`,
+                            errorText(error));
+                    },
                 });
-            }, {
-                detail: setupDetail,
-                logOf: async (error) => {
-                    return host.writeLog(`restd-setup-${port}`,
-                        errorText(error));
-                },
-            });
 
-            const [authApp, user] = defaultAuthAppStatements(rest.userName,
-                rest.password);
-            const api = await group.step({
-                doing: `Creating REST Auth App '${DEFAULT_AUTH_APP}'`,
-                done: `Created REST Auth App '${DEFAULT_AUTH_APP}'`,
-            }, authApp!, async () => {
-                const sql = await host.api();
-                await runSql(sql, connectionId, authApp!);
+                const [authApp, user] = defaultAuthAppStatements(rest.userName,
+                    rest.password);
+                const api = await group.step({
+                    doing: `Creating REST Auth App '${DEFAULT_AUTH_APP}'`,
+                    done: `Created REST Auth App '${DEFAULT_AUTH_APP}'`,
+                }, authApp!, async () => {
+                    const sql = await host.api();
+                    await runSql(sql, connectionId, authApp!);
 
-                return sql;
-            });
-            await group.step({
-                doing: `Creating REST User '${rest.userName}'`,
-                done: `Created REST User '${rest.userName}'`,
-            }, `CREATE REST USER '${rest.userName}'@'${DEFAULT_AUTH_APP}' `
-                + "IDENTIFIED BY '***'", () => {
-                return runSql(api, connectionId, user!);
-            });
+                    return sql;
+                });
+                await group.step({
+                    doing: `Creating REST User '${rest.userName}'`,
+                    done: `Created REST User '${rest.userName}'`,
+                }, `CREATE REST USER '${rest.userName}'@'${DEFAULT_AUTH_APP}' `
+                    + "IDENTIFIED BY '***'", () => {
+                    return runSql(api, connectionId, user!);
+                });
 
-            const service = serviceStatements({
-                ...serviceDefaults(undefined, [], [DEFAULT_AUTH_APP]),
-                path: rest.servicePath,
-                // Published, so the REST Daemon serves it to everyone
-                // rather than to its developers only.
-                published: true,
-                makeCurrent: false,
-                authApps: [DEFAULT_AUTH_APP],
-            }, { allAuthApps: [DEFAULT_AUTH_APP], linkedAuthApps: [] });
-            await group.step({
-                doing: `Creating REST Service '${rest.servicePath}'`,
-                done: `Created REST Service '${rest.servicePath}'`,
-            }, service[0]!, async () => {
-                for (const sql of service) {
-                    await runSql(api, connectionId, sql);
+                const service = serviceStatements({
+                    ...serviceDefaults(undefined, [], [DEFAULT_AUTH_APP]),
+                    path: rest.servicePath,
+                    // Published, so the REST Daemon serves it to everyone
+                    // rather than to its developers only.
+                    published: true,
+                    makeCurrent: false,
+                    authApps: [DEFAULT_AUTH_APP],
+                }, { allAuthApps: [DEFAULT_AUTH_APP], linkedAuthApps: [] });
+                await group.step({
+                    doing: `Creating REST Service '${rest.servicePath}'`,
+                    done: `Created REST Service '${rest.servicePath}'`,
+                }, service[0]!, async () => {
+                    for (const sql of service) {
+                        await runSql(api, connectionId, sql);
+                    }
+                });
+
+                // Last: a dialog the user cancels leaves everything else done.
+                if (rest.trustCertificate) {
+                    await trustCertificateStep(group, () => {
+                        return host.restdApi();
+                    });
                 }
-            });
 
-            // Last: a dialog the user cancels leaves everything else done.
-            if (rest.trustCertificate) {
-                await trustCertificateStep(group, () => {
-                    return host.restdApi();
-                });
-            }
-
-            group.finish(`${setup.url}${rest.servicePath}`);
+                return `${setup.url}${rest.servicePath}`;
+            }, (summary) => { return summary; });
 
             return true;
         } catch {
-            // The step's row says what failed.
-            group.finish();
-
+            // The action's rows say what failed.
             return false;
         }
     };

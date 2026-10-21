@@ -18,7 +18,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-    compareVersions,
     createDefaults,
     createProblem,
     deployDefaults,
@@ -27,7 +26,6 @@ import {
     deployProblem,
     isProjectFolder,
     msmProblem,
-    newestFirst,
     nextPatchVersion,
     parseVersion,
     projectFolderName,
@@ -46,7 +44,8 @@ const PROJECT: IMsmProjectContext = {
     lastReleasedVersion: "1.0.0",
     releasedVersions: ["0.9.0", "1.0.0"],
     deploymentScriptVersions: ["0.9.0"],
-    schemaDevelopmentFilePath: "/work/sakila.msm.project/development/sakila_next.sql",
+    schemaDevelopmentFilePath:
+        "/work/sakila.msm.project/development/sakila_next.sql",
 };
 
 const NEW: IMsmProjectContext = {
@@ -71,20 +70,6 @@ describe("versions", () => {
         for (const bad of ["1.2", "1.2.3.4", "v1.2.3", "1.2.x", "", "1..3"]) {
             expect(parseVersion(bad)).toBeUndefined();
         }
-    });
-
-    it("compares by number, not by text", () => {
-        expect(compareVersions("1.10.0", "1.9.0")).toBeGreaterThan(0);
-        expect(compareVersions("1.0.0", "1.0.0")).toBe(0);
-        expect(compareVersions("0.9.9", "1.0.0")).toBeLessThan(0);
-        expect(compareVersions("2.0.0", "1.99.99")).toBeGreaterThan(0);
-    });
-
-    it("sorts newest first, without changing what it was given", () => {
-        const given = ["1.0.0", "1.10.0", "1.9.0"];
-
-        expect(newestFirst(given)).toEqual(["1.10.0", "1.9.0", "1.0.0"]);
-        expect(given).toEqual(["1.0.0", "1.10.0", "1.9.0"]);
     });
 
     it("counts the patch up for the next version", () => {

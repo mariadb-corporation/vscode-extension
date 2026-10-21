@@ -66,7 +66,7 @@ export class ActionGroup {
     readonly #id: string;
     readonly #when = new Date();
     readonly #steps: IStep[] = [];
-    #finished?: { summary?: string };
+    #finished?: { summary?: string; error?: string };
 
     /**
      * @param put Where the rows go up.
@@ -150,7 +150,12 @@ export class ActionGroup {
 
             return value;
         } catch (error) {
-            this.finish();
+            // A failure outside any step - getting at the server, say -
+            // fails the whole too, rather than leaving it to read as done.
+            this.#finished = this.#steps.some((step) => {
+                return step.error !== undefined;
+            }) ? {} : { error: errorText(error) };
+            this.#show();
             throw error;
         }
     }
@@ -201,6 +206,8 @@ export class ActionGroup {
         const errors = this.#steps.filter((step) => {
             return step.error !== undefined;
         }).length;
+        const ownError = this.#finished?.error;
+        const failed = failedStep !== undefined || ownError !== undefined;
 
         this.put(this.connection, {
             ...base,
@@ -210,17 +217,20 @@ export class ActionGroup {
             statement: "",
             message: pending
                 ? `${this.words.doing}…`
-                : failedStep === undefined
+                : !failed
                     ? this.words.done
-                    : `${this.words.doing} failed`,
-            kind: pending ? "pending"
-                : failedStep === undefined ? "info" : "error",
+                    : ownError === undefined
+                        ? `${this.words.doing} failed`
+                        : `${this.words.doing} failed: ${ownError}`,
+            kind: pending ? "pending" : failed ? "error" : "info",
             children,
             ...(pending ? {} : {
-                summary: failedStep === undefined
+                summary: !failed
                     ? this.#finished?.summary ?? ""
-                    : `Finished with ${String(errors)} `
-                    + (errors === 1 ? "error" : "errors"),
+                    : failedStep === undefined
+                        ? "Failed"
+                        : `Finished with ${String(errors)} `
+                        + (errors === 1 ? "error" : "errors"),
                 elapsedMs: Date.now() - this.#when.getTime(),
             }),
             ...(failedStep === undefined

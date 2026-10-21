@@ -156,7 +156,6 @@ export const parseVersion = (
         : [Number(match[1]), Number(match[2]), Number(match[3])];
 };
 
-export { compareVersions, newestFirst };
 
 /**
  * @param version "1.2.3".

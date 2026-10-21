@@ -230,7 +230,8 @@ export class MrsDialogPanel
         }, {
             message: (text) => { return { type: "saveError", message: text }; },
             log: (text) => {
-                this.#host.log(`Failed to save the ${this.#spec.title}: ${text}`);
+                this.#host.log(
+                    `Failed to save the ${this.#spec.title}: ${text}`);
             },
             onFailed: () => { this.#host.onFailed(); },
         });

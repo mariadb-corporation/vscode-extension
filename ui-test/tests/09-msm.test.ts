@@ -108,10 +108,11 @@ describe("MariaDB Schema Management", () => {
         mkdirSync(join(WORKSPACE, FOLDER), { recursive: true });
     });
 
-    it("offers only New MSM Project on a folder that is no project", async () => {
-        assert.deepEqual(await explorerSubmenuEntries([FOLDER], SUBMENU),
-            FOLDER_ENTRIES);
-    });
+    it("offers only New MSM Project on a folder that is no project",
+        async () => {
+            assert.deepEqual(await explorerSubmenuEntries([FOLDER], SUBMENU),
+                FOLDER_ENTRIES);
+        });
 
     it("creates a project with the New MSM Project dialog", async () => {
         await openExplorerDialog([FOLDER], [SUBMENU, "New MSM Project..."],

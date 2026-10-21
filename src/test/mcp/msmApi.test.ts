@@ -149,7 +149,7 @@ describe("MsmApi", () => {
         });
     });
 
-    it("reads released versions from the structured result, not the flattened text",
+    it("reads released versions from the structured result, not the text",
         async () => {
             const caller = createCaller({
                 "msm.get_released_versions": versions([1, 0, 0], [1, 10, 2]),
@@ -253,7 +253,8 @@ describe("MsmApi", () => {
     });
 
     it("generates a deployment script and answers with its path", async () => {
-        const script = `${PROJECT}/releases/deployment/sakila_deployment_1.0.0.sql`;
+        const script =
+            `${PROJECT}/releases/deployment/sakila_deployment_1.0.0.sql`;
         const caller = createCaller({
             "msm.generate_deployment_script": scalar(script),
         });

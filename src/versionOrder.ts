@@ -22,13 +22,15 @@
  */
 
 /**
- * @param version `major.minor.patch`, a leading `v` allowed.
+ * @param version `major.minor.patch`, a leading `v` allowed, and a
+ *                build after a dash: `26.10.0-1` is newer than `26.10.0`.
  *
- * @returns Its numbers; a part that is not one counts as 0.
+ * @returns Its numbers, each part's leading digits; a part without any
+ *          counts as 0.
  */
 const versionNumbers = (version: string): number[] => {
-    return version.trim().replace(/^v/, "").split(".").map((part) => {
-        return Number(part) || 0;
+    return version.trim().replace(/^v/, "").split(/[.-]/).map((part) => {
+        return Number.parseInt(part, 10) || 0;
     });
 };
 

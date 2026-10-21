@@ -89,7 +89,8 @@ export class UtilDialogPanel
         host: IUtilDialogHost,
     ): void {
         UtilDialogPanel.disposeCurrent();
-        UtilDialogPanel.#current = new UtilDialogPanel(extensionUri, spec, host);
+        UtilDialogPanel.#current =
+            new UtilDialogPanel(extensionUri, spec, host);
     }
 
     public static disposeCurrent(): void {

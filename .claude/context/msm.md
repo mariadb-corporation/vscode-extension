@@ -41,7 +41,15 @@ first four with input boxes one after another; Deploy is new.
   and, once done, what it came to; `ActionGroup.run` ends the whole as its
   steps went. Reading a project is "Read MSM project <folder>" with three
   steps (information, released versions, deployment scripts). File work is filed under General Actions;
-  a deploy under its connection, with `db.connect` as its first step. A
+  a deploy under its connection, with `db.connect` as its first step.
+- **A deploy runs on a session of its own** (`MSM Deploy <n>`, numbered as
+  deploys may overlap), closed once it is done however it went, never on
+  the tree's `UI Backend`: a deployment script can run for half an hour,
+  a backup dump first, and changes the session's schema, which the
+  Connections view and completion would otherwise wait behind and see.
+- **What the work wrote is shown once its dialog closed** (`#afterwards`):
+  a file that cannot be opened is a notification of its own, not the work
+  failing - the work was done, and doing it again would be refused. A
   failure ends the group failed, brings the panel up on it
   (`showActions`), and is shown in the dialog.
 - **Lists of versions come from `structuredContent`**: the version tools
@@ -94,7 +102,7 @@ first four with input boxes one after another; Deploy is new.
   table in the Connections view; backup unticked, as a new schema has
   nothing to dump), and an unreadable project reported (its
   `msm.project.json` moved aside, then back). The
-  suite's VS Code opens `files/workspace` (`WORKSPACE_SUITES` in
+  suite's VS Code opens `files/workspace` (`WORKSPACE_FILES` in
   `ui-test/run.ts`, passed as `--open_resource`; opening a folder later
   would reload the window); the Explorer helpers are `explorerItem`,
   `explorerSubmenuEntries`, `explorerMenuAction`, `openExplorerDialog`.

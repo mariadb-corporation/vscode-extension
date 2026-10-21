@@ -38,13 +38,13 @@ import {
 } from "../mcp/msmApi.js";
 import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
 import { counted } from "../text.js";
+import { newestFirst } from "../versionOrder.js";
 import {
     createDefaults,
     deployDefaults,
     deploymentScriptDefaults,
     isProjectFolder,
     MSM_TITLES,
-    newestFirst,
     projectFolderName,
     releaseDefaults,
     type IMsmCreateValues,
@@ -66,8 +66,13 @@ import {
 export interface IMsmCommandsHost {
     extensionUri: vscode.Uri;
     msmApi(): Promise<IMsmApi>;
-    /** Opens the extension's connection to a URI; its connection id. */
-    connect(uri: string): Promise<string>;
+    /**
+     * Opens a session of the extension's on a URI, by its name; its
+     * connection id.
+     */
+    connect(uri: string, session: string): Promise<string>;
+    /** Closes a session `connect` opened. */
+    disconnect(uri: string, session: string): Promise<void>;
     /** The configured connections, which a schema can be deployed onto. */
     connectionUris(): Promise<string[]>;
     /** The default connection, which Deploy Schema starts on. */
@@ -83,6 +88,17 @@ export interface IMsmCommandsHost {
     exists?(path: string): Promise<boolean>;
     log(message: string): void;
 }
+
+/**
+ * What a deploy's own session is called, numbered per deploy. Not the
+ * tree's: a deployment script can run for half an hour, a backup dump
+ * first, and changes the session's schema, which the Connections view and
+ * completion would otherwise wait behind and see.
+ */
+export const MSM_DEPLOY_SESSION = "MSM Deploy";
+
+/** Makes the deploys' sessions' names unique, as deploys may overlap. */
+let deploys = 0;
 
 /** The dialogs on a project: all but New MSM Project. */
 type ProjectDialogKind = Exclude<MsmDialogKind, "create">;
@@ -275,7 +291,9 @@ export class MsmCommands {
 
             case "release": {
                 show({ kind, values: releaseDefaults(project) }, {
-                    submit: (values) => { return this.#release(project, values); },
+                    submit: (values) => {
+                        return this.#release(project, values);
+                    },
                 });
                 break;
             }
@@ -299,7 +317,9 @@ export class MsmCommands {
                     values: deployDefaults(project, connections,
                         this.host.defaultConnection()),
                 }, {
-                    submit: (values) => { return this.#deploy(project, values); },
+                    submit: (values) => {
+                        return this.#deploy(project, values);
+                    },
                     // An action of the connection deployed onto.
                     onFailed: (values) => {
                         this.host.showActions(values.connection);
@@ -349,7 +369,8 @@ export class MsmCommands {
                     group.step({
                         doing: "Listing the deployment scripts",
                         done: "Listed the deployment scripts",
-                    }, msmCall("msm.get_deployment_script_versions", at), () => {
+                    }, msmCall("msm.get_deployment_script_versions", at),
+                    () => {
                         return api.deploymentScriptVersions(projectPath);
                     }, { detail: versionsDetail("deployment script") }),
                 ]);
@@ -435,14 +456,18 @@ export class MsmCommands {
                 msmToolArgs.project(created)), () => {
                 return api.projectInformation(created);
             }, {
-                detail: (project) => { return project.schemaDevelopmentFilePath; },
+                detail: (project) => {
+                    return project.schemaDevelopmentFilePath;
+                },
             });
 
             return { projectPath: created, info: read };
         }, (done) => { return done.projectPath; });
 
-        await this.#showFile(info.schemaDevelopmentFilePath);
-        await this.#reveal(projectPath);
+        this.#afterwards(async () => {
+            await this.#showFile(info.schemaDevelopmentFilePath);
+            await this.#reveal(projectPath);
+        });
     }
 
     /**
@@ -481,12 +506,15 @@ export class MsmCommands {
         }, () => { return `Development goes on with ${nextVersion}`; });
 
         // Opened side by side; shown in order, so the tabs keep it.
-        const documents = await Promise.all(files.map((file) => {
-            return vscode.workspace.openTextDocument(vscode.Uri.file(file));
-        }));
-        for (const document of documents) {
-            await vscode.window.showTextDocument(document, { preview: false });
-        }
+        this.#afterwards(async () => {
+            const documents = await Promise.all(files.map((file) => {
+                return vscode.workspace.openTextDocument(vscode.Uri.file(file));
+            }));
+            for (const document of documents) {
+                await vscode.window.showTextDocument(document,
+                    { preview: false });
+            }
+        });
     }
 
     /**
@@ -501,7 +529,9 @@ export class MsmCommands {
     ): Promise<void> {
         const what = `the deployment script for ${project.schemaName} `
             + values.version;
-        const words = { doing: `Generating ${what}`, done: `Generated ${what}` };
+        const words = {
+            doing: `Generating ${what}`, done: `Generated ${what}`,
+        };
         const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
         const options: IMsmDeploymentScriptOptions = {
             projectPath: project.projectPath,
@@ -516,7 +546,7 @@ export class MsmCommands {
             }, { detail: (path) => { return path; } });
         }, (path) => { return path; });
 
-        await this.#showFile(script);
+        this.#afterwards(() => { return this.#showFile(script); });
     }
 
     /**
@@ -542,12 +572,14 @@ export class MsmCommands {
             doing: `Deploying ${what}`,
             done: `Deployed ${what}`,
         });
+        deploys += 1;
+        const session = `${MSM_DEPLOY_SESSION} ${String(deploys)}`;
         await group.run(async () => {
             const connectionId = await group.step({
                 doing: `Connecting to ${server}`,
                 done: `Connected to ${server}`,
             }, msmCall("db.connect", { uri: values.connection }), () => {
-                return this.host.connect(values.connection);
+                return this.host.connect(values.connection, session);
             });
 
             const options: IMsmDeployOptions = {
@@ -557,15 +589,37 @@ export class MsmCommands {
                 ...(backupDirectory === undefined ? {} : { backupDirectory }),
             };
 
-            return group.step({
-                doing: `Deploying schema ${project.schemaName}`,
-                done: `Deployed schema ${project.schemaName}`,
-            }, msmCall("msm.deploy_schema", msmToolArgs.deploySchema(options)),
-            async () => {
-                return (await this.host.msmApi()).deploySchema(options);
-            }, { detail: (said) => { return said; } });
+            try {
+                return await group.step({
+                    doing: `Deploying schema ${project.schemaName}`,
+                    done: `Deployed schema ${project.schemaName}`,
+                }, msmCall("msm.deploy_schema",
+                    msmToolArgs.deploySchema(options)), async () => {
+                    return (await this.host.msmApi()).deploySchema(options);
+                }, { detail: (said) => { return said; } });
+            } finally {
+                // Its work done, whichever way: nothing else uses it.
+                await this.host.disconnect(values.connection, session)
+                    .catch((error: unknown) => {
+                        this.host.log(`Closing ${session} on ${server} `
+                            + `failed: ${String(error)}`);
+                    });
+            }
         }, (said) => { return said; });
         this.host.refresh(values.connection);
+    }
+
+    /**
+     * Shows what the work wrote, once it is done and its dialog closes: a
+     * file that cannot be opened is not the work failing - it was done, and
+     * doing it again would be refused - so it is said on its own.
+     *
+     * @param show What to show.
+     */
+    #afterwards(show: () => Promise<void>): void {
+        void show().catch((error: unknown) => {
+            reportError(this.host.log, error);
+        });
     }
 
     /**

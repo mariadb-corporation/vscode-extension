@@ -98,4 +98,17 @@ describe("ActionGroup", () => {
             summary: "Finished with 1 error", jumpToRowId: failed.id,
             logPath: "/logs/setup.log" });
     });
+    it("fails as a whole where run fails outside any step", async () => {
+        const rows = collect();
+        const group = new ActionGroup(rows.put, "General", WORDS);
+
+        await expect(group.run(() => {
+            return Promise.reject(new Error("The MCP server is not running."));
+        })).rejects.toThrow("not running");
+
+        expect(rows.last()).toMatchObject({ kind: "error", children: [],
+            message: "Creating Sandbox on port 3311 failed: The MCP server "
+                + "is not running.",
+            summary: "Failed" });
+    });
 });

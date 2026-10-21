@@ -105,6 +105,8 @@ import { reportMrsAction } from "./mrs/mrsActivity.js";
 import { MrsApi } from "./mrs/mrsApi.js";
 import { MrsCommands } from "./mrs/mrsCommands.js";
 import { MrsDialogPanel } from "./mrs/mrsDialogPanel.js";
+import { MsmDialogPanel } from "./msm/msmDialogPanel.js";
+import { UtilDialogPanel } from "./util/utilDialogPanel.js";
 import { MrsModel } from "./tree/mrsModel.js";
 import { sandboxConnectionUri } from "./sandboxes/sandboxFields.js";
 import {
@@ -776,8 +778,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const msmCommands = new MsmCommands({
         extensionUri: context.extensionUri,
         msmApi,
-        connect: (uri) => {
-            return connections.connect(uri, UI_BACKEND_SESSION);
+        connect: (uri, session) => {
+            return connections.connect(uri, session);
+        },
+        disconnect: (uri, session) => {
+            return connections.disconnect(uri, session);
         },
         connectionUris: async () => {
             return (await connections.listStoredConnections())
@@ -1547,6 +1552,8 @@ export const deactivate = async (): Promise<void> => {
     ConnectionEditorPanel.disposeCurrent();
     SandboxEditorPanel.disposeCurrent();
     MrsDialogPanel.disposeAll();
+    UtilDialogPanel.disposeCurrent();
+    MsmDialogPanel.disposeCurrent();
 
     await current.languageServer?.stop();
     await current.connections.disconnectAll();

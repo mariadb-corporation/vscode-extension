@@ -45,7 +45,8 @@ const PROJECT: IMsmProjectContext = {
     lastReleasedVersion: "1.0.0",
     releasedVersions: ["0.9.0", "1.0.0"],
     deploymentScriptVersions: ["0.9.0"],
-    schemaDevelopmentFilePath: "/work/sakila.msm.project/development/sakila_next.sql",
+    schemaDevelopmentFilePath:
+        "/work/sakila.msm.project/development/sakila_next.sql",
 };
 
 const CONNECTIONS: IMsmConnectionChoice[] = [
@@ -424,7 +425,8 @@ describe("Deploy Schema", () => {
 
         await click("Deploy");
         expect(submitted()).toEqual([]);
-        expect(host.textContent).toContain("Choose the connection to deploy onto.");
+        expect(host.textContent)
+            .toContain("Choose the connection to deploy onto.");
 
         await change("connection", "mariadb://root@b:3306");
         await click("Deploy");

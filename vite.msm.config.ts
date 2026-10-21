@@ -17,5 +17,8 @@
 
 import { dialogBuild } from "./vite.dialog.js";
 
-/** Builds the MariaDB Schema Management dialogs' Preact frontend. See `vite.dialog.ts`. */
+/**
+ * Builds the MariaDB Schema Management dialogs' Preact frontend. See
+ * `vite.dialog.ts`.
+ */
 export default dialogBuild("msm");

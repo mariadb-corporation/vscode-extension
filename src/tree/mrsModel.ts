@@ -29,6 +29,7 @@ import {
     type IMrsStatus,
     type IMrsUser,
 } from "../mrs/mrsTypes.js";
+import { compareVersions } from "../versionOrder.js";
 
 /**
  * The MariaDB REST Service part of the Connections view: one root per REST
@@ -168,30 +169,6 @@ const MRS_KINDS = new Set<string>([
  */
 export const isMrsNode = (node: { kind: string }): node is MrsNode => {
     return MRS_KINDS.has(node.kind);
-};
-
-/**
- * @param a A version, `26.10.0`.
- * @param b Another.
- *
- * @returns Negative, zero or positive as `a` is older, the same or newer.
- */
-export const compareVersions = (a: string, b: string): number => {
-    const parts = (version: string): number[] => {
-        return version.split(/[.-]/).map((part) => {
-            return Number.parseInt(part, 10) || 0;
-        });
-    };
-    const left = parts(a);
-    const right = parts(b);
-    for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-        const difference = (left[i] ?? 0) - (right[i] ?? 0);
-        if (difference !== 0) {
-            return difference;
-        }
-    }
-
-    return 0;
 };
 
 /** Whether a row is shown with private items hidden. */

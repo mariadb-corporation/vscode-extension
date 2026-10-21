@@ -250,7 +250,6 @@ export const suggestSandboxPort = (taken: readonly number[]): number => {
     return port;
 };
 
-export { newestFirst };
 
 /**
  * @param text The Server Version field, as typed.

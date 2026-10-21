@@ -19,7 +19,6 @@ import { useEffect, useState } from "preact/hooks";
 
 import {
     msmProblem,
-    newestFirst,
     nextPatchVersion,
     projectFolderName,
     type IMsmCreateValues,
@@ -36,6 +35,7 @@ import type {
     MsmHostMessage,
     MsmWebviewMessage,
 } from "../../src/msm/msmProtocol.js";
+import { newestFirst } from "../../src/versionOrder.js";
 import { Field, ProgressBar } from "./dialogParts.js";
 import { post } from "./vscodeApi.js";
 
@@ -138,7 +138,10 @@ export const MsmDialog = (): preact.JSX.Element => {
     const licenses = load.licenses ?? [];
     const connections = load.connections ?? [];
 
-    const problem = hostProblem ?? msmProblem(kind, project, values);
+    // What the fields themselves get wrong: only that holds the button
+    // back, as what the host said may be gone on a second try.
+    const fieldProblem = msmProblem(kind, project, values);
+    const problem = hostProblem ?? fieldProblem;
     // A problem with no field is the dialog's: shown at once, as there
     // is nothing to type that would mend it.
     const shownProblem = problem !== undefined && (problem.field === undefined
@@ -182,7 +185,7 @@ export const MsmDialog = (): preact.JSX.Element => {
 
     const submit = (): void => {
         setSubmitted(true);
-        if (problem !== undefined) {
+        if (fieldProblem !== undefined) {
             return;
         }
         post<MsmWebviewMessage>({ type: "submit", values });
@@ -220,7 +223,8 @@ export const MsmDialog = (): preact.JSX.Element => {
                     checked={field(name) === true}
                     disabled={busy}
                     onChange={(event) => {
-                        update(name, (event.target as HTMLInputElement).checked);
+                        update(name,
+                            (event.target as HTMLInputElement).checked);
                     }}
                 />
                 <span>{label}</span>
@@ -294,13 +298,15 @@ export const MsmDialog = (): preact.JSX.Element => {
                             }))}
                         </Field>
                         <Field caption="Copyright Holder" hint={hint(
-                            "copyrightHolder", "Your name, or your "
-                            + "company's: written into every script's header.")}>
+                            "copyrightHolder", "Your name, or your company's: "
+                            + "written into every script's header.")}>
                             {text("copyrightHolder")}
                         </Field>
                         <div class="wide">
-                            <Field caption="Create In" hint={hint("targetPath",
-                                "The folder the project folder is created in.")}>
+                            <Field caption="Create In" hint={hint(
+                                "targetPath",
+                                "The folder the project folder is created in.",
+                            )}>
                                 <div class="row path-row">
                                     {text("targetPath")}
                                     {browse("targetPath")}
@@ -311,9 +317,11 @@ export const MsmDialog = (): preact.JSX.Element => {
                             {box("createTargetPath", "Create the Folder",
                                 "Create the folder above where it does not "
                                 + "exist yet.")}
-                            {box("allowSpecialChars", "Allow Special Characters",
+                            {box("allowSpecialChars",
+                                "Allow Special Characters",
                                 "Allow a schema name that has to be quoted.")}
-                            {box("overwriteExisting", "Replace Existing Project",
+                            {box("overwriteExisting",
+                                "Replace Existing Project",
                                 "Delete a project folder of the same name "
                                 + "first.")}
                         </div>
@@ -522,9 +530,10 @@ export const MsmDialog = (): preact.JSX.Element => {
                         <button
                             type="button"
                             class="primary"
-                            disabled={busy || (submitted && problem !== undefined)}
-                            title={submitted && problem !== undefined
-                                ? problem.message : undefined}
+                            disabled={busy
+                                || (submitted && fieldProblem !== undefined)}
+                            title={submitted && fieldProblem !== undefined
+                                ? fieldProblem.message : undefined}
                             onClick={submit}
                         >
                             {ACTIONS[kind][0]}

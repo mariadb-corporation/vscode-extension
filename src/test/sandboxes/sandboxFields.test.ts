@@ -26,7 +26,6 @@ import {
     isServerOnPath,
     localConnectionPorts,
     mariadbdOptionLines,
-    newestFirst,
     serverVersionChoices,
     serverVersionProblem,
     sandboxConnectionUri,
@@ -53,14 +52,6 @@ describe("suggestSandboxPort", () => {
         expect(suggestSandboxPort([3310, 3311, 3313])).toBe(3312);
         // A port below the start is no reason to move.
         expect(suggestSandboxPort([3306])).toBe(3310);
-    });
-});
-
-describe("newestFirst", () => {
-    it("orders versions by their numbers, not their text", () => {
-        expect(newestFirst(["11.9.4", "12.3.2", "11.10.1", "10.6.21"]))
-            .toEqual(["12.3.2", "11.10.1", "11.9.4", "10.6.21"]);
-        expect(newestFirst([])).toEqual([]);
     });
 });
 

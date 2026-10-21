@@ -65,7 +65,7 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `mrs` | `02-mrs` | `ui-test:mrs` |
 | `dump-load` | `06-dump-load` | `ui-test:dump-load` |
 | `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), the walk from `SELECT ` through schema, table and column to the FROM clause and a foreign-key join (`pickCompletion` opens the list and clicks an item; a dotted item reopens it by itself), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches); Format Document and the toolbar's format button with and without a selection; the Explorer's Outline (schema > table > columns and key, a view, a function) and a click on a symbol moving the cursor; an MSM script's `SOURCE` section in the Outline and in path completion. Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
-| `msm` | `09-msm`: MariaDB Schema Management from the Explorer, a project created, released, scripted and deployed onto the sandbox, through the dialogs (see [msm.md](msm.md)). Its VS Code opens `files/workspace` (`WORKSPACE_SUITES`, `--open_resource`), the one suite with a workspace folder; `UI_TEST_WORKSPACE` names it | `ui-test:msm` |
+| `msm` | `09-msm`: MariaDB Schema Management from the Explorer, a project created, released, scripted and deployed onto the sandbox, through the dialogs (see [msm.md](msm.md)). Its VS Code opens `files/workspace` (`WORKSPACE_FILES`, `--open_resource`), the one suite with a workspace folder; `UI_TEST_WORKSPACE` names it | `ui-test:msm` |
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
@@ -191,7 +191,8 @@ runner end anyway. A spawn that fails is reported with its error.
   - Quick work can close a dialog before its progress bar is seen, or
     while the bar and the buttons are being looked at (an MSM create
     takes 7 ms); `submitDialog` accepts both where the dialog has closed
-    (`isGoneWebviewError`: no such element, a stale one, a detached frame),
+    (`isGoneWebviewError`: no such element, a stale one, a detached frame,
+    a script timeout),
     but a dialog still open must show the bar.
   - The Explorer compacts a folder holding one folder into one row
     (`projects / msm_shop.msm.project`); `ui-test/settings.json` turns

@@ -201,7 +201,7 @@ export class RestdCommands {
             doing: `Setting up REST Daemon for ${context.server}`,
             done: `Set up REST Daemon for ${context.server}`,
         });
-        try {
+        await group.run(async () => {
             const setup = await group.step<IRestdSetup>({
                 doing: "Setting up REST Daemon"
                     + (port === "" ? "" : ` on port ${port}`),
@@ -237,11 +237,9 @@ export class RestdCommands {
                     this.host.showActions(uri);
                 });
             }
-            group.finish(setup.url);
-        } catch (error) {
-            group.finish();
-            throw error;
-        }
+
+            return setup;
+        }, (setup) => { return setup.url; });
     }
 
     /**
@@ -291,12 +289,12 @@ export class RestdCommands {
         await this.host.tree.run(node, state, async () => {
             const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
             try {
-                await group.step(words, call, work, options);
+                await group.run(() => {
+                    return group.step(words, call, work, options);
+                });
             } catch (error) {
                 this.host.showActions(GENERAL_ACTIONS);
                 throw error;
-            } finally {
-                group.finish();
             }
         });
     }

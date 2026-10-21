@@ -808,12 +808,15 @@ export const isDialogOpen = async (title: string): Promise<boolean> => {
  * @param error What a WebDriver call on a webview threw.
  *
  * @returns Whether it says the webview went while the call ran: its
- *          elements, or the frame itself, gone. Quick work closes a dialog
- *          while it is being looked at, in any of these ways.
+ *          elements, or the frame itself, gone - or a call into it that
+ *          never came back. Quick work closes a dialog while it is being
+ *          looked at, in any of these ways; the callers check from outside
+ *          whether it did.
  */
 const isGoneWebviewError = (error: unknown): boolean => {
     return isStale(error)
-        || /NoSuchElement|frame detached|no such frame/u.test(String(error));
+        || /NoSuchElement|frame detached|no such frame|ScriptTimeout|script timeout/u
+            .test(String(error));
 };
 
 /**
@@ -882,7 +885,8 @@ export const submitDialog = async (
                 const element = await view.findWebElement(
                     By.xpath(`//button[normalize-space()='${text}']`));
                 if (await element.isEnabled()) {
-                    throw new Error(`${text} is enabled while the dialog saves`);
+                    throw new Error(
+                        `${text} is enabled while the dialog saves`);
                 }
             }
         } catch (error) {

@@ -23,7 +23,6 @@ import {
     defaultServerVersion,
     emptySandboxFields,
     localConnectionPorts,
-    newestFirst,
     sandboxDeployOptions,
     sandboxRestOptions,
     suggestSandboxPort,
@@ -37,6 +36,7 @@ import type {
 } from "./sandboxProtocol.js";
 import type { ISandboxStore } from "./sandboxStore.js";
 import { errorText } from "../text.js";
+import { newestFirst } from "../versionOrder.js";
 
 /**
  * The webview panel behind the New Sandbox dialog.
@@ -148,7 +148,8 @@ export class SandboxEditorPanel
             return;
         }
 
-        SandboxEditorPanel.#current = new SandboxEditorPanel(extensionUri, host);
+        SandboxEditorPanel.#current =
+            new SandboxEditorPanel(extensionUri, host);
     }
 
     /**
@@ -303,7 +304,9 @@ export class SandboxEditorPanel
             this.host.log(message);
             this.host.onCreated(message);
         }, {
-            message: (text) => { return { type: "createError", message: text }; },
+            message: (text) => {
+                return { type: "createError", message: text };
+            },
             log: (text) => {
                 this.host.log(`Failed to deploy the sandbox on port `
                     + `${built.options.port}: ${text}`);
