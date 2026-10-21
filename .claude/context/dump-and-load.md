@@ -56,8 +56,8 @@ Notes:
 - **UI tests**: `ui-test/tests/06-dump-load.test.ts`. They cover dump, load
   into another schema, export, import, cancelling a slow dump from the
   Tasks view, a dump into a folder that is not empty, a copy to a second
-  sandbox, and Clear Finished Tasks. The MRS tests of the same run need a
-  shell with mariadb-shell #71.
+  sandbox, and Clear Finished Tasks. The MRS tests of the same run need
+  shell 26.10.3 or later (mariadb-shell #71).
 - Tests:
   - `src/test/util/` (fields, monitor + view, commands driven through the
     dialog panel);

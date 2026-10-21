@@ -263,9 +263,8 @@ path to `/openApiUi`.
 ## Known gaps / next steps
 
 - The `rest.*` tools and REST SQL FORMAT=JSON need a shell carrying
-  mcp_plugin's rest group and the module of mariadb-shell PR #71. No release
-  has them yet (26.10.1, the current `MINIMUM_SHELL_VERSION`, does not);
-  raise it once one does.
+  mcp_plugin's rest group and the module of mariadb-shell PR #71: 26.10.3
+  or later, which `MINIMUM_SHELL_VERSION` requires.
 - The data mapping editor has no SDK language mode (the old one showed
   per-language class names and datatypes).
 

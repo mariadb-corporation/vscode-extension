@@ -47,7 +47,7 @@ drives the shell lookup:
 
 1. **PATH** — run `mariadb-shell --version` (`mariadb-shell.exe` on
    Windows) and accept it if it reports at least `MINIMUM_SHELL_VERSION`
-   (currently **26.10.1**, set by the release tooling's
+   (in `src/shell/constants.ts`, set by the release tooling's
    `tools/update_version`; the HARD floor is 26.9.4: 26.9.3 is the first
    shell whose parser accepts `mariadb://`, which the MCP plugin stores
    connection URIs WITH, and 26.9.4 the first whose plugin serves
