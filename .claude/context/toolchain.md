@@ -108,11 +108,22 @@ since those come from `contributes`, not from the name.
   script into a shell (`curl ... | bash`, `... | VAR=x bash`), runs one
   with `iex` / `Invoke-Expression`, passes `-ExecutionPolicy Bypass` or
   `-EncodedCommand`; and a dotfile, a source map or TypeScript in the
-  package. It refused 26.10.1 for the installer's old download cradles and
-  a Mac's `images/.DS_Store`, which the check flags in that package. The
+  package. These are guesses at the scan's rules: the first 26.10.1
+  package carried the installer's download cradles and a Mac's
+  `images/.DS_Store`, but the clean package was refused the same way.
+  marketplace#2268 (github.com/microsoft/vsmarketplace/issues/2268)
+  reports the Marketplace refusing every new extension, an empty one
+  included, from 19 October 2026, so the cause may be on its side; ask
+  `VSMarketplace@microsoft.com` before reworking the package for it. The
   skills come from ai-plugins, so a skill documenting `curl ... | sh` is
   caught here too. CI packages on Linux, which has no `.DS_Store`, so the
   check matters most on the Mac `/release` packages on.
+- **If the scan does object to the installer**, extensions that ship or
+  fetch native code show two ways round it: CodeLLDB downloads its
+  platform package itself, checks its SHA-256 and unpacks it (the shell
+  release's tarball and `SHA256SUMS`, with the system `tar` through
+  `execFile`), running no script; LLDB DAP installs nothing and points
+  the user to the install instructions.
 - **`.vscodeignore` decides what ships**, and it is an allow-by-exception
   list: sources, tests, configs, the grammar tooling, the context notes, the
   workspace file and the CI workflow stay out; `dist/` (without its source

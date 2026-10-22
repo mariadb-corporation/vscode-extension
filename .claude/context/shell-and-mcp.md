@@ -68,9 +68,9 @@ drives the shell lookup:
    `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy
    RemoteSigned -File <file>` - then deleted. **Never piped into an
    interpreter**: curl-into-bash and `irm | iex`, what the shell's own
-   documentation has users paste, are what malware does, and the
-   Marketplace refused the extension with "suspicious content" while it
-   carried them (`tools/checkPackage.mts` keeps them out of the package). `RemoteSigned` is
+   documentation has users paste, are what malware does and what a
+   Marketplace malware scan is likeliest to flag
+   (`tools/checkPackage.mts` keeps them out of the package). `RemoteSigned` is
    enough on Windows, whose default policy runs no script at all: a file
    the extension wrote has no mark of having come from the internet. A
    download that fails is an error of its own, naming the URL. It runs inside
