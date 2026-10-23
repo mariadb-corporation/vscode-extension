@@ -6,6 +6,17 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Added
+
+- **Formatting and completion settings.** `mariadb.lsp.indentClauses` and
+  `mariadb.lsp.indentRoutineClauses` (on by default) put the clauses of a
+  query or DML statement one level deeper than its first line, at the top
+  level of a file and in routine bodies, for formatting and for the `FROM`
+  completion adds; `mariadb.lsp.completionAddsTables` (on by default)
+  adds a column's table as a `FROM` or `JOIN` on completion, off leaves
+  the column alone. They need a
+  `mariadb-lsp` that has them; an older one ignores them.
+
 ## [26.10.1] - 2026-10-21
 
 ### Added

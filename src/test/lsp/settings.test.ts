@@ -15,15 +15,47 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
-import { serverSettings, type ISettingsReader } from "../../lsp/settings.js";
+import {
+    LIVE_SERVER_SETTINGS, serverSettings, type ISettingsReader,
+} from "../../lsp/settings.js";
 
-/** A settings section holding the given values, defaults for the rest. */
-const reader = (values: Record<string, unknown> = {}): ISettingsReader => {
+/** The defaults package.json gives the keys below `mariadb.lsp`. */
+const DEFAULTS = new Map(Object.entries((JSON.parse(readFileSync(
+    new URL("../../../package.json", import.meta.url), "utf8")) as {
+    contributes: {
+        configuration: { properties: Record<string, { default?: unknown; }>; };
+    };
+}).contributes.configuration.properties).filter(([key]) => {
+    return key.startsWith("mariadb.lsp.");
+}).map(([key, property]) => {
+    return [key.slice("mariadb.lsp.".length), property.default];
+}));
+
+/**
+ * A settings section holding the given values, package.json's defaults for
+ * the rest, as VS Code's is. A key package.json does not have, or a
+ * default that is not package.json's, fails the test.
+ *
+ * @param values The values set.
+ * @param read Where the keys read are added.
+ *
+ * @returns The section.
+ */
+const reader = (
+    values: Record<string, unknown> = {},
+    read = new Set<string>(),
+): ISettingsReader => {
     return {
         get: <T>(key: string, defaultValue: T): T => {
-            return (key in values ? values[key] : defaultValue) as T;
+            read.add(key);
+            expect(DEFAULTS.has(key), key).toBe(true);
+            expect(defaultValue, key).toEqual(DEFAULTS.get(key));
+
+            return (key in values ? values[key] : DEFAULTS.get(key)) as T;
         },
     };
 };
@@ -36,6 +68,9 @@ describe("serverSettings", () => {
             keywordCase: "upper",
             indentation: "editor",
             lineWidth: 80,
+            indentClauses: true,
+            indentRoutineClauses: true,
+            completionAddsTables: true,
             sqlMode: "",
             debounceMs: 150,
             maxDiagnostics: 1000,
@@ -50,6 +85,9 @@ describe("serverSettings", () => {
             keywordCase: "lower",
             indentation: "tab",
             lineWidth: 0,
+            indentClauses: false,
+            indentRoutineClauses: false,
+            completionAddsTables: false,
             sqlMode: "ANSI_QUOTES",
             serverVersion: " 11.4.2 ",
             debounceMs: 0,
@@ -61,6 +99,9 @@ describe("serverSettings", () => {
             keywordCase: "lower",
             indentation: "tab",
             lineWidth: 0,
+            indentClauses: false,
+            indentRoutineClauses: false,
+            completionAddsTables: false,
             sqlMode: "ANSI_QUOTES",
             serverVersion: "11.4.2",
             debounceMs: 0,
@@ -76,6 +117,9 @@ describe("serverSettings", () => {
             keywordCase: "Title",
             indentation: "3 spaces",
             lineWidth: -1,
+            indentClauses: "yes",
+            indentRoutineClauses: 1,
+            completionAddsTables: null,
             debounceMs: 1.5,
             maxDiagnostics: "many",
             progressThresholdMB: -2,
@@ -84,7 +128,19 @@ describe("serverSettings", () => {
             catalogFiles: [],
             keywordCase: "upper",
             indentation: "editor",
+            indentClauses: true,
+            indentRoutineClauses: true,
+            completionAddsTables: true,
             sqlMode: "",
         });
     });
+
+    it("reads every live setting, and of the others serverVersion only",
+        () => {
+            const read = new Set<string>();
+            serverSettings(reader({}, read));
+
+            expect([...read].sort()).toEqual(
+                [...LIVE_SERVER_SETTINGS, "serverVersion"].sort());
+        });
 });

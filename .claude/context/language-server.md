@@ -46,8 +46,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   by the client library itself (it follows the client id).
 - **Formatting**: the server advertises `documentFormattingProvider` and
   `documentRangeFormattingProvider` (queries only; lsp-server plan P8), so
-  "Format Document" works through the language client; `keywordCase` and
-  `lineWidth` apply; `indentation` (`editor`, the default: the editor's
+  "Format Document" works through the language client; `keywordCase`,
+  `lineWidth`, `indentClauses` and `indentRoutineClauses` (clauses one
+  level deeper than the statement's first line, at the top level and in
+  routine bodies) apply; `indentation` (`editor`, the default: the editor's
   `tabSize`/`insertSpaces`; or `tab`, `2 spaces`, `4 spaces`) sets one
   level of indentation, also for the lines completion adds. The
   editor toolbar's format button (`mariadb.formatSql`, icon
@@ -85,7 +87,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   - **Running a script with `SOURCE` lines:** `executeScript` sends the editor's text inline, so they reach the server as they are. Once MariaDB Shell's `db.execute_sql_script` expands them (a `source_dir` argument for inline scripts was proposed to the shell-plugins session), `executeScript` should pass the document's folder for a file-backed editor, left out for a shell that does not have the argument.
   - **`mariadb/outline`:** the extension does not read it. A future reader must take `source` positions as positions in the included files.
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
-  `indentation`, `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
+  `indentation`, `lineWidth`, `indentClauses`, `indentRoutineClauses`,
+  `completionAddsTables` (booleans; anything else is the default), `sqlMode`,
+  `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A
   change is sent as `workspace/didChangeConfiguration`
   (`{settings: {mariadb: ...}}`, every key each time, so one put back to

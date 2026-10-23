@@ -41,6 +41,9 @@ export const LIVE_SERVER_SETTINGS = [
     "keywordCase",
     "indentation",
     "lineWidth",
+    "indentClauses",
+    "indentRoutineClauses",
+    "completionAddsTables",
     "sqlMode",
     "debounceMs",
     "maxDiagnostics",
@@ -69,6 +72,24 @@ const count = (value: unknown): number | undefined => {
     return typeof value === "number" && Number.isInteger(value) && value >= 0
         ? value
         : undefined;
+};
+
+/**
+ * @param settings The `mariadb.lsp` section.
+ * @param key The key of a boolean setting.
+ * @param defaultValue Its default, the server's.
+ *
+ * @returns Its value if it is a boolean, else the default, so that a
+ *          running server goes back to it too.
+ */
+const flag = (
+    settings: ISettingsReader,
+    key: string,
+    defaultValue: boolean,
+): boolean => {
+    const value = settings.get<unknown>(key, defaultValue);
+
+    return typeof value === "boolean" ? value : defaultValue;
 };
 
 /** The values the server's `indentation` takes. */
@@ -104,6 +125,9 @@ export const serverSettings = (
             return value === indentation;
         }) ?? "editor",
         lineWidth: count(settings.get<unknown>("lineWidth", 80)),
+        indentClauses: flag(settings, "indentClauses", true),
+        indentRoutineClauses: flag(settings, "indentRoutineClauses", true),
+        completionAddsTables: flag(settings, "completionAddsTables", true),
         sqlMode: String(settings.get<unknown>("sqlMode", "")),
         debounceMs: count(settings.get<unknown>("debounceMs", 150)),
         maxDiagnostics: count(settings.get<unknown>("maxDiagnostics", 1000)),

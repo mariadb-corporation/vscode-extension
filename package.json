@@ -288,7 +288,22 @@
           "type": "integer",
           "default": 80,
           "minimum": 0,
-          "markdownDescription": "The line width in characters that the `FROM` and `JOIN` clauses completion adds stay within: past it, or in a statement that spans lines already, each clause starts a line of its own. 0: no limit."
+          "markdownDescription": "The line width in characters that formatted SQL and the `JOIN` clauses completion adds stay within: past it, or in a statement that spans lines already, each clause starts a line of its own (a `FROM` completion adds always does). 0: no limit."
+        },
+        "mariadb.lsp.indentClauses": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Formatting puts the clauses of a query or DML statement (`FROM`, `WHERE`, `SET`, ...) one level deeper than its first line, and the `FROM` completion adds goes there too. Off: at the statement's level. Routine bodies follow `#mariadb.lsp.indentRoutineClauses#`."
+        },
+        "mariadb.lsp.indentRoutineClauses": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "The same as `#mariadb.lsp.indentClauses#`, for the statements in the body of a procedure, function, trigger or event."
+        },
+        "mariadb.lsp.completionAddsTables": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Completing a column of a table the query does not have yet adds the table: a `FROM` on a line of its own, or a `JOIN` on a foreign key; and the schema's tables are offered to join. Off: the column only."
         },
         "mariadb.lsp.sqlMode": {
           "type": "string",
