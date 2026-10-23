@@ -85,7 +85,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   - **Running a script with `SOURCE` lines:** `executeScript` sends the editor's text inline, so they reach the server as they are. Once MariaDB Shell's `db.execute_sql_script` expands them (a `source_dir` argument for inline scripts was proposed to the shell-plugins session), `executeScript` should pass the document's folder for a file-backed editor, left out for a shell that does not have the argument.
   - **`mariadb/outline`:** the extension does not read it. A future reader must take `source` positions as positions in the included files.
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
-  `indentation`, `lineWidth`, `sqlMode`, `serverVersion`, `debounceMs`, `maxDiagnostics` and
+  `indentation`, `lineWidth`, `indentClauses`, `indentRoutineClauses`,
+  `completionAddsTables` (booleans; anything else left out), `sqlMode`,
+  `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A
   change is sent as `workspace/didChangeConfiguration`
   (`{settings: {mariadb: ...}}`, every key each time, so one put back to

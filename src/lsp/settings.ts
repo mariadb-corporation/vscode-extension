@@ -41,6 +41,9 @@ export const LIVE_SERVER_SETTINGS = [
     "keywordCase",
     "indentation",
     "lineWidth",
+    "indentClauses",
+    "indentRoutineClauses",
+    "completionAddsTables",
     "sqlMode",
     "debounceMs",
     "maxDiagnostics",
@@ -69,6 +72,16 @@ const count = (value: unknown): number | undefined => {
     return typeof value === "number" && Number.isInteger(value) && value >= 0
         ? value
         : undefined;
+};
+
+/**
+ * @param value A setting's value.
+ *
+ * @returns It if it is a boolean, else undefined, which leaves the
+ *          server's default.
+ */
+const flag = (value: unknown): boolean | undefined => {
+    return typeof value === "boolean" ? value : undefined;
 };
 
 /** The values the server's `indentation` takes. */
@@ -104,6 +117,11 @@ export const serverSettings = (
             return value === indentation;
         }) ?? "editor",
         lineWidth: count(settings.get<unknown>("lineWidth", 80)),
+        indentClauses: flag(settings.get<unknown>("indentClauses", true)),
+        indentRoutineClauses: flag(
+            settings.get<unknown>("indentRoutineClauses", true)),
+        completionAddsTables: flag(
+            settings.get<unknown>("completionAddsTables", true)),
         sqlMode: String(settings.get<unknown>("sqlMode", "")),
         debounceMs: count(settings.get<unknown>("debounceMs", 150)),
         maxDiagnostics: count(settings.get<unknown>("maxDiagnostics", 1000)),
