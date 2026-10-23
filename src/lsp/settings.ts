@@ -75,13 +75,21 @@ const count = (value: unknown): number | undefined => {
 };
 
 /**
- * @param value A setting's value.
+ * @param settings The `mariadb.lsp` section.
+ * @param key The key of a boolean setting.
+ * @param defaultValue Its default, the server's.
  *
- * @returns It if it is a boolean, else undefined, which leaves the
- *          server's default.
+ * @returns Its value if it is a boolean, else the default, so that a
+ *          running server goes back to it too.
  */
-const flag = (value: unknown): boolean | undefined => {
-    return typeof value === "boolean" ? value : undefined;
+const flag = (
+    settings: ISettingsReader,
+    key: string,
+    defaultValue: boolean,
+): boolean => {
+    const value = settings.get<unknown>(key, defaultValue);
+
+    return typeof value === "boolean" ? value : defaultValue;
 };
 
 /** The values the server's `indentation` takes. */
@@ -117,11 +125,9 @@ export const serverSettings = (
             return value === indentation;
         }) ?? "editor",
         lineWidth: count(settings.get<unknown>("lineWidth", 80)),
-        indentClauses: flag(settings.get<unknown>("indentClauses", true)),
-        indentRoutineClauses: flag(
-            settings.get<unknown>("indentRoutineClauses", true)),
-        completionAddsTables: flag(
-            settings.get<unknown>("completionAddsTables", true)),
+        indentClauses: flag(settings, "indentClauses", true),
+        indentRoutineClauses: flag(settings, "indentRoutineClauses", true),
+        completionAddsTables: flag(settings, "completionAddsTables", true),
         sqlMode: String(settings.get<unknown>("sqlMode", "")),
         debounceMs: count(settings.get<unknown>("debounceMs", 150)),
         maxDiagnostics: count(settings.get<unknown>("maxDiagnostics", 1000)),

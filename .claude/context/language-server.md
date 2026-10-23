@@ -88,7 +88,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   - **`mariadb/outline`:** the extension does not read it. A future reader must take `source` positions as positions in the included files.
 - **Settings**: `catalogFiles`, `catalogRefreshSeconds`, `keywordCase`,
   `indentation`, `lineWidth`, `indentClauses`, `indentRoutineClauses`,
-  `completionAddsTables` (booleans; anything else left out), `sqlMode`,
+  `completionAddsTables` (booleans; anything else is the default), `sqlMode`,
   `serverVersion`, `debounceMs`, `maxDiagnostics` and
   `progressThresholdMB` go to the server as initialization options. A
   change is sent as `workspace/didChangeConfiguration`
