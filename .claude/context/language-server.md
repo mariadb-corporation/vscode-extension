@@ -46,8 +46,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   by the client library itself (it follows the client id).
 - **Formatting**: the server advertises `documentFormattingProvider` and
   `documentRangeFormattingProvider` (queries only; lsp-server plan P8), so
-  "Format Document" works through the language client; `keywordCase` and
-  `lineWidth` apply; `indentation` (`editor`, the default: the editor's
+  "Format Document" works through the language client; `keywordCase`,
+  `lineWidth`, `indentClauses` and `indentRoutineClauses` (clauses one
+  level deeper than the statement's first line, at the top level and in
+  routine bodies) apply; `indentation` (`editor`, the default: the editor's
   `tabSize`/`insertSpaces`; or `tab`, `2 spaces`, `4 spaces`) sets one
   level of indentation, also for the lines completion adds. The
   editor toolbar's format button (`mariadb.formatSql`, icon
