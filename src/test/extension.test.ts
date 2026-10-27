@@ -298,7 +298,7 @@ describe("activate", () => {
         expect(fileSystemProviders.has("mariadb-value")).toBe(true);
     });
 
-    it("registers the Connections, Sandboxes, REST Daemons and Tasks views and every command", () => {
+    it("registers the Connections, Sandboxes, REST Daemons, Deployments, Deployment Vendors and Tasks views and every command", () => {
         const context = createContext();
 
         activate(context as never);
@@ -306,9 +306,11 @@ describe("activate", () => {
         expect(treeViews.map((view) => {
             return view.id;
         })).toEqual(["mariadb.connections", "mariadb.sandboxes",
-            "mariadb.restDaemons", "mariadb.tasks"]);
-        // What draws a connection's color on its row.
-        expect(fileDecorationProviders).toHaveLength(1);
+            "mariadb.restDaemons", "mariadb.deployments",
+            "mariadb.deploymentVendors", "mariadb.tasks"]);
+        // What draws a connection's color on its row, and grays out the
+        // vendors not configured.
+        expect(fileDecorationProviders).toHaveLength(2);
         const registered = [...registeredCommands.keys()].sort();
         // The REST Service commands are checked against what the package
         // contributes, both ways: one registered and not contributed is
@@ -353,11 +355,13 @@ describe("activate", () => {
             "mariadb.msm.generateDeploymentScript",
             "mariadb.msm.prepareRelease",
             "mariadb.msm.showProjectInformation",
+            "mariadb.newDeployment",
             "mariadb.newFolder",
             "mariadb.newFolderWithSelection",
             "mariadb.newSqlEditor",
             "mariadb.openSchemaDiagram",
             "mariadb.refreshConnections",
+            "mariadb.refreshDeployments",
             "mariadb.refreshSandboxes",
             "mariadb.removeFolder",
             "mariadb.removeTask",

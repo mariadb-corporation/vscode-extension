@@ -192,6 +192,24 @@ export class RestdTreeProvider
         return this.#listed;
     }
 
+    /**
+     * The deployments as their rows show them, with what is being done to
+     * each: for the Deployments view, which hangs a sandbox's under it.
+     *
+     * @returns The deployments, as `deployments()` hands them out.
+     */
+    public async nodes(): Promise<IRestdNode[]> {
+        return (await this.deployments()).map((deployment): IRestdNode => {
+            const action = this.#actions.get(deployment.directory);
+
+            return {
+                kind: "restd",
+                ...deployment,
+                ...(action === undefined ? {} : { action }),
+            };
+        });
+    }
+
     /** @returns What the view should say while it has no rows. */
     public get state(): ViewState {
         return this.#viewState.state;

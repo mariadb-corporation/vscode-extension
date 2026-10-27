@@ -17,7 +17,11 @@
 
 import * as vscode from "vscode";
 
-import type { ISandboxChange, ISandboxInstance } from "../mcp/sandboxApi.js";
+import type {
+    ISandboxChange,
+    ISandboxDeployOptions,
+    ISandboxInstance,
+} from "../mcp/sandboxApi.js";
 import type { IServerStatus } from "../mcp/serverStarter.js";
 import type { ISandboxStore } from "../sandboxes/sandboxStore.js";
 import { errorText } from "../text.js";
@@ -37,7 +41,7 @@ export const SANDBOXES_VIEW_STATE_CONTEXT_KEY = "mariadb.sandboxesView";
 export type SandboxesViewState = ViewState;
 
 /** What is being done to a sandbox while its row shows a spinner. */
-export type SandboxAction = "starting" | "stopping" | "deleting";
+export type SandboxAction = "deploying" | "starting" | "stopping" | "deleting";
 
 /** A row of the Sandboxes view. */
 export interface ISandboxNode extends ISandboxInstance {
@@ -48,6 +52,7 @@ export interface ISandboxNode extends ISandboxInstance {
 
 /** How each action reads on the row while it runs. */
 const ACTION_CAPTIONS: Record<SandboxAction, string> = {
+    deploying: "deploying…",
     starting: "starting…",
     stopping: "stopping…",
     deleting: "deleting…",
@@ -62,9 +67,16 @@ const ACTION_CAPTIONS: Record<SandboxAction, string> = {
  * a second click would only be refused by the shell.
  */
 export class SandboxTreeItem extends vscode.TreeItem {
-    public constructor(public readonly node: ISandboxNode) {
-        super(`localhost:${node.port}`,
-            vscode.TreeItemCollapsibleState.None);
+    /**
+     * @param node The sandbox.
+     * @param collapsibleState Whether it has rows under it: the
+     *                         Deployments view hangs its REST Daemons there.
+     */
+    public constructor(
+        public readonly node: ISandboxNode,
+        collapsibleState = vscode.TreeItemCollapsibleState.None,
+    ) {
+        super(`localhost:${node.port}`, collapsibleState);
 
         const version = node.version ?? "unknown version";
         const state = node.action === undefined
@@ -110,6 +122,12 @@ export class SandboxesTreeProvider
     readonly #viewState: ViewStateTracker;
     /** The actions under way, by port. */
     readonly #actions = new Map<number, SandboxAction>();
+    /**
+     * The sandboxes being deployed, by port, with the version asked for:
+     * shown before the server knows of them, so the deploy - minutes, where
+     * a server is downloaded - has a row to show it is under way.
+     */
+    readonly #deploying = new Map<number, string | undefined>();
 
     public readonly onDidChangeTreeData = this.#onDidChangeTreeData.event;
 
@@ -167,18 +185,10 @@ export class SandboxesTreeProvider
         }
 
         try {
-            const instances = await this.store.listInstances();
+            const nodes = await this.nodes();
             this.#viewState.listed();
 
-            return instances.map((instance): ISandboxNode => {
-                const action = this.#actions.get(instance.port);
-
-                return {
-                    kind: "sandbox",
-                    ...instance,
-                    ...(action === undefined ? {} : { action }),
-                };
-            });
+            return nodes;
         } catch (error) {
             // Logged, not notified: the view's welcome content says the
             // listing failed and offers the log, and the Connections view
@@ -189,6 +199,82 @@ export class SandboxesTreeProvider
             this.#viewState.failed();
 
             return [];
+        }
+    }
+
+    /**
+     * The sandboxes as their rows show them, for this view and the
+     * Deployments view alike: each with what is being done to it, and the
+     * ones being deployed among them.
+     *
+     * @returns The sandboxes, by port. Rejects where they cannot be listed.
+     */
+    public async nodes(): Promise<ISandboxNode[]> {
+        const instances = await this.store.listInstances();
+
+        return this.#withDeploying(instances).map((instance): ISandboxNode => {
+            const action = this.#actions.get(instance.port)
+                ?? (this.#deploying.has(instance.port)
+                    ? "deploying"
+                    : undefined);
+
+            return {
+                kind: "sandbox",
+                ...instance,
+                ...(action === undefined ? {} : { action }),
+            };
+        });
+    }
+
+    /**
+     * @param instances The sandboxes listed.
+     *
+     * @returns Them, and a stand-in for each sandbox being deployed that
+     *          the server does not list yet, by port.
+     */
+    #withDeploying(instances: ISandboxInstance[]): ISandboxInstance[] {
+        const listed = new Set(instances.map((instance) => {
+            return instance.port;
+        }));
+        const pending = [...this.#deploying]
+            .filter(([port]) => { return !listed.has(port); })
+            .map(([port, version]): ISandboxInstance => {
+                return { port, version: version ?? null, status: "stopped" };
+            });
+
+        return pending.length === 0
+            ? instances
+            : [...instances, ...pending].sort((a, b) => {
+                return a.port - b.port;
+            });
+    }
+
+    /**
+     * Shows a sandbox's row for as long as it is being deployed. The work
+     * is the deploy; the store asks the server about the new sandbox
+     * before it settles, so the row it leaves behind is the real one.
+     *
+     * @param options What is being deployed.
+     * @param work The deploy.
+     *
+     * @returns What the work returned.
+     */
+    public async deploying<T>(
+        options: ISandboxDeployOptions,
+        work: () => Promise<T>,
+    ): Promise<T> {
+        if (this.#deploying.has(options.port)) {
+            throw new Error(`A sandbox is already being deployed on port `
+                + `${options.port}`);
+        }
+
+        this.#deploying.set(options.port, options.serverVersion);
+        this.refresh();
+        try {
+            return await work();
+        } finally {
+            this.#deploying.delete(options.port);
+            this.refresh();
         }
     }
 

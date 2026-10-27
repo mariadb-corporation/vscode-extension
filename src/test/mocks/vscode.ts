@@ -342,6 +342,8 @@ export const treeViews: Array<{
     collapse: (element: unknown) => void;
     /** Sets the view's `selection`, as a user selecting rows. */
     select: (rows: unknown[]) => void;
+    /** Shows or hides the view, firing its `onDidChangeVisibility`. */
+    setVisible: (visible: boolean) => void;
 }> = [];
 export const webviewPanels: MockWebviewPanel[] = [];
 export const webviewViewProviders = new Map<string, {
@@ -928,14 +930,19 @@ export const window = {
     createTreeView: (id: string, options: unknown) => {
         const expanded = new EventEmitter<{ element: unknown }>();
         const collapsed = new EventEmitter<{ element: unknown }>();
+        const visibility = new EventEmitter<{ visible: boolean }>();
         const view = {
             // What the user has selected; set through `select` below.
             selection: [] as unknown[],
+            // Shown or hidden through `setVisible` below.
+            visible: true,
             onDidExpandElement: expanded.event,
             onDidCollapseElement: collapsed.event,
+            onDidChangeVisibility: visibility.event,
             dispose: () => {
                 expanded.dispose();
                 collapsed.dispose();
+                visibility.dispose();
             },
         };
         treeViews.push({
@@ -949,6 +956,10 @@ export const window = {
             },
             select: (rows: unknown[]) => {
                 view.selection = rows;
+            },
+            setVisible: (visible: boolean) => {
+                view.visible = visible;
+                visibility.fire({ visible });
             },
         });
 

@@ -23,9 +23,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.newSqlEditor` | New SQL Editor | Connection row, beside Connect |
 | `mariadb.setDefaultConnection` | Set as Default Connection | Connection context menu |
 | `mariadb.clearDefaultConnection` | Clear Default Connection | Connection context menu |
-| `mariadb.addSandbox` | New Sandbox… | Sandboxes view title (`+`); the view's welcome content |
+| `mariadb.newDeployment` | New Deployment… | MariaDB Deployments view title (`+`); its welcome content (as Create or Import a Deployment...); the palette. Opens the New Deployment wizard (see [deployments.md](deployments.md)) |
+| `mariadb.refreshDeployments` | Refresh Deployments | MariaDB Deployments view title; Retry in its failed welcome content. Reads the sandboxes and REST Daemons again. Hidden from the palette |
+| `mariadb.addSandbox` | New Sandbox… | Sandboxes view title (`+`); the view's welcome content; the wizard's MariaDB Sandbox Instance |
 | `mariadb.refreshSandboxes` | Refresh Sandboxes | Sandboxes view title; Retry in its failed welcome content |
-| `mariadb.startSandbox` | Start Sandbox | Inline on, and context menu of, a STOPPED sandbox |
+| `mariadb.startSandbox` | Start Sandbox | Inline on, and context menu of, a STOPPED sandbox. The sandbox and REST Daemon row commands show in the Deployments view too |
 | `mariadb.stopSandbox` | Stop Sandbox | Inline on, and context menu of, a RUNNING sandbox |
 | `mariadb.deleteSandbox` | Delete Sandbox | Inline on, and context menu of, every sandbox not busy. Asks first; stops a running one before deleting |
 | `mariadb.restd.setUp` | Set Up MariaDB REST Daemon… | Context menu of a CONNECTED connection (`7_mrs`). Opens the `restd` MRS dialog (see [restd.md](restd.md)) |

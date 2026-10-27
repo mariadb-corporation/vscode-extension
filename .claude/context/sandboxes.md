@@ -46,6 +46,12 @@ MCP plugin's own `context/sandbox.md`.
   so the dialog lists it once per extension session. `refresh()` redraws
   from what is kept; only `reload()` re-reads. Known cost: a sandbox an
   agent deploys shows at the next Refresh.
+- **A sandbox being deployed has a row** in the Sandboxes and Deployments
+  views from the start (`SandboxesTreeProvider.deploying`, wrapped around
+  the deploy by the panel host's `withProgress(options, work)`): a stand-in
+  `localhost:<port>`, `<version asked for> · deploying…`, busy, until the
+  store has asked the server about it, then the real row. Both views show
+  their busy bar meanwhile.
 - **A deploy is always an action row of its own** (the user's request),
   under General Actions - the sandbox has no connection open
   yet - whatever `logAllCalls` says: `createLoggingSandboxApi`'s `put`
