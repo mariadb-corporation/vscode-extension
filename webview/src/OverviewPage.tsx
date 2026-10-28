@@ -17,11 +17,11 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { parentFolder } from "../../src/connections/connectionFolders.js";
 import {
     existingFolder,
     folderContents,
     folderTrail,
-    parentFolder,
     type IOverviewConnection,
     type IOverviewSnapshot,
 } from "../../src/overview/overviewModel.js";
@@ -98,10 +98,11 @@ interface ITileProps {
     description: string;
     /** Its picture: an `overview-icon-<icon>` class. */
     icon: string;
-    /** A connection's color, drawn down its left edge. */
+    /**
+     * Its color, as `--tile-color`: down a connection's left edge, over a
+     * folder's whole tile.
+     */
     color?: string;
-    /** A folder's color, which the whole tile is tinted with. */
-    tint?: string;
     title?: string;
     onOpen(): void;
     /** The actions shown on hover; a connection's tile only. */
@@ -120,8 +121,7 @@ interface ITileProps {
  * @returns The tile.
  */
 const Tile = (props: ITileProps): preact.JSX.Element => {
-    const { variant, caption, description, icon, color, tint, actions } =
-        props;
+    const { variant, caption, description, icon, color, actions } = props;
     const guard = useRef(0);
     const actionsRef = useRef<HTMLDivElement>(null);
 
@@ -142,14 +142,9 @@ const Tile = (props: ITileProps): preact.JSX.Element => {
             role="button"
             tabIndex={0}
             title={props.title}
-            style={{
-                ...(color === undefined ? {} : {
-                    borderLeftColor: `var(--vscode-charts-${color})`,
-                }),
-                ...(tint === undefined ? {} : {
-                    "--tile-tint": `var(--vscode-charts-${tint})`,
-                }),
-            }}
+            style={color === undefined
+                ? undefined
+                : { "--tile-color": `var(--vscode-charts-${color})` }}
             onClick={open}
             onKeyDown={(event) => {
                 if (event.target !== event.currentTarget) {
@@ -241,7 +236,6 @@ export const OverviewPage = (): preact.JSX.Element => {
                         customFolders: message.customFolders,
                         folderColors: message.folderColors,
                     });
-                    setShowGreeting(message.showGreeting);
                     setFailed(undefined);
                     break;
                 }
@@ -393,7 +387,7 @@ export const OverviewPage = (): preact.JSX.Element => {
                                 caption={entry.name}
                                 description="Connection Folder"
                                 icon="folder"
-                                tint={entry.color}
+                                color={entry.color}
                                 title={entry.path}
                                 onOpen={() => { go(entry.path); }}
                             />

@@ -15,13 +15,16 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { parentFolder } from "../../connections/connectionFolders.js";
 import {
     existingFolder,
     folderContents,
     folderTrail,
-    parentFolder,
     type IOverviewSnapshot,
 } from "../../overview/overviewModel.js";
 import {
@@ -34,6 +37,7 @@ import type {
     IOverviewConnectionRef,
     OverviewWebviewMessage,
 } from "../../overview/overviewProtocol.js";
+import { connectionIconFor } from "../../tree/treeItems.js";
 import {
     EventEmitter,
     resetVscodeMock,
@@ -96,6 +100,26 @@ describe("overviewSnapshot", () => {
     });
 });
 
+describe("the connection icons", () => {
+    it("has a picture for every icon the Connections view can show", () => {
+        // A tile's icon is a class of the overview's stylesheet, one per
+        // file; one missing would leave the tile without a picture.
+        const css = readFileSync(
+            join(import.meta.dirname, "..", "..", "..", "webview", "src",
+                "overviewStyles.css"), "utf8");
+        const schemes = ["mariadb", "mariadb+ssh", "mysql", "mysql+ssh",
+            "mysqlx", "other"];
+        for (const scheme of schemes) {
+            for (const isDefault of [false, true]) {
+                const icon = connectionIconFor(`${scheme}://u@h:1`, isDefault)
+                    .replace(/\.svg$/u, "");
+                expect(css).toContain(`.overview-icon-${icon} {`);
+                expect(css).toContain(`/images/light/${icon}.svg`);
+            }
+        }
+    });
+});
+
 describe("overviewModel", () => {
     it("lists a folder's subfolders first, then its connections", () => {
         const top = folderContents(SNAPSHOT, "/");
@@ -139,6 +163,7 @@ describe("overviewModel", () => {
 describe("OverviewPanel", () => {
     let host: IOverviewHost & {
         changed: EventEmitter<void>;
+        greetingChanged: EventEmitter<void>;
         greeting: boolean;
         failure?: Error;
         calls: unknown[][];
@@ -149,8 +174,10 @@ describe("OverviewPanel", () => {
         OverviewPanel.disposeCurrent();
         resetVscodeMock();
         const changed = new EventEmitter<void>();
+        const greetingChanged = new EventEmitter<void>();
         host = {
             changed,
+            greetingChanged,
             greeting: true,
             calls: [],
             logs: [],
@@ -160,6 +187,7 @@ describe("OverviewPanel", () => {
                     : Promise.reject(host.failure);
             },
             onDidChange: changed.event as never,
+            onDidChangeGreeting: greetingChanged.event as never,
             showGreeting: () => { return host.greeting; },
             closeGreeting: () => {
                 host.calls.push(["closeGreeting"]);
@@ -202,15 +230,21 @@ describe("OverviewPanel", () => {
         // The greeting first, which needs no listing.
         expect(currentPanel().webview.posted).toEqual([
             { type: "greeting", showGreeting: true },
-            { type: "connections", ...SNAPSHOT, showGreeting: true },
+            { type: "connections", ...SNAPSHOT },
         ]);
 
-        host.greeting = false;
         host.changed.fire();
         await settle();
         expect(currentPanel().webview.posted).toHaveLength(3);
         expect(currentPanel().webview.posted[2])
-            .toMatchObject({ type: "connections", showGreeting: false });
+            .toEqual({ type: "connections", ...SNAPSHOT });
+
+        // The greeting on its own, without listing again.
+        host.greeting = false;
+        host.greetingChanged.fire();
+        await settle();
+        expect(currentPanel().webview.posted.slice(3))
+            .toEqual([{ type: "greeting", showGreeting: false }]);
     });
 
     it("says why the connections could not be listed", async () => {

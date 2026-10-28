@@ -63,12 +63,12 @@ const mount = async (showGreeting = true): Promise<void> => {
         render(<OverviewPage />, host);
         await Promise.resolve();
     });
+    await send({ type: "greeting", showGreeting });
     await send({
         type: "connections",
         connections: [LOCAL, SHOP],
         customFolders: ["/Empty"],
         folderColors: { "/Production": "blue" },
-        showGreeting,
     });
 };
 
@@ -202,20 +202,19 @@ describe("OverviewPage", () => {
 
             // The whole tile, through the tint its stylesheet mixes in.
             const production = tile("Production");
-            expect(production.style.getPropertyValue("--tile-tint"))
+            expect(production.style.getPropertyValue("--tile-color"))
                 .toBe("var(--vscode-charts-blue)");
-            expect(production.classList.contains("colored")).toBe(false);
-            expect(tile("Empty").style.getPropertyValue("--tile-tint"))
+            expect(tile("Empty").style.getPropertyValue("--tile-color"))
                 .toBe("");
 
             await click(production);
             expect(tile("Shop").classList.contains("colored")).toBe(true);
+            expect(tile("Shop").style.getPropertyValue("--tile-color"))
+                .toBe("var(--vscode-charts-red)");
             // The Connections view's icon for each.
             expect(tile("Shop").querySelector(".overview-tile-icon")
                 ?.classList.contains("overview-icon-connectionMariaDB"))
                 .toBe(true);
-            expect(tile("Shop").style.borderLeftColor)
-                .toBe("var(--vscode-charts-red)");
         });
 
     it("goes into a folder, and back up with Back or the breadcrumb",
@@ -316,7 +315,6 @@ describe("OverviewPage", () => {
                 connections: [LOCAL],
                 customFolders: [],
                 folderColors: {},
-                showGreeting: false,
             });
 
             expect(crumbs()).toEqual(["/"]);

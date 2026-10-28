@@ -25,17 +25,15 @@ import type { IOverviewSnapshot } from "./overviewModel.js";
  * show, and hears what was clicked.
  */
 
-/** Everything to show, sent on `ready` and whenever it changes. */
+/** The connections and folders, sent on `ready` and whenever they change. */
 export interface IOverviewConnectionsMessage extends IOverviewSnapshot {
     type: "connections";
-    /** Whether the welcome text is shown above the tiles. */
-    showGreeting: boolean;
 }
 
 /**
- * Whether the welcome text is shown, sent on `ready` ahead of the
- * connections: listing them can wait for the server to start, and the
- * page is not to be blank meanwhile.
+ * Whether the welcome text is shown, sent on `ready` and whenever its
+ * setting changes. A message of its own: the connections can wait for the
+ * server to start, and the page is not to be blank meanwhile.
  */
 export interface IOverviewGreetingMessage {
     type: "greeting";

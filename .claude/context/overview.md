@@ -54,12 +54,15 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   `greeting` (whether the welcome text is shown) before it lists the
   connections, which can wait for the server to start; the welcome text
   and the "Database Connections" heading show at once, with "Looking for
-  MariaDB connections..." under them until the tiles come.
+  MariaDB connections..." under them until the tiles come. `greeting` is
+  the only message that carries it, sent again when
+  `mariadb.overview.showGreeting` changes - with no listing.
 - **The page walks the folders itself.** The host sends every connection
   and folder at once, so going into a folder costs no message. It sends
-  again on `ready` and whenever the Connections view redraws, the default
-  connection changes or a `mariadb.overview` setting does; a listing
-  overtaken by a newer one is dropped.
+  again on `ready`, whenever the whole Connections view is redrawn (a
+  row's own redraw - a folder opening, a connection connecting - changes
+  nothing it shows, so it is ignored) and when the default connection
+  changes; a listing overtaken by a newer one is dropped.
 - **A folder that goes away** (moved, renamed, emptied) leaves the page in
   the nearest folder above it still there. The folder shown is kept with
   the webview's state, across a reload of it.
@@ -67,29 +70,36 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   and a button cannot hold another. A click is ignored for 200 ms after
   one, as the MySQL Shell did, so a double click opens one editor. A
   focused tile opens on Enter or Space, and `A` opens its menu.
-- **The host acts through the Connections view's commands**, handed a
-  node it builds from the stored connection (`overviewNode` in
-  `extension.ts`); a connection that is gone by then is reported, as a
-  command's failure is.
+- **The host acts through the Connections view's commands**, handed the
+  node the view itself would build (`connectionNodeOf` in
+  `connectionsModel.ts`, called by `overviewNode` in `extension.ts`); a
+  connection that is gone by then is reported, as a command's failure is.
+  What a folder holds is `subfoldersOf` (`connectionFolders.ts`), the
+  view's own test.
 - **A connection's picture is the Connections view's icon**:
   `overviewSnapshot` takes `connectionIconFor(uri, isDefault)`, so a tile
   has the MariaDB or MySQL icon, its SSH variant for `mariadb+ssh://` and
   `mysql+ssh://`, MySQL's for `mysqlx://`, and the default connection's
   marked one. The page draws it as a mask (`overview-icon-<file>`, one
-  class per file under `images/light`) in the tile's text color.
-- **A connection's color** is its tile's left edge, in
-  `--vscode-charts-<color>`; **a folder's** tints its whole tile (above).
+  class per file under `images/light`) in the tile's text color. A test
+  fails where `connectionIconFor` can give an icon with no class. An
+  inline `mask-image` with the file's URL was weighed: an inline style's
+  URL resolves against the page, not `dist/webview`, so it would work
+  only while Vite inlines the files.
+- **A tile's color** is one CSS variable, `--tile-color`, set to
+  `--vscode-charts-<color>`: a connection draws it down its left edge, a
+  folder tints its whole tile with it (above).
   Folder colors come with the snapshot (`folderColors`), from the
   extension's `FolderColors`.
 
 ## UI tests
 
-`00-startup` checks the overview opens with the view, with its greeting
-and only New Connection. `01-sandbox`, first in every other suite, starts
-with `dismissOverview`: it shows the Connections view, waits for the
-overview and closes it. Left to itself, the overview opened whenever a
-test first showed that view - in `lsp`, over the New Sandbox dialog the
-test was in. Where it is open, the helpers
+`ui-test/settings.json` sets `mariadb.overview.showOnStartup` to false:
+left to itself, the overview opened whenever a test first showed the
+Connections view - in `lsp`, over the New Sandbox dialog the test was in.
+`00-startup` opens it by its command and checks its greeting and the lone
+New Connection tile, then closes it; opening with the view is a unit
+test's. Where an editor webview and another are open, the helpers
 enter a webview by the frame that is shown in the area asked for
 (`frameShownIn` in `ui-test/lib/ui.ts`): ExTester's own `WebView` went into
 the hidden overview's frame instead of a dialog's, and its `WebviewView`

@@ -17,12 +17,18 @@
 
 import * as assert from "node:assert/strict";
 
-import { ActivityBar, By, VSBrowser } from "vscode-extension-tester";
+import {
+    ActivityBar,
+    By,
+    EditorView,
+    VSBrowser,
+} from "vscode-extension-tester";
 
 import {
     inDialog,
     openSection,
     OVERVIEW_TITLE,
+    runCommand,
     screenshot,
     VIEW_CONTAINER,
     DEPLOY_TIMEOUT,
@@ -96,7 +102,10 @@ describe("Startup", () => {
         await (await content.getSection("Tasks")).collapse();
     });
 
-    it("opens the MariaDB Overview with the view, greeting", async () => {
+    it("opens the MariaDB Overview, greeting", async () => {
+        // By its command: ui-test/settings.json turns off its opening with
+        // the view, which the unit tests cover.
+        await runCommand("MariaDB: Show MariaDB Overview");
         const found = await inDialog(OVERVIEW_TITLE, async (view) => {
             const text = async (css: string): Promise<string[]> => {
                 return await Promise.all((await view.findWebElements(
@@ -115,6 +124,7 @@ describe("Startup", () => {
             };
         });
         await screenshot("00-overview");
+        await new EditorView().closeEditor(OVERVIEW_TITLE);
 
         assert.deepEqual(found.title, ["MariaDB Workbench"]);
         // No connection yet: only the tile that adds one.

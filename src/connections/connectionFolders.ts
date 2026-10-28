@@ -83,6 +83,37 @@ export const allFolders = (paths: Iterable<string>): string[] => {
 };
 
 /**
+ * The folders directly inside one: the Connections view's, the overview's
+ * and `inTreeOrder`'s one test, so the three agree.
+ *
+ * @param folders Every folder, as `allFolders` gives them.
+ * @param folder The folder; `/` for the top level.
+ *
+ * @returns Those of `folders` one level below it, in their order.
+ */
+export const subfoldersOf = (
+    folders: readonly string[],
+    folder: string,
+): string[] => {
+    const depth = folderNames(folder).length;
+
+    return folders.filter((path) => {
+        return folderNames(path).length === depth + 1
+            && (depth === 0 || path.startsWith(`${folder}/`));
+    });
+};
+
+/**
+ * @param path A folder.
+ *
+ * @returns The folder it is in; `/` for a top-level folder and the top
+ *          level itself.
+ */
+export const parentFolder = (path: string): string => {
+    return normalizeFolder(folderNames(path).slice(0, -1).join("/"));
+};
+
+/**
  * Connections in the order the Connections view shows them, folders
  * expanded: in each folder, its subfolders first, sorted by name, each
  * with everything in it, then the connections filed directly in it, in
@@ -101,24 +132,16 @@ export const inTreeOrder = <T extends { path?: string }>(
     };
     const folders = allFolders(connections.map(folderOf));
 
-    // The same subfolder test the view's model applies, so the two agree.
-    const contentsOf = (folder: string, depth: number): T[] => {
-        const subfolders = folders.filter((path) => {
-            return folderNames(path).length === depth + 1
-                && (depth === 0 || path.startsWith(`${folder}/`));
-        });
-
+    const contentsOf = (folder: string): T[] => {
         return [
-            ...subfolders.flatMap((path) => {
-                return contentsOf(path, depth + 1);
-            }),
+            ...subfoldersOf(folders, folder).flatMap(contentsOf),
             ...connections.filter((connection) => {
                 return folderOf(connection) === folder;
             }),
         ];
     };
 
-    return contentsOf(ROOT_FOLDER, 0);
+    return contentsOf(ROOT_FOLDER);
 };
 
 /**

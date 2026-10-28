@@ -15,7 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import type { IBusyMessage, ICancelMessage } from "../webview/dialogProtocol.js";
+import type { ICancelMessage } from "../webview/dialogProtocol.js";
 import type { DeploymentType } from "./deploymentChoices.js";
 
 /**
@@ -24,7 +24,8 @@ import type { DeploymentType } from "./deploymentChoices.js";
  * led.
  */
 
-export type DeploymentHostMessage = IBusyMessage;
+/** None: the wizard hands on before anything runs, so it is never busy. */
+export type DeploymentHostMessage = never;
 
 /** Go on with a new deployment of this type, in the dialog it has. */
 export interface IDeploymentNewMessage {

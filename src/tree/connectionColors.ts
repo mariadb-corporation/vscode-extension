@@ -47,48 +47,29 @@ export const themeColorOf = (color: ConnectionColor): vscode.ThemeColor => {
 };
 
 /**
- * The URI a colored connection's row carries.
+ * The URI a colored connection's or folder's row carries.
  *
  * @param color Its color.
- * @param kind The list it is in.
- * @param uri The connection URI - with the kind, what keeps two rows' URIs
- *            apart, though only the color is ever read back.
+ * @param kind The list a connection is in, or `folder`.
+ * @param key The connection URI or the folder's path - with the kind, what
+ *            keeps two rows' URIs apart, though only the color is ever read
+ *            back.
  *
  * @returns The URI.
  */
 export const colorUriOf = (
     color: ConnectionColor,
-    kind: ConnectionKind,
-    uri: string,
+    kind: ConnectionKind | "folder",
+    key: string,
 ): vscode.Uri => {
     return vscode.Uri.from({
         scheme: CONNECTION_COLOR_SCHEME,
         path: `/${color}/${kind}`,
-        query: uri,
+        query: key,
     });
 };
 
-/**
- * The URI a colored folder's row carries; the same decoration colors it.
- *
- * @param color Its color.
- * @param path The folder - what keeps two rows' URIs apart, though only
- *             the color is ever read back.
- *
- * @returns The URI.
- */
-export const folderColorUriOf = (
-    color: ConnectionColor,
-    path: string,
-): vscode.Uri => {
-    return vscode.Uri.from({
-        scheme: CONNECTION_COLOR_SCHEME,
-        path: `/${color}/folder`,
-        query: path,
-    });
-};
-
-/** Colors the rows that carry a `colorUriOf` or `folderColorUriOf` URI. */
+/** Colors the rows that carry a `colorUriOf` URI. */
 export class ConnectionColorDecorations
     implements vscode.FileDecorationProvider {
 

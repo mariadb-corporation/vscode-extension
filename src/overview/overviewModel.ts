@@ -18,7 +18,10 @@
 import {
     allFolders,
     folderNames,
+    normalizeFolder,
+    parentFolder,
     ROOT_FOLDER,
+    subfoldersOf,
 } from "../connections/connectionFolders.js";
 import type { ConnectionKind, ConnectionColor } from "../mcp/types.js";
 
@@ -78,6 +81,20 @@ export interface IOverviewContents {
 
 /**
  * @param snapshot The connections and folders.
+ *
+ * @returns Every folder there is: the ones connections are filed in, their
+ *          parents, and the ones the user made, as the Connections view has
+ *          them.
+ */
+const knownFolders = (snapshot: IOverviewSnapshot): string[] => {
+    return allFolders([
+        ...snapshot.connections.map((connection) => { return connection.path; }),
+        ...snapshot.customFolders,
+    ]);
+};
+
+/**
+ * @param snapshot The connections and folders.
  * @param folder The folder; `/` for the top level.
  *
  * @returns What the folder holds, as the Connections view shows it:
@@ -87,22 +104,16 @@ export const folderContents = (
     snapshot: IOverviewSnapshot,
     folder: string,
 ): IOverviewContents => {
-    const depth = folderNames(folder).length;
-    const folders = allFolders([
-        ...snapshot.connections.map((connection) => { return connection.path; }),
-        ...snapshot.customFolders,
-    ]).filter((path) => {
-        return folderNames(path).length === depth + 1
-            && (depth === 0 || path.startsWith(`${folder}/`));
-    }).map((path): IOverviewFolder => {
-        const color = snapshot.folderColors[path];
+    const folders = subfoldersOf(knownFolders(snapshot), folder)
+        .map((path): IOverviewFolder => {
+            const color = snapshot.folderColors[path];
 
-        return {
-            path,
-            name: folderNames(path).at(-1)!,
-            ...(color === undefined ? {} : { color }),
-        };
-    });
+            return {
+                path,
+                name: folderNames(path).at(-1)!,
+                ...(color === undefined ? {} : { color }),
+            };
+        });
 
     return {
         folders,
@@ -123,27 +134,13 @@ export const existingFolder = (
     snapshot: IOverviewSnapshot,
     folder: string,
 ): string => {
-    const known = new Set(allFolders([
-        ...snapshot.connections.map((connection) => { return connection.path; }),
-        ...snapshot.customFolders,
-    ]));
-    let names = folderNames(folder);
-    while (names.length > 0 && !known.has(`/${names.join("/")}`)) {
-        names = names.slice(0, -1);
+    const known = new Set(knownFolders(snapshot));
+    let shown = normalizeFolder(folder);
+    while (shown !== ROOT_FOLDER && !known.has(shown)) {
+        shown = parentFolder(shown);
     }
 
-    return names.length === 0 ? ROOT_FOLDER : `/${names.join("/")}`;
-};
-
-/**
- * @param folder A folder.
- *
- * @returns The folder it is in; the top level for the top level.
- */
-export const parentFolder = (folder: string): string => {
-    const names = folderNames(folder).slice(0, -1);
-
-    return names.length === 0 ? ROOT_FOLDER : `/${names.join("/")}`;
+    return shown;
 };
 
 /**
@@ -156,6 +153,9 @@ export const folderTrail = (folder: string): IOverviewFolder[] => {
     const names = folderNames(folder);
 
     return names.map((name, index) => {
-        return { path: `/${names.slice(0, index + 1).join("/")}`, name };
+        return {
+            path: normalizeFolder(names.slice(0, index + 1).join("/")),
+            name,
+        };
     });
 };

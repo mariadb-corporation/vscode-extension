@@ -93,6 +93,24 @@ export const withDefaultScheme = (uri: string): string => {
 };
 
 /**
+ * Whether a connection is the default one. The setting may have been
+ * written before connections carried their scheme, and what is listed now
+ * always does, so both sides go through the same fill-in.
+ *
+ * @param uri The connection's URI, as listed.
+ * @param defaultConnection The default connection setting, if set.
+ *
+ * @returns True where they name the same connection.
+ */
+export const isDefaultConnection = (
+    uri: string,
+    defaultConnection: string | undefined,
+): boolean => {
+    return defaultConnection !== undefined
+        && withDefaultScheme(uri) === withDefaultScheme(defaultConnection);
+};
+
+/**
  * Whether a scheme asks for an SSH tunnel.
  *
  * @param scheme The scheme to check.

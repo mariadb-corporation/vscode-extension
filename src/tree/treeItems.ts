@@ -19,7 +19,7 @@ import * as vscode from "vscode";
 
 import { connectionLabel, schemeOf } from "../connections/connectionUri.js";
 import type { ConnectionColor, ObjectType } from "../mcp/types.js";
-import { colorUriOf, folderColorUriOf } from "./connectionColors.js";
+import { colorUriOf } from "./connectionColors.js";
 import { isMrsNode } from "./mrsModel.js";
 import { MrsTreeItem } from "./mrsTreeItems.js";
 import {
@@ -172,7 +172,7 @@ export class FolderTreeItem extends vscode.TreeItem {
         this.tooltip = node.path;
         // Drawn by `ConnectionColorDecorations`, as a connection's color is.
         if (color !== undefined) {
-            this.resourceUri = folderColorUriOf(color, node.path);
+            this.resourceUri = colorUriOf(color, "folder", node.path);
         }
     }
 }

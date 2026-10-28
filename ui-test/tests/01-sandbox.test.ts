@@ -31,7 +31,6 @@ import {
     SANDBOX_ROW,
     screenshot,
     DEPLOY_TIMEOUT,
-    dismissOverview,
     submitDialog,
     SERVER_TIMEOUT,
     setChecked,
@@ -72,8 +71,6 @@ describe("A sandbox to test with", () => {
     before(async () => {
         // The first file of most suites: nothing has waited for VS Code yet.
         await VSBrowser.instance.waitForWorkbench();
-        // Out of the way before any dialog opens; see dismissOverview.
-        await dismissOverview();
     });
 
     it("deploys a sandbox with the New Sandbox dialog", async () => {

@@ -137,10 +137,12 @@ everything still goes by URI and kind.
   picks one of them or None. `#refile` moves the colors with the folder, as
   it moves the empty and collapsed ones (a folder moved onto a colored one
   keeps its own color, or takes the other's when it has none); Remove Folder
-  drops them, so a folder made again under the name starts uncolored. The
-  row is drawn by the connections' decoration: `folderColorUriOf` gives it a
-  `mariadb-connection:/<color>/folder` URI. The overview tints the folder's
-  whole tile with it (see overview.md).
+  (`ConnectionsTreeProvider.removeFolder`, beside `#refile`) drops them
+  with the folder's other entries, so one made again under the name starts
+  afresh. The
+  row is drawn by the connections' decoration: `colorUriOf(color, "folder",
+  path)` gives it a `mariadb-connection:/<color>/folder` URI. The overview
+  tints the folder's whole tile with it (see overview.md).
 - The editor's **Folder** field (Basic tab) offers every folder in use through
   a `<datalist>`; the panel lists them on `ready`, and a failed listing just
   leaves the list empty.

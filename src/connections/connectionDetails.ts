@@ -116,3 +116,16 @@ export const captionProblem = (caption: string): string | undefined => {
 export const isConnectionColor = (value: unknown): value is ConnectionColor => {
     return CONNECTION_COLORS.some((color) => { return color === value; });
 };
+
+/**
+ * What a color is called where the user picks it.
+ *
+ * @param color The color; undefined for none.
+ *
+ * @returns Its name, capitalized: `Red`, or `None`.
+ */
+export const colorLabel = (color: ConnectionColor | undefined): string => {
+    return color === undefined
+        ? "None"
+        : color[0]!.toUpperCase() + color.slice(1);
+};

@@ -1886,7 +1886,7 @@ describe("activate", () => {
             });
             expect(panel.webview.posted).toMatchObject([
                 { type: "greeting", showGreeting: true },
-                { type: "connections", showGreeting: true },
+                { type: "connections" },
             ]);
 
             configuration.set("mariadb.overview.showGreeting", false);
@@ -1896,7 +1896,7 @@ describe("activate", () => {
                 expect(panel.webview.posted).toHaveLength(3);
             });
             expect(panel.webview.posted[2])
-                .toMatchObject({ showGreeting: false });
+                .toEqual({ type: "greeting", showGreeting: false });
         });
 
         it("says so when a tile's connection is gone", async () => {

@@ -635,14 +635,6 @@ export const openExplorerDialog = async (
 // --- dialogs --------------------------------------------------------
 
 /**
- * Waits for a dialog's tab and works in its webview.
- *
- * @param title The dialog's tab title.
- * @param work What to do inside it.
- *
- * @returns What `work` returns.
- */
-/**
  * The frame of the webview shown in an area. ExTester's `WebView` and
  * `WebviewView` pick a frame by how much of it lies in their area, and a
  * webview kept while its tab is in the background
@@ -699,29 +691,24 @@ class PanelWebviewView extends WebviewView {
     }
 }
 
-/** The MariaDB Overview's tab title. */
-export const OVERVIEW_TITLE = "MariaDB Overview";
-
 /**
- * Has the MariaDB Overview open and closes it again. It opens the first
- * time the Connections view is shown in a window, which is otherwise
- * whenever a test happens to show it - over a dialog the test is in, as
- * it did. Once closed, it stays closed for the window.
- *
- * @returns Nothing.
+ * The MariaDB Overview's tab title. `ui-test/settings.json` keeps it from
+ * opening with the Connections view, where it would come up over whatever
+ * dialog a test had open; `00-startup` opens it by its command.
  */
-export const dismissOverview = async (): Promise<void> => {
-    await openSection("Connections");
-    await waitFor(async () => {
-        return (await new EditorView().getOpenEditorTitles())
-            .includes(OVERVIEW_TITLE);
-    }, "the MariaDB Overview", SERVER_TIMEOUT);
-    await new EditorView().closeEditor(OVERVIEW_TITLE);
-};
+export const OVERVIEW_TITLE = "MariaDB Overview";
 
 /** The dialog {@link inDialog} is working in, for {@link submitDialog}. */
 let currentDialog: string | undefined;
 
+/**
+ * Waits for a dialog's tab and works in its webview.
+ *
+ * @param title The dialog's tab title.
+ * @param work What to do inside it.
+ *
+ * @returns What `work` returns.
+ */
 export const inDialog = async <T>(
     title: string,
     work: (view: WebView) => Promise<T>,

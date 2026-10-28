@@ -87,6 +87,7 @@ import {
 } from "./connections/connectionFolders.js";
 import { ConnectionEditorPanel } from "./connections/connectionEditorPanel.js";
 import { withDefaultScheme } from "./connections/connectionUri.js";
+import { colorLabel } from "./connections/connectionDetails.js";
 import type {
     ISandboxApi,
     ISandboxChange,
@@ -149,6 +150,7 @@ import {
     themeColorOf,
 } from "./tree/connectionColors.js";
 import {
+    connectionNodeOf,
     folderOf,
     type ConnectionsNode,
     type IConnectionNode,
@@ -987,16 +989,25 @@ export const activate = (context: vscode.ExtensionContext): void => {
     };
 
     // The overview shows what the Connections view does, so it lists
-    // again whenever the view is redrawn - and when the default connection
-    // or the greeting setting changes, which redraw nothing of their own.
+    // again whenever the whole view is redrawn - a row's own redraw, a
+    // folder opening or a connection connecting, changes nothing it shows -
+    // and when the default connection changes, which redraws nothing.
     const overviewChanged = new vscode.EventEmitter<void>();
+    const greetingChanged = new vscode.EventEmitter<void>();
     context.subscriptions.push(
         overviewChanged,
-        tree.onDidChangeTreeData(() => { overviewChanged.fire(); }),
-        vscode.workspace.onDidChangeConfiguration((event) => {
-            if (event.affectsConfiguration("mariadb.defaultConnection")
-                || event.affectsConfiguration("mariadb.overview")) {
+        greetingChanged,
+        tree.onDidChangeTreeData((node) => {
+            if (node === undefined) {
                 overviewChanged.fire();
+            }
+        }),
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration("mariadb.defaultConnection")) {
+                overviewChanged.fire();
+            }
+            if (event.affectsConfiguration("mariadb.overview.showGreeting")) {
+                greetingChanged.fire();
             }
         }),
     );
@@ -1019,18 +1030,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             throw new Error(`The connection '${ref.uri}' is gone.`);
         }
 
-        return {
-            kind: "connection",
-            uri: stored.uri,
-            ...(stored.path === undefined ? {} : { path: stored.path }),
-            ...(stored.caption === undefined
-                ? {} : { caption: stored.caption }),
-            ...(stored.color === undefined ? {} : { color: stored.color }),
-            connected: connections.isConnected(stored.uri),
-            isDefault: false,
-            connectionKind: stored.kind,
-            expandable: false,
-        };
+        return connectionNodeOf(stored, connections, connectOnOpen());
     };
 
     const overviewHost: IOverviewHost = {
@@ -1043,6 +1043,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             );
         },
         onDidChange: overviewChanged.event,
+        onDidChangeGreeting: greetingChanged.event,
         showGreeting: () => {
             return vscode.workspace.getConfiguration("mariadb.overview")
                 .get<boolean>("showGreeting", true);
@@ -1256,7 +1257,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 const picked = await vscode.window.showQuickPick([
                     ...CONNECTION_COLORS.map((color) => {
                         return {
-                            label: color[0]!.toUpperCase() + color.slice(1),
+                            label: colorLabel(color),
                             color,
                             iconPath: new vscode.ThemeIcon("circle-filled",
                                 themeColorOf(color)),
@@ -1265,7 +1266,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         };
                     }),
                     {
-                        label: "None",
+                        label: colorLabel(undefined),
                         color: undefined,
                         ...(current === undefined
                             ? { description: "current" } : {}),
@@ -1289,12 +1290,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return;
                 }
 
-                await customFolders.remove(node.path);
-                await collapsedFolders.remove(node.path);
-                // A folder made again under the name starts uncolored.
-                await folderColors.remove(node.path);
-                log(`Removed the folder '${node.path}'.`);
-                tree.refresh();
+                await tree.removeFolder(node);
             },
         ),
 

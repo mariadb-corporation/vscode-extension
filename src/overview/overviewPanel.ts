@@ -21,7 +21,7 @@ import { normalizeFolder } from "../connections/connectionFolders.js";
 import type { IStoredConnection } from "../connections/connectionStore.js";
 import {
     connectionLabel,
-    withDefaultScheme,
+    isDefaultConnection,
 } from "../connections/connectionUri.js";
 import type { ConnectionColor } from "../mcp/types.js";
 import { errorText } from "../text.js";
@@ -42,6 +42,8 @@ export interface IOverviewHost {
     list(): Promise<IOverviewSnapshot>;
     /** Fires whenever what `list` answers may have changed. */
     readonly onDidChange: vscode.Event<unknown>;
+    /** Fires whenever what `showGreeting` answers may have changed. */
+    readonly onDidChangeGreeting: vscode.Event<unknown>;
     /** Whether the welcome text is shown. */
     showGreeting(): boolean;
     /** Keeps the welcome text closed from now on. */
@@ -80,16 +82,10 @@ export const overviewSnapshot = (
     defaultConnection: string | undefined,
     folderColors: Record<string, ConnectionColor> = {},
 ): IOverviewSnapshot => {
-    // The setting may predate URIs carrying their scheme; both sides go
-    // through the same fill-in, as the Connections view's rows do.
-    const defaultUri = defaultConnection === undefined
-        ? undefined
-        : withDefaultScheme(defaultConnection);
-
     return {
         connections: stored.map((connection) => {
             const isDefault =
-                withDefaultScheme(connection.uri) === defaultUri;
+                isDefaultConnection(connection.uri, defaultConnection);
 
             return {
                 uri: connection.uri,
@@ -121,7 +117,7 @@ export class OverviewPanel
     extends DialogPanel<OverviewHostMessage, OverviewWebviewMessage> {
     static #current: OverviewPanel | undefined;
 
-    readonly #listening: vscode.Disposable;
+    readonly #listening: vscode.Disposable[];
     /** The listing being sent; a newer one makes it stale. */
     #sending = 0;
 
@@ -136,7 +132,10 @@ export class OverviewPanel
             dark: vscode.Uri.joinPath(extensionUri, "images", "dark",
                 "connectionMariaDB.svg"),
         };
-        this.#listening = host.onDidChange(() => { void this.#send(); });
+        this.#listening = [
+            host.onDidChange(() => { void this.#send(); }),
+            host.onDidChangeGreeting(() => { this.#sendGreeting(); }),
+        ];
         this.panel.webview.html = buildWebviewHtml(this.panel.webview,
             extensionUri, "overview", TITLE);
     }
@@ -170,8 +169,19 @@ export class OverviewPanel
     }
 
     protected onDisposed(): void {
-        this.#listening.dispose();
+        for (const listening of this.#listening) {
+            listening.dispose();
+        }
         OverviewPanel.#current = undefined;
+    }
+
+    /**
+     * Sends whether the welcome text is shown.
+     *
+     * @returns Nothing.
+     */
+    #sendGreeting(): void {
+        this.post({ type: "greeting", showGreeting: this.host.showGreeting() });
     }
 
     /**
@@ -185,11 +195,7 @@ export class OverviewPanel
         try {
             const snapshot = await this.host.list();
             if (sending === this.#sending) {
-                this.post({
-                    type: "connections",
-                    ...snapshot,
-                    showGreeting: this.host.showGreeting(),
-                });
+                this.post({ type: "connections", ...snapshot });
             }
         } catch (error) {
             this.host.log(`The overview could not list the connections: ${
@@ -210,10 +216,7 @@ export class OverviewPanel
     protected async onMessage(message: OverviewWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
-                this.post({
-                    type: "greeting",
-                    showGreeting: this.host.showGreeting(),
-                });
+                this.#sendGreeting();
                 await this.#send();
                 break;
             }

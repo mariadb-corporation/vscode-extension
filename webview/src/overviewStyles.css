@@ -265,8 +265,9 @@ body.vscode-light .overview {
 }
 
 /* A connection's color, down its left edge. */
-.overview-tile.colored {
+.overview-tile-connection.colored {
     border-left-width: 6px;
+    border-left-color: var(--tile-color);
     padding-left: 16px;
 }
 
@@ -314,27 +315,27 @@ body.vscode-light .overview {
  * A folder is tinted rather than painted: its color mixed into the
  * editor's background, so it is calm in any theme and its text keeps the
  * theme's own color. The tint is yellow, or the color the user gave the
- * folder, which the page sets as `--tile-tint` on the tile.
+ * folder, which the page sets as `--tile-color` on the tile.
  */
 .overview-tile-folder {
-    --tile-tint: var(--vscode-charts-yellow);
+    --tile-color: var(--vscode-charts-yellow);
 
-    border-color: color-mix(in srgb, var(--tile-tint) 50%,
+    border-color: color-mix(in srgb, var(--tile-color) 50%,
             var(--vscode-editor-background));
     color: var(--vscode-foreground);
-    background-color: color-mix(in srgb, var(--tile-tint) 15%,
+    background-color: color-mix(in srgb, var(--tile-color) 15%,
             var(--vscode-editor-background));
 }
 
 .overview-tile-folder:hover {
-    background-color: color-mix(in srgb, var(--tile-tint) 25%,
+    background-color: color-mix(in srgb, var(--tile-color) 25%,
             var(--vscode-editor-background));
 }
 
 .overview-tile-folder:active {
-    border-color: color-mix(in srgb, var(--tile-tint) 70%,
+    border-color: color-mix(in srgb, var(--tile-color) 70%,
             var(--vscode-editor-background));
-    background-color: color-mix(in srgb, var(--tile-tint) 10%,
+    background-color: color-mix(in srgb, var(--tile-color) 10%,
             var(--vscode-editor-background));
 }
 
@@ -430,57 +431,4 @@ body.vscode-light .overview {
 .overview-tile-action span {
     width: 16px;
     height: 16px;
-}
-
-/*
- * A connection's More Actions menu (contextMenu.ts), drawn as VS Code
- * draws its own menus; the result view's stylesheet has the same.
- */
-.copyMenu {
-    position: fixed;
-    z-index: 110;
-    min-width: 120px;
-    padding: 4px 0;
-    border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border,
-            transparent));
-    border-radius: 5px;
-    background: var(--vscode-menu-background,
-            var(--vscode-editorWidget-background));
-    color: var(--vscode-menu-foreground, var(--vscode-foreground));
-    box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
-}
-
-.copyMenuItem {
-    display: block;
-    width: calc(100% - 8px);
-    margin: 0 4px;
-    padding: 3px 20px;
-    border: none;
-    border-radius: 3px;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-
-.copyMenuItem:hover:not(:disabled),
-.copyMenuItem:focus-visible {
-    outline: none;
-    background: var(--vscode-menu-selectionBackground,
-            var(--vscode-list-activeSelectionBackground));
-    color: var(--vscode-menu-selectionForeground,
-            var(--vscode-list-activeSelectionForeground));
-}
-
-.copyMenuSeparator {
-    height: 1px;
-    margin: 4px 0;
-    background: var(--vscode-menu-separatorBackground,
-            var(--vscode-panel-border));
-}
-
-.copyMenuItem:disabled {
-    opacity: 0.4;
-    cursor: default;
 }

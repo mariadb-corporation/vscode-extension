@@ -1,0 +1,70 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+/*
+ * The menu `contextMenu.ts` opens - a right-click on an actions cell, a
+ * tile's More Actions on the overview - drawn as VS Code draws its own
+ * menus. It imports this, so every page that opens the menu has it.
+ */
+.copyMenu {
+    position: fixed;
+    z-index: 110;
+    min-width: 120px;
+    padding: 4px 0;
+    border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border,
+            transparent));
+    border-radius: 5px;
+    background: var(--vscode-menu-background,
+            var(--vscode-editorWidget-background));
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
+}
+
+.copyMenuItem {
+    display: block;
+    width: calc(100% - 8px);
+    margin: 0 4px;
+    padding: 3px 20px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.copyMenuItem:hover:not(:disabled),
+.copyMenuItem:focus-visible {
+    outline: none;
+    background: var(--vscode-menu-selectionBackground,
+            var(--vscode-list-activeSelectionBackground));
+    color: var(--vscode-menu-selectionForeground,
+            var(--vscode-list-activeSelectionForeground));
+}
+
+.copyMenuSeparator {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--vscode-menu-separatorBackground,
+            var(--vscode-panel-border));
+}
+
+.copyMenuItem:disabled {
+    opacity: 0.4;
+    cursor: default;
+}

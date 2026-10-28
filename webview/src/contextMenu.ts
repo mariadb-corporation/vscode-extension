@@ -15,6 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import "./contextMenu.css";
 import { dismissOnOutside } from "./dismiss.js";
 import { clampToViewport } from "./position.js";
 

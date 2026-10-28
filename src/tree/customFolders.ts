@@ -63,18 +63,36 @@ export interface IFolderMemento {
     update(key: string, value: unknown): Thenable<void>;
 }
 
+/**
+ * A memento that lasts as long as it does: what the folder stores keep to
+ * where they were given none, in tests.
+ *
+ * @returns The memento.
+ */
+const memoryMemento = (): IFolderMemento => {
+    const values = new Map<string, unknown>();
+
+    return {
+        get: <T>(key: string, defaultValue: T): T => {
+            return values.has(key) ? values.get(key) as T : defaultValue;
+        },
+        update: (key: string, value: unknown) => {
+            values.set(key, value);
+
+            return Promise.resolve();
+        },
+    };
+};
+
 /** A persisted set of folder paths. */
 export class FolderSet {
-    /** Stands in for a memento where none was given. */
-    #memory: string[] = [];
-
     /**
      * @param memento Where the folders persist. Left out, they last as long
      *                as this object does.
      * @param key The key they are kept under in the memento.
      */
     public constructor(
-        private readonly memento?: IFolderMemento,
+        private readonly memento: IFolderMemento = memoryMemento(),
         private readonly key = CUSTOM_FOLDERS_KEY,
     ) { }
 
@@ -82,9 +100,7 @@ export class FolderSet {
      * @returns The folders, normalized and sorted.
      */
     public list(): string[] {
-        const stored = this.memento === undefined
-            ? this.#memory
-            : this.memento.get<string[]>(this.key, []);
+        const stored = this.memento.get<string[]>(this.key, []);
 
         return [...new Set(stored.map(normalizeFolder))]
             .filter((path) => { return path !== ROOT_FOLDER; })
@@ -174,14 +190,7 @@ export class FolderSet {
      * @returns Nothing.
      */
     async #save(folders: string[]): Promise<void> {
-        const unique = [...new Set(folders)];
-        if (this.memento === undefined) {
-            this.#memory = unique;
-
-            return;
-        }
-
-        await this.memento.update(this.key, unique);
+        await this.memento.update(this.key, [...new Set(folders)]);
     }
 }
 
@@ -191,23 +200,21 @@ export class FolderSet {
  * connection is. The colors are the connections' own, by name.
  */
 export class FolderColors {
-    /** Stands in for a memento where none was given. */
-    #memory: Record<string, ConnectionColor> = {};
-
     /**
      * @param memento Where the colors persist. Left out, they last as long
      *                as this object does.
      */
-    public constructor(private readonly memento?: IFolderMemento) { }
+    public constructor(
+        private readonly memento: IFolderMemento = memoryMemento(),
+    ) { }
 
     /**
      * @returns Every colored folder's color, by its normalized path. An
      *          entry that is no folder or no color is left out.
      */
     public all(): Record<string, ConnectionColor> {
-        const stored = this.memento === undefined
-            ? this.#memory
-            : this.memento.get<Record<string, unknown>>(FOLDER_COLORS_KEY, {});
+        const stored =
+            this.memento.get<Record<string, unknown>>(FOLDER_COLORS_KEY, {});
         const colors: Record<string, ConnectionColor> = {};
         for (const [path, color] of Object.entries(stored)) {
             const folder = normalizeFolder(path);
@@ -301,12 +308,6 @@ export class FolderColors {
      * @returns Nothing.
      */
     async #save(colors: Record<string, ConnectionColor>): Promise<void> {
-        if (this.memento === undefined) {
-            this.#memory = colors;
-
-            return;
-        }
-
         await this.memento.update(FOLDER_COLORS_KEY, colors);
     }
 }

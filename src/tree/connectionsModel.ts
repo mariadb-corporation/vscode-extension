@@ -23,11 +23,12 @@ import {
     ROOT_FOLDER,
     allFolders,
     folderNames,
+    subfoldersOf,
 } from "../connections/connectionFolders.js";
 import type { IStoredConnection } from "../connections/connectionStore.js";
 import { hasDiagrams, hasDiagramsSql } from "../modeler/diagramQueries.js";
 import type { DiagramService } from "../modeler/diagramService.js";
-import { withDefaultScheme } from "../connections/connectionUri.js";
+import { isDefaultConnection } from "../connections/connectionUri.js";
 import {
     OBJECT_TYPES,
     type ConnectionColor,
@@ -216,6 +217,45 @@ export const OBJECT_GROUP_LABELS: Record<ObjectType, string> = {
  * children, what a node is called, what happens when a connection is not
  * open - is testable against a fake server.
  */
+/**
+ * A configured connection's node, as the Connections view and its
+ * commands have it - also for the overview, which acts on a connection
+ * through those commands.
+ *
+ * @param connection The connection, as listed.
+ * @param connections What is open, and the default connection.
+ * @param connectOnOpen Whether expanding a closed connection opens it.
+ *
+ * @returns Its node.
+ */
+export const connectionNodeOf = (
+    connection: IStoredConnection,
+    connections: Pick<ConnectionManager, "isConnected" | "defaultConnection">,
+    connectOnOpen: boolean,
+): IConnectionNode => {
+    // Any connection open on it, not only the one the tree browses with:
+    // what the row says, and what disconnecting it closes, is the whole of
+    // what is open on the connection.
+    const connected = connections.isConnected(connection.uri);
+
+    return {
+        kind: "connection",
+        uri: connection.uri,
+        path: connection.path ?? ROOT_FOLDER,
+        ...(connection.caption === undefined
+            ? {}
+            : { caption: connection.caption }),
+        ...(connection.color === undefined
+            ? {}
+            : { color: connection.color }),
+        connected,
+        isDefault: isDefaultConnection(connection.uri,
+            connections.defaultConnection),
+        connectionKind: connection.kind,
+        expandable: connected || connectOnOpen,
+    };
+};
+
 export class ConnectionsModel {
     /**
      * @param connections The open connections and the default one.
@@ -273,19 +313,13 @@ export class ConnectionsModel {
         folder: string,
         stored: IStoredConnection[],
     ): Array<IFolderNode | IConnectionNode> {
-        const depth = folderNames(folder).length;
         const filedIn = stored.map((connection) => {
             return connection.path ?? ROOT_FOLDER;
         });
-        const subfolders = allFolders([
+        const subfolders = subfoldersOf(allFolders([
             ...filedIn,
             ...this.customFolders(),
-        ]).filter((path) => {
-            const names = folderNames(path);
-
-            return names.length === depth + 1
-                && (depth === 0 || path.startsWith(`${folder}/`));
-        }).map((path): IFolderNode => {
+        ]), folder).map((path): IFolderNode => {
             return {
                 kind: "folder",
                 path,
@@ -311,36 +345,12 @@ export class ConnectionsModel {
      * @returns The connection nodes.
      */
     #connectionNodes(stored: IStoredConnection[]): IConnectionNode[] {
-        // The setting may have been written before connections carried their
-        // scheme, and what is listed now always does. Both sides go through
-        // the same fill-in, or the default connection loses its marker.
-        const defaultUri = this.connections.defaultConnection === undefined
-            ? undefined
-            : withDefaultScheme(this.connections.defaultConnection);
         // A settings read; once per listing rather than once per row.
         const connectOnOpen = this.connectOnOpen();
 
         return stored.map((connection) => {
-            // Any connection open on it, not only the one the tree
-            // browses with: what the row says, and what disconnecting it
-            // closes, is the whole of what is open on the connection.
-            const connected = this.connections.isConnected(connection.uri);
-
-            return {
-                kind: "connection",
-                uri: connection.uri,
-                path: connection.path ?? ROOT_FOLDER,
-                ...(connection.caption === undefined
-                    ? {}
-                    : { caption: connection.caption }),
-                ...(connection.color === undefined
-                    ? {}
-                    : { color: connection.color }),
-                connected,
-                isDefault: withDefaultScheme(connection.uri) === defaultUri,
-                connectionKind: connection.kind,
-                expandable: connected || connectOnOpen,
-            };
+            return connectionNodeOf(connection, this.connections,
+                connectOnOpen);
         });
     }
 
