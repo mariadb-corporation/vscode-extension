@@ -20,8 +20,9 @@ import { defineConfig, type UserConfig } from "vite";
 
 /**
  * The build of one webview's Preact frontend, beside the result panel's:
- * the connection editor's, New Sandbox's, the MRS dialogs', the Dump and
- * Load dialog's, the MSM dialogs' and the schema model viewer's. Each has
+ * the connection editor's, New Sandbox's, the New Deployment wizard's, the
+ * MRS dialogs', the Dump and Load dialog's, the MSM dialogs' and the schema
+ * model viewer's. Each has
  * a config of its own that names its bundle.
  *
  * It is a browser targeted build beside the extension's Node one: the

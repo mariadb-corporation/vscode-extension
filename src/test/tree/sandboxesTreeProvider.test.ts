@@ -176,6 +176,47 @@ describe("SandboxesTreeProvider", () => {
             .toHaveLength(1);
     });
 
+    it("shows a sandbox while it is being deployed, then the real one",
+        async () => {
+            const api = createApi([running]);
+            const provider = create(api);
+            await provider.getChildren();
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => { release = resolve; });
+
+            const deployed = provider.deploying(
+                { port: 3320, password: "x", serverVersion: "11.8" },
+                () => { return held; },
+            );
+
+            const during = await provider.getChildren();
+            expect(during).toEqual([
+                nodeOf(running),
+                {
+                    kind: "sandbox", port: 3320, version: "11.8",
+                    status: "stopped", action: "deploying",
+                },
+            ]);
+            expect(new SandboxTreeItem(during[1]!).description)
+                .toBe("11.8 · deploying…");
+            expect(new SandboxTreeItem(during[1]!).contextValue)
+                .toBe("mariadbSandbox.busy");
+            // A second deploy on the same port is refused.
+            await expect(provider.deploying(
+                { port: 3320, password: "x" }, () => { return held; }))
+                .rejects.toThrow("The sandbox on port 3320 is already deploying…");
+
+            // The server lists it once deployed.
+            api.instances = [running, stopped];
+            release();
+            await deployed;
+            provider.reload();
+
+            expect(await provider.getChildren()).toEqual([
+                nodeOf(running), nodeOf(stopped),
+            ]);
+        });
+
     it("says it is looking until the list comes back", async () => {
         const provider = create(createApi());
         expect(contextKeys.get(SANDBOXES_VIEW_STATE_CONTEXT_KEY))

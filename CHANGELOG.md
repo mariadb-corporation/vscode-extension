@@ -8,6 +8,13 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Added
 
+- **MariaDB Deployments view.** A second activity bar icon opens a view of
+  the MariaDB deployments you manage: for now every sandbox, in a
+  Sandboxes folder, with its REST Daemons under it. Its `+` opens the New
+  Deployment wizard, which leads on to New Sandbox; a sandbox shows in the
+  view while it is being deployed. A Deployment Vendors view below it
+  lists the places deployments are to be made, none configured yet. The first activity bar entry is now
+  called MariaDB Shell, with a new icon.
 - **Formatting and completion settings.** `mariadb.lsp.indentClauses` and
   `mariadb.lsp.indentRoutineClauses` (on by default) put the clauses of a
   query or DML statement one level deeper than its first line, at the top

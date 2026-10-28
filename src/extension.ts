@@ -124,6 +124,17 @@ import {
 } from "./restd/sandboxRest.js";
 import { restdFor } from "./restd/restdUrl.js";
 import { RESTD_VIEW_ID, RestdTreeProvider } from "./tree/restdTreeProvider.js";
+import {
+    DEPLOYMENTS_VIEW_ID,
+    DeploymentsTreeProvider,
+} from "./tree/deploymentsTreeProvider.js";
+import { DeploymentWizardPanel } from "./deployments/deploymentWizardPanel.js";
+import { redrawWhenShown } from "./tree/redrawWhenShown.js";
+import {
+    VENDORS_VIEW_ID,
+    VendorDecorations,
+    VendorsTreeProvider,
+} from "./tree/vendorsTreeProvider.js";
 import { deleteConnection } from "./connections/connectionStore.js";
 import { SqlModes } from "./connections/sqlModes.js";
 import { ConnectionColorDecorations } from "./tree/connectionColors.js";
@@ -206,7 +217,25 @@ const startServer = async (
 };
 
 /**
- * Shows the Connections and Sandboxes views as busy for as long as the
+ * Shows views as busy - their progress bar - until work settles, however
+ * it settles: its outcome is for the caller.
+ *
+ * @param viewIds The views.
+ * @param work The work.
+ *
+ * @returns Nothing.
+ */
+const showBusyIn = (viewIds: string[], work: Promise<unknown>): void => {
+    const settled = work.catch(() => { return undefined; });
+    for (const viewId of viewIds) {
+        void vscode.window.withProgress({ location: { viewId } }, () => {
+            return settled;
+        });
+    }
+};
+
+/**
+ * Shows the views the server feeds as busy for as long as the
  * server is on its way up, which is the one sign of life the view itself can give while
  * its welcome content says what is happening.
  *
@@ -221,16 +250,11 @@ const showStartupInView = (starter: ServerStarter): void => {
             || phase === "installing"
             || phase === "starting";
         if (underWay && !busy) {
-            const done = new Promise<void>((resolve) => {
+            // They all wait on the same server.
+            showBusyIn([CONNECTIONS_VIEW_ID, SANDBOXES_VIEW_ID,
+                DEPLOYMENTS_VIEW_ID], new Promise<void>((resolve) => {
                 busy = resolve;
-            });
-            // Both views wait on the same server.
-            for (const viewId of [CONNECTIONS_VIEW_ID, SANDBOXES_VIEW_ID]) {
-                void vscode.window.withProgress(
-                    { location: { viewId } },
-                    () => { return done; },
-                );
-            }
+            }));
         } else if (!underWay && busy) {
             busy();
             busy = undefined;
@@ -471,6 +495,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const restdTree = new RestdTreeProvider(async () => {
         return (await restdApi()).getStatus();
     }, log, starter);
+    // Every deployment, drawn from the two views above: the sandboxes,
+    // each with its REST Daemons.
+    const deployments = new DeploymentsTreeProvider(
+        { sandboxes, daemons: restdTree }, log, starter);
     // A failed setup's full text, for its row to open; kept beside the
     // task logs.
     restdUrl = async (uri, schema) => {
@@ -658,6 +686,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const restdView = vscode.window.createTreeView(RESTD_VIEW_ID, {
         treeDataProvider: restdTree,
     });
+    const deploymentsView = vscode.window.createTreeView(DEPLOYMENTS_VIEW_ID, {
+        treeDataProvider: deployments,
+        showCollapseAll: true,
+    });
+    // Where deployments can be made; none is configured yet.
+    const vendorsView = vscode.window.createTreeView(VENDORS_VIEW_ID, {
+        treeDataProvider: new VendorsTreeProvider(),
+    });
     const restdCommands = new RestdCommands({
         extensionUri: context.extensionUri,
         connect: (uri) => {
@@ -677,7 +713,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
         log,
     });
     context.subscriptions.push(restdTree, restdView,
-        ...restdCommands.register());
+        ...restdCommands.register(),
+        // The two containers' views follow each other while one is hidden.
+        redrawWhenShown(sandboxesView, sandboxes),
+        redrawWhenShown(restdView, restdTree),
+        redrawWhenShown(deploymentsView, deployments));
 
     context.subscriptions.push(...mrsCommands.register());
     // Dumps, loads, copies, exports and imports run as tasks in the server;
@@ -806,9 +846,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
         // Draws a connection's color on its row (see connectionColors.ts).
         vscode.window.registerFileDecorationProvider(
             new ConnectionColorDecorations()),
+        // Grays out the vendors not configured (see vendorsTreeProvider.ts).
+        vscode.window.registerFileDecorationProvider(new VendorDecorations()),
+        vendorsView,
         tree,
         sandboxes,
         sandboxesView,
+        deployments,
+        deploymentsView,
         editors,
         statementDots,
         { dispose: stopFollowingSqlModes },
@@ -1165,6 +1210,20 @@ export const activate = (context: vscode.ExtensionContext): void => {
             },
         ),
 
+        vscode.commands.registerCommand("mariadb.newDeployment", () => {
+            DeploymentWizardPanel.show(context.extensionUri, {
+                newSandbox: () => {
+                    void vscode.commands.executeCommand("mariadb.addSandbox");
+                },
+                log,
+            });
+        }),
+        vscode.commands.registerCommand("mariadb.refreshDeployments", () => {
+            // What the Deployments view draws from, read again.
+            sandboxes.reload();
+            restdTree.refresh();
+        }),
+
         vscode.commands.registerCommand("mariadb.refreshSandboxes", () => {
             // The one thing that reads the list again on its own account,
             // as Refresh is for the connections.
@@ -1196,11 +1255,16 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return (await connections.listStoredConnections())
                         .map((stored) => { return stored.uri; });
                 },
-                withProgress: (work) => {
-                    return Promise.resolve(vscode.window.withProgress(
-                        { location: { viewId: SANDBOXES_VIEW_ID } },
-                        work,
-                    ));
+                // The new sandbox's row shows while it deploys, and both
+                // views that list it are busy.
+                withProgress: (options, work) => {
+                    return sandboxes.deploying(options, () => {
+                        const deploy = work();
+                        showBusyIn([SANDBOXES_VIEW_ID, DEPLOYMENTS_VIEW_ID],
+                            deploy);
+
+                        return deploy;
+                    });
                 },
                 certificateTrusted: async () => {
                     return (await (await restdApi()).certificateStatus())
@@ -1223,9 +1287,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return deployed.message;
                 },
                 onCreated: () => {
-                    // The store has dropped its list, so this reads it.
-                    // What was done is the deploy's row in the Actions tab.
-                    sandboxes.refresh();
+                    // The sandboxes' views are redrawn as the deploy's row
+                    // goes. What was done is the deploy's row in the
+                    // Actions tab.
                     connectionsChanged();
                 },
                 onFailed: () => {
@@ -1553,6 +1617,7 @@ export const deactivate = async (): Promise<void> => {
     // one left open across a reload would be bound to a server that is gone.
     ConnectionEditorPanel.disposeCurrent();
     SandboxEditorPanel.disposeCurrent();
+    DeploymentWizardPanel.disposeCurrent();
     MrsDialogPanel.disposeAll();
     UtilDialogPanel.disposeCurrent();
     MsmDialogPanel.disposeCurrent();

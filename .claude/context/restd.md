@@ -59,9 +59,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 - `src/restd/restdCommands.ts`: the view's and the connection menu's
   commands, `writeRestdLog`.
 - `src/tree/restdTreeProvider.ts`: the view. `deployments()` hands out
-  the list it last showed (fetched if it has shown none; `refresh()`
-  clears it), which `src/restd/restdUrl.ts` matches tree rows against for
-  their request URLs (see mrs.md).
+  one listing, in flight or done, shared by the view, the Deployments
+  view and `src/restd/restdUrl.ts` (which matches tree rows against it
+  for their request URLs, see mrs.md); `refresh()` drops it, a listing a
+  refresh overtook is not kept, and a failed one is not kept either.
 - `src/sandboxes/sandboxFields.ts`: the REST fields, `DEFAULT_RESTD_PORT`,
   `restServiceUrl`, `sandboxRestOptions`.
 - `src/mrs/mrsDialogs.ts`: the `restd` dialog's fields and validation;

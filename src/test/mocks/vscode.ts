@@ -928,14 +928,18 @@ export const window = {
     createTreeView: (id: string, options: unknown) => {
         const expanded = new EventEmitter<{ element: unknown }>();
         const collapsed = new EventEmitter<{ element: unknown }>();
+        const visibility = new EventEmitter<{ visible: boolean }>();
         const view = {
             // What the user has selected; set through `select` below.
             selection: [] as unknown[],
+            visible: true,
             onDidExpandElement: expanded.event,
             onDidCollapseElement: collapsed.event,
+            onDidChangeVisibility: visibility.event,
             dispose: () => {
                 expanded.dispose();
                 collapsed.dispose();
+                visibility.dispose();
             },
         };
         treeViews.push({

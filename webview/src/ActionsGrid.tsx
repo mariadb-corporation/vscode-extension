@@ -695,7 +695,7 @@ export const ActionsGrid = (props: IActionsGridProperties): JSX.Element => {
             // Less the 2px of margin above it, or the grid would be
             // that much taller than the room it has.
             height: "calc(100% - 2px)",
-            placeholder: "Nothing has been run on this connection yet.",
+            placeholder: "No MariaDB Shell action items logged yet.",
             dataTree: true,
             dataTreeChildField: "children",
             // Everything a row leads with is in this one cell: the

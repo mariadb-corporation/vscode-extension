@@ -220,8 +220,8 @@ export const screenshot = async (name: string): Promise<void> => {
     writeFileSync(join(dir, `${name}.png`), png, "base64");
 };
 
-/** The MariaDB activity bar container's views. */
-export const VIEW_CONTAINER = "MariaDB";
+/** The MariaDB Shell activity bar container's views. */
+export const VIEW_CONTAINER = "MariaDB Shell";
 
 /**
  * @param container An activity bar entry.

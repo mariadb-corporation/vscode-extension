@@ -63,9 +63,13 @@ export interface ISandboxEditorHost {
     connectionUris?(): Promise<string[]>;
     /**
      * Wraps the deploy, which can take minutes, in whatever progress the
-     * extension shows for it. Left out, it just runs.
+     * extension shows for it: the views' busy bar, and the new sandbox's
+     * row while it is being deployed. Left out, it just runs.
      */
-    withProgress?<T>(work: () => Promise<T>): Promise<T>;
+    withProgress?<T>(
+        options: ISandboxDeployOptions,
+        work: () => Promise<T>,
+    ): Promise<T>;
     /**
      * Deploys a sandbox with the MariaDB REST Service, where the dialog
      * asks for it: resolves once the sandbox is there, the REST steps
@@ -299,7 +303,7 @@ export class SandboxEditorPanel
             };
             const message = this.host.withProgress === undefined
                 ? await deploy()
-                : await this.host.withProgress(deploy);
+                : await this.host.withProgress(built.options, deploy);
 
             this.host.log(message);
             this.host.onCreated(message);

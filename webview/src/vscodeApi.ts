@@ -15,6 +15,8 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import type { DeploymentWebviewMessage }
+    from "../../src/deployments/deploymentProtocol.js";
 import type { EditorWebviewMessage }
     from "../../src/connections/editorProtocol.js";
 import type { MrsWebviewMessage } from "../../src/mrs/mrsDialogProtocol.js";
@@ -56,7 +58,7 @@ const api = acquireVsCodeApi();
 export const post = <
     T extends WebviewMessage | EditorWebviewMessage | SandboxWebviewMessage
     | MrsWebviewMessage | UtilWebviewMessage | ModelerWebviewMessage
-    | MsmWebviewMessage,
+    | MsmWebviewMessage | DeploymentWebviewMessage,
 >(
     message: T,
 ): void => {

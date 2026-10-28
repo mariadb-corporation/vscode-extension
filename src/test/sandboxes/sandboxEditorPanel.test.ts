@@ -111,7 +111,7 @@ const createHost = (options: {
                     : Promise.resolve(options.connections!);
             },
         }),
-        withProgress: async (work) => {
+        withProgress: async (_options, work) => {
             state.progressed += 1;
 
             return await work();
