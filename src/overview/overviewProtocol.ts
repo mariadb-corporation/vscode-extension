@@ -17,7 +17,10 @@
 
 import type { IReadyMessage } from "../webview/dialogProtocol.js";
 import type { ConnectionKind } from "../mcp/types.js";
-import type { IOverviewSnapshot } from "./overviewModel.js";
+import type {
+    IOverviewDeployment,
+    IOverviewSnapshot,
+} from "./overviewModel.js";
 
 /**
  * What the MariaDB Workbench overview and its host say to each other.
@@ -40,16 +43,28 @@ export interface IOverviewGreetingMessage {
     showGreeting: boolean;
 }
 
-/** The connections could not be listed. */
+/** A section's listing failed: the connections, or the deployments. */
 export interface IOverviewFailedMessage {
     type: "failed";
+    section: "connections" | "deployments";
     message: string;
+}
+
+/**
+ * The deployments, as the Deployments view lists them, sent on `ready`
+ * and whenever they change - on their own, since a sandbox's listing has
+ * nothing to do with the connections'.
+ */
+export interface IOverviewDeploymentsMessage {
+    type: "deployments";
+    deployments: IOverviewDeployment[];
 }
 
 export type OverviewHostMessage =
     | IOverviewGreetingMessage
     | IOverviewConnectionsMessage
-    | IOverviewFailedMessage;
+    | IOverviewFailedMessage
+    | IOverviewDeploymentsMessage;
 
 /** One connection: the two halves of what identifies it. */
 export interface IOverviewConnectionRef {
@@ -83,6 +98,24 @@ export interface IOverviewConnectionActionMessage {
     connection: IOverviewConnectionRef;
 }
 
+/** Open the New Deployment wizard. */
+export interface IOverviewNewDeploymentMessage {
+    type: "newDeployment";
+}
+
+/**
+ * Run one of the Deployments view's commands, from a deployment tile's
+ * menu, on the row it names: the sandbox, or one of its REST Daemons.
+ */
+export interface IOverviewDeploymentCommandMessage {
+    type: "deploymentCommand";
+    command: string;
+    /** The sandbox's port. */
+    port: number;
+    /** The REST Daemon's deployment folder, for a daemon's command. */
+    directory?: string;
+}
+
 /** The welcome text was closed: keep it closed. */
 export interface IOverviewCloseGreetingMessage {
     type: "closeGreeting";
@@ -93,4 +126,6 @@ export type OverviewWebviewMessage =
     | IOverviewOpenMessage
     | IOverviewNewConnectionMessage
     | IOverviewConnectionActionMessage
+    | IOverviewNewDeploymentMessage
+    | IOverviewDeploymentCommandMessage
     | IOverviewCloseGreetingMessage;

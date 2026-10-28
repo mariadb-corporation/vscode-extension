@@ -23,6 +23,8 @@ import {
     folderContents,
     folderTrail,
     type IOverviewConnection,
+    type IOverviewContents,
+    type IOverviewDeployment,
     type IOverviewSnapshot,
 } from "../../src/overview/overviewModel.js";
 import type {
@@ -31,7 +33,7 @@ import type {
     OverviewHostMessage,
     OverviewWebviewMessage,
 } from "../../src/overview/overviewProtocol.js";
-import { openContextMenu } from "./contextMenu.js";
+import { openMenuAt, type IContextMenuItem } from "./contextMenu.js";
 import { loadState, post, saveState } from "./vscodeApi.js";
 
 /**
@@ -43,26 +45,26 @@ import { loadState, post, saveState } from "./vscodeApi.js";
  * SQL editor.
  */
 
-/** The welcome text, the MySQL Shell's own, made to fit. */
-export const GREETING = "Welcome to the MariaDB Shell for VS Code "
-    + "extension.\n\n"
-    + "Click the [New Connection] tile to add a new database connection.\n"
-    + "Click a [Database Connection] tile to open a new SQL editor.";
+/** The welcome text, the first line of the MySQL Shell's. */
+export const GREETING =
+    "Welcome to the MariaDB Shell for VS Code extension.";
 
-/** What the page keeps across a reload: the folder it shows. */
+/** What the page keeps across a reload: the folder each section shows. */
 interface IOverviewState {
     folder: string;
+    deploymentFolder?: string;
 }
 
 /** How long a tile ignores further clicks once clicked. */
 const CLICK_GUARD_MS = 200;
 
-/** What a connection's More Actions menu offers, in order. */
-const CONNECTION_MENU: Array<[string, OverviewConnectionAction] | undefined> = [
-    ["Edit Connection…", "edit"],
-    ["Copy Connection URI", "copyUri"],
-    undefined,
-    ["Delete Connection…", "delete"],
+/** What a connection's More Actions menu offers, in order; `{}` divides. */
+const CONNECTION_MENU: Array<{ label?: string;
+    action?: OverviewConnectionAction; }> = [
+    { label: "Edit Connection…", action: "edit" },
+    { label: "Copy Connection URI", action: "copyUri" },
+    {},
+    { label: "Delete Connection…", action: "delete" },
 ];
 
 /**
@@ -91,20 +93,82 @@ const descriptionOf = (connection: IOverviewConnection): string => {
     return parts.length === 0 ? "Database Connection" : parts.join(" · ");
 };
 
+/**
+ * Opens a menu below an element, as the MySQL Shell's opened below the
+ * button.
+ *
+ * @param anchor The element.
+ * @param items What it offers, in order; one with no label divides.
+ *
+ * @returns Nothing.
+ */
+const openMenuBelow = (anchor: HTMLElement, items: IContextMenuItem[]): void => {
+    const rect = anchor.getBoundingClientRect();
+    openMenuAt({ x: rect.left, y: rect.bottom }, items);
+};
+
+/**
+ * @param deployment A sandbox.
+ *
+ * @returns Its menu, as the host worked it out: each group of commands -
+ *          the sandbox's, then each REST Daemon's - divided from the next.
+ */
+const deploymentMenu = (deployment: IOverviewDeployment): IContextMenuItem[] => {
+    return deployment.menu.filter((group) => { return group.length > 0; })
+        .flatMap((group, index) => {
+            return [
+                ...(index === 0 ? [] : [{}]),
+                ...group.map((entry): IContextMenuItem => {
+                    return {
+                        label: entry.title,
+                        onClick: () => {
+                            post<OverviewWebviewMessage>({
+                                type: "deploymentCommand",
+                                command: entry.command,
+                                port: deployment.port,
+                                ...(entry.directory === undefined
+                                    ? {} : { directory: entry.directory }),
+                            });
+                        },
+                    };
+                }),
+            ];
+        });
+};
+
+/**
+ * @param deployment A sandbox.
+ *
+ * @returns Its icon's classes: its row's codicon, `~spin` made the
+ *          codicon modifier.
+ */
+const deploymentIcon = (deployment: IOverviewDeployment): string => {
+    const [id, modifier] = deployment.icon.split("~");
+
+    return `codicon codicon-${id ?? ""}`
+        + (modifier === undefined ? "" : ` codicon-modifier-${modifier}`);
+};
+
 /** One tile: what it is, and what a click on it does. */
 interface ITileProps {
-    variant: "connection" | "folder" | "back" | "createNew";
+    variant: "connection" | "deployment" | "folder" | "back" | "createNew";
     caption: string;
     description: string;
-    /** Its picture: an `overview-icon-<icon>` class. */
+    /**
+     * Its picture's classes: `overview-icon-<file>` for a mask, or a
+     * codicon's.
+     */
     icon: string;
     /**
      * Its color, as `--tile-color`: down a connection's left edge, over a
      * folder's whole tile.
      */
     color?: string;
+    /** Its icon's color, a theme color's CSS variable. */
+    iconColor?: string;
     title?: string;
-    onOpen(): void;
+    /** What a click does; handed the tile, for a menu to open below it. */
+    onOpen(tile: HTMLElement): void;
     /** The actions shown on hover; a connection's tile only. */
     actions?: {
         onMenu(anchor: HTMLElement): void;
@@ -121,18 +185,19 @@ interface ITileProps {
  * @returns The tile.
  */
 const Tile = (props: ITileProps): preact.JSX.Element => {
-    const { variant, caption, description, icon, color, actions } = props;
+    const { variant, caption, description, icon, color, iconColor, actions } =
+        props;
     const guard = useRef(0);
     const actionsRef = useRef<HTMLDivElement>(null);
 
     // A double click would open two editors; the first click wins.
-    const open = (): void => {
+    const open = (tile: HTMLElement): void => {
         const now = Date.now();
         if (now - guard.current < CLICK_GUARD_MS) {
             return;
         }
         guard.current = now;
-        props.onOpen();
+        props.onOpen(tile);
     };
 
     return (
@@ -145,14 +210,14 @@ const Tile = (props: ITileProps): preact.JSX.Element => {
             style={color === undefined
                 ? undefined
                 : { "--tile-color": `var(--vscode-charts-${color})` }}
-            onClick={open}
+            onClick={(event) => { open(event.currentTarget); }}
             onKeyDown={(event) => {
                 if (event.target !== event.currentTarget) {
                     return;
                 }
                 if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    open();
+                    open(event.currentTarget);
                 } else if (event.key === "a" && actions
                     && actionsRef.current) {
                     // The MySQL Shell's shortcut: A opens the tile's menu.
@@ -161,7 +226,12 @@ const Tile = (props: ITileProps): preact.JSX.Element => {
                 }
             }}
         >
-            <span class={`overview-tile-icon overview-icon-${icon}`} />
+            <span
+                class={`overview-tile-icon ${icon}`}
+                style={iconColor === undefined ? undefined : {
+                    color: `var(--vscode-${iconColor.replaceAll(".", "-")})`,
+                }}
+            />
             <span class="overview-tile-text">
                 <span class="overview-tile-caption">{caption}</span>
                 <span class="overview-tile-description">{description}</span>
@@ -213,13 +283,125 @@ const Tile = (props: ITileProps): preact.JSX.Element => {
     );
 };
 
+/** What a section is filled from: its listing, or why there is none. */
+interface IListing<T> {
+    data?: T;
+    failed?: string;
+}
+
+/**
+ * One section of the page: its title and the way to the folder it shows,
+ * then its tiles - Back, the folders, what the folder holds, and the one
+ * that adds something - or what it says while it has none.
+ *
+ * @param props What it shows.
+ *
+ * @returns The section.
+ */
+const Section = <T,>(props: {
+    title: string;
+    /** What it lists, in the plural: `connections`. */
+    noun: string;
+    shown: string;
+    go(path: string): void;
+    listing: IListing<unknown>;
+    contents?: IOverviewContents<T>;
+    folderDescription: string;
+    item(item: T): preact.JSX.Element;
+    create: { caption: string; description: string; onOpen(): void };
+}): preact.JSX.Element => {
+    const { title, noun, shown, go, listing, contents, create } = props;
+
+    return (
+        <section class="overview-section" aria-label={title}>
+            <div class="overview-heading">
+                <span class="overview-content-title">{title}</span>
+                <nav class="overview-breadcrumb" aria-label={`${title} folder`}>
+                    <button
+                        type="button"
+                        class={"overview-crumb"
+                            + (shown === "/" ? " current" : "")}
+                        onClick={() => { go("/"); }}
+                    >
+                        /
+                    </button>
+                    {folderTrail(shown).map((step) => {
+                        return (
+                            <button
+                                type="button"
+                                key={step.path}
+                                class={"overview-crumb"
+                                    + (step.path === shown ? " current" : "")}
+                                onClick={() => { go(step.path); }}
+                            >
+                                {`${step.name} /`}
+                            </button>
+                        );
+                    })}
+                </nav>
+            </div>
+
+            {listing.failed !== undefined && (
+                <p class="overview-message overview-failed">
+                    The {noun} could not be listed: {listing.failed}
+                </p>
+            )}
+            {contents === undefined && listing.failed === undefined && (
+                <p class="overview-message">
+                    Looking for MariaDB {noun}...
+                </p>
+            )}
+            {contents !== undefined && (
+                <div class="overview-tiles">
+                    {shown !== "/" && (
+                        <Tile
+                            variant="back"
+                            caption="Back"
+                            description="Go up one folder level"
+                            icon="overview-icon-back"
+                            onOpen={() => { go(parentFolder(shown)); }}
+                        />
+                    )}
+                    {contents.folders.map((entry) => {
+                        return (
+                            <Tile
+                                key={`folder:${entry.path}`}
+                                variant="folder"
+                                caption={entry.name}
+                                description={props.folderDescription}
+                                icon="overview-icon-folder"
+                                color={entry.color}
+                                title={entry.path}
+                                onOpen={() => { go(entry.path); }}
+                            />
+                        );
+                    })}
+                    {contents.items.map(props.item)}
+                    <Tile
+                        variant="createNew"
+                        caption={create.caption}
+                        description={create.description}
+                        icon="overview-icon-plus"
+                        onOpen={create.onOpen}
+                    />
+                </div>
+            )}
+        </section>
+    );
+};
+
 export const OverviewPage = (): preact.JSX.Element => {
-    const [snapshot, setSnapshot] = useState<IOverviewSnapshot>();
-    const [failed, setFailed] = useState<string>();
-    const [showGreeting, setShowGreeting] = useState(false);
-    const [folder, setFolder] = useState(() => {
-        return (loadState() as IOverviewState | undefined)?.folder ?? "/";
+    const [kept] = useState(() => {
+        return loadState() as IOverviewState | undefined;
     });
+    const [showGreeting, setShowGreeting] = useState(false);
+    const [connections, setConnections] =
+        useState<IListing<IOverviewSnapshot>>({});
+    const [deployments, setDeployments] =
+        useState<IListing<IOverviewDeployment[]>>({});
+    const [folder, setFolder] = useState(kept?.folder ?? "/");
+    const [deploymentFolder, setDeploymentFolder] =
+        useState(kept?.deploymentFolder ?? "/");
 
     useEffect(() => {
         const onMessage = (event: MessageEvent<OverviewHostMessage>): void => {
@@ -231,17 +413,28 @@ export const OverviewPage = (): preact.JSX.Element => {
                 }
 
                 case "connections": {
-                    setSnapshot({
-                        connections: message.connections,
-                        customFolders: message.customFolders,
-                        folderColors: message.folderColors,
-                    });
-                    setFailed(undefined);
+                    // The message is the snapshot, with its type on top.
+                    setConnections({ data: message });
+                    break;
+                }
+
+                case "deployments": {
+                    setDeployments({ data: message.deployments });
                     break;
                 }
 
                 case "failed": {
-                    setFailed(message.message);
+                    // What was listed before stays, beside why it is stale.
+                    const failed = message.message;
+                    if (message.section === "connections") {
+                        setConnections((listing) => {
+                            return { ...listing, failed };
+                        });
+                    } else {
+                        setDeployments((listing) => {
+                            return { ...listing, failed };
+                        });
+                    }
                     break;
                 }
 
@@ -256,15 +449,28 @@ export const OverviewPage = (): preact.JSX.Element => {
         return () => { window.removeEventListener("message", onMessage); };
     }, []);
 
-    // A folder moved, renamed or emptied away leaves the page in the
+    // A folder moved, renamed or emptied away leaves a section in the
     // nearest one still there.
-    const shown = snapshot === undefined
-        ? folder : existingFolder(snapshot, folder);
+    const snapshot = connections.data;
+    const shown = snapshot === undefined ? folder : existingFolder(
+        snapshot.connections, folder, snapshot.customFolders);
+    const shownDeployments = deployments.data === undefined
+        ? deploymentFolder
+        : existingFolder(deployments.data, deploymentFolder);
     useEffect(() => {
-        saveState({ folder: shown } satisfies IOverviewState);
-    }, [shown]);
-
-    const go = (path: string): void => { setFolder(path); };
+        // The folder asked for follows: a folder made again under a path
+        // the section has left is not to pull it back in unasked.
+        if (shown !== folder) {
+            setFolder(shown);
+        }
+        if (shownDeployments !== deploymentFolder) {
+            setDeploymentFolder(shownDeployments);
+        }
+        saveState({
+            folder: shown,
+            deploymentFolder: shownDeployments,
+        } satisfies IOverviewState);
+    }, [shown, shownDeployments, folder, deploymentFolder]);
 
     const openSqlEditor = (connection: IOverviewConnection): void => {
         post<OverviewWebviewMessage>({
@@ -278,18 +484,10 @@ export const OverviewPage = (): preact.JSX.Element => {
         connection: IOverviewConnection,
         anchor: HTMLElement,
     ): void => {
-        // Below the button, as the MySQL Shell's menu opened.
-        const rect = anchor.getBoundingClientRect();
-        openContextMenu(new MouseEvent("contextmenu", {
-            clientX: rect.left,
-            clientY: rect.bottom,
-        }), CONNECTION_MENU.map((entry) => {
-            if (entry === undefined) {
-                return {};
-            }
-            const [label, action] = entry;
+        openMenuBelow(anchor, CONNECTION_MENU.map((entry): IContextMenuItem => {
+            const { label, action } = entry;
 
-            return {
+            return action === undefined ? {} : {
                 label,
                 onClick: () => {
                     post<OverviewWebviewMessage>({
@@ -301,9 +499,6 @@ export const OverviewPage = (): preact.JSX.Element => {
             };
         }));
     };
-
-    const contents = snapshot === undefined
-        ? undefined : folderContents(snapshot, shown);
 
     return (
         <div class="overview">
@@ -329,107 +524,90 @@ export const OverviewPage = (): preact.JSX.Element => {
                 </section>
             )}
 
-            <div class="overview-heading">
-                <span class="overview-content-title">
-                    Database Connections
-                </span>
-                <nav class="overview-breadcrumb" aria-label="Folder">
-                    <button
-                        type="button"
-                        class={"overview-crumb"
-                            + (shown === "/" ? " current" : "")}
-                        onClick={() => { go("/"); }}
-                    >
-                        /
-                    </button>
-                    {folderTrail(shown).map((step) => {
-                        return (
-                            <button
-                                type="button"
-                                key={step.path}
-                                class={"overview-crumb"
-                                    + (step.path === shown ? " current" : "")}
-                                onClick={() => { go(step.path); }}
-                            >
-                                {`${step.name} /`}
-                            </button>
-                        );
-                    })}
-                </nav>
-            </div>
-
-            {failed !== undefined && (
-                <p class="overview-message overview-failed">
-                    The connections could not be listed: {failed}
-                </p>
-            )}
-            {contents === undefined && failed === undefined && (
-                <p class="overview-message">
-                    Looking for MariaDB connections...
-                </p>
-            )}
-            {contents !== undefined && (
-                <div class="overview-tiles">
-                    {shown !== "/" && (
+            <Section
+                title="Database Connections"
+                noun="connections"
+                shown={shown}
+                go={setFolder}
+                listing={connections}
+                contents={snapshot === undefined ? undefined : folderContents(
+                    snapshot.connections, shown, snapshot.customFolders,
+                    snapshot.folderColors)}
+                folderDescription="Connection Folder"
+                item={(connection) => {
+                    return (
                         <Tile
-                            variant="back"
-                            caption="Back"
-                            description="Go up one folder level"
-                            icon="back"
-                            onOpen={() => { go(parentFolder(shown)); }}
+                            key={`${connection.kind}:${connection.uri}`}
+                            variant="connection"
+                            caption={connection.caption ?? connection.address}
+                            description={descriptionOf(connection)}
+                            icon={`overview-icon-${connection.icon}`}
+                            color={connection.color}
+                            title={connection.uri}
+                            onOpen={() => { openSqlEditor(connection); }}
+                            actions={{
+                                onMenu: (anchor) => {
+                                    openMenu(connection, anchor);
+                                },
+                                onSqlEditor: () => {
+                                    openSqlEditor(connection);
+                                },
+                            }}
                         />
-                    )}
-                    {contents.folders.map((entry) => {
-                        return (
-                            <Tile
-                                key={`folder:${entry.path}`}
-                                variant="folder"
-                                caption={entry.name}
-                                description="Connection Folder"
-                                icon="folder"
-                                color={entry.color}
-                                title={entry.path}
-                                onOpen={() => { go(entry.path); }}
-                            />
-                        );
-                    })}
-                    {contents.connections.map((connection) => {
-                        return (
-                            <Tile
-                                key={`${connection.kind}:${connection.uri}`}
-                                variant="connection"
-                                caption={connection.caption
-                                    ?? connection.address}
-                                description={descriptionOf(connection)}
-                                icon={connection.icon}
-                                color={connection.color}
-                                title={connection.uri}
-                                onOpen={() => { openSqlEditor(connection); }}
-                                actions={{
-                                    onMenu: (anchor) => {
-                                        openMenu(connection, anchor);
-                                    },
-                                    onSqlEditor: () => {
-                                        openSqlEditor(connection);
-                                    },
-                                }}
-                            />
-                        );
-                    })}
-                    <Tile
-                        variant="createNew"
-                        caption="New Connection"
-                        description="Add a new database connection"
-                        icon="plus"
-                        onOpen={() => {
-                            post<OverviewWebviewMessage>({
-                                type: "newConnection",
-                                folder: shown,
-                            });
-                        }}
-                    />
-                </div>
-            )}
+                    );
+                }}
+                create={{
+                    caption: "New Connection",
+                    description: "Add a new database connection",
+                    onOpen: () => {
+                        post<OverviewWebviewMessage>({
+                            type: "newConnection",
+                            folder: shown,
+                        });
+                    },
+                }}
+            />
+
+            <Section
+                title="Database Deployments"
+                noun="deployments"
+                shown={shownDeployments}
+                go={setDeploymentFolder}
+                listing={deployments}
+                contents={deployments.data === undefined ? undefined
+                    : folderContents(deployments.data, shownDeployments)}
+                folderDescription="Deployment Folder"
+                item={(deployment) => {
+                    const caption = `localhost:${String(deployment.port)}`;
+
+                    return (
+                        <Tile
+                            key={`sandbox:${caption}`}
+                            variant="deployment"
+                            caption={caption}
+                            description={deployment.description}
+                            icon={deploymentIcon(deployment)}
+                            iconColor={deployment.iconColor}
+                            title={`Sandbox on port ${String(deployment.port)}`}
+                            onOpen={(tile) => {
+                                const items = deploymentMenu(deployment);
+                                if (items.length > 0) {
+                                    openMenuBelow(tile, items);
+                                }
+                            }}
+                        />
+                    );
+                }}
+                create={{
+                    caption: "New Deployment",
+                    description: "Deploy a new MariaDB server",
+                    onOpen: () => {
+                        post<OverviewWebviewMessage>({
+                            type: "newDeployment",
+                        });
+                    },
+                }}
+            />
         </div>
     );
 };

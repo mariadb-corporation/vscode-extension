@@ -1853,13 +1853,17 @@ describe("activate", () => {
                 activate(createContext() as never);
                 const panel = overviewPanels()[0]!;
                 panel.webview.receive({ type: "ready" });
-                // The greeting, then the listing.
-                await vi.waitFor(() => {
-                    expect(panel.webview.posted).toHaveLength(2);
+                const listed = await vi.waitFor(() => {
+                    const found = panel.webview.posted.find((message) => {
+                        return (message as { type: string }).type
+                            === "connections";
+                    });
+                    expect(found).toBeDefined();
+
+                    return found as {
+                        connections: Array<{ uri: string; kind: string }>;
+                    };
                 });
-                const listed = panel.webview.posted[1] as {
-                    connections: Array<{ uri: string; kind: string }>;
-                };
                 expect(listed.connections.map((connection) => {
                     return connection.uri;
                 })).toEqual(["dba@localhost:3310"]);
@@ -1880,23 +1884,91 @@ describe("activate", () => {
         it("shows or hides the greeting as its setting changes", async () => {
             activate(createContext() as never);
             const panel = overviewPanels()[0]!;
+            const greetings = (): unknown[] => {
+                return panel.webview.posted.filter((message) => {
+                    return (message as { type: string }).type === "greeting";
+                });
+            };
             panel.webview.receive({ type: "ready" });
             await vi.waitFor(() => {
-                expect(panel.webview.posted).toHaveLength(2);
+                expect(greetings()).toEqual(
+                    [{ type: "greeting", showGreeting: true }]);
             });
-            expect(panel.webview.posted).toMatchObject([
-                { type: "greeting", showGreeting: true },
-                { type: "connections" },
-            ]);
 
             configuration.set("mariadb.overview.showGreeting", false);
             fireConfigurationChange("mariadb.overview.showGreeting");
 
             await vi.waitFor(() => {
-                expect(panel.webview.posted).toHaveLength(3);
+                expect(greetings()).toHaveLength(2);
             });
-            expect(panel.webview.posted[2])
+            expect(greetings()[1])
                 .toEqual({ type: "greeting", showGreeting: false });
+        });
+
+        it("lists the sandboxes, and acts on one from its tile's menu",
+            async () => {
+                runtime.sandboxes = [
+                    { port: 3310, version: "12.3.2", status: "running" },
+                ];
+                activate(createContext() as never);
+                const panel = overviewPanels()[0]!;
+                panel.webview.receive({ type: "ready" });
+                await vi.waitFor(() => {
+                    expect(panel.webview.posted).toContainEqual(
+                        expect.objectContaining({
+                            type: "deployments",
+                            deployments: [expect.objectContaining({
+                                port: 3310,
+                                path: "/Sandboxes",
+                                description: "12.3.2 · running",
+                            })],
+                        }));
+                });
+
+                panel.webview.receive({ type: "deploymentCommand",
+                    command: "mariadb.stopSandbox", port: 3310 });
+
+                // The Deployments view's own command, on its own row.
+                await vi.waitFor(() => {
+                    expect(toolCalls().map((call) => { return call.name; }))
+                        .toContain("sandbox.stop");
+                });
+            });
+
+        it("says so when a tile's sandbox is gone", async () => {
+            activate(createContext() as never);
+            const panel = overviewPanels()[0]!;
+
+            panel.webview.receive({ type: "deploymentCommand",
+                command: "mariadb.startSandbox", port: 3399 });
+
+            await vi.waitFor(() => {
+                expect(errorMessages).toEqual(
+                    ["MariaDB: The sandbox on port 3399 is gone."]);
+            });
+        });
+
+        it("runs only what the sandbox's row offers now", async () => {
+            runtime.sandboxes = [
+                { port: 3310, version: "12.3.2", status: "running" },
+            ];
+            activate(createContext() as never);
+            const panel = overviewPanels()[0]!;
+
+            // Drawn while it was stopped, perhaps; it runs now.
+            panel.webview.receive({ type: "deploymentCommand",
+                command: "mariadb.startSandbox", port: 3310 });
+            // Not a command of the Deployments view at all.
+            panel.webview.receive({ type: "deploymentCommand",
+                command: "mariadb.deleteConnection", port: 3310 });
+
+            await vi.waitFor(() => {
+                expect(outputChannels[0]!.lines.filter((line) => {
+                    return line.includes("does not apply to that row now");
+                })).toHaveLength(2);
+            });
+            expect(toolCalls().map((call) => { return call.name; }))
+                .not.toContain("sandbox.start");
         });
 
         it("says so when a tile's connection is gone", async () => {

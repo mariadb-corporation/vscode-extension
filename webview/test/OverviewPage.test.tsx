@@ -21,8 +21,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { posted } from "./setup.js";
 
-import type { IOverviewConnection }
-    from "../../src/overview/overviewModel.js";
+import type {
+    IOverviewConnection,
+    IOverviewDeployment,
+} from "../../src/overview/overviewModel.js";
 import type { OverviewHostMessage }
     from "../../src/overview/overviewProtocol.js";
 import { closeCopyMenu } from "../src/contextMenu.js";
@@ -105,10 +107,11 @@ const click = async (element: Element): Promise<void> => {
 };
 
 /** @returns The breadcrumb's steps. */
-const crumbs = (): string[] => {
-    return [...host.querySelectorAll(".overview-crumb")].map((crumb) => {
-        return crumb.textContent ?? "";
-    });
+const crumbs = (section = 0): string[] => {
+    const breadcrumb = host.querySelectorAll(".overview-breadcrumb")[section];
+
+    return [...breadcrumb?.querySelectorAll(".overview-crumb") ?? []]
+        .map((crumb) => { return crumb.textContent ?? ""; });
 };
 
 beforeEach(() => {
@@ -147,8 +150,11 @@ describe("OverviewPage", () => {
             const order = [...host.querySelectorAll(
                 ".overview-greeting, .overview-heading, .overview-message")]
                 .map((element) => { return element.className; });
+            // Each section's heading, with its own loading line under it.
             expect(order).toEqual([
                 "overview-greeting",
+                "overview-heading",
+                "overview-message",
                 "overview-heading",
                 "overview-message",
             ]);
@@ -330,9 +336,140 @@ describe("OverviewPage", () => {
             await Promise.resolve();
         });
 
-        await send({ type: "failed", message: "no server" });
+        await send({ type: "failed", section: "connections",
+            message: "no server" });
 
         expect(host.querySelector(".overview-failed")?.textContent)
             .toBe("The connections could not be listed: no server");
+    });
+});
+
+describe("Database Deployments", () => {
+    const SANDBOX: IOverviewDeployment = {
+        port: 3310,
+        path: "/Sandboxes",
+        description: "13.1.1 · running · REST Daemon running",
+        icon: "vm-running",
+        iconColor: "testing.iconPassed",
+        // What the host worked out the sandbox and its daemon offer now.
+        menu: [
+            [
+                { command: "mariadb.stopSandbox", title: "Stop Sandbox" },
+                { command: "mariadb.deleteSandbox", title: "Delete Sandbox" },
+            ],
+            [
+                { command: "mariadb.restd.stop", title: "Stop REST Daemon",
+                    directory: "/restd/8443" },
+                { command: "mariadb.restd.openLog",
+                    title: "Open REST Daemon Log", directory: "/restd/8443" },
+            ],
+        ],
+    };
+
+    const mountDeployments = async (): Promise<void> => {
+        await mount(false);
+        await send({ type: "deployments", deployments: [SANDBOX] });
+    };
+
+    /** @returns The captions of the Database Deployments section's tiles. */
+    const deploymentTiles = (): string[] => {
+        const [, section] = host.querySelectorAll(".overview-tiles");
+
+        return [...section?.querySelectorAll(".overview-tile-caption") ?? []]
+            .map((caption) => { return caption.textContent ?? ""; });
+    };
+
+    it("is looked for below the connections, until listed", async () => {
+        await mount(false);
+
+        const titles = [...host.querySelectorAll(".overview-content-title")]
+            .map((title) => { return title.textContent?.trim(); });
+        expect(titles).toEqual(["Database Connections",
+            "Database Deployments"]);
+        expect(host.textContent).toContain("Looking for MariaDB deployments");
+    });
+
+    it("files the sandboxes in their folder, with New Deployment",
+        async () => {
+            await mountDeployments();
+
+            expect(deploymentTiles()).toEqual(["Sandboxes", "New Deployment"]);
+
+            await click(tile("Sandboxes"));
+
+            expect(deploymentTiles()).toEqual(
+                ["Back", "localhost:3310", "New Deployment"]);
+            expect(crumbs(1)).toEqual(["/", "Sandboxes /"]);
+            // The connections' section stays where it was.
+            expect(crumbs(0)).toEqual(["/"]);
+            const sandbox = tile("localhost:3310");
+            expect(sandbox.querySelector(".overview-tile-description")
+                ?.textContent).toBe("13.1.1 · running · REST Daemon running");
+            // Its row's codicon, in its row's color.
+            const icon = sandbox.querySelector<HTMLElement>(
+                ".codicon-vm-running")!;
+            expect(icon.style.color).toBe("var(--vscode-testing-iconPassed)");
+        });
+
+    it("opens a sandbox's menu on its tile: what the host sent, by group",
+        async () => {
+            await mountDeployments();
+            await click(tile("Sandboxes"));
+            posted.length = 0;
+
+            await click(tile("localhost:3310"));
+            const menu = [...document.querySelectorAll(
+                ".copyMenuItem, .copyMenuSeparator")];
+
+            expect(menu.map((item) => { return item.textContent; })).toEqual([
+                "Stop Sandbox",
+                "Delete Sandbox",
+                "",
+                "Stop REST Daemon",
+                "Open REST Daemon Log",
+            ]);
+            expect(posted).toEqual([]);
+
+            await click(menu[3]!);
+            expect(posted).toEqual([{
+                type: "deploymentCommand",
+                command: "mariadb.restd.stop",
+                port: 3310,
+                directory: "/restd/8443",
+            }]);
+        });
+
+    it("opens no menu where nothing applies, and spins while busy",
+        async () => {
+            await mount(false);
+            await send({ type: "deployments", deployments: [
+                { ...SANDBOX, icon: "loading~spin", menu: [[]] },
+            ] });
+            await click(tile("Sandboxes"));
+
+            await click(tile("localhost:3310"));
+
+            expect(document.querySelectorAll(".copyMenuItem")).toHaveLength(0);
+            expect(tile("localhost:3310").querySelector(
+                ".codicon-loading.codicon-modifier-spin")).not.toBeNull();
+        });
+
+    it("opens the New Deployment wizard", async () => {
+        await mountDeployments();
+        posted.length = 0;
+
+        await click(tile("New Deployment"));
+
+        expect(posted).toEqual([{ type: "newDeployment" }]);
+    });
+
+    it("says why the deployments could not be listed", async () => {
+        await mount(false);
+
+        await send({ type: "failed", section: "deployments",
+            message: "no sandboxes" });
+
+        expect(host.textContent)
+            .toContain("The deployments could not be listed: no sandboxes");
     });
 });

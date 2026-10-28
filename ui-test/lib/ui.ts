@@ -696,7 +696,7 @@ class PanelWebviewView extends WebviewView {
  * opening with the Connections view, where it would come up over whatever
  * dialog a test had open; `00-startup` opens it by its command.
  */
-export const OVERVIEW_TITLE = "MariaDB Overview";
+export const OVERVIEW_TITLE = "Overview";
 
 /** The dialog {@link inDialog} is working in, for {@link submitDialog}. */
 let currentDialog: string | undefined;

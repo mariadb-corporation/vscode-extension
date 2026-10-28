@@ -18,10 +18,13 @@
 /*
  * The MariaDB Workbench overview, laid out and colored as the MySQL
  * Shell's DB Connection Overview was. Its tile colors are that
- * extension's own, but for the folders' tint (below); VS Code's theme has
- * none for tiles. The dark ones are the default, the light ones follow the
- * `vscode-light` class VS Code puts on the body.
+ * extension's own, but for a colored folder's tint (below); VS Code's
+ * theme has none for tiles. The dark ones are the default, the light ones
+ * follow the `vscode-light` class VS Code puts on the body.
  */
+
+/* The sandbox tiles' pictures, as the Deployments view's rows have them. */
+@import "@vscode/codicons/dist/codicon.css";
 
 body {
     margin: 0;
@@ -152,14 +155,14 @@ body.vscode-light .overview {
 }
 
 .overview-logo {
-    width: 64px;
-    height: 64px;
+    width: 48px;
+    height: 48px;
 }
 
 .overview-title {
     margin: 10px 0;
-    font-size: 2.2rem;
-    font-weight: 200;
+    font-size: 26px;
+    font-weight: 600;
     text-align: center;
 }
 
@@ -230,6 +233,11 @@ body.vscode-light .overview {
     color: var(--vscode-foreground);
 }
 
+/* The next section, apart from the tiles above it. */
+.overview-section + .overview-section {
+    margin-top: 24px;
+}
+
 .overview-message {
     margin: 12px 0;
 }
@@ -294,32 +302,53 @@ body.vscode-light .overview {
     pointer-events: none;
 }
 
-.overview-tile-createNew,
-.overview-tile-back {
+/* Back, and a folder with no color of its own: plain grey. */
+.overview-tile-back,
+.overview-tile-folder {
     border-color: var(--tile-plain-border);
     background-color: var(--tile-plain-background);
 }
 
-.overview-tile-createNew:hover,
-.overview-tile-back:hover {
+.overview-tile-back:hover,
+.overview-tile-folder:hover {
     background-color: var(--tile-plain-hover-background);
 }
 
-.overview-tile-createNew:active,
-.overview-tile-back:active {
+.overview-tile-back:active,
+.overview-tile-folder:active {
     border-color: var(--tile-plain-active-border);
     background-color: var(--tile-plain-active-background);
 }
 
 /*
- * A folder is tinted rather than painted: its color mixed into the
- * editor's background, so it is calm in any theme and its text keeps the
- * theme's own color. The tint is yellow, or the color the user gave the
- * folder, which the page sets as `--tile-color` on the tile.
+ * New Connection: an outline more than a tile - dashed, its grey faint
+ * over the window's background, so it reads as the place a connection
+ * would go rather than as one more of them.
  */
-.overview-tile-folder {
-    --tile-color: var(--vscode-charts-yellow);
+.overview-tile-createNew {
+    border-style: dashed;
+    border-color: var(--tile-plain-border);
+    background-color: color-mix(in srgb, var(--tile-plain-background) 25%,
+            transparent);
+}
 
+.overview-tile-createNew:hover {
+    background-color: color-mix(in srgb, var(--tile-plain-hover-background)
+            50%, transparent);
+}
+
+.overview-tile-createNew:active {
+    border-color: var(--tile-plain-active-border);
+    background-color: color-mix(in srgb, var(--tile-plain-active-background)
+            60%, transparent);
+}
+
+/*
+ * A folder the user gave a color is tinted rather than painted: the color
+ * mixed into the editor's background, so it is calm in any theme and its
+ * text keeps the theme's own color. The page sets it as `--tile-color`.
+ */
+.overview-tile-folder.colored {
     border-color: color-mix(in srgb, var(--tile-color) 50%,
             var(--vscode-editor-background));
     color: var(--vscode-foreground);
@@ -327,12 +356,12 @@ body.vscode-light .overview {
             var(--vscode-editor-background));
 }
 
-.overview-tile-folder:hover {
+.overview-tile-folder.colored:hover {
     background-color: color-mix(in srgb, var(--tile-color) 25%,
             var(--vscode-editor-background));
 }
 
-.overview-tile-folder:active {
+.overview-tile-folder.colored:active {
     border-color: color-mix(in srgb, var(--tile-color) 70%,
             var(--vscode-editor-background));
     background-color: color-mix(in srgb, var(--tile-color) 10%,
@@ -344,6 +373,16 @@ body.vscode-light .overview {
     align-self: center;
     height: 30px;
     margin-right: 14px;
+}
+
+/* A codicon is a glyph of its own color, not a mask. */
+.overview-tile-icon.codicon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+    mask-image: none;
+    font-size: 26px;
 }
 
 .overview-tile-text {
@@ -363,11 +402,15 @@ body.vscode-light .overview {
     text-overflow: ellipsis;
 }
 
+/* Up to two lines, wrapped, and cut off with "…" past them. */
 .overview-tile-description {
+    display: -webkit-box;
     overflow: hidden;
-    font-size: 0.7rem;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    font-size: 0.65rem;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
 }
 
 /* A connection's actions: a column at its right edge, shown on hover. */

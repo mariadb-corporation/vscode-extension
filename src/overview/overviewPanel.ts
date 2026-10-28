@@ -25,10 +25,24 @@ import {
 } from "../connections/connectionUri.js";
 import type { ConnectionColor } from "../mcp/types.js";
 import { errorText } from "../text.js";
+import type { IDeploymentFolderNode } from "../tree/deploymentsTreeProvider.js";
+import {
+    restdCommandIds,
+    restdState,
+    type IRestdNode,
+} from "../tree/restdTreeProvider.js";
+import {
+    sandboxCommandIds,
+    sandboxDescription,
+    sandboxIcon,
+} from "../tree/sandboxesTreeProvider.js";
 import { connectionIconFor } from "../tree/treeItems.js";
 import { DialogPanel } from "../webview/dialogPanel.js";
 import { buildWebviewHtml } from "../webview/html.js";
-import type { IOverviewSnapshot } from "./overviewModel.js";
+import type {
+    IOverviewDeployment,
+    IOverviewSnapshot,
+} from "./overviewModel.js";
 import type {
     IOverviewConnectionRef,
     OverviewConnectionAction,
@@ -57,6 +71,21 @@ export interface IOverviewHost {
         action: OverviewConnectionAction,
         connection: IOverviewConnectionRef,
     ): Promise<void>;
+    /** The deployments; rejects where they cannot be listed. */
+    listDeployments(): Promise<IOverviewDeployment[]>;
+    /** Fires whenever what `listDeployments` answers may have changed. */
+    readonly onDidChangeDeployments: vscode.Event<unknown>;
+    /** Opens the New Deployment wizard. */
+    newDeployment(): void;
+    /**
+     * Runs a deployment tile's menu entry: one of the Deployments view's
+     * commands on the sandbox, or on one of its REST Daemons.
+     */
+    deploymentCommand(
+        command: string,
+        port: number,
+        directory?: string,
+    ): Promise<void>;
     log(message: string): void;
 }
 
@@ -64,7 +93,7 @@ export interface IOverviewHost {
 export const OVERVIEW_VIEW_TYPE = "mariadb.overview";
 
 /** The tab's title. */
-const TITLE = "MariaDB Overview";
+const TITLE = "Overview";
 
 /**
  * Turns the configured connections into what the overview shows.
@@ -107,9 +136,76 @@ export const overviewSnapshot = (
 };
 
 /**
+ * @param daemons A sandbox's REST Daemons.
+ *
+ * @returns What its tile says of them: the one's state, or how many.
+ */
+const daemonSummary = (daemons: IRestdNode[]): string | undefined => {
+    if (daemons.length === 1) {
+        return `REST Daemon ${restdState(daemons[0]!)}`;
+    }
+
+    return daemons.length > 1
+        ? `${String(daemons.length)} REST Daemons` : undefined;
+};
+
+/**
+ * Turns the Deployments view's folders into what the overview shows: each
+ * sandbox as its row says it, with its icon, and its menu - the commands
+ * that apply to it and its REST Daemons now, by the view's own rules.
+ *
+ * @param folders The folders, as `DeploymentsTreeProvider.listFolders`
+ *                gives them.
+ * @param titleOf A command's title, as the view's menus show it.
+ *
+ * @returns Each sandbox, filed in its folder.
+ */
+export const overviewDeployments = (
+    folders: IDeploymentFolderNode[],
+    titleOf: (command: string) => string,
+): IOverviewDeployment[] => {
+    return folders.flatMap((folder) => {
+        return folder.children.map((sandbox): IOverviewDeployment => {
+            const summary = daemonSummary(sandbox.daemons);
+            const icon = sandboxIcon(sandbox);
+            // Which daemon an entry is for, where there is more than one.
+            const which = (daemon: IRestdNode): string => {
+                return sandbox.daemons.length > 1
+                    ? ` (port ${String(daemon.port)})` : "";
+            };
+
+            return {
+                port: sandbox.port,
+                path: normalizeFolder(folder.label),
+                description: [sandboxDescription(sandbox),
+                    ...(summary === undefined ? [] : [summary])].join(" · "),
+                icon: icon.id,
+                ...(icon.color === undefined ? {} : { iconColor: icon.color }),
+                menu: [
+                    sandboxCommandIds(sandbox).map((command) => {
+                        return { command, title: titleOf(command) };
+                    }),
+                    ...sandbox.daemons.map((daemon) => {
+                        return restdCommandIds(daemon).map((command) => {
+                            return {
+                                command,
+                                title: titleOf(command) + which(daemon),
+                                directory: daemon.directory,
+                            };
+                        });
+                    }),
+                ],
+            };
+        });
+    });
+};
+
+/**
  * The MariaDB Workbench overview: a welcome text and a tile per
- * connection and folder, in an editor tab. A click on a connection's tile
- * opens a SQL editor on it; one on a folder's goes into it.
+ * connection and folder, in an editor tab, and below them the deployments
+ * as the Deployments view lists them. A click on a connection's tile
+ * opens a SQL editor on it, one on a deployment's its menu, one on a
+ * folder's goes into it.
  *
  * One at a time: asking again reveals the one that is up.
  */
@@ -118,8 +214,8 @@ export class OverviewPanel
     static #current: OverviewPanel | undefined;
 
     readonly #listening: vscode.Disposable[];
-    /** The listing being sent; a newer one makes it stale. */
-    #sending = 0;
+    /** Each section's listing being sent; a newer one makes it stale. */
+    readonly #sending = { connections: 0, deployments: 0 };
 
     private constructor(
         extensionUri: vscode.Uri,
@@ -135,6 +231,9 @@ export class OverviewPanel
         this.#listening = [
             host.onDidChange(() => { void this.#send(); }),
             host.onDidChangeGreeting(() => { this.#sendGreeting(); }),
+            host.onDidChangeDeployments(() => {
+                void this.#sendDeployments();
+            }),
         ];
         this.panel.webview.html = buildWebviewHtml(this.panel.webview,
             extensionUri, "overview", TITLE);
@@ -185,25 +284,57 @@ export class OverviewPanel
     }
 
     /**
-     * Lists the connections and sends them, unless a newer listing has
-     * started meanwhile.
+     * Lists one section and sends it, unless a newer listing of it has
+     * started meanwhile; says why where it could not.
+     *
+     * @param section Which.
+     * @param list How it is listed, into the message that carries it.
+     *
+     * @returns Nothing.
+     */
+    async #sendListing(
+        section: "connections" | "deployments",
+        list: () => Promise<OverviewHostMessage>,
+    ): Promise<void> {
+        const sending = ++this.#sending[section];
+        try {
+            const message = await list();
+            if (sending === this.#sending[section]) {
+                this.post(message);
+            }
+        } catch (error) {
+            this.host.log(`The overview could not list the ${section}: ${
+                errorText(error)}`);
+            if (sending === this.#sending[section]) {
+                this.post({ type: "failed", section,
+                    message: errorText(error) });
+            }
+        }
+    }
+
+    /**
+     * Lists the connections and sends them.
      *
      * @returns Nothing.
      */
     async #send(): Promise<void> {
-        const sending = ++this.#sending;
-        try {
-            const snapshot = await this.host.list();
-            if (sending === this.#sending) {
-                this.post({ type: "connections", ...snapshot });
-            }
-        } catch (error) {
-            this.host.log(`The overview could not list the connections: ${
-                errorText(error)}`);
-            if (sending === this.#sending) {
-                this.post({ type: "failed", message: errorText(error) });
-            }
-        }
+        await this.#sendListing("connections", async () => {
+            return { type: "connections", ...await this.host.list() };
+        });
+    }
+
+    /**
+     * Lists the deployments and sends them.
+     *
+     * @returns Nothing.
+     */
+    async #sendDeployments(): Promise<void> {
+        await this.#sendListing("deployments", async () => {
+            return {
+                type: "deployments",
+                deployments: await this.host.listDeployments(),
+            };
+        });
     }
 
     /**
@@ -217,7 +348,8 @@ export class OverviewPanel
         switch (message.type) {
             case "ready": {
                 this.#sendGreeting();
-                await this.#send();
+                // Each as soon as it is listed: neither waits on the other.
+                await Promise.all([this.#send(), this.#sendDeployments()]);
                 break;
             }
 
@@ -240,6 +372,17 @@ export class OverviewPanel
             case "connectionAction": {
                 await this.host.connectionAction(message.action,
                     message.connection);
+                break;
+            }
+
+            case "newDeployment": {
+                this.host.newDeployment();
+                break;
+            }
+
+            case "deploymentCommand": {
+                await this.host.deploymentCommand(message.command,
+                    message.port, message.directory);
                 break;
             }
 

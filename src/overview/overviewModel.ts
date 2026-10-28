@@ -73,74 +73,126 @@ export interface IOverviewFolder {
     color?: ConnectionColor;
 }
 
-/** What one folder holds: its subfolders, sorted, then its connections. */
-export interface IOverviewContents {
+/** What one folder holds: its subfolders, sorted, then its items. */
+export interface IOverviewContents<T> {
     folders: IOverviewFolder[];
-    connections: IOverviewConnection[];
+    items: T[];
 }
 
 /**
- * @param snapshot The connections and folders.
- *
- * @returns Every folder there is: the ones connections are filed in, their
- *          parents, and the ones the user made, as the Connections view has
- *          them.
+ * One entry of a deployment's menu: a command of the Deployments view, and
+ * the row it runs on.
  */
-const knownFolders = (snapshot: IOverviewSnapshot): string[] => {
-    return allFolders([
-        ...snapshot.connections.map((connection) => { return connection.path; }),
-        ...snapshot.customFolders,
-    ]);
-};
+export interface IOverviewCommand {
+    command: string;
+    /** Its title, as the view's menu has it. */
+    title: string;
+    /** The REST Daemon it runs on; the sandbox, where there is none. */
+    directory?: string;
+}
 
 /**
- * @param snapshot The connections and folders.
- * @param folder The folder; `/` for the top level.
- *
- * @returns What the folder holds, as the Connections view shows it:
- *          folders first, then the connections in listing order.
+ * A deployment - a sandbox, so far - as its tile shows it: what the
+ * Deployments view's row says, its icon, and its menu, all as the host
+ * worked them out.
  */
-export const folderContents = (
-    snapshot: IOverviewSnapshot,
-    folder: string,
-): IOverviewContents => {
-    const folders = subfoldersOf(knownFolders(snapshot), folder)
-        .map((path): IOverviewFolder => {
-            const color = snapshot.folderColors[path];
-
-            return {
-                path,
-                name: folderNames(path).at(-1)!,
-                ...(color === undefined ? {} : { color }),
-            };
-        });
-
-    return {
-        folders,
-        connections: snapshot.connections.filter((connection) => {
-            return connection.path === folder;
-        }),
-    };
-};
+export interface IOverviewDeployment {
+    /** The sandbox's port, which names it. */
+    port: number;
+    /** The folder it is in, as the Deployments view files it: `/Sandboxes`. */
+    path: string;
+    /** Its version and state, and its REST Daemons'. */
+    description: string;
+    /** Its row's codicon, `vm-running`, with `~spin` while busy. */
+    icon: string;
+    /** The theme color its icon is drawn in, if any: `testing.iconPassed`. */
+    iconColor?: string;
+    /**
+     * What its menu offers now: the sandbox's commands, then each REST
+     * Daemon's, a group apiece.
+     */
+    menu: IOverviewCommand[][];
+}
 
 /**
- * @param snapshot The connections and folders.
+ * @param folders Every folder there is.
  * @param folder A folder the page was showing.
  *
  * @returns The folder, or the nearest one above it that is still there -
  *          the top level at last - once it was moved or emptied away.
  */
-export const existingFolder = (
-    snapshot: IOverviewSnapshot,
-    folder: string,
-): string => {
-    const known = new Set(knownFolders(snapshot));
+const nearestFolder = (folders: string[], folder: string): string => {
+    const known = new Set(folders);
     let shown = normalizeFolder(folder);
     while (shown !== ROOT_FOLDER && !known.has(shown)) {
         shown = parentFolder(shown);
     }
 
     return shown;
+};
+
+/**
+ * @param items Connections or deployments, each with its folder.
+ * @param extraFolders Folders there are with nothing in them.
+ *
+ * @returns Every folder there is, parents included.
+ */
+const foldersOf = (
+    items: ReadonlyArray<{ path: string }>,
+    extraFolders: readonly string[],
+): string[] => {
+    return allFolders([
+        ...items.map((item) => { return item.path; }),
+        ...extraFolders,
+    ]);
+};
+
+/**
+ * What one folder holds, as the Connections and Deployments views show
+ * it: folders first, then the items in listing order.
+ *
+ * @param items The connections or the deployments.
+ * @param folder The folder; `/` for the top level.
+ * @param extraFolders Folders there are with nothing in them - the ones
+ *        made with New Folder.
+ * @param colors The colors folders were given, by path.
+ *
+ * @returns Its folders and items.
+ */
+export const folderContents = <T extends { path: string }>(
+    items: readonly T[],
+    folder: string,
+    extraFolders: readonly string[] = [],
+    colors: Readonly<Record<string, ConnectionColor>> = {},
+): IOverviewContents<T> => {
+    return {
+        folders: subfoldersOf(foldersOf(items, extraFolders), folder)
+            .map((path): IOverviewFolder => {
+                const color = colors[path];
+
+                return {
+                    path,
+                    name: folderNames(path).at(-1)!,
+                    ...(color === undefined ? {} : { color }),
+                };
+            }),
+        items: items.filter((item) => { return item.path === folder; }),
+    };
+};
+
+/**
+ * @param items The connections or the deployments.
+ * @param folder A folder the page was showing.
+ * @param extraFolders Folders there are with nothing in them.
+ *
+ * @returns The folder, or the nearest one above it that is still there.
+ */
+export const existingFolder = (
+    items: ReadonlyArray<{ path: string }>,
+    folder: string,
+    extraFolders: readonly string[] = [],
+): string => {
+    return nearestFolder(foldersOf(items, extraFolders), folder);
 };
 
 /**

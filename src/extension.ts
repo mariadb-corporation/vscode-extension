@@ -115,6 +115,7 @@ import { sandboxConnectionUri } from "./sandboxes/sandboxFields.js";
 import {
     SandboxesTreeProvider,
     SANDBOXES_VIEW_ID,
+    sandboxCommandIds,
     type ISandboxNode,
 } from "./tree/sandboxesTreeProvider.js";
 import type { IRestdApi } from "./mcp/restdApi.js";
@@ -125,7 +126,11 @@ import {
     type SandboxChange,
 } from "./restd/sandboxRest.js";
 import { restdFor } from "./restd/restdUrl.js";
-import { RESTD_VIEW_ID, RestdTreeProvider } from "./tree/restdTreeProvider.js";
+import {
+    RESTD_VIEW_ID,
+    RestdTreeProvider,
+    restdCommandIds,
+} from "./tree/restdTreeProvider.js";
 import {
     DEPLOYMENTS_VIEW_ID,
     DeploymentsTreeProvider,
@@ -133,6 +138,7 @@ import {
 import { DeploymentWizardPanel } from "./deployments/deploymentWizardPanel.js";
 import {
     OverviewPanel,
+    overviewDeployments,
     overviewSnapshot,
     type IOverviewHost,
 } from "./overview/overviewPanel.js";
@@ -1033,6 +1039,18 @@ export const activate = (context: vscode.ExtensionContext): void => {
         return connectionNodeOf(stored, connections, connectOnOpen());
     };
 
+    // The titles the view's menus show the extension's commands under:
+    // the manifest's own, so the overview's menus read the same.
+    const commandTitles = new Map<string, string>(
+        ((context.extension?.packageJSON as {
+            contributes?: { commands?: Array<{ command: string; title: string }> };
+        } | undefined)?.contributes?.commands ?? []).map((entry) => {
+            return [entry.command, entry.title];
+        }));
+    const commandTitle = (command: string): string => {
+        return commandTitles.get(command) ?? command;
+    };
+
     const overviewHost: IOverviewHost = {
         list: async () => {
             return overviewSnapshot(
@@ -1060,6 +1078,42 @@ export const activate = (context: vscode.ExtensionContext): void => {
             });
         },
         newConnection: (folder) => { addConnectionIn(folder); },
+        listDeployments: async () => {
+            return overviewDeployments(await deployments.listFolders(),
+                commandTitle);
+        },
+        onDidChangeDeployments: deployments.onDidChangeTreeData,
+        newDeployment: () => {
+            void vscode.commands.executeCommand("mariadb.newDeployment");
+        },
+        deploymentCommand: async (command, port, directory) => {
+            await guard(log, async () => {
+                // The row the tile was drawn from, from the same listing.
+                const sandbox = (await deployments.listFolders())
+                    .flatMap((folder) => { return folder.children; })
+                    .find((node) => { return node.port === port; });
+                const node = directory === undefined
+                    ? sandbox
+                    : sandbox?.daemons.find((daemon) => {
+                        return daemon.directory === directory;
+                    });
+                if (node === undefined) {
+                    throw new Error(directory === undefined
+                        ? `The sandbox on port ${String(port)} is gone.`
+                        : "The REST Daemon is gone.");
+                }
+                // Only what the row offers now: the page could have been
+                // drawn before its state changed.
+                const offered = node.kind === "restd"
+                    ? restdCommandIds(node) : sandboxCommandIds(node);
+                if (!offered.includes(command)) {
+                    log(`'${command}' does not apply to that row now.`);
+
+                    return;
+                }
+                await vscode.commands.executeCommand(command, node);
+            });
+        },
         connectionAction: async (action, ref) => {
             await guard(log, async () => {
                 const command = {
@@ -1378,9 +1432,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
             });
         }),
         vscode.commands.registerCommand("mariadb.refreshDeployments", () => {
-            // What the Deployments view draws from, read again.
-            sandboxes.reload();
+            // What the Deployments view draws from, read again. The REST
+            // Daemons first: each redraw of the sandboxes lists the
+            // deployments - the overview's among them - which starts the
+            // daemons' listing, and one begun before the drop would be
+            // thrown away.
             restdTree.refresh();
+            sandboxes.reload();
         }),
 
         vscode.commands.registerCommand("mariadb.refreshSandboxes", () => {

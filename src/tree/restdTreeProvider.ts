@@ -62,6 +62,38 @@ export const restdServerLabel = (node: IRestdDeployment): string => {
 };
 
 /**
+ * @param node A REST Daemon.
+ *
+ * @returns What it is doing: what is being done to it, while something
+ *          is, otherwise running or stopped.
+ */
+export const restdState = (node: IRestdNode): string => {
+    return node.action === undefined ? node.status : `${node.action}…`;
+};
+
+/**
+ * The commands that apply to a REST Daemon now, in its menu's order - what
+ * package.json's `view/item/context` entries offer its row, by the
+ * `contextValue` below (a test holds the two together). Its log, even
+ * while something is being done to it.
+ *
+ * @param node A REST Daemon.
+ *
+ * @returns The command ids.
+ */
+export const restdCommandIds = (node: IRestdNode): string[] => {
+    if (node.action !== undefined) {
+        return ["mariadb.restd.openLog"];
+    }
+
+    return node.status === "running"
+        ? ["mariadb.restd.stop", "mariadb.restd.openInBrowser",
+            "mariadb.restd.openLog", "mariadb.restd.delete"]
+        : ["mariadb.restd.start", "mariadb.restd.openLog",
+            "mariadb.restd.delete"];
+};
+
+/**
  * The item drawn for one deployment. Its `contextValue` is
  * `mariadbRestd.<running|stopped|busy>`, which the buttons switch on.
  */
@@ -69,9 +101,7 @@ export class RestdTreeItem extends vscode.TreeItem {
     public constructor(public readonly node: IRestdNode) {
         super(restdServerLabel(node), vscode.TreeItemCollapsibleState.None);
 
-        const state = node.action === undefined
-            ? node.status
-            : `${node.action}…`;
+        const state = restdState(node);
         this.description = `port ${String(node.port)} · ${state}`;
         this.tooltip = `REST Daemon serving ${restdServerLabel(node)}\n`
             + `URL: ${node.url}\n`

@@ -172,8 +172,8 @@ describe("DeploymentsTreeProvider", () => {
 
             expect(await provider.getChildren(folder))
                 .toEqual([{ ...running, daemons: [] }]);
-            expect(logs).toEqual(
-                ["Failed to list the REST Daemons: Unknown tool"]);
+            expect(logs).toEqual(["The deployments are listed without "
+                + "their REST Daemons: Unknown tool"]);
         });
 
     it("says the listing failed, logging why", async () => {

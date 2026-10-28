@@ -124,7 +124,7 @@
       "mariadb-panel": [
         {
           "id": "mariadb.results",
-          "name": "Results",
+          "name": "MariaDB",
           "type": "webview",
           "icon": "images/light/connectionMariaDB.svg"
         }

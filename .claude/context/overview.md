@@ -1,6 +1,6 @@
 # MariaDB Overview
 
-The MariaDB Overview editor tab: a welcome text headed "MariaDB Workbench"
+The MariaDB Overview editor tab (its tab says just "Overview"): a welcome text headed "MariaDB Workbench"
 and a tile per connection and folder, after the MySQL Shell for VS Code's
 DB Connection Overview (`gui/frontend/src/modules/db-editor/ConnectionBrowser.tsx`
 and `components/ui/ConnectionTile/` in mysql-shell-plugins).
@@ -9,8 +9,8 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 | File | Purpose |
 | --- | --- |
-| `src/overview/overviewModel.ts` | The snapshot the page shows (every connection, the folders made with New Folder), and walking it: `folderContents`, `existingFolder`, `parentFolder`, `folderTrail`. Pure; shared by the webview and the host. |
-| `src/overview/overviewProtocol.ts` | The messages: `greeting`, `connections` / `failed` to the page; `ready`, `open`, `newConnection`, `connectionAction`, `closeGreeting` from it. |
+| `src/overview/overviewModel.ts` | The snapshot the page shows (every connection, the folders made with New Folder) and the deployments, and walking either: `folderContents`, `existingFolder` (generic over anything with a `path`), `folderTrail`. Pure; shared by the webview and the host. |
+| `src/overview/overviewProtocol.ts` | The messages: `greeting`, `connections`, `deployments`, `failed` (with its `section`) to the page; `ready`, `open`, `newConnection`, `connectionAction`, `newDeployment`, `deploymentCommand`, `closeGreeting` from it. |
 | `src/overview/overviewPanel.ts` | `OverviewPanel` (one at a time, on `DialogPanel`), `IOverviewHost`, and `overviewSnapshot`, which turns the stored connections into the snapshot. |
 | `webview/src/OverviewPage.tsx` | The page; `overview.tsx` is its entry (not `Overview.tsx`: macOS's file system is case-insensitive), `overviewStyles.css` its styles, `assets/overview/` the MySQL Shell's icons, `vite.overview.config.ts` its build. |
 
@@ -22,8 +22,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   `mariadb.overview.showOnStartup` (default true) turns that off; the
   view's toolbar (`$(home)`) and **MariaDB: Show MariaDB Overview**
   (`mariadb.showOverview`) open it any time.
-- **The welcome text** is the MySQL Shell's, its DB Notebook paragraph
-  dropped and "a new DB Notebook" made "a new SQL editor"; logo
+- **The welcome text** is the first line of the MySQL Shell's alone,
+  "Welcome to the MariaDB Shell for VS Code extension." (the user dropped
+  the rest); logo
   `images/mariadb-shell-ext.svg`, title "MariaDB Workbench". Its × sets
   `mariadb.overview.showGreeting` to false (globally); the setting turns it
   back on, on an open page too. The MySQL Shell's Learn More /
@@ -31,13 +32,15 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   link to yet.
 - **The tiles** are the MySQL Shell's: 270 x 80, its colors (dark and
   light, by VS Code's `vscode-light` body class, since VS Code's themes
-  have no tile colors), Back and New Connection grey. Folders are not the
-  MySQL Shell's bright orange (the user's call) but a TINT: a theme chart
-  color mixed into the editor background with `color-mix` (15% fill, 50%
-  border), the text in the theme's foreground, so it is calm in any theme.
-  The tint is `--vscode-charts-yellow` (the user's pick, after trying
-  purple, which an uncolored folder then shared with a purple one), or the
-  folder's own color, which the page sets as `--tile-tint` on the tile. A
+  have no tile colors). Folders are not the MySQL Shell's bright orange
+  (the user's call): an uncolored folder is plain grey, as Back is, so it
+  can never be mistaken for a colored one - a yellow default, tried first,
+  looked like a folder colored Yellow. A folder the user gave a color is a
+  TINT: that chart color mixed into the editor background with `color-mix`
+  (15% fill, 50% border), the text in the theme's foreground, so it is calm
+  in any theme; the page sets it as `--tile-color` on the tile. New
+  Connection is an outline: a dashed border over a faint grey (25%, mixed
+  with `transparent`), so it blends into the window. A
   Back tile in a folder, folders first, then connections, then New
   Connection, which files the new one in the folder shown. Above them,
   "Database Connections" and a breadcrumb, `/` and a step per folder.
@@ -48,6 +51,25 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   New SQL Editor. More Actions has Edit Connection…, Copy Connection URI
   and Delete Connection…, the Connections view's own commands.
 
+- **Database Deployments**, a second section below the connections: the
+  Deployments view's folders and sandboxes, walked the same way (its own
+  breadcrumb and Back, its folder kept in the webview state too) and a
+  New Deployment tile that opens the wizard (`mariadb.newDeployment`). A
+  sandbox's tile is `localhost:<port>` with its version and state, and its
+  REST Daemon's (`REST Daemon running`; `2 REST Daemons` for more) - the
+  daemons get no tiles of their own (the user's call). Its icon is its
+  row's (`sandboxIcon`: `vm-running` in `testing.iconPassed`,
+  `vm-outline`, `loading~spin` while busy). **A click opens its menu**
+  (the user's call), below the tile: the commands its row's menu has now,
+  then each REST Daemon's, a group apiece, titled as in the view (a port
+  added where a sandbox has several daemons). **The host works the menu
+  out**, from `sandboxCommandIds` / `restdCommandIds` beside the rows'
+  `contextValue` (`rowCommands.test.ts` holds them to package.json's
+  `when` clauses) and the manifest's titles; the page only draws it. A
+  pick sends `deploymentCommand` with the command id; the host finds the
+  row in the same listing, runs the command only if the row offers it
+  now (the page may be older than the row's state), on that row.
+
 ## Decisions
 
 - **The page is never blank while it waits.** On `ready` the host sends
@@ -57,6 +79,16 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   MariaDB connections..." under them until the tiles come. `greeting` is
   the only message that carries it, sent again when
   `mariadb.overview.showGreeting` changes - with no listing.
+- **The deployments are a listing of their own**:
+  `DeploymentsTreeProvider.listFolders()` (which the view's own listing
+  wraps, its welcome content saying what failed), turned into tiles by
+  `overviewDeployments`. The host sends `deployments` on `ready`, beside
+  the connections and not after them, and whenever the Deployments view
+  redraws; `failed` with `section: "deployments"` says why it could not.
+  One routine (`#sendListing`) lists and sends either section, a newer
+  listing of it winning. On the page both are one `Section` component
+  (heading and breadcrumb, messages, Back, folders, the items, the "New"
+  tile), a `<section aria-label>` the UI test finds by name.
 - **The page walks the folders itself.** The host sends every connection
   and folder at once, so going into a folder costs no message. It sends
   again on `ready`, whenever the whole Connections view is redrawn (a

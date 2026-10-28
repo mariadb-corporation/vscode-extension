@@ -102,33 +102,46 @@ describe("Startup", () => {
         await (await content.getSection("Tasks")).collapse();
     });
 
-    it("opens the MariaDB Overview, greeting", async () => {
+    it("opens the MariaDB Overview, greeting, both sections empty", async () => {
         // By its command: ui-test/settings.json turns off its opening with
         // the view, which the unit tests cover.
         await runCommand("MariaDB: Show MariaDB Overview");
         const found = await inDialog(OVERVIEW_TITLE, async (view) => {
-            const text = async (css: string): Promise<string[]> => {
+            const text = async (locator: By): Promise<string[]> => {
                 return await Promise.all((await view.findWebElements(
-                    By.css(css))).map(async (element) => {
+                    locator)).map(async (element) => {
                     return await element.getText();
                 }));
             };
-            // The listing arrives after the page is up.
+            // The tile captions of the section of that title.
+            const tiles = (section: string): By => {
+                return By.css(`section[aria-label='${section}'] `
+                    + ".overview-tile-caption");
+            };
+            const connections = tiles("Database Connections");
+            const deployments = tiles("Database Deployments");
+            // Each listing arrives after the page is up.
             await waitFor(async () => {
-                return (await text(".overview-tile")).length > 0;
+                return (await text(connections)).length > 0
+                    && (await text(deployments)).length > 0;
             }, "the overview's tiles", SERVER_TIMEOUT);
 
             return {
-                title: await text(".overview-title"),
-                tiles: await text(".overview-tile-caption"),
+                title: await text(By.css(".overview-title")),
+                sections: await text(By.css(".overview-content-title")),
+                connections: await text(connections),
+                deployments: await text(deployments),
             };
         });
         await screenshot("00-overview");
         await new EditorView().closeEditor(OVERVIEW_TITLE);
 
         assert.deepEqual(found.title, ["MariaDB Workbench"]);
-        // No connection yet: only the tile that adds one.
-        assert.deepEqual(found.tiles, ["New Connection"]);
+        assert.deepEqual(found.sections,
+            ["Database Connections", "Database Deployments"]);
+        // Nothing yet: only the tiles that add one.
+        assert.deepEqual(found.connections, ["New Connection"]);
+        assert.deepEqual(found.deployments, ["New Deployment"]);
     });
 
     it("shows the Connections view, listed and empty", async () => {

@@ -59,6 +59,66 @@ const ACTION_CAPTIONS: Record<SandboxAction, string> = {
 };
 
 /**
+ * @param node A sandbox.
+ *
+ * @returns What it is doing: what is being done to it, while something
+ *          is, otherwise running or stopped.
+ */
+export const sandboxState = (node: ISandboxNode): string => {
+    return node.action === undefined ? node.status : ACTION_CAPTIONS[node.action];
+};
+
+/**
+ * @param node A sandbox.
+ *
+ * @returns Its version and what it is doing, as its row's description.
+ */
+export const sandboxDescription = (node: ISandboxNode): string => {
+    return `${node.version ?? "unknown version"} · ${sandboxState(node)}`;
+};
+
+/**
+ * @param node A sandbox.
+ *
+ * @returns Its codicon, with `~spin` while something is done to it, and
+ *          the theme color it is drawn in, if any: its row's icon, and
+ *          its overview tile's.
+ */
+export const sandboxIcon = (
+    node: ISandboxNode,
+): { id: string; color?: string } => {
+    if (node.action !== undefined) {
+        return { id: "loading~spin" };
+    }
+
+    return node.status === "running"
+        ? { id: "vm-running", color: "testing.iconPassed" }
+        : { id: "vm-outline" };
+};
+
+/**
+ * The commands that apply to a sandbox now, in its menu's order - what
+ * package.json's `view/item/context` entries offer its row, by the
+ * `contextValue` below (a test holds the two together). Nothing while
+ * something is being done to it.
+ *
+ * @param node A sandbox.
+ *
+ * @returns The command ids.
+ */
+export const sandboxCommandIds = (node: ISandboxNode): string[] => {
+    if (node.action !== undefined) {
+        return [];
+    }
+
+    return [
+        node.status === "running"
+            ? "mariadb.stopSandbox" : "mariadb.startSandbox",
+        "mariadb.deleteSandbox",
+    ];
+};
+
+/**
  * The item drawn for one sandbox.
  *
  * Its `contextValue` is `mariadbSandbox.<running|stopped|busy>`, which is
@@ -79,10 +139,8 @@ export class SandboxTreeItem extends vscode.TreeItem {
         super(`localhost:${node.port}`, collapsibleState);
 
         const version = node.version ?? "unknown version";
-        const state = node.action === undefined
-            ? node.status
-            : ACTION_CAPTIONS[node.action];
-        this.description = `${version} · ${state}`;
+        const state = sandboxState(node);
+        this.description = sandboxDescription(node);
         this.tooltip = `Sandbox on port ${node.port}\n`
             + `Server version: ${version}\n`
             + `Status: ${state}`;
@@ -90,14 +148,9 @@ export class SandboxTreeItem extends vscode.TreeItem {
             ? `mariadbSandbox.${node.status}`
             : "mariadbSandbox.busy";
 
-        if (node.action !== undefined) {
-            this.iconPath = new vscode.ThemeIcon("loading~spin");
-        } else if (node.status === "running") {
-            this.iconPath = new vscode.ThemeIcon("vm-running",
-                new vscode.ThemeColor("testing.iconPassed"));
-        } else {
-            this.iconPath = new vscode.ThemeIcon("vm-outline");
-        }
+        const icon = sandboxIcon(node);
+        this.iconPath = new vscode.ThemeIcon(icon.id, icon.color === undefined
+            ? undefined : new vscode.ThemeColor(icon.color));
 
         // A port names one sandbox, so it tells rows apart across refreshes.
         this.id = `sandbox:${node.port}`;
