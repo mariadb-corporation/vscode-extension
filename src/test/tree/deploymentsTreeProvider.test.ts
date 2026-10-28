@@ -48,9 +48,10 @@ const daemon: IRestdNode = {
     log_path: "/sandboxes/3310/restd/log/mariadb-restd.log",
     host: "127.0.0.1",
     server_port: 3310,
-    socket: null,
+    pid: 4711,
+    connection_uri: "mariadb://root@127.0.0.1:3310",
     sandbox_port: 3310,
-} as unknown as IRestdNode;
+};
 
 /** A source of rows, as the Sandboxes and REST Daemons views are. */
 interface IFakeSource<T> {

@@ -217,6 +217,24 @@ const startServer = async (
 };
 
 /**
+ * Shows views as busy - their progress bar - until work settles, however
+ * it settles: its outcome is for the caller.
+ *
+ * @param viewIds The views.
+ * @param work The work.
+ *
+ * @returns Nothing.
+ */
+const showBusyIn = (viewIds: string[], work: Promise<unknown>): void => {
+    const settled = work.catch(() => { return undefined; });
+    for (const viewId of viewIds) {
+        void vscode.window.withProgress({ location: { viewId } }, () => {
+            return settled;
+        });
+    }
+};
+
+/**
  * Shows the views the server feeds as busy for as long as the
  * server is on its way up, which is the one sign of life the view itself can give while
  * its welcome content says what is happening.
@@ -232,17 +250,11 @@ const showStartupInView = (starter: ServerStarter): void => {
             || phase === "installing"
             || phase === "starting";
         if (underWay && !busy) {
-            const done = new Promise<void>((resolve) => {
-                busy = resolve;
-            });
             // They all wait on the same server.
-            for (const viewId of [CONNECTIONS_VIEW_ID, SANDBOXES_VIEW_ID,
-                DEPLOYMENTS_VIEW_ID]) {
-                void vscode.window.withProgress(
-                    { location: { viewId } },
-                    () => { return done; },
-                );
-            }
+            showBusyIn([CONNECTIONS_VIEW_ID, SANDBOXES_VIEW_ID,
+                DEPLOYMENTS_VIEW_ID], new Promise<void>((resolve) => {
+                busy = resolve;
+            }));
         } else if (!underWay && busy) {
             busy();
             busy = undefined;
@@ -1248,14 +1260,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 withProgress: (options, work) => {
                     return sandboxes.deploying(options, () => {
                         const deploy = work();
-                        const settled = (): void => { /* reported below */ };
-                        for (const viewId of [SANDBOXES_VIEW_ID,
-                            DEPLOYMENTS_VIEW_ID]) {
-                            void vscode.window.withProgress(
-                                { location: { viewId } },
-                                () => { return deploy.then(settled, settled); },
-                            );
-                        }
+                        showBusyIn([SANDBOXES_VIEW_ID, DEPLOYMENTS_VIEW_ID],
+                            deploy);
 
                         return deploy;
                     });
@@ -1281,9 +1287,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return deployed.message;
                 },
                 onCreated: () => {
-                    // The store has dropped its list, so this reads it.
-                    // What was done is the deploy's row in the Actions tab.
-                    sandboxes.refresh();
+                    // The sandboxes' views are redrawn as the deploy's row
+                    // goes. What was done is the deploy's row in the
+                    // Actions tab.
                     connectionsChanged();
                 },
                 onFailed: () => {

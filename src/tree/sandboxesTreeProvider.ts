@@ -124,8 +124,8 @@ export class SandboxesTreeProvider
     readonly #actions = new Map<number, SandboxAction>();
     /**
      * The sandboxes being deployed, by port, with the version asked for:
-     * shown before the server knows of them, so the deploy - minutes, where
-     * a server is downloaded - has a row to show it is under way.
+     * a stand-in row for each until the server lists it, so the deploy -
+     * minutes, where a server is downloaded - shows it is under way.
      */
     readonly #deploying = new Map<number, string | undefined>();
 
@@ -213,10 +213,7 @@ export class SandboxesTreeProvider
         const instances = await this.store.listInstances();
 
         return this.#withDeploying(instances).map((instance): ISandboxNode => {
-            const action = this.#actions.get(instance.port)
-                ?? (this.#deploying.has(instance.port)
-                    ? "deploying"
-                    : undefined);
+            const action = this.#actions.get(instance.port);
 
             return {
                 kind: "sandbox",
@@ -242,11 +239,9 @@ export class SandboxesTreeProvider
                 return { port, version: version ?? null, status: "stopped" };
             });
 
-        return pending.length === 0
-            ? instances
-            : [...instances, ...pending].sort((a, b) => {
-                return a.port - b.port;
-            });
+        return [...instances, ...pending].sort((a, b) => {
+            return a.port - b.port;
+        });
     }
 
     /**
@@ -263,19 +258,15 @@ export class SandboxesTreeProvider
         options: ISandboxDeployOptions,
         work: () => Promise<T>,
     ): Promise<T> {
-        if (this.#deploying.has(options.port)) {
-            throw new Error(`A sandbox is already being deployed on port `
-                + `${options.port}`);
-        }
-
-        this.#deploying.set(options.port, options.serverVersion);
-        this.refresh();
-        try {
-            return await work();
-        } finally {
-            this.#deploying.delete(options.port);
-            this.refresh();
-        }
+        return await this.#run(options.port, "deploying", async () => {
+            this.#deploying.set(options.port, options.serverVersion);
+            try {
+                return await work();
+            } finally {
+                // Before #run redraws: the stand-in goes with the action.
+                this.#deploying.delete(options.port);
+            }
+        });
     }
 
     /**
@@ -293,7 +284,7 @@ export class SandboxesTreeProvider
      * @returns The server's confirmation. Rejects with the shell's reason.
      */
     public async start(node: ISandboxNode): Promise<ISandboxChange> {
-        return await this.#run(node.port, "starting", async () => {
+        return await this.#change(node.port, "starting", async () => {
             return await this.store.start(node.port);
         });
     }
@@ -306,7 +297,7 @@ export class SandboxesTreeProvider
      * @returns The server's confirmation. Rejects with the shell's reason.
      */
     public async stop(node: ISandboxNode): Promise<ISandboxChange> {
-        return await this.#run(node.port, "stopping", async () => {
+        return await this.#change(node.port, "stopping", async () => {
             return await this.store.stop(node.port);
         });
     }
@@ -321,7 +312,7 @@ export class SandboxesTreeProvider
      * @returns The server's confirmation. Rejects with the shell's reason.
      */
     public async delete(node: ISandboxNode): Promise<ISandboxChange> {
-        return await this.#run(node.port, "deleting", async () => {
+        return await this.#change(node.port, "deleting", async () => {
             if (node.status === "running") {
                 await this.store.stop(node.port);
             }
@@ -342,11 +333,11 @@ export class SandboxesTreeProvider
      *
      * @returns What the work returned.
      */
-    async #run(
+    async #run<T>(
         port: number,
         action: SandboxAction,
-        work: () => Promise<ISandboxChange>,
-    ): Promise<ISandboxChange> {
+        work: () => Promise<T>,
+    ): Promise<T> {
         if (this.#actions.has(port)) {
             throw new Error(`The sandbox on port ${port} is already `
                 + `${ACTION_CAPTIONS[this.#actions.get(port)!]}`);
@@ -355,14 +346,32 @@ export class SandboxesTreeProvider
         this.#actions.set(port, action);
         this.refresh();
         try {
-            const changed = await work();
-            this.log(changed.message);
-
-            return changed;
+            return await work();
         } finally {
             this.#actions.delete(port);
             this.refresh();
         }
+    }
+
+    /**
+     * Starts, stops or deletes a sandbox from its row, logging what the
+     * server said of it.
+     *
+     * @param port The sandbox's port.
+     * @param action What is being done.
+     * @param work The calls to make.
+     *
+     * @returns What the work returned.
+     */
+    async #change(
+        port: number,
+        action: SandboxAction,
+        work: () => Promise<ISandboxChange>,
+    ): Promise<ISandboxChange> {
+        const changed = await this.#run(port, action, work);
+        this.log(changed.message);
+
+        return changed;
     }
 
     /**

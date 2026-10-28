@@ -27,15 +27,13 @@ import { ThemeColor, ThemeIcon, Uri } from "../mocks/vscode.js";
 describe("VendorsTreeProvider", () => {
     const provider = new VendorsTreeProvider();
 
-    it("lists the vendors, none configured", () => {
+    it("lists the vendors", () => {
         const vendors = provider.getChildren();
 
         expect(vendors.map((vendor) => { return vendor.label; })).toEqual([
             "Local Container", "Proxmox", "MariaDB Cloud", "AWS", "Hetzner",
             "Scaleway", "STACKIT", "UpCloud",
         ]);
-        expect(vendors.every((vendor) => { return !vendor.configured; }))
-            .toBe(true);
         expect(provider.getChildren(vendors[0])).toEqual([]);
     });
 
@@ -44,7 +42,6 @@ describe("VendorsTreeProvider", () => {
 
         expect(item.label).toBe("AWS");
         expect(item.description).toBe("not configured");
-        expect(item.contextValue).toBe("mariadbVendor.unconfigured");
         expect((item.iconPath as ThemeIcon).color)
             .toEqual(new ThemeColor("disabledForeground"));
         expect(item.resourceUri?.scheme).toBe(VENDOR_SCHEME);

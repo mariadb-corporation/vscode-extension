@@ -20,7 +20,9 @@
  * stylesheet, which it loads first.
  */
 
-/* Under the title, as New Sandbox has it. */
+/* Under the title, as New Sandbox has it (sandboxStyles.css): not in the
+   shared editorStyles.css, where it would restyle the other dialogs that
+   use the class unstyled. */
 .editor-description {
     margin: 0.35rem 0 0;
     color: var(--vscode-descriptionForeground);

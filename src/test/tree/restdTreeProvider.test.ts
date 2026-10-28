@@ -15,10 +15,14 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import type { IRestdDeployment } from "../../mcp/restdApi.js";
-import { restdServerLabel } from "../../tree/restdTreeProvider.js";
+import {
+    RestdTreeProvider,
+    restdServerLabel,
+} from "../../tree/restdTreeProvider.js";
+import { resetVscodeMock } from "../mocks/vscode.js";
 
 const deployment = (
     extra: Partial<IRestdDeployment> = {},
@@ -45,5 +49,69 @@ describe("restdServerLabel", () => {
     it("names a server that listens on no port by its socket", () => {
         expect(restdServerLabel(deployment({ server_port: null,
             socket: "/tmp/mysql.sock" }))).toBe("/tmp/mysql.sock");
+    });
+});
+
+describe("RestdTreeProvider", () => {
+    beforeEach(() => { resetVscodeMock(); });
+
+    /** A provider over a listing a test resolves by hand. */
+    const create = (): {
+        provider: RestdTreeProvider;
+        calls: () => number;
+        answer: (deployments: IRestdDeployment[]) => void;
+    } => {
+        const pending: Array<(deployments: IRestdDeployment[]) => void> = [];
+        let calls = 0;
+        const provider = new RestdTreeProvider(() => {
+            calls += 1;
+
+            return new Promise((resolve) => { pending.push(resolve); });
+        }, () => { /* no log needed */ });
+
+        return {
+            provider,
+            calls: () => { return calls; },
+            answer: (deployments) => {
+                for (const resolve of pending.splice(0)) {
+                    resolve(deployments);
+                }
+            },
+        };
+    };
+
+    it("shares one listing between the views until refreshed", async () => {
+        const { provider, calls, answer } = create();
+
+        const view = provider.getChildren();
+        const deployments = provider.nodes();
+        expect(calls()).toBe(1);
+        answer([deployment()]);
+        expect(await view).toHaveLength(1);
+        expect(await deployments).toHaveLength(1);
+
+        await provider.deployments();
+        expect(calls()).toBe(1);
+
+        provider.refresh();
+        const again = provider.deployments();
+        expect(calls()).toBe(2);
+        answer([]);
+        expect(await again).toEqual([]);
+    });
+
+    it("drops a listing a refresh overtook", async () => {
+        const { provider, calls, answer } = create();
+        const stale = provider.deployments();
+
+        provider.refresh();
+        const fresh = provider.deployments();
+        expect(calls()).toBe(2);
+        answer([deployment()]);
+        await Promise.all([stale, fresh]);
+
+        // What is kept is the listing made after the refresh.
+        await provider.deployments();
+        expect(calls()).toBe(2);
     });
 });

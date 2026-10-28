@@ -128,7 +128,6 @@ export class DeploymentsTreeProvider
                     vscode.TreeItemCollapsibleState.Expanded);
                 item.id = `deployments:${node.label}`;
                 item.iconPath = new vscode.ThemeIcon("folder");
-                item.contextValue = "mariadbDeploymentFolder";
 
                 return item;
             }
@@ -188,6 +187,9 @@ export class DeploymentsTreeProvider
      *          for.
      */
     async #folders(): Promise<IDeploymentFolderNode[]> {
+        // Both at once: the daemons are wanted whenever there are sandboxes,
+        // and their listing is kept for the request URLs anyway.
+        const daemons = this.#daemons();
         let sandboxes: ISandboxNode[];
         try {
             sandboxes = await this.sources.sandboxes.nodes();
@@ -204,7 +206,7 @@ export class DeploymentsTreeProvider
             return [];
         }
 
-        const daemons = await this.#daemons();
+        const listed = await daemons;
 
         return [{
             kind: "deploymentFolder",
@@ -212,7 +214,7 @@ export class DeploymentsTreeProvider
             children: sandboxes.map((sandbox): IDeploymentSandboxNode => {
                 return {
                     ...sandbox,
-                    daemons: daemons.filter((daemon) => {
+                    daemons: listed.filter((daemon) => {
                         return daemon.sandbox_port === sandbox.port;
                     }),
                 };

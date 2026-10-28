@@ -108,10 +108,12 @@ export class RestdTreeProvider
     readonly #viewState: ViewStateTracker;
     /** The actions under way, by deployment. */
     readonly #actions = new Map<string, RestdAction>();
-    /** The deployments as last listed, for whoever needs them in between. */
-    #listed?: IRestdDeployment[];
-    /** The next redraw shows #listed again rather than listing afresh. */
-    #reuseListed = false;
+    /**
+     * The listing, in flight or done, kept until `refresh()`: the view, the
+     * Deployments view and the request URLs all read it, and they share one
+     * call to the server rather than each making its own.
+     */
+    #listing?: Promise<IRestdDeployment[]>;
 
     public readonly onDidChangeTreeData = this.#onDidChangeTreeData.event;
 
@@ -136,9 +138,9 @@ export class RestdTreeProvider
      */
     public refresh(): void {
         // A collapsed view lists nothing on its own, so the next lookup
-        // reads the list afresh rather than one from before the change.
-        this.#listed = undefined;
-        this.#reuseListed = false;
+        // reads the list afresh rather than one from before the change -
+        // and a listing still in flight is not the answer either.
+        this.#listing = undefined;
         this.#onDidChangeTreeData.fire(undefined);
     }
 
@@ -157,21 +159,10 @@ export class RestdTreeProvider
         }
 
         try {
-            const reuse = this.#reuseListed ? this.#listed : undefined;
-            this.#reuseListed = false;
-            const deployments = reuse ?? await this.list();
-            this.#listed = deployments;
+            const nodes = await this.nodes();
             this.#viewState.listed();
 
-            return deployments.map((deployment): IRestdNode => {
-                const action = this.#actions.get(deployment.directory);
-
-                return {
-                    kind: "restd",
-                    ...deployment,
-                    ...(action === undefined ? {} : { action }),
-                };
-            });
+            return nodes;
         } catch (error) {
             this.log(`Failed to list the REST Daemons: ${errorText(error)}`);
             this.#viewState.failed();
@@ -181,20 +172,27 @@ export class RestdTreeProvider
     }
 
     /**
-     * @returns The deployments as the view last listed them, or a fresh
-     *          list where it has not listed them yet - it starts collapsed.
+     * @returns The deployments as last listed, or a fresh list where there
+     *          is none kept - the view starts collapsed. A listing that
+     *          fails is not kept, so the next look tries again.
      */
     public async deployments(): Promise<IRestdDeployment[]> {
-        if (this.#listed === undefined) {
-            this.#listed = await this.list();
-        }
+        const listing = this.#listing ??= this.list();
+        try {
+            return await listing;
+        } catch (error) {
+            if (this.#listing === listing) {
+                this.#listing = undefined;
+            }
 
-        return this.#listed;
+            throw error;
+        }
     }
 
     /**
      * The deployments as their rows show them, with what is being done to
-     * each: for the Deployments view, which hangs a sandbox's under it.
+     * each: for this view, and the Deployments view, which hangs a
+     * sandbox's under it.
      *
      * @returns The deployments, as `deployments()` hands them out.
      */
@@ -236,8 +234,7 @@ export class RestdTreeProvider
         }
 
         this.#actions.set(node.directory, action);
-        // Only the row's caption changes: no need to ask the server.
-        this.#reuseListed = true;
+        // Only the row's caption changes, so the kept list is drawn again.
         this.#onDidChangeTreeData.fire(undefined);
         try {
             return await work();

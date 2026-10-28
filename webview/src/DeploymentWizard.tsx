@@ -75,9 +75,10 @@ const Choices = <T extends string>({ name, choices, value, onChange }: {
                             disabled={!choice.available}
                             onChange={() => { onChange(choice.value); }}
                         />
-                        <span class={choice.image === undefined
-                            ? `codicon codicon-${choice.icon}`
-                            : `wizard-image wizard-image-${choice.image}`} />
+                        <span class={"codicon" in choice.icon
+                            ? `codicon codicon-${choice.icon.codicon}`
+                            : `wizard-image wizard-image-${choice.icon.image}`}
+                        />
                         <span class="wizard-choice-text">
                             <span class="wizard-choice-label">
                                 {choice.label}

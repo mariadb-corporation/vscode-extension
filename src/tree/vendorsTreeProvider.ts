@@ -27,16 +27,16 @@ export const VENDORS_VIEW_ID = "mariadb.deploymentVendors";
  */
 export const VENDOR_SCHEME = "mariadb-vendor";
 
-/** A row of the Deployment Vendors view: where deployments can be made. */
+/**
+ * A row of the Deployment Vendors view: where deployments can be made.
+ * None can be configured yet, so every one is drawn as not configured.
+ */
 export interface IVendorNode {
-    kind: "vendor";
     /** Names it in the row's id and resource URI. */
     id: string;
     label: string;
     /** The codicon it is drawn with. */
     icon: string;
-    /** Whether the user has set it up; none can be yet. */
-    configured: boolean;
 }
 
 /** The vendors, in the order the view lists them. */
@@ -49,39 +49,29 @@ export const VENDORS: IVendorNode[] = [
     { id: "scaleway", label: "Scaleway", icon: "cloud" },
     { id: "stackit", label: "STACKIT", icon: "cloud" },
     { id: "upcloud", label: "UpCloud", icon: "cloud" },
-].map((vendor): IVendorNode => {
-    return { kind: "vendor", configured: false, ...vendor };
-});
+];
 
 /** The color a vendor that is not configured is drawn in. */
 const UNCONFIGURED_COLOR = "disabledForeground";
 
 /**
- * The item drawn for one vendor. One not configured is grayed out: its
- * icon in the disabled color, and its label through its resource URI,
- * which `VendorDecorations` colors.
+ * The item drawn for one vendor, grayed out as not configured: its icon
+ * in the disabled color, and its label through its resource URI, which
+ * `VendorDecorations` colors.
  */
 export class VendorTreeItem extends vscode.TreeItem {
     public constructor(public readonly node: IVendorNode) {
         super(node.label, vscode.TreeItemCollapsibleState.None);
 
         this.id = `vendor:${node.id}`;
-        this.contextValue = node.configured
-            ? "mariadbVendor.configured"
-            : "mariadbVendor.unconfigured";
-        if (node.configured) {
-            this.iconPath = new vscode.ThemeIcon(node.icon);
-            this.tooltip = node.label;
-        } else {
-            this.iconPath = new vscode.ThemeIcon(node.icon,
-                new vscode.ThemeColor(UNCONFIGURED_COLOR));
-            this.resourceUri = vscode.Uri.from({
-                scheme: VENDOR_SCHEME,
-                path: `/${node.id}`,
-            });
-            this.description = "not configured";
-            this.tooltip = `${node.label}: not configured yet`;
-        }
+        this.iconPath = new vscode.ThemeIcon(node.icon,
+            new vscode.ThemeColor(UNCONFIGURED_COLOR));
+        this.resourceUri = vscode.Uri.from({
+            scheme: VENDOR_SCHEME,
+            path: `/${node.id}`,
+        });
+        this.description = "not configured";
+        this.tooltip = `${node.label}: not configured yet`;
     }
 }
 

@@ -34,13 +34,12 @@ export interface IDeploymentChoice<T extends string> {
     label: string;
     /** What it does, under the caption. */
     description: string;
-    /** The codicon it is drawn with, without the `codicon-` prefix. */
-    icon: string;
     /**
-     * The extension's own image it is drawn with instead, where it has
-     * one: the `wizard-image-<image>` class of the wizard's stylesheet.
+     * What it is drawn with: a codicon, without the `codicon-` prefix, or
+     * the extension's own image, the `wizard-image-<image>` class of the
+     * wizard's stylesheet.
      */
-    image?: string;
+    icon: { codicon: string } | { image: string };
     /** False where the wizard cannot go on from it yet. */
     available: boolean;
 }
@@ -53,14 +52,14 @@ export const DEPLOYMENT_STARTS: Array<IDeploymentChoice<DeploymentStart>> = [
         description: "Deploy a MariaDB server instance, a MariaDB Cluster "
             + "or a simple local MariaDB sandbox instance, and manage it "
             + "from here.",
-        icon: "add",
+        icon: { codicon: "add" },
         available: true,
     },
     {
         value: "import",
         label: "Import an Existing Deployment",
         description: "Manage a MariaDB deployment that is running already.",
-        icon: "cloud-download",
+        icon: { codicon: "cloud-download" },
         available: false,
     },
 ];
@@ -72,23 +71,21 @@ export const DEPLOYMENT_TYPES: Array<IDeploymentChoice<DeploymentType>> = [
         label: "MariaDB Sandbox Instance",
         description: "A MariaDB server on this machine, in the default "
             + "sandbox directory, for development and trying things out.",
-        icon: "vm",
+        icon: { codicon: "vm" },
         available: true,
     },
     {
         value: "standalone",
         label: "MariaDB Standalone Instance",
         description: "A single MariaDB server, set up to run on its own.",
-        icon: "server",
-        image: "standalone",
+        icon: { image: "standalone" },
         available: false,
     },
     {
         value: "cluster",
         label: "MariaDB Cluster",
         description: "Several MariaDB servers that replicate each other.",
-        icon: "server-environment",
-        image: "cluster",
+        icon: { image: "cluster" },
         available: false,
     },
 ];

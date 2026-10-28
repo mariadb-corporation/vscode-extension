@@ -204,7 +204,7 @@ describe("SandboxesTreeProvider", () => {
             // A second deploy on the same port is refused.
             await expect(provider.deploying(
                 { port: 3320, password: "x" }, () => { return held; }))
-                .rejects.toThrow("already being deployed on port 3320");
+                .rejects.toThrow("The sandbox on port 3320 is already deploying…");
 
             // The server lists it once deployed.
             api.instances = [running, stopped];

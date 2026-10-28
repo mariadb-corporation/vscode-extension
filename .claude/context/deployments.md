@@ -56,9 +56,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   reloads.
 - **The rows are the other views' rows**: a sandbox is an `ISandboxNode`
   (plus `daemons`), a daemon an `IRestdNode`, drawn with the same tree
-  items, so the same `contextValue`s and commands apply. The menus'
-  `when` clauses match `view =~ /^mariadb\.(sandboxes|deployments)$/`
-  (and `restDaemons|deployments`).
+  items, so the same `contextValue`s and commands apply. Their menus'
+  `when` clauses name only the `viewItem` (`mariadbSandbox.*`,
+  `mariadbRestd.*`), which only those items produce, so they show in
+  whichever view the rows are in.
 - **A REST Daemons listing that fails** is logged and the sandboxes are
   shown without daemons; a sandbox listing that fails puts the view's
   welcome content on failed, as the Sandboxes view's.
