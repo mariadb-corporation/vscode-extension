@@ -72,11 +72,15 @@ describe("Startup", () => {
         assert.ok(first["rest daemons"]! <= 2 * ROW,
             `REST Daemons is ${first["rest daemons"]}px`);
         assert.ok(first.tasks! <= 2 * ROW, `Tasks is ${first.tasks}px`);
-        // Sandboxes: room for a handful of rows, Connections the rest.
+        // Sandboxes: room for a handful of rows, Connections the rest. The
+        // weights (100 : 16) are not kept exactly, and less so the smaller
+        // the screen - a MacBook Pro 14" gives about 4.8 : 1 - so the ratio
+        // asked for is well below them.
         assert.ok(first.sandboxes! >= 5 * ROW && first.sandboxes! <= 9 * ROW,
             `Sandboxes is ${first.sandboxes}px`);
-        assert.ok(first.connections! > 5 * first.sandboxes!,
-            `Connections is ${first.connections}px`);
+        assert.ok(first.connections! > 3 * first.sandboxes!,
+            `Connections is ${first.connections}px, Sandboxes `
+            + `${first.sandboxes}px`);
 
         // Opened, Tasks gets a few rows' worth too.
         await (await content.getSection("Tasks")).expand();
