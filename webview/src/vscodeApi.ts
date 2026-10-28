@@ -21,6 +21,8 @@ import type { EditorWebviewMessage }
     from "../../src/connections/editorProtocol.js";
 import type { MrsWebviewMessage } from "../../src/mrs/mrsDialogProtocol.js";
 import type { MsmWebviewMessage } from "../../src/msm/msmProtocol.js";
+import type { OverviewWebviewMessage }
+    from "../../src/overview/overviewProtocol.js";
 import type { ModelerWebviewMessage }
     from "../../src/modeler/modelerProtocol.js";
 import type { SandboxWebviewMessage }
@@ -58,7 +60,7 @@ const api = acquireVsCodeApi();
 export const post = <
     T extends WebviewMessage | EditorWebviewMessage | SandboxWebviewMessage
     | MrsWebviewMessage | UtilWebviewMessage | ModelerWebviewMessage
-    | MsmWebviewMessage | DeploymentWebviewMessage,
+    | MsmWebviewMessage | DeploymentWebviewMessage | OverviewWebviewMessage,
 >(
     message: T,
 ): void => {

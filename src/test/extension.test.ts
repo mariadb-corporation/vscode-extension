@@ -35,6 +35,7 @@ import {
     openedDocuments,
     outputChannels,
     registeredCommands,
+    setTreeViewsShown,
     setWarningMessageAnswer,
     warningMessages,
     webviewPanels,
@@ -246,6 +247,7 @@ vi.mock("../mcp/sdkConnector.js", async () => {
 });
 
 const { activate, deactivate } = await import("../extension.js");
+const { OverviewPanel } = await import("../overview/overviewPanel.js");
 
 /** The manifest, for what it contributes. */
 const packageJson = JSON.parse(readFileSync(
@@ -290,6 +292,10 @@ describe("activate", () => {
         runtime.guiConnections = [];
         runtime.paths = {};
         runtime.sandboxes = [];
+        // The mock's views start out shown, which would open the overview
+        // on every activation; its own tests turn this back on.
+        OverviewPanel.disposeCurrent();
+        configuration.set("mariadb.overview.showOnStartup", false);
     });
 
     it("serves grid values opened in editors", () => {
@@ -382,6 +388,7 @@ describe("activate", () => {
             "mariadb.selectRows",
             "mariadb.setDefaultConnection",
             "mariadb.showMcpServerLog",
+            "mariadb.showOverview",
             "mariadb.showTaskLog",
             "mariadb.showTaskOutput",
             "mariadb.startSandbox",
@@ -1751,6 +1758,119 @@ describe("activate", () => {
             expect(errorMessages)
                 .toEqual(["MariaDB: No connection was given."]);
         });
+
+    describe("overview", () => {
+        const overviewPanels = (): typeof webviewPanels => {
+            return webviewPanels.filter((panel) => {
+                return panel.viewType === "mariadb.overview";
+            });
+        };
+
+        beforeEach(() => {
+            configuration.delete("mariadb.overview.showOnStartup");
+        });
+
+        it("opens once the Connections view is first shown, and only then",
+            () => {
+                activate(createContext() as never);
+
+                // The view was shown when the window came up.
+                expect(overviewPanels()).toHaveLength(1);
+                overviewPanels()[0]!.dispose();
+
+                treeViews[0]!.setVisible(false);
+                treeViews[0]!.setVisible(true);
+                expect(overviewPanels()).toHaveLength(1);
+            });
+
+        it("waits for the Connections view to be shown", () => {
+            // The window came up with another activity bar entry open.
+            setTreeViewsShown(false);
+            activate(createContext() as never);
+            expect(overviewPanels()).toEqual([]);
+
+            treeViews[0]!.setVisible(true);
+
+            expect(overviewPanels()).toHaveLength(1);
+        });
+
+        it("leaves it to the command where the setting is off", async () => {
+            configuration.set("mariadb.overview.showOnStartup", false);
+            activate(createContext() as never);
+            treeViews[0]!.setVisible(false);
+            treeViews[0]!.setVisible(true);
+            expect(overviewPanels()).toEqual([]);
+
+            await mockCommands.executeCommand("mariadb.showOverview");
+
+            expect(overviewPanels()).toHaveLength(1);
+        });
+
+        it("opens a SQL editor on the connection whose tile was clicked",
+            async () => {
+                activate(createContext() as never);
+                const panel = overviewPanels()[0]!;
+                panel.webview.receive({ type: "ready" });
+                await vi.waitFor(() => {
+                    expect(panel.webview.posted).toHaveLength(1);
+                });
+                const listed = panel.webview.posted[0] as {
+                    connections: Array<{ uri: string; kind: string }>;
+                };
+                expect(listed.connections.map((connection) => {
+                    return connection.uri;
+                })).toEqual(["dba@localhost:3310"]);
+
+                panel.webview.receive({
+                    type: "open",
+                    connection: listed.connections[0],
+                    editor: "script",
+                });
+
+                await vi.waitFor(() => {
+                    expect(openedDocuments).toHaveLength(1);
+                });
+                expect(openedDocuments[0].getText())
+                    .toContain("-- MariaDB connection: dba@localhost:3310");
+            });
+
+        it("shows or hides the greeting as its setting changes", async () => {
+            activate(createContext() as never);
+            const panel = overviewPanels()[0]!;
+            panel.webview.receive({ type: "ready" });
+            await vi.waitFor(() => {
+                expect(panel.webview.posted).toHaveLength(1);
+            });
+            expect(panel.webview.posted[0])
+                .toMatchObject({ showGreeting: true });
+
+            configuration.set("mariadb.overview.showGreeting", false);
+            fireConfigurationChange("mariadb.overview.showGreeting");
+
+            await vi.waitFor(() => {
+                expect(panel.webview.posted).toHaveLength(2);
+            });
+            expect(panel.webview.posted[1])
+                .toMatchObject({ showGreeting: false });
+        });
+
+        it("says so when a tile's connection is gone", async () => {
+            activate(createContext() as never);
+            const panel = overviewPanels()[0]!;
+
+            panel.webview.receive({
+                type: "open",
+                connection: { uri: "gone@nowhere:3306", kind: "gui" },
+                editor: "script",
+            });
+
+            await vi.waitFor(() => {
+                expect(errorMessages).toEqual([
+                    "MariaDB: The connection 'gone@nowhere:3306' is gone."]);
+            });
+            expect(openedDocuments).toEqual([]);
+        });
+    });
 
     it("is safe to deactivate twice", async () => {
         activate(createContext() as never);

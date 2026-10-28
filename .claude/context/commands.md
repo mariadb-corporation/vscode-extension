@@ -7,6 +7,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | Command | Title | Where |
 | --- | --- | --- |
 | `mariadb.refreshConnections` | Refresh Connections | Connections view title |
+| `mariadb.showOverview` | Show MariaDB Overview | Connections view title (`$(home)`); the palette. Opens the MariaDB Overview (see [overview.md](overview.md)), as the view's first showing does |
 | `mariadb.toolbarAddConnection` | New Connection… | Connections view title (`+`). In the selection's folder, the top level when nothing is selected; hidden from the palette |
 | `mariadb.editConnection` | Edit Connection | Connection context menu |
 | `mariadb.deleteConnection` | Delete Connection | Connection context menu |

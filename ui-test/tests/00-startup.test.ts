@@ -20,7 +20,9 @@ import * as assert from "node:assert/strict";
 import { ActivityBar, By, VSBrowser } from "vscode-extension-tester";
 
 import {
+    inDialog,
     openSection,
+    OVERVIEW_TITLE,
     screenshot,
     VIEW_CONTAINER,
     DEPLOY_TIMEOUT,
@@ -92,6 +94,31 @@ describe("Startup", () => {
         assert.ok(expanded.tasks! >= 4 * ROW && expanded.tasks! <= 9 * ROW,
             `Tasks is ${expanded.tasks}px`);
         await (await content.getSection("Tasks")).collapse();
+    });
+
+    it("opens the MariaDB Overview with the view, greeting", async () => {
+        const found = await inDialog(OVERVIEW_TITLE, async (view) => {
+            const text = async (css: string): Promise<string[]> => {
+                return await Promise.all((await view.findWebElements(
+                    By.css(css))).map(async (element) => {
+                    return await element.getText();
+                }));
+            };
+            // The listing arrives after the page is up.
+            await waitFor(async () => {
+                return (await text(".overview-tile")).length > 0;
+            }, "the overview's tiles", SERVER_TIMEOUT);
+
+            return {
+                title: await text(".overview-title"),
+                tiles: await text(".overview-tile-caption"),
+            };
+        });
+        await screenshot("00-overview");
+
+        assert.deepEqual(found.title, ["MariaDB Workbench"]);
+        // No connection yet: only the tile that adds one.
+        assert.deepEqual(found.tiles, ["New Connection"]);
     });
 
     it("shows the Connections view, listed and empty", async () => {

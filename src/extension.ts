@@ -129,6 +129,12 @@ import {
     DeploymentsTreeProvider,
 } from "./tree/deploymentsTreeProvider.js";
 import { DeploymentWizardPanel } from "./deployments/deploymentWizardPanel.js";
+import {
+    OverviewPanel,
+    overviewSnapshot,
+    type IOverviewHost,
+} from "./overview/overviewPanel.js";
+import type { IOverviewConnectionRef } from "./overview/overviewProtocol.js";
 import { redrawWhenShown } from "./tree/redrawWhenShown.js";
 import {
     VENDORS_VIEW_ID,
@@ -973,6 +979,114 @@ export const activate = (context: vscode.ExtensionContext): void => {
         );
     };
 
+    // The overview shows what the Connections view does, so it lists
+    // again whenever the view is redrawn - and when the default connection
+    // or the greeting setting changes, which redraw nothing of their own.
+    const overviewChanged = new vscode.EventEmitter<void>();
+    context.subscriptions.push(
+        overviewChanged,
+        tree.onDidChangeTreeData(() => { overviewChanged.fire(); }),
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration("mariadb.defaultConnection")
+                || event.affectsConfiguration("mariadb.overview")) {
+                overviewChanged.fire();
+            }
+        }),
+    );
+
+    /**
+     * @param ref A connection the overview names.
+     *
+     * @returns Its node, as the Connections view's commands take it.
+     *          Rejects where it is no longer configured.
+     */
+    const overviewNode = async (
+        ref: IOverviewConnectionRef,
+    ): Promise<IConnectionNode> => {
+        const stored = (await connections.listStoredConnections())
+            .find((connection) => {
+                return connection.uri === ref.uri
+                    && connection.kind === ref.kind;
+            });
+        if (stored === undefined) {
+            throw new Error(`The connection '${ref.uri}' is gone.`);
+        }
+
+        return {
+            kind: "connection",
+            uri: stored.uri,
+            ...(stored.path === undefined ? {} : { path: stored.path }),
+            ...(stored.caption === undefined
+                ? {} : { caption: stored.caption }),
+            ...(stored.color === undefined ? {} : { color: stored.color }),
+            connected: connections.isConnected(stored.uri),
+            isDefault: false,
+            connectionKind: stored.kind,
+            expandable: false,
+        };
+    };
+
+    const overviewHost: IOverviewHost = {
+        list: async () => {
+            return overviewSnapshot(
+                await connections.listStoredConnections(),
+                customFolders.list(),
+                connections.defaultConnection,
+            );
+        },
+        onDidChange: overviewChanged.event,
+        showGreeting: () => {
+            return vscode.workspace.getConfiguration("mariadb.overview")
+                .get<boolean>("showGreeting", true);
+        },
+        closeGreeting: async () => {
+            await vscode.workspace.getConfiguration("mariadb.overview")
+                .update("showGreeting", false,
+                    vscode.ConfigurationTarget.Global);
+        },
+        openSqlEditor: async (ref) => {
+            await guard(log, async () => {
+                await vscode.commands.executeCommand("mariadb.newSqlEditor",
+                    await overviewNode(ref));
+            });
+        },
+        newConnection: (folder) => { addConnectionIn(folder); },
+        connectionAction: async (action, ref) => {
+            await guard(log, async () => {
+                const command = {
+                    edit: "mariadb.editConnection",
+                    copyUri: "mariadb.copyConnectionUri",
+                    delete: "mariadb.deleteConnection",
+                }[action];
+                await vscode.commands.executeCommand(command,
+                    await overviewNode(ref));
+            });
+        },
+        log,
+    };
+    const showOverview = (): void => {
+        OverviewPanel.show(context.extensionUri, overviewHost);
+    };
+
+    // As the MySQL Shell did with its DB Connection Overview: the first
+    // time the view is shown in a window - opening its activity bar
+    // entry, or the window starting with it open - the overview opens too.
+    let overviewShown = false;
+    const showOverviewOnce = (): void => {
+        if (overviewShown || !connectionsView.visible) {
+            return;
+        }
+        overviewShown = true;
+        if (vscode.workspace.getConfiguration("mariadb.overview")
+            .get<boolean>("showOnStartup", true)) {
+            showOverview();
+        }
+    };
+    context.subscriptions.push(connectionsView.onDidChangeVisibility(() => {
+        showOverviewOnce();
+    }));
+    showOverviewOnce();
+
     /**
      * Makes a folder the user named. The tree is not redrawn here: what
      * follows the folder differs by command.
@@ -1209,6 +1323,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 });
             },
         ),
+
+        vscode.commands.registerCommand("mariadb.showOverview", () => {
+            showOverview();
+        }),
 
         vscode.commands.registerCommand("mariadb.newDeployment", () => {
             DeploymentWizardPanel.show(context.extensionUri, {
@@ -1618,6 +1736,7 @@ export const deactivate = async (): Promise<void> => {
     ConnectionEditorPanel.disposeCurrent();
     SandboxEditorPanel.disposeCurrent();
     DeploymentWizardPanel.disposeCurrent();
+    OverviewPanel.disposeCurrent();
     MrsDialogPanel.disposeAll();
     UtilDialogPanel.disposeCurrent();
     MsmDialogPanel.disposeCurrent();

@@ -642,6 +642,83 @@ export const openExplorerDialog = async (
  *
  * @returns What `work` returns.
  */
+/**
+ * The frame of the webview shown in an area. ExTester's `WebView` and
+ * `WebviewView` pick a frame by how much of it lies in their area, and a
+ * webview kept while its tab is in the background
+ * (`retainContextWhenHidden`) keeps its frame where it was - so with the
+ * MariaDB Overview open, a dialog's tests and the result panel's went into
+ * the overview. Only a frame that is shown, centred in the area, counts.
+ *
+ * @param driver The driver.
+ * @param area The editor's or the view's area.
+ *
+ * @returns The frame, or undefined where none is shown there yet.
+ */
+const frameShownIn = async (
+    driver: WebDriver,
+    area: { x: number; y: number; width: number; height: number },
+): Promise<WebElement | undefined> => {
+    for (const frame of await driver.findElements(
+        By.css("iframe.webview.ready"))) {
+        if (!await frame.isDisplayed()) {
+            continue;
+        }
+        const rect = await frame.getRect();
+        const x = rect.x + rect.width / 2;
+        const y = rect.y + rect.height / 2;
+        if (x >= area.x && x <= area.x + area.width
+            && y >= area.y && y <= area.y + area.height) {
+            return frame;
+        }
+    }
+
+    return undefined;
+};
+
+/** The webview of the editor in front; see {@link frameShownIn}. */
+export class FrontWebView extends WebView {
+    public override async getViewToSwitchTo(
+    ): Promise<WebElement | undefined> {
+        return await frameShownIn(this.getDriver(), await this.getRect())
+            ?? await super.getViewToSwitchTo();
+    }
+}
+
+/**
+ * The webview of the bottom panel's view; see {@link frameShownIn}.
+ * ExTester's own measures the whole workbench, where the editor's webview
+ * lies too.
+ */
+class PanelWebviewView extends WebviewView {
+    public override async getViewToSwitchTo(
+    ): Promise<WebElement | undefined> {
+        return await frameShownIn(this.getDriver(),
+            await new BottomBarPanel().getRect())
+            ?? await super.getViewToSwitchTo();
+    }
+}
+
+/** The MariaDB Overview's tab title. */
+export const OVERVIEW_TITLE = "MariaDB Overview";
+
+/**
+ * Has the MariaDB Overview open and closes it again. It opens the first
+ * time the Connections view is shown in a window, which is otherwise
+ * whenever a test happens to show it - over a dialog the test is in, as
+ * it did. Once closed, it stays closed for the window.
+ *
+ * @returns Nothing.
+ */
+export const dismissOverview = async (): Promise<void> => {
+    await openSection("Connections");
+    await waitFor(async () => {
+        return (await new EditorView().getOpenEditorTitles())
+            .includes(OVERVIEW_TITLE);
+    }, "the MariaDB Overview", SERVER_TIMEOUT);
+    await new EditorView().closeEditor(OVERVIEW_TITLE);
+};
+
 /** The dialog {@link inDialog} is working in, for {@link submitDialog}. */
 let currentDialog: string | undefined;
 
@@ -661,7 +738,7 @@ export const inDialog = async <T>(
         return false;
     }, `the dialog "${title}"`, SERVER_TIMEOUT);
     await new EditorView().openEditor(title);
-    const view = new WebView();
+    const view = new FrontWebView();
     await view.switchToFrame(TIMEOUT);
     try {
         // The frontend renders once the host's load message has arrived.
@@ -1192,7 +1269,7 @@ export const inResults = async <T>(
     const panel = new BottomBarPanel();
     await panel.toggle(true);
     await panel.openTab("MariaDB");
-    const view = new WebviewView();
+    const view = new PanelWebviewView();
     await view.switchToFrame();
     try {
         return await work(view);

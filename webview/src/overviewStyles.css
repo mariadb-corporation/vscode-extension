@@ -1,0 +1,460 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+/*
+ * The MariaDB Workbench overview, laid out and colored as the MySQL
+ * Shell's DB Connection Overview was. Its tile colors are that
+ * extension's own; VS Code's theme has none for tiles. The dark ones are
+ * the default, the light ones follow the `vscode-light` class VS Code puts
+ * on the body.
+ */
+
+body {
+    margin: 0;
+    padding: 0;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editor-background);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+}
+
+.overview {
+    --tile-foreground: #DDDDDD;
+    --tile-background: #123F54;
+    --tile-border: #2A93C6;
+    --tile-hover-background: #1B5E7F;
+    --tile-active-background: #123E54;
+    --tile-active-border: #2D9BD2;
+    --tile-plain-background: #2E2E2E;
+    --tile-plain-border: #444444;
+    --tile-plain-hover-background: #444444;
+    --tile-plain-active-background: #2C2C2C;
+    --tile-plain-active-border: #3D3D3D;
+    --tile-folder-foreground: #DDDDDD;
+    --tile-folder-background: #DE7600;
+    --tile-folder-border: #EE9020;
+    --tile-folder-hover-background: #EE9020;
+    --tile-folder-active-background: #2C2C2C;
+    --tile-folder-active-border: #3D3D3D;
+
+    position: relative;
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 0 40px 40px;
+    user-select: none;
+}
+
+body.vscode-light .overview {
+    --tile-foreground: #575760;
+    --tile-background: #C0E1F2;
+    --tile-border: #6CB9E0;
+    --tile-hover-background: #AAD6ED;
+    --tile-active-background: #ABD7ED;
+    --tile-active-border: #42A5D7;
+    --tile-plain-background: #E4E4E7;
+    --tile-plain-border: #B4B4BB;
+    --tile-plain-hover-background: #CCCCCC;
+    --tile-plain-active-background: #D6D6DB;
+    --tile-plain-active-border: #B4B4BB;
+    --tile-folder-foreground: #444444;
+    --tile-folder-background: #FFB866;
+    --tile-folder-border: #F1A241;
+    --tile-folder-hover-background: #EE9020;
+    --tile-folder-active-background: #2C2C2C;
+    --tile-folder-active-border: #3D3D3D;
+}
+
+/* The pictures: black shapes, drawn as masks in the text color. */
+.overview-logo,
+.overview-tile-icon,
+.overview-tile-action span,
+.overview-close span {
+    display: block;
+    background-color: currentColor;
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+}
+
+.overview-logo {
+    mask-image: url("../../images/mariadb-shell-ext.svg");
+}
+
+.overview-icon-mariadb {
+    mask-image: url("../../images/light/connectionMariaDB.svg");
+}
+
+.overview-icon-mysql {
+    mask-image: url("../../images/light/connectionMySQL.svg");
+}
+
+.overview-icon-folder {
+    mask-image: url("./assets/overview/folder.svg");
+}
+
+.overview-icon-plus {
+    mask-image: url("./assets/overview/plus.svg");
+}
+
+.overview-icon-back {
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M10.5 2.5L5 8l5.5 5.5' fill='none' stroke='black' stroke-width='1.4'/></svg>");
+}
+
+.overview-icon-menu {
+    mask-image: url("./assets/overview/menu.svg");
+}
+
+.overview-icon-notebook {
+    mask-image: url("./assets/overview/newNotebook.svg");
+}
+
+.overview-icon-script {
+    mask-image: url("./assets/overview/newScript.svg");
+}
+
+.overview-icon-close {
+    mask-image: url("./assets/overview/close.svg");
+}
+
+/* The welcome text. */
+.overview-greeting {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 30px;
+}
+
+.overview-logo {
+    width: 64px;
+    height: 64px;
+}
+
+.overview-title {
+    margin: 20px 0;
+    font-size: 2.2rem;
+    font-weight: 200;
+    text-align: center;
+}
+
+.overview-description {
+    max-width: 700px;
+    margin: 1em 0 40px;
+    font-size: 1rem;
+    text-align: center;
+    white-space: pre-line;
+}
+
+.overview-close {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    color: var(--vscode-foreground);
+    background: none;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.overview-close:hover {
+    opacity: 1;
+}
+
+.overview-close span {
+    width: 16px;
+    height: 16px;
+}
+
+/* The title and the folder trail above the tiles. */
+.overview-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 20px 0 6px;
+}
+
+.overview-content-title {
+    font-size: 110%;
+}
+
+.overview-breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.overview-crumb {
+    padding: 2px 4px;
+    border: none;
+    border-radius: 3px;
+    color: var(--vscode-textLink-foreground);
+    background: none;
+    font: inherit;
+    cursor: pointer;
+}
+
+.overview-crumb:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.overview-crumb.current {
+    color: var(--vscode-foreground);
+}
+
+.overview-message {
+    margin: 12px 0;
+}
+
+.overview-failed {
+    color: var(--vscode-errorForeground);
+}
+
+/* The tiles. */
+.overview-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding-top: 6px;
+}
+
+.overview-tile {
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    width: 270px;
+    height: 80px;
+    margin: 2px;
+    padding: 0 0 0 20px;
+    border: 2px solid var(--tile-border);
+    border-radius: 4px;
+    color: var(--tile-foreground);
+    background-color: var(--tile-background);
+    transition: background 0.15s ease-in;
+    cursor: pointer;
+}
+
+/* A connection's color, down its left edge. */
+.overview-tile.colored {
+    border-left-width: 6px;
+    padding-left: 16px;
+}
+
+.overview-tile:hover {
+    background-color: var(--tile-hover-background);
+}
+
+.overview-tile:active {
+    border-color: var(--tile-active-border);
+    background-color: var(--tile-active-background);
+}
+
+/* A big button needs a stronger focus indicator than a thin line. */
+.overview-tile:focus {
+    outline: none;
+}
+
+.overview-tile:focus::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border: 2px dashed var(--vscode-focusBorder);
+    border-radius: 4px;
+    pointer-events: none;
+}
+
+.overview-tile-createNew,
+.overview-tile-back {
+    border-color: var(--tile-plain-border);
+    background-color: var(--tile-plain-background);
+}
+
+.overview-tile-createNew:hover,
+.overview-tile-back:hover {
+    background-color: var(--tile-plain-hover-background);
+}
+
+.overview-tile-createNew:active,
+.overview-tile-back:active {
+    border-color: var(--tile-plain-active-border);
+    background-color: var(--tile-plain-active-background);
+}
+
+.overview-tile-folder {
+    border-color: var(--tile-folder-border);
+    color: var(--tile-folder-foreground);
+    background-color: var(--tile-folder-background);
+}
+
+.overview-tile-folder:hover {
+    background-color: var(--tile-folder-hover-background);
+}
+
+.overview-tile-folder:active {
+    border-color: var(--tile-folder-active-border);
+    background-color: var(--tile-folder-active-background);
+}
+
+.overview-tile-icon {
+    flex: 0 0 40px;
+    align-self: center;
+    height: 40px;
+    margin-right: 16px;
+}
+
+.overview-tile-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    padding-right: 39px;
+}
+
+.overview-tile-caption {
+    overflow: hidden;
+    font-size: 1.15rem;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.overview-tile-description {
+    overflow: hidden;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* A connection's actions: a column at its right edge, shown on hover. */
+.overview-tile-actions-background,
+.overview-tile-actions {
+    visibility: hidden;
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 39px;
+    height: 100%;
+}
+
+.overview-tile-actions-background {
+    background: var(--tile-border);
+    opacity: 0.35;
+}
+
+.overview-tile-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.overview-tile:hover .overview-tile-actions,
+.overview-tile:hover .overview-tile-actions-background,
+.overview-tile:focus-within .overview-tile-actions,
+.overview-tile:focus-within .overview-tile-actions-background {
+    visibility: visible;
+}
+
+.overview-tile-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    color: var(--tile-foreground);
+    background: none;
+    cursor: pointer;
+}
+
+.overview-tile-action:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.overview-tile-action:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+}
+
+/* What is not there yet is drawn, faded, so the way it is going shows. */
+.overview-tile-action:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.overview-tile-action span {
+    width: 16px;
+    height: 16px;
+}
+
+/*
+ * A connection's More Actions menu (contextMenu.ts), drawn as VS Code
+ * draws its own menus; the result view's stylesheet has the same.
+ */
+.copyMenu {
+    position: fixed;
+    z-index: 110;
+    min-width: 120px;
+    padding: 4px 0;
+    border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border,
+            transparent));
+    border-radius: 5px;
+    background: var(--vscode-menu-background,
+            var(--vscode-editorWidget-background));
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
+}
+
+.copyMenuItem {
+    display: block;
+    width: calc(100% - 8px);
+    margin: 0 4px;
+    padding: 3px 20px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.copyMenuItem:hover:not(:disabled),
+.copyMenuItem:focus-visible {
+    outline: none;
+    background: var(--vscode-menu-selectionBackground,
+            var(--vscode-list-activeSelectionBackground));
+    color: var(--vscode-menu-selectionForeground,
+            var(--vscode-list-activeSelectionForeground));
+}
+
+.copyMenuSeparator {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--vscode-menu-separatorBackground,
+            var(--vscode-panel-border));
+}
+
+.copyMenuItem:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
