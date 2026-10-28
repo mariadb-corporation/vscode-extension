@@ -32,6 +32,16 @@ export interface IOverviewConnectionsMessage extends IOverviewSnapshot {
     showGreeting: boolean;
 }
 
+/**
+ * Whether the welcome text is shown, sent on `ready` ahead of the
+ * connections: listing them can wait for the server to start, and the
+ * page is not to be blank meanwhile.
+ */
+export interface IOverviewGreetingMessage {
+    type: "greeting";
+    showGreeting: boolean;
+}
+
 /** The connections could not be listed. */
 export interface IOverviewFailedMessage {
     type: "failed";
@@ -39,6 +49,7 @@ export interface IOverviewFailedMessage {
 }
 
 export type OverviewHostMessage =
+    | IOverviewGreetingMessage
     | IOverviewConnectionsMessage
     | IOverviewFailedMessage;
 

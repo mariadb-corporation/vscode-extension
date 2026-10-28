@@ -18,9 +18,9 @@
 /*
  * The MariaDB Workbench overview, laid out and colored as the MySQL
  * Shell's DB Connection Overview was. Its tile colors are that
- * extension's own; VS Code's theme has none for tiles. The dark ones are
- * the default, the light ones follow the `vscode-light` class VS Code puts
- * on the body.
+ * extension's own, but for the folders' tint (below); VS Code's theme has
+ * none for tiles. The dark ones are the default, the light ones follow the
+ * `vscode-light` class VS Code puts on the body.
  */
 
 body {
@@ -44,12 +44,6 @@ body {
     --tile-plain-hover-background: #444444;
     --tile-plain-active-background: #2C2C2C;
     --tile-plain-active-border: #3D3D3D;
-    --tile-folder-foreground: #DDDDDD;
-    --tile-folder-background: #DE7600;
-    --tile-folder-border: #EE9020;
-    --tile-folder-hover-background: #EE9020;
-    --tile-folder-active-background: #2C2C2C;
-    --tile-folder-active-border: #3D3D3D;
 
     position: relative;
     box-sizing: border-box;
@@ -70,12 +64,6 @@ body.vscode-light .overview {
     --tile-plain-hover-background: #CCCCCC;
     --tile-plain-active-background: #D6D6DB;
     --tile-plain-active-border: #B4B4BB;
-    --tile-folder-foreground: #444444;
-    --tile-folder-background: #FFB866;
-    --tile-folder-border: #F1A241;
-    --tile-folder-hover-background: #EE9020;
-    --tile-folder-active-background: #2C2C2C;
-    --tile-folder-active-border: #3D3D3D;
 }
 
 /* The pictures: black shapes, drawn as masks in the text color. */
@@ -94,12 +82,37 @@ body.vscode-light .overview {
     mask-image: url("../../images/mariadb-shell-ext.svg");
 }
 
-.overview-icon-mariadb {
+/* A connection's: the Connections view's icon for it (`connectionIconFor`). */
+.overview-icon-connectionMariaDB {
     mask-image: url("../../images/light/connectionMariaDB.svg");
 }
 
-.overview-icon-mysql {
+.overview-icon-connectionMariaDBDefault {
+    mask-image: url("../../images/light/connectionMariaDBDefault.svg");
+}
+
+.overview-icon-connectionMariaDBSSH {
+    mask-image: url("../../images/light/connectionMariaDBSSH.svg");
+}
+
+.overview-icon-connectionMariaDBSSHDefault {
+    mask-image: url("../../images/light/connectionMariaDBSSHDefault.svg");
+}
+
+.overview-icon-connectionMySQL {
     mask-image: url("../../images/light/connectionMySQL.svg");
+}
+
+.overview-icon-connectionMySQLDefault {
+    mask-image: url("../../images/light/connectionMySQLDefault.svg");
+}
+
+.overview-icon-connectionMySQLSSH {
+    mask-image: url("../../images/light/connectionMySQLSSH.svg");
+}
+
+.overview-icon-connectionMySQLSSHDefault {
+    mask-image: url("../../images/light/connectionMySQLSSHDefault.svg");
 }
 
 .overview-icon-folder {
@@ -144,7 +157,7 @@ body.vscode-light .overview {
 }
 
 .overview-title {
-    margin: 20px 0;
+    margin: 10px 0;
     font-size: 2.2rem;
     font-weight: 200;
     text-align: center;
@@ -152,8 +165,8 @@ body.vscode-light .overview {
 
 .overview-description {
     max-width: 700px;
-    margin: 1em 0 40px;
-    font-size: 1rem;
+    margin: 0 0 40px;
+    font-size: 0.8rem;
     text-align: center;
     white-space: pre-line;
 }
@@ -297,26 +310,39 @@ body.vscode-light .overview {
     background-color: var(--tile-plain-active-background);
 }
 
+/*
+ * A folder is tinted rather than painted: its color mixed into the
+ * editor's background, so it is calm in any theme and its text keeps the
+ * theme's own color. The tint is yellow, or the color the user gave the
+ * folder, which the page sets as `--tile-tint` on the tile.
+ */
 .overview-tile-folder {
-    border-color: var(--tile-folder-border);
-    color: var(--tile-folder-foreground);
-    background-color: var(--tile-folder-background);
+    --tile-tint: var(--vscode-charts-yellow);
+
+    border-color: color-mix(in srgb, var(--tile-tint) 50%,
+            var(--vscode-editor-background));
+    color: var(--vscode-foreground);
+    background-color: color-mix(in srgb, var(--tile-tint) 15%,
+            var(--vscode-editor-background));
 }
 
 .overview-tile-folder:hover {
-    background-color: var(--tile-folder-hover-background);
+    background-color: color-mix(in srgb, var(--tile-tint) 25%,
+            var(--vscode-editor-background));
 }
 
 .overview-tile-folder:active {
-    border-color: var(--tile-folder-active-border);
-    background-color: var(--tile-folder-active-background);
+    border-color: color-mix(in srgb, var(--tile-tint) 70%,
+            var(--vscode-editor-background));
+    background-color: color-mix(in srgb, var(--tile-tint) 10%,
+            var(--vscode-editor-background));
 }
 
 .overview-tile-icon {
-    flex: 0 0 40px;
+    flex: 0 0 30px;
     align-self: center;
-    height: 40px;
-    margin-right: 16px;
+    height: 30px;
+    margin-right: 14px;
 }
 
 .overview-tile-text {
@@ -330,7 +356,7 @@ body.vscode-light .overview {
 
 .overview-tile-caption {
     overflow: hidden;
-    font-size: 1.15rem;
+    font-size: 0.95rem;
     font-weight: 600;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -338,7 +364,7 @@ body.vscode-light .overview {
 
 .overview-tile-description {
     overflow: hidden;
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     white-space: nowrap;
     text-overflow: ellipsis;
 }

@@ -67,23 +67,32 @@ const SNAPSHOT: IOverviewSnapshot = overviewSnapshot([
         color: "red",
     },
     { uri: "mysql://me@old:3306", kind: "gui", path: "/Production/Legacy" },
+    { uri: "mariadb+ssh://root@db:3306?ssh=jump@gw", kind: "gui",
+        path: "/Production" },
+    { uri: "mysql+ssh://me@old:3307?ssh=jump@gw", kind: "gui",
+        path: "/Production/Legacy" },
     { uri: "mariadb://root@localhost:3310", kind: "gui", path: "Sandboxes" },
-], ["/Empty"], "root@localhost:3306");
+], ["/Empty"], "root@localhost:3306", { "/Production": "blue" });
 
 describe("overviewSnapshot", () => {
     it("shows each connection by its address, picture and folder", () => {
         expect(SNAPSHOT.connections.map((connection) => {
-            return [connection.address, connection.family, connection.path,
+            return [connection.address, connection.icon, connection.path,
                 connection.isDefault];
         })).toEqual([
-            ["root@localhost:3306", "mariadb", "/", true],
-            ["app@db:3307/shop", "mariadb", "/Production", false],
-            ["me@old:3306", "mysql", "/Production/Legacy", false],
-            ["root@localhost:3310", "mariadb", "/Sandboxes", false],
+            // The Connections view's icons, the default's marked.
+            ["root@localhost:3306", "connectionMariaDBDefault", "/", true],
+            ["app@db:3307/shop", "connectionMariaDB", "/Production", false],
+            ["me@old:3306", "connectionMySQL", "/Production/Legacy", false],
+            ["root@db:3306", "connectionMariaDBSSH", "/Production", false],
+            ["me@old:3307", "connectionMySQLSSH", "/Production/Legacy",
+                false],
+            ["root@localhost:3310", "connectionMariaDB", "/Sandboxes", false],
         ]);
         expect(SNAPSHOT.connections[1]).toMatchObject(
             { caption: "Shop", color: "red", kind: "mcp" });
         expect(SNAPSHOT.customFolders).toEqual(["/Empty"]);
+        expect(SNAPSHOT.folderColors).toEqual({ "/Production": "blue" });
     });
 });
 
@@ -91,15 +100,18 @@ describe("overviewModel", () => {
     it("lists a folder's subfolders first, then its connections", () => {
         const top = folderContents(SNAPSHOT, "/");
 
-        expect(top.folders.map((folder) => { return folder.name; }))
-            .toEqual(["Empty", "Production", "Sandboxes"]);
+        expect(top.folders).toEqual([
+            { path: "/Empty", name: "Empty" },
+            { path: "/Production", name: "Production", color: "blue" },
+            { path: "/Sandboxes", name: "Sandboxes" },
+        ]);
         expect(top.connections.map((connection) => { return connection.uri; }))
             .toEqual(["mariadb://root@localhost:3306"]);
 
         const production = folderContents(SNAPSHOT, "/Production");
         expect(production.folders).toEqual(
             [{ path: "/Production/Legacy", name: "Legacy" }]);
-        expect(production.connections).toHaveLength(1);
+        expect(production.connections).toHaveLength(2);
         expect(folderContents(SNAPSHOT, "/Empty")).toEqual(
             { folders: [], connections: [] });
     });
@@ -187,17 +199,17 @@ describe("OverviewPanel", () => {
         OverviewPanel.show(extensionUri as never, host);
 
         await receive({ type: "ready" });
-        expect(currentPanel().webview.posted).toEqual([{
-            type: "connections",
-            ...SNAPSHOT,
-            showGreeting: true,
-        }]);
+        // The greeting first, which needs no listing.
+        expect(currentPanel().webview.posted).toEqual([
+            { type: "greeting", showGreeting: true },
+            { type: "connections", ...SNAPSHOT, showGreeting: true },
+        ]);
 
         host.greeting = false;
         host.changed.fire();
         await settle();
-        expect(currentPanel().webview.posted).toHaveLength(2);
-        expect(currentPanel().webview.posted[1])
+        expect(currentPanel().webview.posted).toHaveLength(3);
+        expect(currentPanel().webview.posted[2])
             .toMatchObject({ type: "connections", showGreeting: false });
     });
 
@@ -207,8 +219,10 @@ describe("OverviewPanel", () => {
 
         await receive({ type: "ready" });
 
-        expect(currentPanel().webview.posted)
-            .toEqual([{ type: "failed", message: "no server" }]);
+        expect(currentPanel().webview.posted).toEqual([
+            { type: "greeting", showGreeting: true },
+            { type: "failed", message: "no server" },
+        ]);
         expect(host.logs).toEqual(
             ["The overview could not list the connections: no server"]);
     });

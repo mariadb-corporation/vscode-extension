@@ -16,6 +16,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.toolbarNewFolder` | New Folder… | View toolbar. In the selection's folder, the top level when nothing is selected; hidden from the palette |
 | `mariadb.newFolderWithSelection` | New Folder with Selection… | Context menu of connections. Prompts for a name and files the selected connections in the new folder, inside the folder they share |
 | `mariadb.renameFolder` | Rename Folder… | Context menu of every folder. Re-files everything in and below it |
+| `mariadb.setFolderColor` | Set Folder Color… | Context menu of every folder. One of the connections' six colors, or None; kept in the extension (see connection-folders.md). Hidden from the palette |
 | `mariadb.removeFolder` | Remove Folder | Context menu of an EMPTY folder only |
 | `mariadb.retryConnection` | Retry | Inline on, and context menu of, a connection's failed-to-open row |
 | `mariadb.copyConnectionUri` | Copy Connection URI | Connection context menu (the whole URI, which the tree shortens) |

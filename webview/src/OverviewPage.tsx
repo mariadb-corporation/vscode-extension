@@ -46,7 +46,7 @@ import { loadState, post, saveState } from "./vscodeApi.js";
 /** The welcome text, the MySQL Shell's own, made to fit. */
 export const GREETING = "Welcome to the MariaDB Shell for VS Code "
     + "extension.\n\n"
-    + "Click the [New Connection] tile to add a new database connection. "
+    + "Click the [New Connection] tile to add a new database connection.\n"
     + "Click a [Database Connection] tile to open a new SQL editor.";
 
 /** What the page keeps across a reload: the folder it shows. */
@@ -100,6 +100,8 @@ interface ITileProps {
     icon: string;
     /** A connection's color, drawn down its left edge. */
     color?: string;
+    /** A folder's color, which the whole tile is tinted with. */
+    tint?: string;
     title?: string;
     onOpen(): void;
     /** The actions shown on hover; a connection's tile only. */
@@ -118,7 +120,8 @@ interface ITileProps {
  * @returns The tile.
  */
 const Tile = (props: ITileProps): preact.JSX.Element => {
-    const { variant, caption, description, icon, color, actions } = props;
+    const { variant, caption, description, icon, color, tint, actions } =
+        props;
     const guard = useRef(0);
     const actionsRef = useRef<HTMLDivElement>(null);
 
@@ -139,9 +142,14 @@ const Tile = (props: ITileProps): preact.JSX.Element => {
             role="button"
             tabIndex={0}
             title={props.title}
-            style={color === undefined
-                ? undefined
-                : { borderLeftColor: `var(--vscode-charts-${color})` }}
+            style={{
+                ...(color === undefined ? {} : {
+                    borderLeftColor: `var(--vscode-charts-${color})`,
+                }),
+                ...(tint === undefined ? {} : {
+                    "--tile-tint": `var(--vscode-charts-${tint})`,
+                }),
+            }}
             onClick={open}
             onKeyDown={(event) => {
                 if (event.target !== event.currentTarget) {
@@ -222,10 +230,16 @@ export const OverviewPage = (): preact.JSX.Element => {
         const onMessage = (event: MessageEvent<OverviewHostMessage>): void => {
             const message = event.data;
             switch (message.type) {
+                case "greeting": {
+                    setShowGreeting(message.showGreeting);
+                    break;
+                }
+
                 case "connections": {
                     setSnapshot({
                         connections: message.connections,
                         customFolders: message.customFolders,
+                        folderColors: message.folderColors,
                     });
                     setShowGreeting(message.showGreeting);
                     setFailed(undefined);
@@ -379,6 +393,7 @@ export const OverviewPage = (): preact.JSX.Element => {
                                 caption={entry.name}
                                 description="Connection Folder"
                                 icon="folder"
+                                tint={entry.color}
                                 title={entry.path}
                                 onOpen={() => { go(entry.path); }}
                             />
@@ -392,7 +407,7 @@ export const OverviewPage = (): preact.JSX.Element => {
                                 caption={connection.caption
                                     ?? connection.address}
                                 description={descriptionOf(connection)}
-                                icon={connection.family}
+                                icon={connection.icon}
                                 color={connection.color}
                                 title={connection.uri}
                                 onOpen={() => { openSqlEditor(connection); }}

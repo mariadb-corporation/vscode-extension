@@ -34,6 +34,8 @@ import {
     MockTextDocument,
     openedDocuments,
     outputChannels,
+    quickPickAnswers,
+    quickPickCalls,
     registeredCommands,
     setTreeViewsShown,
     setWarningMessageAnswer,
@@ -387,6 +389,7 @@ describe("activate", () => {
             "mariadb.selectEditorConnection",
             "mariadb.selectRows",
             "mariadb.setDefaultConnection",
+            "mariadb.setFolderColor",
             "mariadb.showMcpServerLog",
             "mariadb.showOverview",
             "mariadb.showTaskLog",
@@ -600,6 +603,7 @@ describe("activate", () => {
                     path?: string;
                     empty?: boolean;
                 }>>;
+                getTreeItem(node: unknown): { resourceUri?: Uri };
             };
         }).treeDataProvider;
     };
@@ -933,6 +937,44 @@ describe("activate", () => {
             return node.kind === "folder";
         })).toEqual([]);
     });
+
+    it("gives a folder a color, offering the six and None, and drops it with the folder",
+        async () => {
+            activate(createContext() as never);
+            inputBoxAnswers.push("Old");
+            await mockCommands.executeCommand("mariadb.newFolder");
+            const folder = {
+                kind: "folder", path: "/Old", name: "Old", empty: true,
+            } as const;
+            const folderItem = async (): Promise<{ resourceUri?: Uri }> => {
+                const [node] = await treeProvider().getChildren();
+
+                return treeProvider().getTreeItem(node);
+            };
+
+            quickPickAnswers.push("Green");
+            await mockCommands.executeCommand("mariadb.setFolderColor", folder);
+
+            expect(quickPickCalls.at(-1)!.map((item) => {
+                return item.label;
+            })).toEqual(["Red", "Orange", "Yellow", "Green", "Blue", "Purple",
+                "None"]);
+            expect((await folderItem()).resourceUri?.path)
+                .toBe("/green/folder");
+
+            quickPickAnswers.push("None");
+            await mockCommands.executeCommand("mariadb.setFolderColor", folder);
+            expect((await folderItem()).resourceUri).toBeUndefined();
+
+            quickPickAnswers.push("Red");
+            await mockCommands.executeCommand("mariadb.setFolderColor", folder);
+            await mockCommands.executeCommand("mariadb.removeFolder", folder);
+            inputBoxAnswers.push("Old");
+            await mockCommands.executeCommand("mariadb.newFolder");
+
+            // Made again under the name, it starts uncolored.
+            expect((await folderItem()).resourceUri).toBeUndefined();
+        });
 
     it("does nothing when edit or delete arrive without a connection",
         async () => {
@@ -1811,10 +1853,11 @@ describe("activate", () => {
                 activate(createContext() as never);
                 const panel = overviewPanels()[0]!;
                 panel.webview.receive({ type: "ready" });
+                // The greeting, then the listing.
                 await vi.waitFor(() => {
-                    expect(panel.webview.posted).toHaveLength(1);
+                    expect(panel.webview.posted).toHaveLength(2);
                 });
-                const listed = panel.webview.posted[0] as {
+                const listed = panel.webview.posted[1] as {
                     connections: Array<{ uri: string; kind: string }>;
                 };
                 expect(listed.connections.map((connection) => {
@@ -1839,18 +1882,20 @@ describe("activate", () => {
             const panel = overviewPanels()[0]!;
             panel.webview.receive({ type: "ready" });
             await vi.waitFor(() => {
-                expect(panel.webview.posted).toHaveLength(1);
+                expect(panel.webview.posted).toHaveLength(2);
             });
-            expect(panel.webview.posted[0])
-                .toMatchObject({ showGreeting: true });
+            expect(panel.webview.posted).toMatchObject([
+                { type: "greeting", showGreeting: true },
+                { type: "connections", showGreeting: true },
+            ]);
 
             configuration.set("mariadb.overview.showGreeting", false);
             fireConfigurationChange("mariadb.overview.showGreeting");
 
             await vi.waitFor(() => {
-                expect(panel.webview.posted).toHaveLength(2);
+                expect(panel.webview.posted).toHaveLength(3);
             });
-            expect(panel.webview.posted[1])
+            expect(panel.webview.posted[2])
                 .toMatchObject({ showGreeting: false });
         });
 

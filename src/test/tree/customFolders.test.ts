@@ -20,6 +20,8 @@ import { describe, expect, it } from "vitest";
 import {
     COLLAPSED_FOLDERS_KEY,
     CUSTOM_FOLDERS_KEY,
+    FOLDER_COLORS_KEY,
+    FolderColors,
     FolderSet,
     isWithin,
     rebase,
@@ -127,4 +129,62 @@ describe("FolderSet membership", () => {
         expect(values.get(COLLAPSED_FOLDERS_KEY)).toEqual(["/Closed"]);
         expect(created.has("/Closed")).toBe(false);
     });
+});
+
+describe("FolderColors", () => {
+    it("keeps a color per folder, normalized, in the memento", async () => {
+        const { memento, values } = createMemento();
+        const colors = new FolderColors(memento);
+
+        await colors.set("Work/", "red");
+        await colors.set("/Archive", "blue");
+        await colors.set("/", "green");
+
+        expect(colors.all()).toEqual({ "/Work": "red", "/Archive": "blue" });
+        expect(colors.get(" /Work ")).toBe("red");
+        expect(colors.get("/Other")).toBeUndefined();
+        expect(values.get(FOLDER_COLORS_KEY))
+            .toEqual({ "/Work": "red", "/Archive": "blue" });
+
+        await colors.set("/Work", undefined);
+        expect(colors.all()).toEqual({ "/Archive": "blue" });
+    });
+
+    it("ignores what is no color", () => {
+        const { memento, values } = createMemento();
+        values.set(FOLDER_COLORS_KEY, { "/Work": "pink", "/Archive": "blue" });
+
+        expect(new FolderColors(memento).all()).toEqual({ "/Archive": "blue" });
+    });
+
+    it("moves the colors of a folder and the folders in it along",
+        async () => {
+            const colors = new FolderColors();
+            await colors.set("/Sandboxes", "green");
+            await colors.set("/Sandboxes/note_app", "red");
+            await colors.set("/SandboxesToo", "blue");
+            await colors.set("/Labs", "yellow");
+
+            await colors.move("/Sandboxes", "/Labs");
+
+            // The one moved keeps its own color over the one it lands on;
+            // a namesake that only starts alike stays put.
+            expect(colors.all()).toEqual({
+                "/Labs": "green",
+                "/Labs/note_app": "red",
+                "/SandboxesToo": "blue",
+            });
+        });
+
+    it("forgets the colors of a removed folder and the folders in it",
+        async () => {
+            const colors = new FolderColors();
+            await colors.set("/Work", "red");
+            await colors.set("/Work/Old", "blue");
+            await colors.set("/Archive", "green");
+
+            await colors.remove("/Work");
+
+            expect(colors.all()).toEqual({ "/Archive": "green" });
+        });
 });

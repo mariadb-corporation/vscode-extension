@@ -41,8 +41,12 @@ export interface IOverviewConnection {
     /** `user@host:port/schema`: the URI without scheme and options. */
     address: string;
     isDefault: boolean;
-    /** Which picture the tile has: MariaDB's, or MySQL's for a MySQL URI. */
-    family: "mariadb" | "mysql";
+    /**
+     * The picture the tile has: the Connections view's icon for the
+     * connection, by its scheme and whether it is the default - its file
+     * under `images/light` without the extension, `connectionMariaDBSSH`.
+     */
+    icon: string;
 }
 
 /** Everything the page shows. */
@@ -53,6 +57,8 @@ export interface IOverviewSnapshot {
      * otherwise only as a path a connection is filed under.
      */
     customFolders: string[];
+    /** The colors the user gave folders, by path. */
+    folderColors: Record<string, ConnectionColor>;
 }
 
 /** A folder, as its tile shows it. */
@@ -61,6 +67,7 @@ export interface IOverviewFolder {
     path: string;
     /** The last name in it: `note_app`. */
     name: string;
+    color?: ConnectionColor;
 }
 
 /** What one folder holds: its subfolders, sorted, then its connections. */
@@ -88,7 +95,13 @@ export const folderContents = (
         return folderNames(path).length === depth + 1
             && (depth === 0 || path.startsWith(`${folder}/`));
     }).map((path): IOverviewFolder => {
-        return { path, name: folderNames(path).at(-1)! };
+        const color = snapshot.folderColors[path];
+
+        return {
+            path,
+            name: folderNames(path).at(-1)!,
+            ...(color === undefined ? {} : { color }),
+        };
     });
 
     return {

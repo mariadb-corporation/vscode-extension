@@ -45,6 +45,7 @@ import {
 } from "./connectionsModel.js";
 import {
     COLLAPSED_FOLDERS_KEY,
+    FolderColors,
     FolderSet,
     isWithin,
     rebase,
@@ -139,6 +140,8 @@ export class ConnectionsTreeProvider
      * @param diagrams Lists a schema's diagrams on their own session,
      *        putting the query in the Actions; left out, no schema shows a
      *        Diagrams folder.
+     * @param folderColors The colors the user gave folders, moved along
+     *        with them.
      */
     public constructor(
         private readonly connections: ConnectionManager,
@@ -151,6 +154,7 @@ export class ConnectionsTreeProvider
         new FolderSet(undefined, COLLAPSED_FOLDERS_KEY),
         mrs?: MrsModel,
         diagrams?: DiagramService,
+        private readonly folderColors = new FolderColors(),
     ) {
         this.#model = new ConnectionsModel(connections, connectOnOpen,
             (uri) => { return this.#attempts.get(uri); },
@@ -181,7 +185,8 @@ export class ConnectionsTreeProvider
     public getTreeItem(node: ConnectionsNode): vscode.TreeItem {
         if (node.kind === "folder") {
             return new FolderTreeItem(node,
-                !this.collapsedFolders.has(node.path));
+                !this.collapsedFolders.has(node.path),
+                this.folderColors.get(node.path));
         }
 
         return createTreeItem(node, this.resolveIcon);
@@ -475,8 +480,10 @@ export class ConnectionsTreeProvider
 
             for (const { from, to } of folders) {
                 await this.customFolders.move(from, to);
-                // A collapsed folder stays collapsed where it went.
+                // A collapsed folder stays collapsed where it went, and a
+                // colored one keeps its color.
                 await this.collapsedFolders.move(from, to);
+                await this.folderColors.move(from, to);
                 this.log(`Moved the folder '${from}' to '${to}'.`);
             }
         } catch (error) {

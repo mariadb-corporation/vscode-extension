@@ -21,10 +21,11 @@ import { normalizeFolder } from "../connections/connectionFolders.js";
 import type { IStoredConnection } from "../connections/connectionStore.js";
 import {
     connectionLabel,
-    schemeOf,
     withDefaultScheme,
 } from "../connections/connectionUri.js";
+import type { ConnectionColor } from "../mcp/types.js";
 import { errorText } from "../text.js";
+import { connectionIconFor } from "../tree/treeItems.js";
 import { DialogPanel } from "../webview/dialogPanel.js";
 import { buildWebviewHtml } from "../webview/html.js";
 import type { IOverviewSnapshot } from "./overviewModel.js";
@@ -69,6 +70,7 @@ const TITLE = "MariaDB Overview";
  * @param stored Every configured connection.
  * @param customFolders The folders the user made and has not filled.
  * @param defaultConnection The default connection's URI, if there is one.
+ * @param folderColors The colors the user gave folders, by path.
  *
  * @returns The snapshot.
  */
@@ -76,6 +78,7 @@ export const overviewSnapshot = (
     stored: IStoredConnection[],
     customFolders: string[],
     defaultConnection: string | undefined,
+    folderColors: Record<string, ConnectionColor> = {},
 ): IOverviewSnapshot => {
     // The setting may predate URIs carrying their scheme; both sides go
     // through the same fill-in, as the Connections view's rows do.
@@ -85,6 +88,9 @@ export const overviewSnapshot = (
 
     return {
         connections: stored.map((connection) => {
+            const isDefault =
+                withDefaultScheme(connection.uri) === defaultUri;
+
             return {
                 uri: connection.uri,
                 kind: connection.kind,
@@ -94,12 +100,13 @@ export const overviewSnapshot = (
                 ...(connection.color === undefined
                     ? {} : { color: connection.color }),
                 address: connectionLabel(connection.uri),
-                isDefault: withDefaultScheme(connection.uri) === defaultUri,
-                family: schemeOf(connection.uri).startsWith("mysql")
-                    ? "mysql" : "mariadb",
+                isDefault,
+                icon: connectionIconFor(connection.uri, isDefault)
+                    .replace(/\.svg$/u, ""),
             };
         }),
         customFolders,
+        folderColors,
     };
 };
 
@@ -203,6 +210,10 @@ export class OverviewPanel
     protected async onMessage(message: OverviewWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
+                this.post({
+                    type: "greeting",
+                    showGreeting: this.host.showGreeting(),
+                });
                 await this.#send();
                 break;
             }

@@ -37,7 +37,7 @@ const LOCAL: IOverviewConnection = {
     path: "/",
     address: "root@localhost:3306",
     isDefault: true,
-    family: "mariadb",
+    icon: "connectionMariaDBDefault",
 };
 
 const SHOP: IOverviewConnection = {
@@ -48,7 +48,7 @@ const SHOP: IOverviewConnection = {
     color: "red",
     address: "app@db:3307/shop",
     isDefault: false,
-    family: "mariadb",
+    icon: "connectionMariaDB",
 };
 
 const send = async (message: OverviewHostMessage): Promise<void> => {
@@ -67,6 +67,7 @@ const mount = async (showGreeting = true): Promise<void> => {
         type: "connections",
         connections: [LOCAL, SHOP],
         customFolders: ["/Empty"],
+        folderColors: { "/Production": "blue" },
         showGreeting,
     });
 };
@@ -134,6 +135,29 @@ describe("OverviewPage", () => {
         expect(host.textContent).toContain("Looking for MariaDB connections");
     });
 
+    it("greets and heads the tiles while the connections are looked for",
+        async () => {
+            await act(async () => {
+                render(<OverviewPage />, host);
+                await Promise.resolve();
+            });
+
+            await send({ type: "greeting", showGreeting: true });
+
+            const order = [...host.querySelectorAll(
+                ".overview-greeting, .overview-heading, .overview-message")]
+                .map((element) => { return element.className; });
+            expect(order).toEqual([
+                "overview-greeting",
+                "overview-heading",
+                "overview-message",
+            ]);
+            expect(host.querySelector(".overview-content-title")?.textContent
+                ?.trim()).toBe("Database Connections");
+            expect(host.querySelector(".overview-message")?.textContent)
+                .toBe("Looking for MariaDB connections...");
+        });
+
     it("greets, as MariaDB Workbench, until the greeting is closed",
         async () => {
             await mount();
@@ -170,6 +194,28 @@ describe("OverviewPage", () => {
                 .querySelector(".overview-tile-description")?.textContent)
                 .toBe("default");
             expect(crumbs()).toEqual(["/"]);
+        });
+
+    it("tints a folder's tile with its color, a connection's left edge",
+        async () => {
+            await mount();
+
+            // The whole tile, through the tint its stylesheet mixes in.
+            const production = tile("Production");
+            expect(production.style.getPropertyValue("--tile-tint"))
+                .toBe("var(--vscode-charts-blue)");
+            expect(production.classList.contains("colored")).toBe(false);
+            expect(tile("Empty").style.getPropertyValue("--tile-tint"))
+                .toBe("");
+
+            await click(production);
+            expect(tile("Shop").classList.contains("colored")).toBe(true);
+            // The Connections view's icon for each.
+            expect(tile("Shop").querySelector(".overview-tile-icon")
+                ?.classList.contains("overview-icon-connectionMariaDB"))
+                .toBe(true);
+            expect(tile("Shop").style.borderLeftColor)
+                .toBe("var(--vscode-charts-red)");
         });
 
     it("goes into a folder, and back up with Back or the breadcrumb",
@@ -269,6 +315,7 @@ describe("OverviewPage", () => {
                 type: "connections",
                 connections: [LOCAL],
                 customFolders: [],
+                folderColors: {},
                 showGreeting: false,
             });
 

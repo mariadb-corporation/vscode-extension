@@ -126,6 +126,21 @@ everything still goes by URI and kind.
   else undefined), used by every folder command in `extension.ts` and by
   the provider's drop target; it was spelled out three ways before. The folder is added to the created set first, so it survives a move
   that fails, then `ConnectionsTreeProvider.fileInFolder` moves them.
+- **Folder colors live in the extension**, not the server: `connections.json`
+  has no entry for a folder, only connections' paths, and a folder made with
+  New Folder is not known to the server at all (the user's call, over adding
+  a `folders` section there, which would need an mcp_plugin release and
+  would be dropped by an older shell rewriting the file). `FolderColors`
+  (`customFolders.ts`) keeps a path -> color map in `globalState` under
+  `mariadb.connections.folderColors`, the connections' six color names.
+  **Set Folder Color…** (`mariadb.setFolderColor`, every folder's menu)
+  picks one of them or None. `#refile` moves the colors with the folder, as
+  it moves the empty and collapsed ones (a folder moved onto a colored one
+  keeps its own color, or takes the other's when it has none); Remove Folder
+  drops them, so a folder made again under the name starts uncolored. The
+  row is drawn by the connections' decoration: `folderColorUriOf` gives it a
+  `mariadb-connection:/<color>/folder` URI. The overview tints the folder's
+  whole tile with it (see overview.md).
 - The editor's **Folder** field (Basic tab) offers every folder in use through
   a `<datalist>`; the panel lists them on `ready`, and a failed listing just
   leaves the list empty.

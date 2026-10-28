@@ -526,6 +526,11 @@
         "icon": "$(edit)"
       },
       {
+        "command": "mariadb.setFolderColor",
+        "title": "Set Folder Color…",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.removeFolder",
         "title": "Remove Folder",
         "category": "MariaDB",
@@ -1264,9 +1269,14 @@
           "group": "1_folder@1"
         },
         {
+          "command": "mariadb.setFolderColor",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbFolder/",
+          "group": "1_folder@2"
+        },
+        {
           "command": "mariadb.removeFolder",
           "when": "view == mariadb.connections && viewItem == mariadbFolder.empty",
-          "group": "1_folder@2"
+          "group": "1_folder@3"
         },
         {
           "command": "mariadb.newFolderWithSelection",
@@ -1748,6 +1758,10 @@
         },
         {
           "command": "mariadb.removeFolder",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.setFolderColor",
           "when": "false"
         },
         {

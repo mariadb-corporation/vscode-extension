@@ -10,7 +10,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | File | Purpose |
 | --- | --- |
 | `src/overview/overviewModel.ts` | The snapshot the page shows (every connection, the folders made with New Folder), and walking it: `folderContents`, `existingFolder`, `parentFolder`, `folderTrail`. Pure; shared by the webview and the host. |
-| `src/overview/overviewProtocol.ts` | The messages: `connections` / `failed` to the page; `ready`, `open`, `newConnection`, `connectionAction`, `closeGreeting` from it. |
+| `src/overview/overviewProtocol.ts` | The messages: `greeting`, `connections` / `failed` to the page; `ready`, `open`, `newConnection`, `connectionAction`, `closeGreeting` from it. |
 | `src/overview/overviewPanel.ts` | `OverviewPanel` (one at a time, on `DialogPanel`), `IOverviewHost`, and `overviewSnapshot`, which turns the stored connections into the snapshot. |
 | `webview/src/OverviewPage.tsx` | The page; `overview.tsx` is its entry (not `Overview.tsx`: macOS's file system is case-insensitive), `overviewStyles.css` its styles, `assets/overview/` the MySQL Shell's icons, `vite.overview.config.ts` its build. |
 
@@ -31,7 +31,13 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   link to yet.
 - **The tiles** are the MySQL Shell's: 270 x 80, its colors (dark and
   light, by VS Code's `vscode-light` body class, since VS Code's themes
-  have no tile colors), folders orange, Back and New Connection grey. A
+  have no tile colors), Back and New Connection grey. Folders are not the
+  MySQL Shell's bright orange (the user's call) but a TINT: a theme chart
+  color mixed into the editor background with `color-mix` (15% fill, 50%
+  border), the text in the theme's foreground, so it is calm in any theme.
+  The tint is `--vscode-charts-yellow` (the user's pick, after trying
+  purple, which an uncolored folder then shared with a purple one), or the
+  folder's own color, which the page sets as `--tile-tint` on the tile. A
   Back tile in a folder, folders first, then connections, then New
   Connection, which files the new one in the folder shown. Above them,
   "Database Connections" and a breadcrumb, `/` and a step per folder.
@@ -44,6 +50,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 ## Decisions
 
+- **The page is never blank while it waits.** On `ready` the host sends
+  `greeting` (whether the welcome text is shown) before it lists the
+  connections, which can wait for the server to start; the welcome text
+  and the "Database Connections" heading show at once, with "Looking for
+  MariaDB connections..." under them until the tiles come.
 - **The page walks the folders itself.** The host sends every connection
   and folder at once, so going into a folder costs no message. It sends
   again on `ready` and whenever the Connections view redraws, the default
@@ -60,8 +71,16 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   node it builds from the stored connection (`overviewNode` in
   `extension.ts`); a connection that is gone by then is reported, as a
   command's failure is.
+- **A connection's picture is the Connections view's icon**:
+  `overviewSnapshot` takes `connectionIconFor(uri, isDefault)`, so a tile
+  has the MariaDB or MySQL icon, its SSH variant for `mariadb+ssh://` and
+  `mysql+ssh://`, MySQL's for `mysqlx://`, and the default connection's
+  marked one. The page draws it as a mask (`overview-icon-<file>`, one
+  class per file under `images/light`) in the tile's text color.
 - **A connection's color** is its tile's left edge, in
-  `--vscode-charts-<color>`.
+  `--vscode-charts-<color>`; **a folder's** tints its whole tile (above).
+  Folder colors come with the snapshot (`folderColors`), from the
+  extension's `FolderColors`.
 
 ## UI tests
 

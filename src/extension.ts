@@ -52,7 +52,7 @@ import {
     type ServerStepPhase,
 } from "./mcp/serverStarter.js";
 import { McpSession } from "./mcp/session.js";
-import type { IMariaDbApi } from "./mcp/types.js";
+import { CONNECTION_COLORS, type IMariaDbApi } from "./mcp/types.js";
 import { registerCopilotMcpServer } from "./copilot/mcpServerProvider.js";
 import { answerDbCall, DbCallError } from "./lsp/dbCall.js";
 import { LanguageServer } from "./lsp/languageServer.js";
@@ -77,6 +77,7 @@ import {
 import { createIconResolver } from "./tree/treeItems.js";
 import {
     COLLAPSED_FOLDERS_KEY,
+    FolderColors,
     FolderSet,
 } from "./tree/customFolders.js";
 import {
@@ -143,7 +144,10 @@ import {
 } from "./tree/vendorsTreeProvider.js";
 import { deleteConnection } from "./connections/connectionStore.js";
 import { SqlModes } from "./connections/sqlModes.js";
-import { ConnectionColorDecorations } from "./tree/connectionColors.js";
+import {
+    ConnectionColorDecorations,
+    themeColorOf,
+} from "./tree/connectionColors.js";
 import {
     folderOf,
     type ConnectionsNode,
@@ -369,6 +373,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // Which folders were left closed, so a restart comes back as it was.
     const collapsedFolders =
         new FolderSet(context.globalState, COLLAPSED_FOLDERS_KEY);
+    // The colors given to folders, which the server has no place for.
+    const folderColors = new FolderColors(context.globalState);
     // The REST Service rows read REST SQL on the session the tree browses
     // with, through the connection manager's API. That API passes
     // db.execute_sql through unreported (a SQL run reports itself), so
@@ -445,6 +451,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         collapsedFolders,
         mrsModel,
         diagrams,
+        folderColors,
     );
     // The REST Daemon a tree row's URL goes to; the REST Daemons view
     // keeps the list, and is defined further down.
@@ -1032,6 +1039,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 await connections.listStoredConnections(),
                 customFolders.list(),
                 connections.defaultConnection,
+                folderColors.all(),
             );
         },
         onDidChange: overviewChanged.event,
@@ -1238,6 +1246,41 @@ export const activate = (context: vscode.ExtensionContext): void => {
         ),
 
         vscode.commands.registerCommand(
+            "mariadb.setFolderColor",
+            async (node?: IFolderNode) => {
+                if (node?.kind !== "folder") {
+                    return;
+                }
+
+                const current = folderColors.get(node.path);
+                const picked = await vscode.window.showQuickPick([
+                    ...CONNECTION_COLORS.map((color) => {
+                        return {
+                            label: color[0]!.toUpperCase() + color.slice(1),
+                            color,
+                            iconPath: new vscode.ThemeIcon("circle-filled",
+                                themeColorOf(color)),
+                            ...(color === current
+                                ? { description: "current" } : {}),
+                        };
+                    }),
+                    {
+                        label: "None",
+                        color: undefined,
+                        ...(current === undefined
+                            ? { description: "current" } : {}),
+                    },
+                ], { title: `Folder Color of ${node.path}` });
+                if (picked === undefined || picked.color === current) {
+                    return;
+                }
+
+                await folderColors.set(node.path, picked.color);
+                tree.refresh();
+            },
+        ),
+
+        vscode.commands.registerCommand(
             "mariadb.removeFolder",
             async (node?: IFolderNode) => {
                 // Offered on an empty folder only: one with connections in
@@ -1248,6 +1291,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
                 await customFolders.remove(node.path);
                 await collapsedFolders.remove(node.path);
+                // A folder made again under the name starts uncolored.
+                await folderColors.remove(node.path);
                 log(`Removed the folder '${node.path}'.`);
                 tree.refresh();
             },
