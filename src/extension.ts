@@ -52,7 +52,7 @@ import {
     type ServerStepPhase,
 } from "./mcp/serverStarter.js";
 import { McpSession } from "./mcp/session.js";
-import type { IMariaDbApi } from "./mcp/types.js";
+import { CONNECTION_COLORS, type IMariaDbApi } from "./mcp/types.js";
 import { registerCopilotMcpServer } from "./copilot/mcpServerProvider.js";
 import { answerDbCall, DbCallError } from "./lsp/dbCall.js";
 import { LanguageServer } from "./lsp/languageServer.js";
@@ -77,6 +77,7 @@ import {
 import { createIconResolver } from "./tree/treeItems.js";
 import {
     COLLAPSED_FOLDERS_KEY,
+    FolderColors,
     FolderSet,
 } from "./tree/customFolders.js";
 import {
@@ -86,6 +87,7 @@ import {
 } from "./connections/connectionFolders.js";
 import { ConnectionEditorPanel } from "./connections/connectionEditorPanel.js";
 import { withDefaultScheme } from "./connections/connectionUri.js";
+import { colorLabel } from "./connections/connectionDetails.js";
 import type {
     ISandboxApi,
     ISandboxChange,
@@ -113,6 +115,7 @@ import { sandboxConnectionUri } from "./sandboxes/sandboxFields.js";
 import {
     SandboxesTreeProvider,
     SANDBOXES_VIEW_ID,
+    sandboxCommandIds,
     type ISandboxNode,
 } from "./tree/sandboxesTreeProvider.js";
 import type { IRestdApi } from "./mcp/restdApi.js";
@@ -123,12 +126,23 @@ import {
     type SandboxChange,
 } from "./restd/sandboxRest.js";
 import { restdFor } from "./restd/restdUrl.js";
-import { RESTD_VIEW_ID, RestdTreeProvider } from "./tree/restdTreeProvider.js";
+import {
+    RESTD_VIEW_ID,
+    RestdTreeProvider,
+    restdCommandIds,
+} from "./tree/restdTreeProvider.js";
 import {
     DEPLOYMENTS_VIEW_ID,
     DeploymentsTreeProvider,
 } from "./tree/deploymentsTreeProvider.js";
 import { DeploymentWizardPanel } from "./deployments/deploymentWizardPanel.js";
+import {
+    OverviewPanel,
+    overviewDeployments,
+    overviewSnapshot,
+    type IOverviewHost,
+} from "./overview/overviewPanel.js";
+import type { IOverviewConnectionRef } from "./overview/overviewProtocol.js";
 import { redrawWhenShown } from "./tree/redrawWhenShown.js";
 import {
     VENDORS_VIEW_ID,
@@ -137,8 +151,12 @@ import {
 } from "./tree/vendorsTreeProvider.js";
 import { deleteConnection } from "./connections/connectionStore.js";
 import { SqlModes } from "./connections/sqlModes.js";
-import { ConnectionColorDecorations } from "./tree/connectionColors.js";
 import {
+    ConnectionColorDecorations,
+    themeColorOf,
+} from "./tree/connectionColors.js";
+import {
+    connectionNodeOf,
     folderOf,
     type ConnectionsNode,
     type IConnectionNode,
@@ -363,6 +381,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // Which folders were left closed, so a restart comes back as it was.
     const collapsedFolders =
         new FolderSet(context.globalState, COLLAPSED_FOLDERS_KEY);
+    // The colors given to folders, which the server has no place for.
+    const folderColors = new FolderColors(context.globalState);
     // The REST Service rows read REST SQL on the session the tree browses
     // with, through the connection manager's API. That API passes
     // db.execute_sql through unreported (a SQL run reports itself), so
@@ -439,6 +459,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         collapsedFolders,
         mrsModel,
         diagrams,
+        folderColors,
     );
     // The REST Daemon a tree row's URL goes to; the REST Daemons view
     // keeps the list, and is defined further down.
@@ -973,6 +994,162 @@ export const activate = (context: vscode.ExtensionContext): void => {
         );
     };
 
+    // The overview shows what the Connections view does, so it lists
+    // again whenever the whole view is redrawn - a row's own redraw, a
+    // folder opening or a connection connecting, changes nothing it shows -
+    // and when the default connection changes, which redraws nothing.
+    const overviewChanged = new vscode.EventEmitter<void>();
+    const greetingChanged = new vscode.EventEmitter<void>();
+    context.subscriptions.push(
+        overviewChanged,
+        greetingChanged,
+        tree.onDidChangeTreeData((node) => {
+            if (node === undefined) {
+                overviewChanged.fire();
+            }
+        }),
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration("mariadb.defaultConnection")) {
+                overviewChanged.fire();
+            }
+            if (event.affectsConfiguration("mariadb.overview.showGreeting")) {
+                greetingChanged.fire();
+            }
+        }),
+    );
+
+    /**
+     * @param ref A connection the overview names.
+     *
+     * @returns Its node, as the Connections view's commands take it.
+     *          Rejects where it is no longer configured.
+     */
+    const overviewNode = async (
+        ref: IOverviewConnectionRef,
+    ): Promise<IConnectionNode> => {
+        const stored = (await connections.listStoredConnections())
+            .find((connection) => {
+                return connection.uri === ref.uri
+                    && connection.kind === ref.kind;
+            });
+        if (stored === undefined) {
+            throw new Error(`The connection '${ref.uri}' is gone.`);
+        }
+
+        return connectionNodeOf(stored, connections, connectOnOpen());
+    };
+
+    // The titles the view's menus show the extension's commands under:
+    // the manifest's own, so the overview's menus read the same.
+    const commandTitles = new Map<string, string>(
+        ((context.extension?.packageJSON as {
+            contributes?: { commands?: Array<{ command: string; title: string }> };
+        } | undefined)?.contributes?.commands ?? []).map((entry) => {
+            return [entry.command, entry.title];
+        }));
+    const commandTitle = (command: string): string => {
+        return commandTitles.get(command) ?? command;
+    };
+
+    const overviewHost: IOverviewHost = {
+        list: async () => {
+            return overviewSnapshot(
+                await connections.listStoredConnections(),
+                customFolders.list(),
+                connections.defaultConnection,
+                folderColors.all(),
+            );
+        },
+        onDidChange: overviewChanged.event,
+        onDidChangeGreeting: greetingChanged.event,
+        showGreeting: () => {
+            return vscode.workspace.getConfiguration("mariadb.overview")
+                .get<boolean>("showGreeting", true);
+        },
+        closeGreeting: async () => {
+            await vscode.workspace.getConfiguration("mariadb.overview")
+                .update("showGreeting", false,
+                    vscode.ConfigurationTarget.Global);
+        },
+        openSqlEditor: async (ref) => {
+            await guard(log, async () => {
+                await vscode.commands.executeCommand("mariadb.newSqlEditor",
+                    await overviewNode(ref));
+            });
+        },
+        newConnection: (folder) => { addConnectionIn(folder); },
+        listDeployments: async () => {
+            return overviewDeployments(await deployments.listFolders(),
+                commandTitle);
+        },
+        onDidChangeDeployments: deployments.onDidChangeTreeData,
+        newDeployment: () => {
+            void vscode.commands.executeCommand("mariadb.newDeployment");
+        },
+        deploymentCommand: async (command, port, directory) => {
+            await guard(log, async () => {
+                // The row the tile was drawn from, from the same listing.
+                const sandbox = (await deployments.listFolders())
+                    .flatMap((folder) => { return folder.children; })
+                    .find((node) => { return node.port === port; });
+                const node = directory === undefined
+                    ? sandbox
+                    : sandbox?.daemons.find((daemon) => {
+                        return daemon.directory === directory;
+                    });
+                if (node === undefined) {
+                    throw new Error(directory === undefined
+                        ? `The sandbox on port ${String(port)} is gone.`
+                        : "The REST Daemon is gone.");
+                }
+                // Only what the row offers now: the page could have been
+                // drawn before its state changed.
+                const offered = node.kind === "restd"
+                    ? restdCommandIds(node) : sandboxCommandIds(node);
+                if (!offered.includes(command)) {
+                    log(`'${command}' does not apply to that row now.`);
+
+                    return;
+                }
+                await vscode.commands.executeCommand(command, node);
+            });
+        },
+        connectionAction: async (action, ref) => {
+            await guard(log, async () => {
+                const command = {
+                    edit: "mariadb.editConnection",
+                    copyUri: "mariadb.copyConnectionUri",
+                    delete: "mariadb.deleteConnection",
+                }[action];
+                await vscode.commands.executeCommand(command,
+                    await overviewNode(ref));
+            });
+        },
+        log,
+    };
+    const showOverview = (): void => {
+        OverviewPanel.show(context.extensionUri, overviewHost);
+    };
+
+    // As the MySQL Shell did with its DB Connection Overview: the first
+    // time the view is shown in a window - opening its activity bar
+    // entry, or the window starting with it open - the overview opens too.
+    let overviewShown = false;
+    const showOverviewOnce = (): void => {
+        if (overviewShown || !connectionsView.visible) {
+            return;
+        }
+        overviewShown = true;
+        if (vscode.workspace.getConfiguration("mariadb.overview")
+            .get<boolean>("showOnStartup", true)) {
+            showOverview();
+        }
+    };
+    context.subscriptions.push(connectionsView.onDidChangeVisibility(() => {
+        showOverviewOnce();
+    }));
+    showOverviewOnce();
+
     /**
      * Makes a folder the user named. The tree is not redrawn here: what
      * follows the folder differs by command.
@@ -1124,6 +1301,41 @@ export const activate = (context: vscode.ExtensionContext): void => {
         ),
 
         vscode.commands.registerCommand(
+            "mariadb.setFolderColor",
+            async (node?: IFolderNode) => {
+                if (node?.kind !== "folder") {
+                    return;
+                }
+
+                const current = folderColors.get(node.path);
+                const picked = await vscode.window.showQuickPick([
+                    ...CONNECTION_COLORS.map((color) => {
+                        return {
+                            label: colorLabel(color),
+                            color,
+                            iconPath: new vscode.ThemeIcon("circle-filled",
+                                themeColorOf(color)),
+                            ...(color === current
+                                ? { description: "current" } : {}),
+                        };
+                    }),
+                    {
+                        label: colorLabel(undefined),
+                        color: undefined,
+                        ...(current === undefined
+                            ? { description: "current" } : {}),
+                    },
+                ], { title: `Folder Color of ${node.path}` });
+                if (picked === undefined || picked.color === current) {
+                    return;
+                }
+
+                await folderColors.set(node.path, picked.color);
+                tree.refresh();
+            },
+        ),
+
+        vscode.commands.registerCommand(
             "mariadb.removeFolder",
             async (node?: IFolderNode) => {
                 // Offered on an empty folder only: one with connections in
@@ -1132,10 +1344,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return;
                 }
 
-                await customFolders.remove(node.path);
-                await collapsedFolders.remove(node.path);
-                log(`Removed the folder '${node.path}'.`);
-                tree.refresh();
+                await tree.removeFolder(node);
             },
         ),
 
@@ -1210,6 +1419,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
             },
         ),
 
+        vscode.commands.registerCommand("mariadb.showOverview", () => {
+            showOverview();
+        }),
+
         vscode.commands.registerCommand("mariadb.newDeployment", () => {
             DeploymentWizardPanel.show(context.extensionUri, {
                 newSandbox: () => {
@@ -1219,9 +1432,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
             });
         }),
         vscode.commands.registerCommand("mariadb.refreshDeployments", () => {
-            // What the Deployments view draws from, read again.
-            sandboxes.reload();
+            // What the Deployments view draws from, read again. The REST
+            // Daemons first: each redraw of the sandboxes lists the
+            // deployments - the overview's among them - which starts the
+            // daemons' listing, and one begun before the drop would be
+            // thrown away.
             restdTree.refresh();
+            sandboxes.reload();
         }),
 
         vscode.commands.registerCommand("mariadb.refreshSandboxes", () => {
@@ -1618,6 +1835,7 @@ export const deactivate = async (): Promise<void> => {
     ConnectionEditorPanel.disposeCurrent();
     SandboxEditorPanel.disposeCurrent();
     DeploymentWizardPanel.disposeCurrent();
+    OverviewPanel.disposeCurrent();
     MrsDialogPanel.disposeAll();
     UtilDialogPanel.disposeCurrent();
     MsmDialogPanel.disposeCurrent();

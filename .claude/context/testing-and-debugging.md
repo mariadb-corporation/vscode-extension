@@ -133,6 +133,12 @@ runner end anyway. A spawn that fails is reported with its error.
 
   `.mocharc.json` has `bail`: a failure ends its suite, skipping
   `99-cleanup`, and the work dir removal and pkill clean up instead.
+- **Webview frames are picked by the helpers**, not by ExTester:
+  `FrontWebView` (dialogs, a maximized result) and `PanelWebviewView` (the
+  MariaDB panel) take the frame that is displayed and centred in the editor
+  area or the bottom panel (`frameShownIn`). ExTester's choice went into
+  the MariaDB Overview (see overview.md), which `ui-test/settings.json`
+  now keeps from opening with the view; `00-startup` opens it by command.
 - Helpers live in `ui-test/lib/ui.ts`. `openSection` collapses the
   other MariaDB views and expands the one asked for: with three views
   sharing the side bar, deep Connections rows were out of sight (and

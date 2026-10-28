@@ -447,6 +447,21 @@ describe("createTreeItem for a folder", () => {
             .toBe(TreeItemCollapsibleState.Collapsed);
     });
 
+    it("draws a colored folder in its color, as a connection is", () => {
+        const plain = new FolderTreeItem({
+            kind: "folder", path: "/Work", name: "Work", empty: false,
+        });
+        const colored = new FolderTreeItem({
+            kind: "folder", path: "/Work", name: "Work", empty: false,
+        }, true, "green");
+
+        expect(plain.resourceUri).toBeUndefined();
+        expect(new ConnectionColorDecorations()
+            .provideFileDecoration(colored.resourceUri as never))
+            .toEqual(new FileDecoration("●", undefined,
+                new ThemeColor("charts.green")));
+    });
+
     it("says it is empty, which is what offers Remove Folder", () => {
         const item = createTreeItem({
             kind: "folder", path: "/New", name: "New", empty: true,

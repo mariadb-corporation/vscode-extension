@@ -34,7 +34,10 @@ import {
     MockTextDocument,
     openedDocuments,
     outputChannels,
+    quickPickAnswers,
+    quickPickCalls,
     registeredCommands,
+    setTreeViewsShown,
     setWarningMessageAnswer,
     warningMessages,
     webviewPanels,
@@ -246,6 +249,7 @@ vi.mock("../mcp/sdkConnector.js", async () => {
 });
 
 const { activate, deactivate } = await import("../extension.js");
+const { OverviewPanel } = await import("../overview/overviewPanel.js");
 
 /** The manifest, for what it contributes. */
 const packageJson = JSON.parse(readFileSync(
@@ -290,6 +294,10 @@ describe("activate", () => {
         runtime.guiConnections = [];
         runtime.paths = {};
         runtime.sandboxes = [];
+        // The mock's views start out shown, which would open the overview
+        // on every activation; its own tests turn this back on.
+        OverviewPanel.disposeCurrent();
+        configuration.set("mariadb.overview.showOnStartup", false);
     });
 
     it("serves grid values opened in editors", () => {
@@ -381,7 +389,9 @@ describe("activate", () => {
             "mariadb.selectEditorConnection",
             "mariadb.selectRows",
             "mariadb.setDefaultConnection",
+            "mariadb.setFolderColor",
             "mariadb.showMcpServerLog",
+            "mariadb.showOverview",
             "mariadb.showTaskLog",
             "mariadb.showTaskOutput",
             "mariadb.startSandbox",
@@ -593,6 +603,7 @@ describe("activate", () => {
                     path?: string;
                     empty?: boolean;
                 }>>;
+                getTreeItem(node: unknown): { resourceUri?: Uri };
             };
         }).treeDataProvider;
     };
@@ -926,6 +937,44 @@ describe("activate", () => {
             return node.kind === "folder";
         })).toEqual([]);
     });
+
+    it("gives a folder a color, offering the six and None, and drops it with the folder",
+        async () => {
+            activate(createContext() as never);
+            inputBoxAnswers.push("Old");
+            await mockCommands.executeCommand("mariadb.newFolder");
+            const folder = {
+                kind: "folder", path: "/Old", name: "Old", empty: true,
+            } as const;
+            const folderItem = async (): Promise<{ resourceUri?: Uri }> => {
+                const [node] = await treeProvider().getChildren();
+
+                return treeProvider().getTreeItem(node);
+            };
+
+            quickPickAnswers.push("Green");
+            await mockCommands.executeCommand("mariadb.setFolderColor", folder);
+
+            expect(quickPickCalls.at(-1)!.map((item) => {
+                return item.label;
+            })).toEqual(["Red", "Orange", "Yellow", "Green", "Blue", "Purple",
+                "None"]);
+            expect((await folderItem()).resourceUri?.path)
+                .toBe("/green/folder");
+
+            quickPickAnswers.push("None");
+            await mockCommands.executeCommand("mariadb.setFolderColor", folder);
+            expect((await folderItem()).resourceUri).toBeUndefined();
+
+            quickPickAnswers.push("Red");
+            await mockCommands.executeCommand("mariadb.setFolderColor", folder);
+            await mockCommands.executeCommand("mariadb.removeFolder", folder);
+            inputBoxAnswers.push("Old");
+            await mockCommands.executeCommand("mariadb.newFolder");
+
+            // Made again under the name, it starts uncolored.
+            expect((await folderItem()).resourceUri).toBeUndefined();
+        });
 
     it("does nothing when edit or delete arrive without a connection",
         async () => {
@@ -1751,6 +1800,194 @@ describe("activate", () => {
             expect(errorMessages)
                 .toEqual(["MariaDB: No connection was given."]);
         });
+
+    describe("overview", () => {
+        const overviewPanels = (): typeof webviewPanels => {
+            return webviewPanels.filter((panel) => {
+                return panel.viewType === "mariadb.overview";
+            });
+        };
+
+        beforeEach(() => {
+            configuration.delete("mariadb.overview.showOnStartup");
+        });
+
+        it("opens once the Connections view is first shown, and only then",
+            () => {
+                activate(createContext() as never);
+
+                // The view was shown when the window came up.
+                expect(overviewPanels()).toHaveLength(1);
+                overviewPanels()[0]!.dispose();
+
+                treeViews[0]!.setVisible(false);
+                treeViews[0]!.setVisible(true);
+                expect(overviewPanels()).toHaveLength(1);
+            });
+
+        it("waits for the Connections view to be shown", () => {
+            // The window came up with another activity bar entry open.
+            setTreeViewsShown(false);
+            activate(createContext() as never);
+            expect(overviewPanels()).toEqual([]);
+
+            treeViews[0]!.setVisible(true);
+
+            expect(overviewPanels()).toHaveLength(1);
+        });
+
+        it("leaves it to the command where the setting is off", async () => {
+            configuration.set("mariadb.overview.showOnStartup", false);
+            activate(createContext() as never);
+            treeViews[0]!.setVisible(false);
+            treeViews[0]!.setVisible(true);
+            expect(overviewPanels()).toEqual([]);
+
+            await mockCommands.executeCommand("mariadb.showOverview");
+
+            expect(overviewPanels()).toHaveLength(1);
+        });
+
+        it("opens a SQL editor on the connection whose tile was clicked",
+            async () => {
+                activate(createContext() as never);
+                const panel = overviewPanels()[0]!;
+                panel.webview.receive({ type: "ready" });
+                const listed = await vi.waitFor(() => {
+                    const found = panel.webview.posted.find((message) => {
+                        return (message as { type: string }).type
+                            === "connections";
+                    });
+                    expect(found).toBeDefined();
+
+                    return found as {
+                        connections: Array<{ uri: string; kind: string }>;
+                    };
+                });
+                expect(listed.connections.map((connection) => {
+                    return connection.uri;
+                })).toEqual(["dba@localhost:3310"]);
+
+                panel.webview.receive({
+                    type: "open",
+                    connection: listed.connections[0],
+                    editor: "script",
+                });
+
+                await vi.waitFor(() => {
+                    expect(openedDocuments).toHaveLength(1);
+                });
+                expect(openedDocuments[0].getText())
+                    .toContain("-- MariaDB connection: dba@localhost:3310");
+            });
+
+        it("shows or hides the greeting as its setting changes", async () => {
+            activate(createContext() as never);
+            const panel = overviewPanels()[0]!;
+            const greetings = (): unknown[] => {
+                return panel.webview.posted.filter((message) => {
+                    return (message as { type: string }).type === "greeting";
+                });
+            };
+            panel.webview.receive({ type: "ready" });
+            await vi.waitFor(() => {
+                expect(greetings()).toEqual(
+                    [{ type: "greeting", showGreeting: true }]);
+            });
+
+            configuration.set("mariadb.overview.showGreeting", false);
+            fireConfigurationChange("mariadb.overview.showGreeting");
+
+            await vi.waitFor(() => {
+                expect(greetings()).toHaveLength(2);
+            });
+            expect(greetings()[1])
+                .toEqual({ type: "greeting", showGreeting: false });
+        });
+
+        it("lists the sandboxes, and acts on one from its tile's menu",
+            async () => {
+                runtime.sandboxes = [
+                    { port: 3310, version: "12.3.2", status: "running" },
+                ];
+                activate(createContext() as never);
+                const panel = overviewPanels()[0]!;
+                panel.webview.receive({ type: "ready" });
+                await vi.waitFor(() => {
+                    expect(panel.webview.posted).toContainEqual(
+                        expect.objectContaining({
+                            type: "deployments",
+                            deployments: [expect.objectContaining({
+                                port: 3310,
+                                path: "/Sandboxes",
+                                description: "12.3.2 · running",
+                            })],
+                        }));
+                });
+
+                panel.webview.receive({ type: "deploymentCommand",
+                    command: "mariadb.stopSandbox", port: 3310 });
+
+                // The Deployments view's own command, on its own row.
+                await vi.waitFor(() => {
+                    expect(toolCalls().map((call) => { return call.name; }))
+                        .toContain("sandbox.stop");
+                });
+            });
+
+        it("says so when a tile's sandbox is gone", async () => {
+            activate(createContext() as never);
+            const panel = overviewPanels()[0]!;
+
+            panel.webview.receive({ type: "deploymentCommand",
+                command: "mariadb.startSandbox", port: 3399 });
+
+            await vi.waitFor(() => {
+                expect(errorMessages).toEqual(
+                    ["MariaDB: The sandbox on port 3399 is gone."]);
+            });
+        });
+
+        it("runs only what the sandbox's row offers now", async () => {
+            runtime.sandboxes = [
+                { port: 3310, version: "12.3.2", status: "running" },
+            ];
+            activate(createContext() as never);
+            const panel = overviewPanels()[0]!;
+
+            // Drawn while it was stopped, perhaps; it runs now.
+            panel.webview.receive({ type: "deploymentCommand",
+                command: "mariadb.startSandbox", port: 3310 });
+            // Not a command of the Deployments view at all.
+            panel.webview.receive({ type: "deploymentCommand",
+                command: "mariadb.deleteConnection", port: 3310 });
+
+            await vi.waitFor(() => {
+                expect(outputChannels[0]!.lines.filter((line) => {
+                    return line.includes("does not apply to that row now");
+                })).toHaveLength(2);
+            });
+            expect(toolCalls().map((call) => { return call.name; }))
+                .not.toContain("sandbox.start");
+        });
+
+        it("says so when a tile's connection is gone", async () => {
+            activate(createContext() as never);
+            const panel = overviewPanels()[0]!;
+
+            panel.webview.receive({
+                type: "open",
+                connection: { uri: "gone@nowhere:3306", kind: "gui" },
+                editor: "script",
+            });
+
+            await vi.waitFor(() => {
+                expect(errorMessages).toEqual([
+                    "MariaDB: The connection 'gone@nowhere:3306' is gone."]);
+            });
+            expect(openedDocuments).toEqual([]);
+        });
+    });
 
     it("is safe to deactivate twice", async () => {
         activate(createContext() as never);

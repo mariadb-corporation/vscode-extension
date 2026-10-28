@@ -342,7 +342,21 @@ export const treeViews: Array<{
     collapse: (element: unknown) => void;
     /** Sets the view's `selection`, as a user selecting rows. */
     select: (rows: unknown[]) => void;
+    /** Shows or hides the view, firing its `onDidChangeVisibility`. */
+    setVisible: (visible: boolean) => void;
 }> = [];
+/** Whether a tree view is shown when it is created; see `setTreeViewsShown`. */
+let treeViewsShown = true;
+
+/**
+ * Makes the tree views created from now on start out hidden, or shown -
+ * as a window comes up with another activity bar entry open, or its own.
+ *
+ * @param shown Whether they start out shown.
+ */
+export const setTreeViewsShown = (shown: boolean): void => {
+    treeViewsShown = shown;
+};
 export const webviewPanels: MockWebviewPanel[] = [];
 export const webviewViewProviders = new Map<string, {
     provider: { resolveWebviewView(view: MockWebviewView): void };
@@ -932,7 +946,8 @@ export const window = {
         const view = {
             // What the user has selected; set through `select` below.
             selection: [] as unknown[],
-            visible: true,
+            // Shown or hidden through `setVisible` below.
+            visible: treeViewsShown,
             onDidExpandElement: expanded.event,
             onDidCollapseElement: collapsed.event,
             onDidChangeVisibility: visibility.event,
@@ -953,6 +968,10 @@ export const window = {
             },
             select: (rows: unknown[]) => {
                 view.selection = rows;
+            },
+            setVisible: (visible: boolean) => {
+                view.visible = visible;
+                visibility.fire({ visible });
             },
         });
 
@@ -1468,4 +1487,5 @@ export const resetVscodeMock = (): void => {
     setWorkspaceFolders(undefined);
     env.clipboard.text = "";
     mcpServerDefinitionProviders.clear();
+    treeViewsShown = true;
 };

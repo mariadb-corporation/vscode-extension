@@ -8,6 +8,7 @@
     "workbench.enableExperiments": false,
     "security.workspace.trust.enabled": false,
     "telemetry.telemetryLevel": "off",
+    "mariadb.overview.showOnStartup": false,
     "update.mode": "none",
     "extensions.autoUpdate": false,
     "extensions.autoCheckUpdates": false,

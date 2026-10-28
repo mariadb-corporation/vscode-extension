@@ -24,8 +24,8 @@ import {
 } from "../connections/connectionManager.js";
 import {
     ROOT_FOLDER,
-    folderNames,
     normalizeFolder,
+    parentFolder,
 } from "../connections/connectionFolders.js";
 import {
     fileConnections,
@@ -45,6 +45,7 @@ import {
 } from "./connectionsModel.js";
 import {
     COLLAPSED_FOLDERS_KEY,
+    FolderColors,
     FolderSet,
     isWithin,
     rebase,
@@ -62,6 +63,7 @@ import { errorText } from "../text.js";
 export interface ICustomFolders {
     list(): string[];
     move(from: string, to: string): Promise<void>;
+    remove(path: string): Promise<void>;
 }
 
 /** The id the Connections view is contributed under. */
@@ -139,6 +141,8 @@ export class ConnectionsTreeProvider
      * @param diagrams Lists a schema's diagrams on their own session,
      *        putting the query in the Actions; left out, no schema shows a
      *        Diagrams folder.
+     * @param folderColors The colors the user gave folders, moved along
+     *        with them.
      */
     public constructor(
         private readonly connections: ConnectionManager,
@@ -151,6 +155,7 @@ export class ConnectionsTreeProvider
         new FolderSet(undefined, COLLAPSED_FOLDERS_KEY),
         mrs?: MrsModel,
         diagrams?: DiagramService,
+        private readonly folderColors = new FolderColors(),
     ) {
         this.#model = new ConnectionsModel(connections, connectOnOpen,
             (uri) => { return this.#attempts.get(uri); },
@@ -181,7 +186,8 @@ export class ConnectionsTreeProvider
     public getTreeItem(node: ConnectionsNode): vscode.TreeItem {
         if (node.kind === "folder") {
             return new FolderTreeItem(node,
-                !this.collapsedFolders.has(node.path));
+                !this.collapsedFolders.has(node.path),
+                this.folderColors.get(node.path));
         }
 
         return createTreeItem(node, this.resolveIcon);
@@ -382,7 +388,7 @@ export class ConnectionsTreeProvider
         // is dragged too moves with that one.
         const candidates = rows.filter((node): node is IFolderNode => {
             return node?.kind === "folder" && !isWithin(into, node.path)
-                && parentOf(node.path) !== into;
+                && parentFolder(node.path) !== into;
         });
         const folders = candidates.filter((folder) => {
             return !candidates.some((other) => {
@@ -430,6 +436,23 @@ export class ConnectionsTreeProvider
     }
 
     /**
+     * Removes a folder the user made and left empty, and what is kept of
+     * it - collapsed or not, its color - so a folder made again under the
+     * name starts afresh.
+     *
+     * @param folder The folder.
+     *
+     * @returns Nothing.
+     */
+    public async removeFolder(folder: IFolderNode): Promise<void> {
+        await this.customFolders.remove(folder.path);
+        await this.collapsedFolders.remove(folder.path);
+        await this.folderColors.remove(folder.path);
+        this.log(`Removed the folder '${folder.path}'.`);
+        this.refresh();
+    }
+
+    /**
      * Renames a folder, re-filing every connection in and below it and the
      * empty folders made inside it. A folder of the new name already there
      * is merged with, as a drop onto it would be.
@@ -440,7 +463,7 @@ export class ConnectionsTreeProvider
      * @returns Nothing.
      */
     public async renameFolder(folder: IFolderNode, name: string): Promise<void> {
-        const renamed = normalizeFolder(`${parentOf(folder.path)}/${name}`);
+        const renamed = normalizeFolder(`${parentFolder(folder.path)}/${name}`);
         if (renamed === folder.path || renamed === ROOT_FOLDER) {
             return;
         }
@@ -475,8 +498,10 @@ export class ConnectionsTreeProvider
 
             for (const { from, to } of folders) {
                 await this.customFolders.move(from, to);
-                // A collapsed folder stays collapsed where it went.
+                // A collapsed folder stays collapsed where it went, and a
+                // colored one keeps its color.
                 await this.collapsedFolders.move(from, to);
+                await this.folderColors.move(from, to);
                 this.log(`Moved the folder '${from}' to '${to}'.`);
             }
         } catch (error) {
@@ -556,17 +581,6 @@ export class ConnectionsTreeProvider
  */
 const dropFolder = (target: ConnectionsNode | undefined): string | undefined => {
     return target === undefined ? ROOT_FOLDER : folderOf(target);
-};
-
-/**
- * The folder a path sits in.
- *
- * @param path The folder.
- *
- * @returns Its parent; `/` for a top-level folder.
- */
-const parentOf = (path: string): string => {
-    return normalizeFolder(folderNames(path).slice(0, -1).join("/"));
 };
 
 /**

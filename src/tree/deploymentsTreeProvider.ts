@@ -182,18 +182,15 @@ export class DeploymentsTreeProvider
     }
 
     /**
-     * @returns The folders that have something in them: none, while
-     *          nothing is deployed, which is what the welcome content is
-     *          for.
+     * @returns The folders the view shows, for its welcome content to say
+     *          when there are none or the listing failed.
      */
     async #folders(): Promise<IDeploymentFolderNode[]> {
-        // Both at once: the daemons are wanted whenever there are sandboxes,
-        // and their listing is kept for the request URLs anyway.
-        const daemons = this.#daemons();
-        let sandboxes: ISandboxNode[];
         try {
-            sandboxes = await this.sources.sandboxes.nodes();
+            const folders = await this.listFolders();
             this.#viewState.listed();
+
+            return folders;
         } catch (error) {
             // Logged, not notified, as in the Sandboxes view.
             this.log(`Failed to list the deployments: ${errorText(error)}`);
@@ -201,7 +198,22 @@ export class DeploymentsTreeProvider
 
             return [];
         }
+    }
 
+    /**
+     * The deployments by folder, as the view shows them - for the view, and
+     * for the overview's Database Deployments.
+     *
+     * @returns The folders that have something in them: none, while
+     *          nothing is deployed. Rejects where the sandboxes cannot be
+     *          listed.
+     */
+    public async listFolders(): Promise<IDeploymentFolderNode[]> {
+        // Both at once: the daemons are wanted whenever there are sandboxes,
+        // and their listing is kept for the request URLs anyway. A failed
+        // listing of them comes back empty, never as a rejection.
+        const daemons = this.#daemons();
+        const sandboxes = await this.sources.sandboxes.nodes();
         if (sandboxes.length === 0) {
             return [];
         }
@@ -230,7 +242,10 @@ export class DeploymentsTreeProvider
         try {
             return await this.sources.daemons.nodes();
         } catch (error) {
-            this.log(`Failed to list the REST Daemons: ${errorText(error)}`);
+            // Said as what it means here - the REST Daemons view logs the
+            // failure as its own, from the same listing.
+            this.log("The deployments are listed without their REST "
+                + `Daemons: ${errorText(error)}`);
 
             return [];
         }

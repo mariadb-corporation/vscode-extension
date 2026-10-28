@@ -23,6 +23,7 @@ import {
 } from "../../connections/connectionManager.js";
 import {
     COLLAPSED_FOLDERS_KEY,
+    FolderColors,
     FolderSet,
 } from "../../tree/customFolders.js";
 import {
@@ -501,6 +502,7 @@ describe("ConnectionsTreeProvider", () => {
         const createFiled = (
             folders = new FolderSet(),
             collapsed = new FolderSet(undefined, COLLAPSED_FOLDERS_KEY),
+            colors = new FolderColors(),
         ) => {
             const api = createFakeApi({
                 connections: [
@@ -520,9 +522,9 @@ describe("ConnectionsTreeProvider", () => {
             const log = createRecordingLog();
             const provider = new ConnectionsTreeProvider(
                 connections, resolveIcon, log, () => { return false; },
-                undefined, folders, collapsed);
+                undefined, folders, collapsed, undefined, undefined, colors);
 
-            return { api, provider, log, folders, collapsed };
+            return { api, provider, log, folders, collapsed, colors };
         };
 
         it("draws a folder closed once collapsed, and open again", async () => {
@@ -614,6 +616,23 @@ describe("ConnectionsTreeProvider", () => {
                 // The fake does not keep the rename, so the drop moves the
                 // folder from its old place; the state it had there is gone.
                 expect(collapsed.list()).toEqual(["/Labs/note_app"]);
+            });
+
+        it("draws a folder in its color, which a rename carries along",
+            async () => {
+                const { provider, colors } = createFiled();
+                const [sandboxes] = await provider.getChildren();
+                const [noteApp] = await provider.getChildren(sandboxes);
+                await colors.set("/Sandboxes/note_app", "purple");
+
+                expect(provider.getTreeItem(sandboxes!).resourceUri)
+                    .toBeUndefined();
+                expect(provider.getTreeItem(noteApp!).resourceUri?.path)
+                    .toBe("/purple/folder");
+
+                await provider.renameFolder(sandboxes as never, "Labs");
+
+                expect(colors.all()).toEqual({ "/Labs/note_app": "purple" });
             });
 
         it("drags the connections and folders of a selection, not a database",

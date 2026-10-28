@@ -27,7 +27,6 @@ import {
     StatusBar,
     TextEditor,
     VSBrowser,
-    WebView,
 } from "vscode-extension-tester";
 
 import {
@@ -35,6 +34,7 @@ import {
     CONNECTION,
     driver,
     FILES,
+    FrontWebView,
     inlineAction,
     inResults,
     menuAction,
@@ -181,7 +181,7 @@ describe("SQL editors and results", () => {
             const title = (await new EditorView().getOpenEditorTitles())
                 .find((candidate) => { return candidate.includes("uitest.city"); })!;
             await new EditorView().openEditor(title);
-            const view = new WebView();
+            const view = new FrontWebView();
             await view.switchToFrame();
             try {
                 const cells = await waitFor(async () => {

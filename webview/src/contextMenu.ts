@@ -15,6 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import "./contextMenu.css";
 import { dismissOnOutside } from "./dismiss.js";
 import { clampToViewport } from "./position.js";
 
@@ -120,6 +121,24 @@ export const openContextMenu = (
     items: IContextMenuItem[],
 ): HTMLElement => {
     event.preventDefault();
+
+    return openMenuAt({ x: event.clientX, y: event.clientY }, items);
+};
+
+/**
+ * Opens a menu of the given items at a point: below a button, say, where
+ * no right-click placed it. Otherwise as `openContextMenu`.
+ *
+ * @param point Where its top-left corner goes, in viewport pixels - moved
+ *              in from an edge it would run past.
+ * @param items What it offers, in order.
+ *
+ * @returns The menu element.
+ */
+export const openMenuAt = (
+    point: { x: number; y: number },
+    items: IContextMenuItem[],
+): HTMLElement => {
     closeCopyMenu();
 
     const element = document.createElement("div");
@@ -155,7 +174,7 @@ export const openContextMenu = (
 
     document.body.append(element);
     const position = menuPosition(
-        { x: event.clientX, y: event.clientY },
+        point,
         { width: element.offsetWidth, height: element.offsetHeight },
         { width: window.innerWidth, height: window.innerHeight },
     );

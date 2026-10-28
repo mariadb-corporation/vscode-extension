@@ -15,7 +15,11 @@ Ports. That is why it is a `WebviewView` in a `contributes.viewsContainers.panel
 container and not a `WebviewPanel`: only a view can live in the panel area,
 a panel would open as an editor tab. It is revealed with `view.show(true)`
 when one exists, and otherwise by running the `mariadb.results.focus`
-command VS Code registers for every contributed view.
+command VS Code registers for every contributed view. The view is named
+**MariaDB**, as its container is: VS Code shows a container's title for its
+one view, but Theia joins the two as "MariaDB: <view>" unless they are the
+same (`view-container.js` in `@theia/core`), and "MariaDB: Results" read
+wrong.
 
 It serves `dist/webview/` under a strict CSP with a per-load nonce, so the
 view cannot reach the network. The HTML and the webview options come from

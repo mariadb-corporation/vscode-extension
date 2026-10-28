@@ -34,6 +34,7 @@ import {
 import {
     MAX_CAPTION_LENGTH,
     captionProblem,
+    colorLabel,
     connectionKeyProblem,
 } from "../../src/connections/connectionDetails.js";
 import type {
@@ -747,10 +748,8 @@ export const ConnectionEditor = (): preact.JSX.Element => {
                             >
                                 {(["", ...CONNECTION_COLORS] as const)
                                     .map((choice) => {
-                                        const name = choice === ""
-                                            ? "None"
-                                            : choice[0]!.toUpperCase()
-                                            + choice.slice(1);
+                                        const name = colorLabel(
+                                            choice || undefined);
 
                                         return (
                                             <button

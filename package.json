@@ -124,7 +124,7 @@
       "mariadb-panel": [
         {
           "id": "mariadb.results",
-          "name": "Results",
+          "name": "MariaDB",
           "type": "webview",
           "icon": "images/light/connectionMariaDB.svg"
         }
@@ -237,6 +237,16 @@
             "A connection is only opened by the Connect button or command."
           ],
           "markdownDescription": "How a connection in the **Connections** view is opened. `onOpen` connects as soon as the connection is expanded, and leaves the Connect button off the row; `explicit` keeps the button and never connects on its own."
+        },
+        "mariadb.overview.showOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Open the **MariaDB Overview** editor tab - a tile per connection, to open a SQL editor on - the first time the **Connections** view is shown in a window. It can always be opened from the view's toolbar or with **MariaDB: Show MariaDB Overview**."
+        },
+        "mariadb.overview.showGreeting": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the welcome text above the connection tiles of the **MariaDB Overview**. Closing it there turns this off."
         },
         "mariadb.execute.stopOnError": {
           "type": "boolean",
@@ -516,6 +526,11 @@
         "icon": "$(edit)"
       },
       {
+        "command": "mariadb.setFolderColor",
+        "title": "Set Folder Color…",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.removeFolder",
         "title": "Remove Folder",
         "category": "MariaDB",
@@ -559,6 +574,12 @@
         "title": "Clear Default Connection",
         "category": "MariaDB",
         "icon": "$(star-full)"
+      },
+      {
+        "command": "mariadb.showOverview",
+        "title": "Show MariaDB Overview",
+        "category": "MariaDB",
+        "icon": "$(home)"
       },
       {
         "command": "mariadb.newDeployment",
@@ -1121,6 +1142,11 @@
           "group": "navigation"
         },
         {
+          "command": "mariadb.showOverview",
+          "when": "view == mariadb.connections",
+          "group": "navigation@2"
+        },
+        {
           "command": "mariadb.newDeployment",
           "when": "view == mariadb.deployments",
           "group": "navigation@0"
@@ -1243,9 +1269,14 @@
           "group": "1_folder@1"
         },
         {
+          "command": "mariadb.setFolderColor",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbFolder/",
+          "group": "1_folder@2"
+        },
+        {
           "command": "mariadb.removeFolder",
           "when": "view == mariadb.connections && viewItem == mariadbFolder.empty",
-          "group": "1_folder@2"
+          "group": "1_folder@3"
         },
         {
           "command": "mariadb.newFolderWithSelection",
@@ -1727,6 +1758,10 @@
         },
         {
           "command": "mariadb.removeFolder",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.setFolderColor",
           "when": "false"
         },
         {
@@ -2710,7 +2745,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "build:extension": "vite build",
-    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.modeler.config.ts",
+    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.overview.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.modeler.config.ts",
     "watch:webview": "vite build --config vite.webview.config.ts --watch",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "grammar:sync": "node tools/grammar.mts sync",
