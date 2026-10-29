@@ -17,7 +17,10 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { parentFolder } from "../../src/connections/connectionFolders.js";
+import {
+    parentFolder,
+    ROOT_FOLDER,
+} from "../../src/connections/connectionFolders.js";
 import {
     existingFolder,
     folderContents,
@@ -49,14 +52,55 @@ import { loadState, post, saveState } from "./vscodeApi.js";
 export const GREETING =
     "Welcome to the MariaDB Shell for VS Code extension.";
 
-/** What the page keeps across a reload: the folder each section shows. */
+/**
+ * What the page keeps across a reload: the folder each section shows,
+ * none where the user has not picked one and it starts where
+ * `startingFolder` says.
+ */
 interface IOverviewState {
-    folder: string;
+    folder?: string;
     deploymentFolder?: string;
 }
 
 /** How long a tile ignores further clicks once clicked. */
 const CLICK_GUARD_MS = 200;
+
+/**
+ * @param asked The folder the section was asked to show; none where the
+ *        user has not picked one.
+ * @param items What the section lists, once listed.
+ * @param extraFolders Folders there are with nothing in them.
+ *
+ * @returns The folder it shows: the one asked for, its starting folder,
+ *          or the nearest one above either still there.
+ */
+const shownFolder = (
+    asked: string | undefined,
+    items: ReadonlyArray<{ path: string }> | undefined,
+    extraFolders?: readonly string[],
+): string => {
+    return items === undefined
+        ? asked ?? ROOT_FOLDER
+        : existingFolder(items, asked, extraFolders);
+};
+
+/**
+ * The folder asked for follows the one shown: a folder made again under a
+ * path the section has left is not to pull it back in unasked. A starting
+ * folder other than the top level is kept the same way, so the second
+ * connection made in it does not throw the section back out.
+ *
+ * @param asked The folder asked for; none where the user has not picked one.
+ * @param shown The folder shown.
+ *
+ * @returns The folder to ask for from now on.
+ */
+const keptFolder = (
+    asked: string | undefined,
+    shown: string,
+): string | undefined => {
+    return asked === undefined && shown === ROOT_FOLDER ? undefined : shown;
+};
 
 /** What a connection's More Actions menu offers, in order; `{}` divides. */
 const CONNECTION_MENU: Array<{ label?: string;
@@ -399,9 +443,9 @@ export const OverviewPage = (): preact.JSX.Element => {
         useState<IListing<IOverviewSnapshot>>({});
     const [deployments, setDeployments] =
         useState<IListing<IOverviewDeployment[]>>({});
-    const [folder, setFolder] = useState(kept?.folder ?? "/");
+    const [folder, setFolder] = useState(kept?.folder);
     const [deploymentFolder, setDeploymentFolder] =
-        useState(kept?.deploymentFolder ?? "/");
+        useState(kept?.deploymentFolder);
 
     useEffect(() => {
         const onMessage = (event: MessageEvent<OverviewHostMessage>): void => {
@@ -449,27 +493,26 @@ export const OverviewPage = (): preact.JSX.Element => {
         return () => { window.removeEventListener("message", onMessage); };
     }, []);
 
-    // A folder moved, renamed or emptied away leaves a section in the
+    // A section the user has not walked yet starts in its one item's
+    // folder; a folder moved, renamed or emptied away leaves it in the
     // nearest one still there.
     const snapshot = connections.data;
-    const shown = snapshot === undefined ? folder : existingFolder(
-        snapshot.connections, folder, snapshot.customFolders);
-    const shownDeployments = deployments.data === undefined
-        ? deploymentFolder
-        : existingFolder(deployments.data, deploymentFolder);
+    const shown = shownFolder(folder, snapshot?.connections,
+        snapshot?.customFolders);
+    const shownDeployments = shownFolder(deploymentFolder, deployments.data);
     useEffect(() => {
-        // The folder asked for follows: a folder made again under a path
-        // the section has left is not to pull it back in unasked.
-        if (shown !== folder) {
-            setFolder(shown);
+        const nextFolder = keptFolder(folder, shown);
+        const nextDeploymentFolder =
+            keptFolder(deploymentFolder, shownDeployments);
+        if (nextFolder !== folder
+            || nextDeploymentFolder !== deploymentFolder) {
+            // Saved by the run the change brings.
+            setFolder(nextFolder);
+            setDeploymentFolder(nextDeploymentFolder);
+
+            return;
         }
-        if (shownDeployments !== deploymentFolder) {
-            setDeploymentFolder(shownDeployments);
-        }
-        saveState({
-            folder: shown,
-            deploymentFolder: shownDeployments,
-        } satisfies IOverviewState);
+        saveState({ folder, deploymentFolder } satisfies IOverviewState);
     }, [shown, shownDeployments, folder, deploymentFolder]);
 
     const openSqlEditor = (connection: IOverviewConnection): void => {

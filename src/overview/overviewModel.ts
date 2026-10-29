@@ -181,18 +181,36 @@ export const folderContents = <T extends { path: string }>(
 };
 
 /**
+ * The folder a section starts in, until the user picks one: the folder of
+ * its one connection or deployment, where it has just one - the sandbox a
+ * first deployment made and its connection, both filed under `/Sandboxes`,
+ * a click away - else the top level.
+ *
  * @param items The connections or the deployments.
- * @param folder A folder the page was showing.
+ *
+ * @returns The folder to show.
+ */
+export const startingFolder = (
+    items: ReadonlyArray<{ path: string }>,
+): string => {
+    return items.length === 1 ? items[0].path : ROOT_FOLDER;
+};
+
+/**
+ * @param items The connections or the deployments.
+ * @param folder A folder the page was showing; none where the user has
+ *        not picked one, and the section is in its `startingFolder`.
  * @param extraFolders Folders there are with nothing in them.
  *
  * @returns The folder, or the nearest one above it that is still there.
  */
 export const existingFolder = (
     items: ReadonlyArray<{ path: string }>,
-    folder: string,
+    folder: string | undefined,
     extraFolders: readonly string[] = [],
 ): string => {
-    return nearestFolder(foldersOf(items, extraFolders), folder);
+    return nearestFolder(foldersOf(items, extraFolders),
+        folder ?? startingFolder(items));
 };
 
 /**

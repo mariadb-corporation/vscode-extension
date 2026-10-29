@@ -330,6 +330,55 @@ describe("OverviewPage", () => {
             ]);
         });
 
+    it("starts in the folder of its one connection", async () => {
+        await act(async () => {
+            render(<OverviewPage />, host);
+            await Promise.resolve();
+        });
+        await send({ type: "connections", connections: [],
+            customFolders: [], folderColors: {} });
+        expect(crumbs()).toEqual(["/"]);
+
+        // The connection a sandbox deployment made.
+        await send({ type: "connections",
+            connections: [{ ...SHOP, path: "/Sandboxes" }],
+            customFolders: [], folderColors: {} });
+
+        expect(crumbs()).toEqual(["/", "Sandboxes /"]);
+        expect(tiles()).toEqual([
+            "back: Back",
+            "connection: Shop",
+            "createNew: New Connection",
+        ]);
+    });
+
+    it("keeps an unpicked folder unpicked, and a landed one, across a reload",
+        async () => {
+            await mount(false);
+            render(null, host);
+
+            // Saved as none: the reload starts in its one connection's folder.
+            await act(async () => {
+                render(<OverviewPage />, host);
+                await Promise.resolve();
+            });
+            await send({ type: "connections",
+                connections: [{ ...SHOP, path: "/Sandboxes" }],
+                customFolders: [], folderColors: {} });
+            expect(crumbs()).toEqual(["/", "Sandboxes /"]);
+            render(null, host);
+
+            // Saved as landed: a second connection does not throw it out.
+            await act(async () => {
+                render(<OverviewPage />, host);
+                await Promise.resolve();
+            });
+            await send({ type: "connections",
+                connections: [LOCAL, { ...SHOP, path: "/Sandboxes" }],
+                customFolders: [], folderColors: {} });
+            expect(crumbs()).toEqual(["/", "Sandboxes /"]);
+        });
+
     it("says why the connections could not be listed", async () => {
         await act(async () => {
             render(<OverviewPage />, host);
@@ -392,6 +441,7 @@ describe("Database Deployments", () => {
     it("files the sandboxes in their folder, with New Deployment",
         async () => {
             await mountDeployments();
+            await click(tile("Back"));
 
             expect(deploymentTiles()).toEqual(["Sandboxes", "New Deployment"]);
 
@@ -414,7 +464,6 @@ describe("Database Deployments", () => {
     it("opens a sandbox's menu on its tile: what the host sent, by group",
         async () => {
             await mountDeployments();
-            await click(tile("Sandboxes"));
             posted.length = 0;
 
             await click(tile("localhost:3310"));
@@ -445,7 +494,6 @@ describe("Database Deployments", () => {
             await send({ type: "deployments", deployments: [
                 { ...SANDBOX, icon: "loading~spin", menu: [[]] },
             ] });
-            await click(tile("Sandboxes"));
 
             await click(tile("localhost:3310"));
 
@@ -453,6 +501,32 @@ describe("Database Deployments", () => {
             expect(tile("localhost:3310").querySelector(
                 ".codicon-loading.codicon-modifier-spin")).not.toBeNull();
         });
+
+    it("starts in the folder of its one sandbox, and stays there",
+        async () => {
+            await mount(false);
+            await send({ type: "deployments", deployments: [] });
+            expect(deploymentTiles()).toEqual(["New Deployment"]);
+
+            // The first sandbox, made from the overview.
+            await send({ type: "deployments", deployments: [SANDBOX] });
+            expect(crumbs(1)).toEqual(["/", "Sandboxes /"]);
+
+            await send({ type: "deployments", deployments: [
+                SANDBOX, { ...SANDBOX, port: 3311 },
+            ] });
+            expect(deploymentTiles()).toEqual(
+                ["Back", "localhost:3310", "localhost:3311", "New Deployment"]);
+        });
+
+    it("stays at the top level once the user went back to it", async () => {
+        await mountDeployments();
+        await click(tile("Back"));
+
+        await send({ type: "deployments", deployments: [SANDBOX] });
+
+        expect(crumbs(1)).toEqual(["/"]);
+    });
 
     it("opens the New Deployment wizard", async () => {
         await mountDeployments();

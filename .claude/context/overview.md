@@ -95,6 +95,14 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   row's own redraw - a folder opening, a connection connecting - changes
   nothing it shows, so it is ignored) and when the default connection
   changes; a listing overtaken by a newer one is dropped.
+- **A section starts in its one item's folder** (the user's call): until
+  the user picks a folder in it (a folder tile, Back, the breadcrumb), a
+  section with exactly one connection or deployment shows that one's
+  folder (`startingFolder`), so the sandbox a first deployment made and
+  its connection, both under `/Sandboxes`, are a click away. Once it has
+  landed there it stays, as if the user had picked it, so a second item
+  does not throw it back to the top level. An unpicked folder is saved
+  as none in the webview state.
 - **A folder that goes away** (moved, renamed, emptied) leaves the page in
   the nearest folder above it still there. The folder shown is kept with
   the webview's state, across a reload of it.
