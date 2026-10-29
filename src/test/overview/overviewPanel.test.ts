@@ -25,6 +25,7 @@ import {
     existingFolder,
     folderContents,
     folderTrail,
+    startingFolder,
     type IOverviewSnapshot,
 } from "../../overview/overviewModel.js";
 import {
@@ -261,6 +262,12 @@ describe("overviewModel", () => {
         expect(existingFolder(SNAPSHOT.connections, "/Empty",
             SNAPSHOT.customFolders)).toBe("/Empty");
         expect(existingFolder(SNAPSHOT.connections, "/Gone")).toBe("/");
+    });
+
+    it("starts in the folder of the one item there is", () => {
+        expect(startingFolder([{ path: "/Sandboxes" }])).toBe("/Sandboxes");
+        expect(startingFolder([])).toBe("/");
+        expect(startingFolder(SNAPSHOT.connections)).toBe("/");
     });
 
     it("walks up, and spells the way down as a trail", () => {
