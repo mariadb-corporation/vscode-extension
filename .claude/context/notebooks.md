@@ -36,7 +36,8 @@ cells the same way, and reloaded live. None of it needs Monaco.
 | `src/notebook/scriptSandbox.ts` | The worker's runtime: the cell compiled (sucrase), run in a `vm` context kept across cells, `print` / `runSql` / `console`. Free of the worker API. |
 | `src/notebook/scriptWorker.ts` | The worker's entry, wiring its port to the sandbox; built to `dist/notebookWorker.js` by `vite.worker.config.ts`. |
 | `src/notebook/scriptProtocol.ts` | What the runner and a worker say to each other. |
-| `webview/src/graphs/renderGraph.ts` | `renderGraph`: a graph's options, as a cell sent them, drawn as an SVG with d3 - pie, line and bar series. |
+| `webview/src/graphs/renderGraph.ts` | `renderGraph`: a graph's options, as a cell sent them, drawn as plain SVG - pie, line and bar series. |
+| `webview/src/graphs/graphMath.ts` | Their arithmetic: round ticks and domains, linear and time scales, bands, pie angles and arc paths, line curves, number formats. Free of the DOM. |
 | `ts-plugin/` | The TypeScript server plugin (`mariadb-notebook-ts-plugin`), its own package: `index.js`, and `typings.js`, the runtime's typings as the editor knows them. |
 | `src/notebook/notebookProtocol.ts` | The result output's payload (`INotebookResultPayload`) and the messages between a view and the extension. Free of `vscode`. |
 | `src/notebook/notebookResults.ts` | `NotebookResults`: the renderer messaging, the views of this session's cells, taking up a reopened notebook's, and refresh. |
@@ -237,12 +238,19 @@ in the MySQL Shell's notebooks, print a graph: its options go out as JSON
 (`kind: "graph"`, a `Date` as its ISO text), an output of their own
 (`application/vnd.mariadb.graph+json`), which the notebook renderer draws
 with `renderGraph` - an SVG scaled to the output's width, no taller than
-450px, saved with the notebook like any output.
+450px, saved with the notebook like any output. **No charting library**:
+three simple kinds of graph need little of one, so `graphMath.ts` does
+the arithmetic - ticks on 1, 2 or 5 times a power of ten, time ticks on
+round steps (whole minutes, local midnights, the first of a month)
+labeled with `Intl.DateTimeFormat`, the natural and basis curves as d3
+solves them - and `renderGraph` writes the SVG elements itself.
 
 - **The series**: `pie` (slices, a label each beside the pie with a line
   to it, `radius` making it a donut), `line` (a line per `group`, against
   a time axis where the x values are dates, a legend where there is more
-  than one group, the `curve` d3's), `bar` (a bar per category, from
+  than one group, the `curve` one of `Linear`, `Step`, `StepBefore`,
+  `StepAfter`, `Natural`, `Basis`, `Bundle` drawn as `Basis`), `bar` (a
+  bar per category, from
   tabular data or rows). A tooltip is SVG's own `<title>`. A series goes in
   its `transformation` box of the viewport (default 0 0 1200 900); a title
   gets room of its own above the viewport.
@@ -251,12 +259,15 @@ with `renderGraph` - an SVG scaled to the output's width, no taller than
   names and numbers both ways) picks the radii the MySQL Shell's did.
 - **What the old API had and this does not**: functions among the options
   (a tooltip's `format`, `xTitle`, `yFormat` as a function) - they never
-  crossed the old worker's `postMessage` either - and animations, which
+  crossed the old worker's `postMessage` either - a pie's `borderRadius`;
+  `yFormat` as a d3 specifier only as far as `,`, `.N`, `f`, `d` and `%`
+  go; and animations, which
   moved a graph from one rendering to the next; under a cell each
   rendering is an output of its own. The options are read as untrusted
   JSON: a value of the wrong kind is left out, at most 100 slices or bars.
-- The renderer bundle is some 600 kB with d3's parts; one module, so
-  `vite.notebook.config.ts` raises the size warning to 700 kB.
+- The renderer bundle is some 510 kB, the result view's Tabulator above
+  all; one module, so `vite.notebook.config.ts` raises the size warning
+  to 600 kB.
 
 ## IntelliSense in TypeScript cells
 

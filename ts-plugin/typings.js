@@ -118,8 +118,6 @@ declare interface IPieGraphConfiguration extends IBaseGraphEntry {
     startAngle?: number;
     /** In radians, 0 at 12 o'clock, clockwise (default: 2π). */
     endAngle?: number;
-    /** Rounds the corners of the slices. */
-    borderRadius?: number;
     borderColor?: string;
     borderWidth?: number;
     /** The angle left between slices, in radians. */
