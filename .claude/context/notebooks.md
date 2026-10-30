@@ -17,7 +17,7 @@ language switched by hand; drew result sets, JSON and graphs under each
 block; and fed the current REST service's TypeScript SDK to Monaco. Done
 so far: SQL cells and their result sets in the panel's own view; a cell's
 language told from what is typed in it; TypeScript cells run in a worker
-with the old runtime's `print`, `runSql` and `$`. Still to come, in
+with the old runtime's `print` and `runSql`. Still to come, in
 order: a TypeScript server plugin giving the cells the runtime's and the
 REST SDK's typings, and one another's declarations; a graph renderer
 (`Graph`, `PieGraph`); the REST SDK generated and reloaded live. None of it
@@ -34,7 +34,7 @@ needs Monaco.
 | `src/notebook/languageDetection.ts` | `detectLanguage`: SQL or TypeScript from how a cell starts, or undecided. Free of `vscode`. |
 | `src/notebook/languageSwitcher.ts` | `LanguageSwitcher`: switches a cell as it is typed, and pins one whose language was picked by hand. |
 | `src/notebook/scriptRunner.ts` | `ScriptRunner`: a worker thread per notebook, one cell at a time, interrupting. |
-| `src/notebook/scriptSandbox.ts` | The worker's runtime: the cell compiled (sucrase), run in a `vm` context kept across cells, `print` / `runSql` / `$` / `console`. Free of the worker API. |
+| `src/notebook/scriptSandbox.ts` | The worker's runtime: the cell compiled (sucrase), run in a `vm` context kept across cells, `print` / `runSql` / `console`. Free of the worker API. |
 | `src/notebook/scriptWorker.ts` | The worker's entry, wiring its port to the sandbox; built to `dist/notebookWorker.js` by `vite.worker.config.ts`. |
 | `src/notebook/scriptProtocol.ts` | What the runner and a worker say to each other. |
 | `src/notebook/notebookProtocol.ts` | The result output's payload (`INotebookResultPayload`) and the messages between a view and the extension. Free of `vscode`. |
@@ -159,8 +159,8 @@ a cell runs, so one run before typing paused runs in its right language.
 `detectLanguage` goes by how a cell starts, its leading comments dropped:
 `--` and `#` comments say SQL, `//` TypeScript, `/*!` is SQL to run. A
 word only TypeScript starts with (`const`, `await`, `import`, `print`,
-`runSql`, ...) or a literal, a block, `$` say TypeScript; a statement
-keyword says SQL. The words both start with are told apart by what
+`runSql`, ...), a literal, a block or a name starting with `$` say
+TypeScript; a statement keyword says SQL. The words both start with are told apart by what
 follows: `DELETE FROM` / `delete obj.key`, `SET @a` / `set(...)`, `DO 1` /
 `do {`, and a statement keyword called or read as a property
 (`select(...)`, `update.count`) is TypeScript. A name used - called, read,
@@ -177,11 +177,36 @@ changed in the language picker.
 Run in a **worker thread per notebook** (`ScriptRunner`), one cell at a
 time: `dist/notebookWorker.js`, a bundle of its own so the transpiler
 (**sucrase**, which strips the types - all a cell needs, a fraction of the
-TypeScript compiler's size) is only loaded once a TypeScript cell runs. A
+TypeScript compiler's size) and the parser (**acorn**) are only loaded
+once a TypeScript cell runs. A
 cell's code is the body of an async function opened on its first line
 (`compileCell`): it can `await` and `return` at the top, and a stack's
 lines are the cell's; frames past its last line - the wrapper's call - and
-outside it are cut, and a syntax error's first-line column is the cell's.
+outside it are cut. What compiling put in front on a line - the wrapper on
+the first, `return (` on the last expression's - is taken back out of a
+frame's column (`ICompiledCell.shifts`), and out of a syntax error's on
+the first line. Sucrase keeps the lines but not the columns where it
+strips a type, so a column after a type annotation on its line is off.
+
+`rewriteCell` reworks the compiled cell, parsed with **acorn**, in two
+ways, on the lines it was on:
+
+- **What a cell declares at its top is the notebook's**, for the cells
+  run after it, as in the Node REPL: a variable is declared once with
+  `var` after the cell's function (hoisted to the top of the script) and
+  its declaration becomes an assignment - `const a = 1` runs as
+  `;(    a = 1)`, the keyword's place taken by as many characters so the
+  columns after it stay the cell's, destructuring and all; `let a;` sets
+  it to `undefined` again. A function or a class is handed over with
+  `globalThis.name = name` once declared. Running a cell again assigns
+  again, rather than failing as a second `const` would; the price is that
+  a `const` can be reassigned by a later cell. What a cell sees is what
+  the cells run before it declared, not what is written above it.
+- **Its last statement, where it is an expression, is shown** once the
+  cell is over, as the MySQL Shell's notebooks showed a block's value: it
+  is made the function's `return`. An assignment (`obj.x = 1`) is not
+  echoed, and `undefined` - a `print(...)` call's - shows nothing. So
+  `await runSql("SELECT 1")` alone in a cell shows its rows.
 
 It runs in a `vm` context kept across the notebook's cells, with:
 
@@ -194,13 +219,13 @@ It runs in a `vm` context kept across the notebook's cells, with:
   an object a row, every one of them, not a page; rejects with the first
   failing statement's error. The connection is asked for only once a cell
   runs SQL. The run listeners are told, so DDL redraws the Connections view.
-- `$` - an object the cells share, as in the MySQL Shell's notebooks. A
-  cell's own declarations are its function's, so they do not carry over.
+- No `$`: the MySQL Shell's notebooks shared values through that object;
+  here a cell's declarations are shared, so it was dropped.
 - `console.log/info/debug` to stdout, `console.warn/error` to stderr;
   timers, `fetch`, `URL`, `TextEncoder`/`Decoder`, `structuredClone`.
 
 **Interrupt** ends the notebook's worker: the cell is told so, and the next
-one starts on a fresh worker, `$` empty. A closed notebook's worker goes
+one starts on a fresh worker, nothing declared. A closed notebook's worker goes
 too. The context is no sandbox: the code is the user's own, with Node a
 constructor away, and the extension runs only in trusted workspaces.
 
@@ -219,8 +244,9 @@ send the cell to the panel. `keybindings.test.ts` checks every one.
   closed, and it reopens on the run's first page.
 - No maximizing a result set into a tab of its own.
 - A SQL cell cannot be interrupted: it runs to its end.
-- A TypeScript cell's editor does not know `print`, `runSql` or `$` yet,
-  and marks them: their typings are the next step.
+- A TypeScript cell's editor does not know `print` or `runSql` yet,
+  nor what the cells before it declared, and marks them: their typings,
+  and the cells sharing a project, are the next step.
 - `runSql` takes no parameters yet.
 - The watch task does not rebuild the worker; `npm run build` (and F5)
   does.

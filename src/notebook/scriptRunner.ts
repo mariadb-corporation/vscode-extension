@@ -64,7 +64,7 @@ interface INotebookWorker {
 
 /**
  * Runs the TypeScript cells of each notebook in a worker thread of its own,
- * one cell at a time. A notebook's worker - and with it `$` and anything
+ * one cell at a time. A notebook's worker - and with it anything
  * else its cells left behind - lives until it is interrupted, the worker
  * fails, or the notebook is closed.
  */
@@ -130,7 +130,7 @@ export class ScriptRunner {
 
     /**
      * Stops what a notebook's worker is running, and the worker with it:
-     * the next cell starts on a fresh one, `$` empty.
+     * the next cell starts on a fresh one, nothing declared.
      *
      * @param notebook Which notebook.
      *

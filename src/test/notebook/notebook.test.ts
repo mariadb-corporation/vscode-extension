@@ -607,15 +607,15 @@ describe("TypeScript cells", () => {
         resetVscodeMock();
     });
 
-    it("run in the notebook's worker, printing as they go, sharing $",
+    it("run in the notebook's worker, printing as they go, sharing what they declare",
         async () => {
             const { api, kernel, controller } = createController();
             const notebook = notebookOfLanguages([
                 ["const rows = await runSql(\"SELECT 1;\");\n"
                     + "print(`${rows.length} row`);\nprint(rows);\n"
-                    + "$.answer = 42;", "typescript"],
+                    + "const answer = 42;", "typescript"],
                 ["print(\"one\"); print(\"two\"); console.error(\"bad\");\n"
-                    + "print($.answer);", "typescript"],
+                    + "print(answer);", "typescript"],
             ]);
 
             await kernel.executeHandler!(notebook.getCells(), notebook);
@@ -671,6 +671,52 @@ describe("TypeScript cells", () => {
         controller.dispose();
     });
 
+    it("show what a cell came to, as the MySQL Shell's notebooks did",
+        async () => {
+            const { kernel, controller } = createController();
+            const notebook = notebookOfLanguages([
+                ["await runSql(\"SELECT 1;\")", "typescript"],
+                ["const answer = 42;\nconst o = { x: 1 };\no.x = 2;",
+                    "typescript"],
+                ["print(\"only this\")", "typescript"],
+            ]);
+
+            await kernel.executeHandler!(notebook.getCells(), notebook);
+
+            const [rows, assigned, printed] = kernel.executions;
+            expect(itemsOf(rows.outputs[0])[0]).toEqual({
+                mime: "application/json",
+                text: JSON.stringify([{ 1: 1 }], null, 2),
+            });
+            expect(assigned.outputs).toEqual([]);
+            expect(printed.outputs.map(itemsOf)).toEqual(
+                [[{ mime: STDOUT_MIME, text: "only this\n" }]]);
+
+            controller.dispose();
+        });
+
+    it("share what they declare with the cells run after them", async () => {
+        const { kernel, controller } = createController();
+        const notebook = notebookOfLanguages([
+            ["const rows = await runSql(\"SELECT 1;\");\n"
+                + "function count(r: unknown[]) { return r.length; }",
+                "typescript"],
+            ["count(rows)", "typescript"],
+        ]);
+
+        await kernel.executeHandler!(notebook.getCells(), notebook);
+        // Run again, its `const` is assigned again rather than refused.
+        await kernel.executeHandler!(notebook.getCells(), notebook);
+
+        expect(kernel.executions.map((execution) => {
+            return execution.success;
+        })).toEqual([true, true, true, true]);
+        expect(itemsOf(kernel.executions[3].outputs[0])[0].text)
+            .toBe("1\n");
+
+        controller.dispose();
+    });
+
     it("ask for a connection only once they run SQL", async () => {
         const { kernel, controller } = createController();
         const data = new NotebookData([
@@ -696,8 +742,9 @@ describe("TypeScript cells", () => {
     it("start afresh once interrupted", async () => {
         const { kernel, controller } = createController();
         const notebook = notebookOfLanguages([
-            ["$.kept = 1;\nawait new Promise(() => {});", "typescript"],
-            ["print($.kept ?? \"gone\");", "typescript"],
+            ["const kept = 1;\nawait new Promise(() => {});", "typescript"],
+            ["print(typeof kept === \"undefined\" ? \"gone\" : kept);",
+                "typescript"],
         ]);
         const [hanging, after] = notebook.getCells();
 

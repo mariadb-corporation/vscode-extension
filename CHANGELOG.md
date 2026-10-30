@@ -14,8 +14,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   typed in it unless picked by hand. Each SQL cell runs on the notebook's
   connection with its result sets shown under it as the MariaDB panel
   shows them: a tab each, with the result set toolbar - paging, editing,
-  the SQL preview, refresh. A TypeScript cell runs with `print`, `runSql`
-  and the shared `$` of the MySQL Shell's notebooks.
+  the SQL preview, refresh. A TypeScript cell runs with `print` and
+  `runSql`, shows the value of its last expression, and what it declares
+  is there for the cells after it.
   The connection is picked from the notebook's toolbar or the status bar
   and saved with the notebook, as are the last results.
 - **MariaDB Deployments view.** A second activity bar icon opens a view of

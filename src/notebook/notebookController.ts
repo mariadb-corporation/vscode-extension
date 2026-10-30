@@ -264,7 +264,7 @@ export class NotebookController implements vscode.Disposable {
                 kind: "text",
                 stream: "stderr",
                 text: "Interrupted. The notebook's TypeScript starts afresh: "
-                    + "$ is empty again.",
+                    + "what its cells declared is gone.",
             });
         } else if (outcome.error !== undefined) {
             await show({ kind: "text", stream: "stderr", text: outcome.error });

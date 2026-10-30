@@ -18,14 +18,18 @@
 /**
  * Where a notebook's TypeScript cells run: one `vm` context per notebook,
  * kept across its cells, with the scripting runtime of the MySQL Shell's
- * notebooks as far as it goes so far - `print`, `runSql`, `$` and
- * `console`. Lives in the notebook's worker thread (`scriptWorker.ts`);
- * free of the worker API, so the tests run it in-process.
+ * notebooks as far as it goes so far - `print`, `runSql` and `console` -
+ * and, as there, a cell's last expression shown once it is over. What a
+ * cell declares at its top is there for the cells after it, as in the
+ * Node REPL; the old runtime's `$` is not there. Lives in the notebook's
+ * worker thread (`scriptWorker.ts`); free of the worker API, so the tests
+ * run it in-process.
  */
 
 import { inspect } from "node:util";
 import vm from "node:vm";
 
+import { parse, type Node } from "acorn";
 import { transform } from "sucrase";
 
 import type {
@@ -40,28 +44,235 @@ export const CELL_FILE = "cell.ts";
 /** A stack frame in the cell, and its line. */
 const CELL_FRAME = /cell\.ts:(\d+):/;
 
+/** Where in the cell a frame is: its line and column. */
+const CELL_POSITION = /cell\.ts:(\d+):(\d+)/;
+
 /** What a cell's code is put in, on its first line. */
 const WRAPPER_START = "(async () => {";
+
+/** What a cell's last expression is made, around it. */
+const RETURN_START = "return (";
+
+/**
+ * A cell compiled, and by how many columns each line of it that was
+ * written into was moved: what a stack reports there is put back.
+ */
+export interface ICompiledCell {
+    code: string;
+    /** Line (from 1) -> columns added in front of the cell's own code. */
+    shifts: Map<number, number>;
+}
+
+/** The parts of an ESTree node `rewriteCell` reads. */
+interface IEsNode extends Node {
+    expression?: IEsNode;
+    callee?: IEsNode;
+    body?: IEsNode | IEsNode[];
+    directive?: string;
+    kind?: string;
+    declarations?: IEsNode[];
+    id?: IEsNode | null;
+    init?: IEsNode | null;
+    name?: string;
+    properties?: IEsNode[];
+    elements?: Array<IEsNode | null>;
+    value?: IEsNode;
+    left?: IEsNode;
+    argument?: IEsNode;
+}
+
+/**
+ * The names a declaration's binding binds: a name, or every name a
+ * destructuring pattern takes apart, defaults and rest elements too.
+ *
+ * @param pattern The binding.
+ *
+ * @returns Its names.
+ */
+const boundNames = (pattern: IEsNode | null | undefined): string[] => {
+    switch (pattern?.type) {
+        case "Identifier": {
+            return [pattern.name ?? ""];
+        }
+
+        case "ObjectPattern": {
+            return (pattern.properties ?? []).flatMap((property) => {
+                return boundNames(property.type === "RestElement"
+                    ? property.argument
+                    : property.value);
+            });
+        }
+
+        case "ArrayPattern": {
+            return (pattern.elements ?? []).flatMap(boundNames);
+        }
+
+        case "AssignmentPattern": {
+            return boundNames(pattern.left);
+        }
+
+        case "RestElement": {
+            return boundNames(pattern.argument);
+        }
+
+        default:
+            return [];
+    }
+};
+
+/** A piece of text put in place of another. */
+interface IEdit {
+    start: number;
+    end: number;
+    text: string;
+    /**
+     * Of two put in at the same place, the one ranked lower ends up after
+     * the other: a declaration's `)` after the `= undefined` before it.
+     */
+    rank?: number;
+}
+
+/**
+ * Rewrites a cell, compiled, so it is part of its notebook:
+ *
+ * - What it declares at its top - `const`, `let`, `var`, a function, a
+ *   class - is the notebook's, for the cells after it to use, as in the
+ *   Node REPL. A variable is declared once with `var`, after the cell's
+ *   function (where `var` is hoisted to the top of the script, not the
+ *   end), and its declaration in the cell becomes an assignment:
+ *   `const a = 1` runs as `;(   a = 1)`, its keyword's place taken by as
+ *   many characters, so the columns after it stay the cell's. A function
+ *   or a class is handed over once it is declared. Running a cell again
+ *   assigns again, rather than failing as a second `const` would.
+ * - Its last statement, where it is an expression, is what its function
+ *   returns, so its value can be shown, as the MySQL Shell's notebooks
+ *   showed a block's. An assignment is left as it is: setting `obj.x` is
+ *   not asking to see it.
+ *
+ * @param compiled The cell, compiled: `(async () => {...})()`.
+ *
+ * @returns The same, rewritten, and the line its returned expression is
+ *          on, where it has one; as it was where it does not parse - V8
+ *          says why when it runs.
+ */
+export const rewriteCell = (
+    compiled: string,
+): { code: string; returnLine?: number } => {
+    let program: IEsNode;
+    try {
+        program = parse(compiled, { ecmaVersion: "latest" }) as IEsNode;
+    } catch {
+        return { code: compiled };
+    }
+
+    const call = (program.body as IEsNode[] | undefined)?.[0]?.expression;
+    const block = call?.callee?.body;
+    const statements = Array.isArray(block)
+        ? block
+        : (block?.body as IEsNode[] | undefined) ?? [];
+    const edits: IEdit[] = [];
+    const variables: string[] = [];
+
+    for (const statement of statements) {
+        if (statement.type === "VariableDeclaration") {
+            const keyword = statement.kind ?? "";
+            for (const declarator of statement.declarations ?? []) {
+                variables.push(...boundNames(declarator.id));
+                // `let a;` sets it afresh, as declaring it would.
+                if (declarator.init === null && declarator.id?.type
+                    === "Identifier") {
+                    edits.push({
+                        start: declarator.end,
+                        end: declarator.end,
+                        text: " = undefined",
+                        rank: 1,
+                    });
+                }
+            }
+            // `;(` against a line before it that has no semicolon.
+            edits.push({
+                start: statement.start,
+                end: statement.start + keyword.length,
+                text: ";(".padEnd(keyword.length, " "),
+            });
+            const close = compiled[statement.end - 1] === ";"
+                ? statement.end - 1
+                : statement.end;
+            edits.push({ start: close, end: close, text: ")" });
+        } else if ((statement.type === "FunctionDeclaration"
+            || statement.type === "ClassDeclaration")
+            && statement.id?.name !== undefined) {
+            const name = statement.id.name;
+            edits.push({
+                start: statement.end,
+                end: statement.end,
+                text: `;globalThis.${name} = ${name};`,
+            });
+        }
+    }
+
+    let returnLine: number | undefined;
+    const last = statements.at(-1);
+    const expression = last?.expression;
+    if (last?.type === "ExpressionStatement" && expression !== undefined
+        && last.directive === undefined
+        && expression.type !== "AssignmentExpression") {
+        edits.push({
+            start: last.start,
+            end: expression.start,
+            text: RETURN_START,
+        }, {
+            start: expression.end,
+            end: last.end,
+            text: ");",
+        });
+        returnLine = compiled.slice(0, last.start).split("\n").length;
+    }
+
+    // From the end, so each edit's offsets still hold.
+    let code = compiled;
+    for (const edit of edits.sort((first, second) => {
+        return second.start - first.start
+            || (first.rank ?? 0) - (second.rank ?? 0);
+    })) {
+        code = `${code.slice(0, edit.start)}${edit.text}${code.slice(edit.end)}`;
+    }
+    if (variables.length > 0) {
+        code += `;var ${[...new Set(variables)].join(", ")};`;
+    }
+
+    return returnLine === undefined ? { code } : { code, returnLine };
+};
 
 /**
  * Turns a cell's TypeScript into the JavaScript to run: its types
  * stripped, and its code made the body of an async function, so it can
- * `await` and `return` at the top. The function opens on the cell's first
- * line, so a stack's line numbers are the cell's.
+ * `await` and `return` at the top, its declarations the notebook's and its
+ * last expression returned (`rewriteCell`). The
+ * function opens on the cell's first line, so a stack's line numbers are
+ * the cell's.
  *
  * @param code The cell's TypeScript.
  *
  * @returns The JavaScript, an expression whose value is the function's
- *          promise.
+ *          promise, and the columns it moved.
  *
  * @throws A SyntaxError saying where, for code that does not parse.
  */
-export const compileCell = (code: string): string => {
-    return transform(`${WRAPPER_START}${code}\n})()`, {
-        transforms: ["typescript"],
-        // The context is a modern V8: nothing needs lowering.
-        disableESTransforms: true,
-    }).code;
+export const compileCell = (code: string): ICompiledCell => {
+    const rewritten = rewriteCell(transform(
+        `${WRAPPER_START}${code}\n})()`, {
+            transforms: ["typescript"],
+            // The context is a modern V8: nothing needs lowering.
+            disableESTransforms: true,
+        }).code);
+    const shifts = new Map([[1, WRAPPER_START.length]]);
+    if (rewritten.returnLine !== undefined) {
+        shifts.set(rewritten.returnLine,
+            (shifts.get(rewritten.returnLine) ?? 0) + RETURN_START.length);
+    }
+
+    return { code: rewritten.code, shifts };
 };
 
 /**
@@ -115,16 +326,19 @@ export const cellSyntaxMessage = (message: string): string => {
 
 /**
  * Keeps the part of an error's stack that is the cell's own: frames in
- * its lines, not the wrapper's call of it on the line after them.
+ * its lines, not the wrapper's call of it on the line after them, each at
+ * the column it has in the cell.
  *
  * @param error What a cell threw.
  * @param lineCount How many lines the cell has.
+ * @param shifts The columns compiling added in front, by line.
  *
  * @returns Its message, and the frames in the cell.
  */
 export const describeFailure = (
     error: unknown,
     lineCount = Number.POSITIVE_INFINITY,
+    shifts = new Map<number, number>(),
 ): string => {
     if (!(error instanceof Error) && !(typeof error === "object"
         && error !== null && "message" in error)) {
@@ -136,6 +350,14 @@ export const describeFailure = (
         const at = CELL_FRAME.exec(line);
 
         return at !== null && Number(at[1]) <= lineCount;
+    }).map((frame) => {
+        return frame.replace(CELL_POSITION, (_whole, line: string,
+            column: string) => {
+            const shift = shifts.get(Number(line)) ?? 0;
+
+            return `${CELL_FILE}:${line}:${
+                Math.max(1, Number(column) - shift)}`;
+        });
     });
 
     return [`${failure.name}: ${failure.message}`, ...frames].join("\n");
@@ -202,8 +424,6 @@ export const createScriptSandbox = (
     const context = vm.createContext({
         print,
         runSql,
-        // What the cells share, as in the MySQL Shell's notebooks.
-        $: {},
         console: {
             log: printTo("stdout"),
             info: printTo("stdout"),
@@ -227,7 +447,7 @@ export const createScriptSandbox = (
 
     const run = async (code: string): Promise<void> => {
         let error: string | undefined;
-        let compiled: string | undefined;
+        let compiled: ICompiledCell | undefined;
         try {
             compiled = compileCell(code);
         } catch (failure) {
@@ -236,10 +456,17 @@ export const createScriptSandbox = (
         }
         if (compiled !== undefined) {
             try {
-                const script = new vm.Script(compiled, { filename: CELL_FILE });
-                await (script.runInContext(context) as Promise<unknown>);
+                const script = new vm.Script(compiled.code,
+                    { filename: CELL_FILE });
+                const value = await (script.runInContext(context) as
+                    Promise<unknown>);
+                // What the cell came to, as a REPL shows it.
+                if (value !== undefined) {
+                    send({ type: "print", runId, value: printedValueOf(value) });
+                }
             } catch (failure) {
-                error = describeFailure(failure, code.split("\n").length);
+                error = describeFailure(failure, code.split("\n").length,
+                    compiled.shifts);
             }
         }
         send({ type: "done", runId, ...error === undefined ? {} : { error } });
