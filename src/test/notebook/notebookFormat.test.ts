@@ -142,47 +142,42 @@ describe("parseNotebook", () => {
 });
 
 describe("outputsOf", () => {
-    it("puts a result set out on its own, and the messages around it",
-        () => {
-            const outputs = outputsOf(report([
-                row("run1-0", { message: "Query OK, 0 rows affected" }),
-                row("run1-1", { message: "1 row in set",
-                    resultId: "run1-result-0" }),
-                row("run1-2", { message: "Query OK, 1 row affected",
-                    kind: "warning",
-                    children: [row("run1-2-warning-0", { role: "warning",
-                        statement: "Warning 1265",
-                        message: "Data truncated" })] }),
-                row("run1-3", { message: "Query OK, 1 row affected" }),
-            ], [resultSet("run1-result-0")]));
+    const view = { viewId: "view-1", connection: "dba@localhost:3310" };
 
-            expect(outputs).toEqual([
-                { items: [{ mime: STDOUT_MIME,
-                    text: "Query OK, 0 rows affected\n" }] },
-                { items: [{ mime: RESULT_SET_MIME,
-                    json: resultSet("run1-result-0") }] },
-                { items: [{ mime: STDOUT_MIME,
-                    text: "Query OK, 1 row affected\n"
-                        + "Warning 1265: Data truncated\n"
-                        + "Query OK, 1 row affected\n" }] },
-            ]);
-        });
-
-    it("puts out each result set a procedure returned", () => {
+    it("says what the statements said, then puts the result sets out "
+        + "together", () => {
         const outputs = outputsOf(report([
-            row("run1-0", { message: "2 result sets",
-                resultId: "run1-result-0",
-                children: [
-                    row("run1-0-set-0", { resultId: "run1-result-0" }),
-                    row("run1-0-set-1", { resultId: "run1-result-1" }),
-                ] }),
-        ], [resultSet("run1-result-0"), resultSet("run1-result-1")]));
+            row("run1-0", { message: "Query OK, 0 rows affected" }),
+            row("run1-1", { message: "1 row in set",
+                resultId: "run1-result-0" }),
+            row("run1-2", { message: "Query OK, 1 row affected",
+                kind: "warning",
+                children: [row("run1-2-warning-0", { role: "warning",
+                    statement: "Warning 1265",
+                    message: "Data truncated" })] }),
+            row("run1-3", { message: "1 row in set",
+                resultId: "run1-result-1" }),
+        ], [resultSet("run1-result-0"), resultSet("run1-result-1")]), view);
 
-        expect(outputs.map((output) => {
-            return output.items[0];
-        })).toEqual([
-            { mime: RESULT_SET_MIME, json: resultSet("run1-result-0") },
-            { mime: RESULT_SET_MIME, json: resultSet("run1-result-1") },
+        expect(outputs).toEqual([
+            { items: [{ mime: STDOUT_MIME,
+                text: "Query OK, 0 rows affected\n"
+                    + "Query OK, 1 row affected\n"
+                    + "Warning 1265: Data truncated\n" }] },
+            { items: [{ mime: RESULT_SET_MIME, json: {
+                ...view,
+                resultSets: [resultSet("run1-result-0"),
+                    resultSet("run1-result-1")],
+            } }] },
+        ]);
+    });
+
+    it("leaves the result output out where there are no result sets", () => {
+        expect(outputsOf(report([
+            row("run1-0", { message: "Query OK, 0 rows affected" }),
+        ]), view)).toEqual([
+            { items: [{ mime: STDOUT_MIME,
+                text: "Query OK, 0 rows affected\n" }] },
         ]);
     });
 
@@ -193,7 +188,7 @@ describe("outputsOf", () => {
                 kind: "error" }),
         ], [], "error");
 
-        expect(outputsOf(failed)).toEqual([
+        expect(outputsOf(failed, view)).toEqual([
             { items: [{ mime: STDOUT_MIME,
                 text: "Query OK, 0 rows affected\n" }] },
             { items: [{ mime: STDERR_MIME,

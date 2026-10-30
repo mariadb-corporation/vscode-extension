@@ -1575,7 +1575,73 @@ const activeNotebookListeners = new Set<(editor: unknown) => void>();
 const notebookChangeListeners = new Set<(event: unknown) => void>();
 let untitledNotebooks = 0;
 
+/** A notebook renderer's messaging, recording what the extension sent. */
+export class MockRendererMessaging {
+    public readonly sent: Array<{ message: unknown; editor: unknown }> = [];
+    readonly #listeners = new Set<(event: {
+        editor: unknown;
+        message: unknown;
+    }) => unknown>();
+
+    public constructor(public readonly rendererId: string) { }
+
+    public onDidReceiveMessage(
+        listener: (event: { editor: unknown; message: unknown }) => unknown,
+    ): Disposable {
+        this.#listeners.add(listener);
+
+        return { dispose: () => { this.#listeners.delete(listener); } };
+    }
+
+    public postMessage(message: unknown, editor?: unknown): Promise<boolean> {
+        this.sent.push({ message, editor });
+
+        return Promise.resolve(true);
+    }
+
+    /**
+     * Delivers a message from a renderer, as from the editor given.
+     *
+     * @param editor The notebook editor it comes from.
+     * @param message What the renderer sent.
+     *
+     * @returns Once every listener has handled it.
+     */
+    public async receive(editor: unknown, message: unknown): Promise<void> {
+        for (const listener of this.#listeners) {
+            await listener({ editor, message });
+        }
+    }
+}
+
+export const rendererMessagings: MockRendererMessaging[] = [];
+const closeNotebookListeners = new Set<(notebook: unknown) => void>();
+
+/**
+ * Closes a notebook, as VS Code would, telling the listeners.
+ *
+ * @param notebook The notebook.
+ *
+ * @returns Nothing.
+ */
+export const fireNotebookClose = (notebook: MockNotebookDocument): void => {
+    const index = notebookDocuments.indexOf(notebook);
+    if (index >= 0) {
+        notebookDocuments.splice(index, 1);
+    }
+    for (const listener of closeNotebookListeners) {
+        listener(notebook);
+    }
+};
+
 export const notebooks = {
+    createRendererMessaging: (rendererId: string): MockRendererMessaging => {
+        const messaging = new MockRendererMessaging(rendererId);
+        rendererMessagings.push(messaging);
+
+        return messaging;
+    },
+
     createNotebookController: (
         id: string,
         notebookType: string,
@@ -1686,6 +1752,13 @@ Object.assign(workspace, {
     ): Promise<MockNotebookDocument> => {
         return Promise.resolve(openMockNotebook(notebookType, data));
     },
+    onDidCloseNotebookDocument: (
+        listener: (notebook: unknown) => void,
+    ): Disposable => {
+        closeNotebookListeners.add(listener);
+
+        return { dispose: () => { closeNotebookListeners.delete(listener); } };
+    },
     onDidChangeNotebookDocument: (
         listener: (event: unknown) => void,
     ): Disposable => {
@@ -1782,6 +1855,8 @@ export const resetVscodeMock = (): void => {
     shownNotebooks.length = 0;
     activeNotebookListeners.clear();
     notebookChangeListeners.clear();
+    closeNotebookListeners.clear();
+    rendererMessagings.length = 0;
     untitledNotebooks = 0;
     (window as Record<string, unknown>).activeNotebookEditor = undefined;
 };

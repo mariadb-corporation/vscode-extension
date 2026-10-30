@@ -23,6 +23,7 @@
  */
 
 import type { IActionRow, IExecutionReport } from "../webview/protocol.js";
+import type { INotebookResultPayload } from "./notebookProtocol.js";
 
 /** The notebook type, as `contributes.notebooks` declares it. */
 export const NOTEBOOK_TYPE = "mariadb-notebook";
@@ -33,7 +34,7 @@ export const NOTEBOOK_EXTENSION = ".mariadb-notebook";
 /** The format version written; a file with a later one is refused. */
 export const NOTEBOOK_FORMAT_VERSION = 1;
 
-/** The output type of a result set, which the extension's renderer draws. */
+/** The output type of a cell's result sets, which the extension draws. */
 export const RESULT_SET_MIME = "application/vnd.mariadb.resultset+json";
 
 /** What a statement said, in the built-in renderer's stream style. */
@@ -148,20 +149,25 @@ export const serializeNotebook = (file: INotebookFile): string => {
 };
 
 /**
- * Turns a run of a cell into its outputs, in the order the statements ran:
- * a result set is an output of its own, drawn by the extension's renderer;
- * what the statements between them said is gathered into one stream
- * output, and an error is an error stream of its own.
+ * Turns a run of a cell into its outputs: what its statements said, in
+ * the order they ran - each message a line of one stream output, each
+ * error a stream of its own - and then, where there were any, its result
+ * sets, together in one output with a tab each, as the MariaDB panel has
+ * them.
  *
  * @param report What the run produced.
+ * @param view Which view the result sets are, and the connection they
+ *             came from.
+ * @param view.viewId Tells this output's view from every other's.
+ * @param view.connection The connection the cell ran on.
  *
  * @returns The cell's outputs.
  */
-export const outputsOf = (report: IExecutionReport): INotebookOutput[] => {
+export const outputsOf = (
+    report: IExecutionReport,
+    view: { viewId: string; connection: string },
+): INotebookOutput[] => {
     const outputs: INotebookOutput[] = [];
-    const resultSets = new Map(report.resultSets.map((set) => {
-        return [set.id, set];
-    }));
     let lines: string[] = [];
 
     const flush = (): void => {
@@ -171,16 +177,6 @@ export const outputsOf = (report: IExecutionReport): INotebookOutput[] => {
             });
             lines = [];
         }
-    };
-
-    const showSet = (id: string | undefined, shown: Set<string>): void => {
-        const set = id === undefined ? undefined : resultSets.get(id);
-        if (set === undefined || shown.has(set.id)) {
-            return;
-        }
-        shown.add(set.id);
-        flush();
-        outputs.push({ items: [{ mime: RESULT_SET_MIME, json: set }] });
     };
 
     const statements: IActionRow[] = report.actions.flatMap((run) => {
@@ -195,26 +191,25 @@ export const outputsOf = (report: IExecutionReport): INotebookOutput[] => {
             continue;
         }
 
-        const nested = row.children ?? [];
-        const shown = new Set<string>();
+        // A statement with a result set says so on the set's own tab.
         if (row.resultId === undefined) {
             lines.push(row.message);
-        } else {
-            // A procedure's sets each have a row of their own under the
-            // statement's; a plain SELECT has only the one.
-            showSet(row.resultId, shown);
-            for (const child of nested) {
-                showSet(child.resultId, shown);
-            }
         }
-
-        for (const child of nested) {
+        for (const child of row.children ?? []) {
             if (child.role === "warning") {
                 lines.push(`${child.statement}: ${child.message}`);
             }
         }
     }
     flush();
+
+    if (report.resultSets.length > 0) {
+        const payload: INotebookResultPayload = {
+            ...view,
+            resultSets: report.resultSets,
+        };
+        outputs.push({ items: [{ mime: RESULT_SET_MIME, json: payload }] });
+    }
 
     return outputs;
 };

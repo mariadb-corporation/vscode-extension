@@ -62,6 +62,7 @@
         "id": "mariadb.resultSetRenderer",
         "displayName": "MariaDB Result Set",
         "entrypoint": "./dist/webview/notebookRenderer.js",
+        "requiresMessaging": "optional",
         "mimeTypes": [
           "application/vnd.mariadb.resultset+json"
         ]

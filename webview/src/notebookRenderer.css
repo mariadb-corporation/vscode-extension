@@ -16,33 +16,23 @@
  */
 
 /*
- * A result set under a notebook cell: the panel's grid stylesheet, and the
- * frame around it. The output webview is VS Code's page, shared by every
- * output of the notebook, so nothing here styles the page itself.
+ * A cell's result sets: the result view's own stylesheets, as the panel
+ * loads them. The output webview is VS Code's page, shared by every
+ * output of the notebook, so the build scopes styles.css to the view
+ * (`vite.notebook.config.ts`): its html and body rules land on the view's
+ * element, and everything else only applies inside it.
  */
 
-@import "tabulator-tables/dist/css/tabulator_simple.min.css";
-@import "@vscode/codicons/dist/codicon.css";
+@import "./styles.css";
 @import "./resultGrid.css";
 
-.notebookResult {
-    color: var(--vscode-foreground);
-    font-family: var(--vscode-font-family);
-    font-size: var(--vscode-font-size);
-}
-
-.notebookResult * {
-    box-sizing: border-box;
-}
-
-/* Fixed in height by the renderer, so Tabulator can draw rows lazily. */
-.notebookResultGrid {
-    display: flex;
-    flex-direction: column;
+/*
+ * Set into the cell's output rather than the panel: no ground of its own,
+ * a frame, and a height the renderer starts it at and the user can drag.
+ */
+.mariadbResultView {
+    background: transparent;
     border: 1px solid var(--vscode-panel-border);
-}
-
-.notebookResultStatus {
-    padding: 4px 2px 0;
-    color: var(--vscode-descriptionForeground);
+    resize: vertical;
+    overflow: hidden;
 }

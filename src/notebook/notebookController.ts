@@ -15,6 +15,8 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import { randomUUID } from "node:crypto";
+
 import * as vscode from "vscode";
 
 import { stopOnError } from "../connections/settings.js";
@@ -26,6 +28,7 @@ import {
     STDERR_MIME,
     succeeded,
 } from "./notebookFormat.js";
+import type { NotebookResults } from "./notebookResults.js";
 import { toCellOutput } from "./notebookSerializer.js";
 import { errorText } from "../text.js";
 
@@ -34,8 +37,10 @@ export const NOTEBOOK_CONTROLLER_ID = "mariadb-notebook-kernel";
 
 /**
  * Runs the cells of a MariaDB Notebook on the notebook's connection, one
- * after the other, and puts what each produced under it: result sets as
- * grids, what the other statements said as text, errors in red.
+ * after the other, and puts what each produced under it: what the
+ * statements said as text, errors in red, and the result sets as the
+ * MariaDB panel shows them - a tab each, with their toolbar - kept live
+ * by `NotebookResults`.
  *
  * A cell runs as a script, the way a SQL file does: every statement in it,
  * stopping at the first that fails where stop-on-error is set. Nothing of
@@ -49,10 +54,12 @@ export class NotebookController implements vscode.Disposable {
     /**
      * @param editors Which connection a notebook runs on, and running a
      *                script on it.
+     * @param results Where a run's result sets are kept for their view.
      * @param log Where failures are noted.
      */
     public constructor(
         private readonly editors: SqlEditorBinding,
+        private readonly results: NotebookResults,
         private readonly log: (message: string) => void,
     ) {
         this.#controller = vscode.notebooks.createNotebookController(
@@ -84,6 +91,7 @@ export class NotebookController implements vscode.Disposable {
         execution.executionOrder = this.#executionOrder;
         execution.start(Date.now());
         await execution.clearOutput();
+        this.results.forgetCell(cell);
 
         const script = cell.document.getText();
         if (script.trim().length === 0) {
@@ -108,23 +116,36 @@ export class NotebookController implements vscode.Disposable {
         }
 
         try {
-            const { report } = await this.editors.executeScript(uri, script, {
-                runId: this.editors.nextRunId(),
-                stopOnError: stopOnError(),
-                source: {
-                    uri: cell.document.uri.toString(),
-                    positionAt: (offset) => {
-                        const position = cell.document.positionAt(offset);
+            const source = {
+                uri: cell.document.uri.toString(),
+                positionAt: (offset: number) => {
+                    const position = cell.document.positionAt(offset);
 
-                        return {
-                            line: position.line,
-                            character: position.character,
-                        };
-                    },
+                    return {
+                        line: position.line,
+                        character: position.character,
+                    };
                 },
-            });
-            await execution.replaceOutput(
-                outputsOf(report).map(toCellOutput));
+            };
+            const { report, connectionId, service } =
+                await this.editors.executeScript(uri, script, {
+                    runId: this.editors.nextRunId(),
+                    stopOnError: stopOnError(),
+                    source,
+                });
+            const viewId = randomUUID();
+            if (report.resultSets.length > 0) {
+                this.results.register({
+                    viewId,
+                    notebook,
+                    cell,
+                    connection: uri,
+                    applyContext: { connectionUri: uri, connectionId, service },
+                    resultSets: report.resultSets,
+                });
+            }
+            await execution.replaceOutput(outputsOf(report,
+                { viewId, connection: uri }).map(toCellOutput));
             execution.end(succeeded(report), Date.now());
         } catch (error) {
             // Logged, not notified: the cell's output already says it.

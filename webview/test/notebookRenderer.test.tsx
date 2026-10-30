@@ -15,70 +15,201 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { describe, expect, it } from "vitest";
+import { act } from "preact/test-utils";
+import { beforeEach, describe, expect, it } from "vitest";
 
-import "./setup.js";
+import { posted } from "./setup.js";
 import {
     activate,
-    gridHeight,
-    notebookStatusOf,
+    type IRendererContext,
+    seedState,
+    viewHeight,
+    VIEW_CLASS,
 } from "../src/notebookRenderer.js";
+import type {
+    INotebookResultPayload,
+} from "../../src/notebook/notebookProtocol.js";
 import type { IResultSet } from "../../src/webview/protocol.js";
 
 /**
- * @param overrides What differs from a small, editable result.
+ * @param id The result set's id.
+ * @param rows How many rows it has.
  *
- * @returns A result set.
+ * @returns An editable result set.
  */
-const resultSet = (overrides: Partial<IResultSet> = {}): IResultSet => {
+const resultSet = (id: string, rows = 2): IResultSet => {
     return {
-        id: "run1-result-0",
-        caption: "Result #1",
+        id,
+        caption: `Result ${id}`,
         statement: "SELECT id FROM t",
         columns: [{ name: "id", isPrimary: true }],
-        rows: [{ id: 1 }, { id: 2 }],
+        rows: Array.from({ length: rows }, (_, index) => {
+            return { id: index + 1 };
+        }),
         editable: true,
-        status: "2 rows in set",
-        ...overrides,
+        status: `${rows} rows in set`,
     };
 };
 
-describe("the notebook renderer", () => {
-    it("grows a grid with its rows, up to a limit", () => {
-        expect(gridHeight(0)).toBe(72);
-        expect(gridHeight(2)).toBe(42 + 2 * 24 + 2);
-        expect(gridHeight(1000)).toBe(360);
-    });
+/**
+ * @param viewId The view's id.
+ *
+ * @returns An output of two result sets.
+ */
+const payload = (viewId = "view-1"): INotebookResultPayload => {
+    return {
+        viewId,
+        connection: "dba@localhost:3310",
+        resultSets: [resultSet("r1"), resultSet("r2", 5)],
+    };
+};
 
-    it("says where only the first page of rows is shown", () => {
-        expect(notebookStatusOf(resultSet())).toBe("2 rows in set");
-        expect(notebookStatusOf(resultSet({
-            status: "200 rows in set (page 1)",
-            page: { index: 0, size: 200, hasMore: true, loads: 1 },
-        }))).toBe("200 rows in set (page 1) · the first 200 rows");
-    });
+/**
+ * A renderer context recording what the views sent, with a way to
+ * answer them as the extension would.
+ *
+ * @returns The context, what it was sent, and the answer.
+ */
+const createContext = () => {
+    const sent: unknown[] = [];
+    let listener: ((message: unknown) => void) | undefined;
+    const context: IRendererContext = {
+        postMessage: (message) => { sent.push(message); },
+        onDidReceiveMessage: (received) => {
+            listener = received;
 
-    it("draws an output into its element, and takes it away again", () => {
-        const renderer = activate();
-        activate();
-        // The stylesheet goes in once, however often it is activated.
-        expect(document.head.querySelectorAll("link[rel=stylesheet]"))
-            .toHaveLength(1);
+            return { dispose: () => { listener = undefined; } };
+        },
+    };
+    const answer = async (message: unknown): Promise<void> => {
+        await act(async () => {
+            listener?.(message);
+            await Promise.resolve();
+        });
+    };
 
-        const element = document.createElement("div");
+    return { context, sent, answer };
+};
+
+/**
+ * @param renderer The renderer.
+ * @param output What the output holds.
+ * @param id The output's id.
+ *
+ * @returns The element it was drawn in, its effects run.
+ */
+const draw = async (
+    renderer: ReturnType<typeof activate>,
+    output: INotebookResultPayload,
+    id = "output-1",
+): Promise<HTMLElement> => {
+    const element = document.createElement("div");
+    document.body.append(element);
+    await act(async () => {
         renderer.renderOutputItem({
-            id: "output-1",
+            id,
             mime: "application/vnd.mariadb.resultset+json",
-            json: () => { return resultSet(); },
+            json: () => { return output; },
         }, element);
+        await Promise.resolve();
+    });
 
-        expect(element.querySelector(".notebookResultStatus")?.textContent)
-            .toBe("2 rows in set");
-        expect(element.querySelector<HTMLElement>(".notebookResultGrid")
-            ?.style.height).toBe(`${gridHeight(2)}px`);
-        expect(element.querySelector(".resultGridHost")).not.toBeNull();
+    return element;
+};
 
-        renderer.disposeOutputItem("output-1");
-        expect(element.innerHTML).toBe("");
+/**
+ * @param element Where a view was drawn.
+ *
+ * @returns Its tabs' captions.
+ */
+const tabsOf = (element: HTMLElement): string[] => {
+    return [...element.querySelectorAll(".tab")].map((tab) => {
+        return tab.textContent ?? "";
+    });
+};
+
+beforeEach(() => {
+    posted.length = 0;
+    document.body.innerHTML = "";
+});
+
+describe("the notebook renderer", () => {
+    it("starts a view as tall as its longest result set, within bounds",
+        () => {
+            expect(viewHeight([resultSet("a", 0)])).toBe(180);
+            expect(viewHeight([resultSet("a", 2), resultSet("b", 8)]))
+                .toBe(42 + 8 * 24 + 64);
+            expect(viewHeight([resultSet("a", 1000)])).toBe(480);
+        });
+
+    it("makes nothing editable where it cannot reach the extension", () => {
+        expect(seedState(payload(), true).resultSets[0].editable).toBe(true);
+        const offline = seedState(payload(), false);
+        expect(offline.notebook).toBe(true);
+        expect(offline.resultSets.map((set) => {
+            return set.editable;
+        })).toEqual([false, false]);
+    });
+
+    it("draws the panel's view, a tab per result set, from the output",
+        async () => {
+            const { context, sent } = createContext();
+            const renderer = activate(context);
+            activate(context);
+            // The stylesheet goes in once, however often it is activated.
+            expect(document.head.querySelectorAll("link[rel=stylesheet]"))
+                .toHaveLength(1);
+
+            const element = await draw(renderer, payload());
+
+            const view = element.querySelector<HTMLElement>(`.${VIEW_CLASS}`);
+            expect(view?.style.height).toBe(
+                `${viewHeight(payload().resultSets)}px`);
+            expect(tabsOf(element)).toEqual(["Result r1", "Result r2"]);
+            expect(element.querySelector(".statusBar")).not.toBeNull();
+            // Its ready went to the extension with what it holds; nothing
+            // went through the window.
+            expect(sent).toEqual([{
+                viewId: "view-1",
+                message: { type: "ready" },
+                seed: payload(),
+            }]);
+            expect(posted).toEqual([]);
+
+            renderer.disposeOutputItem("output-1");
+            expect(element.innerHTML).toBe("");
+        });
+
+    it("tells each view only what is meant for it", async () => {
+        const { context, sent, answer } = createContext();
+        const renderer = activate(context);
+        const first = await draw(renderer, payload("view-1"), "output-1");
+        const second = await draw(renderer, payload("view-2"), "output-2");
+
+        await answer({
+            viewId: "view-2",
+            message: {
+                type: "state",
+                state: seedState({
+                    ...payload("view-2"),
+                    resultSets: [resultSet("r9")],
+                }, true),
+            },
+        });
+
+        expect(tabsOf(first)).toEqual(["Result r1", "Result r2"]);
+        expect(tabsOf(second)).toEqual(["Result r9"]);
+
+        // And what a view sends says which it is.
+        sent.length = 0;
+        await act(async () => {
+            second.querySelector<HTMLButtonElement>(
+                "button[aria-label='Refresh']")!.click();
+            await Promise.resolve();
+        });
+        expect(sent).toEqual([{
+            viewId: "view-2",
+            message: { type: "refresh", resultId: "r9" },
+        }]);
     });
 });

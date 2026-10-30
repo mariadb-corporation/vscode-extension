@@ -25,6 +25,10 @@ import {
     openNewNotebook,
 } from "../../notebook/notebookConnection.js";
 import { NotebookController } from "../../notebook/notebookController.js";
+import type {
+    INotebookResultPayload,
+} from "../../notebook/notebookProtocol.js";
+import { NotebookResults } from "../../notebook/notebookResults.js";
 import {
     NOTEBOOK_TYPE,
     RESULT_SET_MIME,
@@ -39,6 +43,7 @@ import { createFakeApi, createFakeSettings, createRecordingLog } from
     "../helpers.js";
 import {
     fireActiveNotebookChange,
+    fireNotebookClose,
     MockTextDocument,
     NotebookCellData,
     NotebookCellKind,
@@ -49,6 +54,7 @@ import {
     notebookDocuments,
     openMockNotebook,
     quickPickAnswers,
+    rendererMessagings,
     resetVscodeMock,
     shownNotebooks,
     statusBarItems,
@@ -78,7 +84,16 @@ const createController = (defaultConnection?: string) => {
             }],
             "DO 1;": [{ affected_items_count: 0, warnings_count: 0 }],
             "SELECT nope;": [{ error: "Unknown column 'nope'" }],
+            "SELECT 1; SELECT 2;": [
+                { result_sets: [{ columns: ["1"], rows: [{ 1: 1 }] }] },
+                { result_sets: [{ columns: ["2"], rows: [{ 2: 2 }] }] },
+            ],
+            "SELECT n FROM t;": [{
+                result_sets: [{ columns: ["n"], rows: [{ n: 1 }],
+                    has_more_pages: true }],
+            }],
         },
+        pagedRows: [{ n: 1 }, { n: 2 }],
     });
     const connections = new ConnectionManager(
         () => { return Promise.resolve(api); },
@@ -88,9 +103,19 @@ const createController = (defaultConnection?: string) => {
     const resultView = new ResultViewProvider(Uri.file("/ext") as never, log);
     const binding = new SqlEditorBinding(connections, resultView, log,
         new SqlModes(connections, log));
-    const controller = new NotebookController(binding, log);
+    const results = new NotebookResults(resultView, binding, connections,
+        log);
+    const controller = new NotebookController(binding, results, log);
 
-    return { api, binding, controller, log, kernel: notebookControllers[0] };
+    return {
+        api,
+        binding,
+        controller,
+        results,
+        log,
+        kernel: notebookControllers[0],
+        messaging: rendererMessagings[0],
+    };
 };
 
 /** Gives each notebook a file of its own, and so its cells their URIs. */
@@ -283,7 +308,11 @@ describe("NotebookController", () => {
         expect(select.outputs).toHaveLength(1);
         const [item] = itemsOf(select.outputs[0]);
         expect(item.mime).toBe(RESULT_SET_MIME);
-        expect(JSON.parse(item.text)).toMatchObject({
+        const payload = JSON.parse(item.text) as INotebookResultPayload;
+        expect(payload.connection).toBe("app@localhost:3311");
+        expect(payload.viewId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(payload.resultSets).toHaveLength(1);
+        expect(payload.resultSets[0]).toMatchObject({
             rows: [{ 1: 1 }],
             status: "1 row in set",
         });
@@ -343,6 +372,204 @@ describe("NotebookController", () => {
         expect(api.scripts).toEqual([]);
         expect(kernel.executions[0].success).toBe(true);
         expect(kernel.executions[0].outputs).toEqual([]);
+
+        controller.dispose();
+    });
+});
+
+/**
+ * Runs one cell and hands back its view's id and payload.
+ *
+ * @param source The cell's SQL.
+ *
+ * @returns The controller's parts, the notebook, and the cell's payload.
+ */
+const runCell = async (source: string) => {
+    const parts = createController("dba@localhost:3310");
+    const notebook = notebookOfCells([source]);
+    await parts.kernel.executeHandler!(notebook.getCells(), notebook);
+    const outputs = parts.kernel.executions[0].outputs;
+    const item = itemsOf(outputs[outputs.length - 1]).at(-1)!;
+
+    return {
+        ...parts,
+        notebook,
+        payload: JSON.parse(item.text) as INotebookResultPayload,
+    };
+};
+
+describe("NotebookResults", () => {
+    beforeEach(() => {
+        resetVscodeMock();
+    });
+
+    /** The notebook editor a renderer's messages come from. */
+    const editorOf = (notebook: unknown) => { return { notebook }; };
+
+    it("puts a cell's result sets in one output, a tab each", async () => {
+        const { payload, controller } = await runCell("SELECT 1; SELECT 2;");
+
+        expect(payload.resultSets.map((set) => {
+            return set.caption;
+        })).toEqual(["Result #1", "Result #2"]);
+
+        controller.dispose();
+    });
+
+    it("answers a view's ready with its state, as a notebook's", async () => {
+        const { payload, messaging, notebook, controller } =
+            await runCell("SELECT 1;");
+        const editor = editorOf(notebook);
+
+        await messaging.receive(editor, {
+            viewId: payload.viewId,
+            message: { type: "ready" },
+        });
+
+        expect(messaging.sent).toHaveLength(1);
+        expect(messaging.sent[0].editor).toBe(editor);
+        expect(messaging.sent[0].message).toMatchObject({
+            viewId: payload.viewId,
+            message: {
+                type: "state",
+                state: {
+                    notebook: true,
+                    connection: "dba@localhost:3310",
+                    actions: [],
+                    resultSets: payload.resultSets,
+                },
+            },
+        });
+
+        controller.dispose();
+    });
+
+    it("fetches another page into the same tab", async () => {
+        const { api, payload, messaging, notebook, results, controller } =
+            await runCell("SELECT n FROM t;");
+        const [set] = payload.resultSets;
+        expect(set.page).toMatchObject({ index: 0, hasMore: true });
+
+        await messaging.receive(editorOf(notebook), {
+            viewId: payload.viewId,
+            message: { type: "page", resultId: set.id, page: 1 },
+        });
+
+        expect(api.statements.at(-1)).toMatchObject({ sql: "SELECT n FROM t" });
+        const [next] = results.view(payload.viewId)!.resultSets;
+        expect(next.id).toBe(set.id);
+        expect(next.page).toMatchObject({ index: 1 });
+        expect(messaging.sent.at(-1)!.message).toMatchObject({
+            message: { type: "state", state: { resultSets: [next] } },
+        });
+
+        controller.dispose();
+    });
+
+    it("tells the grid why its edits cannot be written back", async () => {
+        const { payload, messaging, notebook, controller } =
+            await runCell("SELECT 1;");
+        const [set] = payload.resultSets;
+
+        await messaging.receive(editorOf(notebook), {
+            viewId: payload.viewId,
+            message: {
+                type: "applyChanges",
+                resultId: set.id,
+                changes: [{ kind: "delete", rowIndex: 0, keys: { 1: 1 } }],
+            },
+        });
+
+        expect(messaging.sent.at(-1)!.message).toMatchObject({
+            message: {
+                type: "applied",
+                resultId: set.id,
+                error: expect.stringMatching(/not bound to a single table/),
+            },
+        });
+
+        controller.dispose();
+    });
+
+    it("refreshes a result set in its tab by running it again", async () => {
+        const { api, payload, messaging, notebook, results, controller } =
+            await runCell("SELECT 1;");
+        const [set] = payload.resultSets;
+        // The refresh runs the statement as it was split out.
+        api.scripts.length = 0;
+
+        await messaging.receive(editorOf(notebook), {
+            viewId: payload.viewId,
+            message: { type: "refresh", resultId: set.id },
+        });
+
+        expect(api.scripts).toEqual(["SELECT 1;"]);
+        const [fresh] = results.view(payload.viewId)!.resultSets;
+        expect(fresh.id).not.toBe(set.id);
+        expect(fresh.caption).toBe(set.caption);
+        expect(messaging.sent.at(-1)!.message).toMatchObject({
+            message: { type: "state", state: { resultSets: [fresh] } },
+        });
+
+        controller.dispose();
+    });
+
+    it("takes up a reopened notebook's view from what its ready sends",
+        async () => {
+            const { messaging, controller, results } =
+                createController("dba@localhost:3310");
+            const notebook = notebookOfCells(["SELECT n FROM t;"]);
+            const seed: INotebookResultPayload = {
+                viewId: "view-from-a-saved-file",
+                connection: "dba@localhost:3310",
+                resultSets: [{
+                    id: "run7-result-0",
+                    caption: "Result #1",
+                    statement: "SELECT n FROM t",
+                    columns: [{ name: "n" }],
+                    rows: [{ n: 1 }],
+                    editable: false,
+                    status: "1 row in set (page 1)",
+                    page: { index: 0, size: 1, hasMore: true, loads: 1 },
+                }],
+            };
+
+            await messaging.receive(editorOf(notebook), {
+                viewId: seed.viewId,
+                message: { type: "ready" },
+                seed,
+            });
+            expect(results.view(seed.viewId)?.applyContext).toBeUndefined();
+
+            // Paging connects it first.
+            await messaging.receive(editorOf(notebook), {
+                viewId: seed.viewId,
+                message: { type: "page", resultId: "run7-result-0", page: 1 },
+            });
+
+            const view = results.view(seed.viewId)!;
+            expect(view.applyContext?.connectionUri)
+                .toBe("dba@localhost:3310");
+            expect(view.resultSets[0].rows).toEqual([{ n: 2 }]);
+
+            controller.dispose();
+        });
+
+    it("lets go of a cell's view when it runs again, or its notebook "
+        + "closes", async () => {
+        const { payload, kernel, notebook, results, controller } =
+            await runCell("SELECT 1;");
+        expect(results.view(payload.viewId)).toBeDefined();
+
+        await kernel.executeHandler!(notebook.getCells(), notebook);
+        expect(results.view(payload.viewId)).toBeUndefined();
+
+        const again = itemsOf(kernel.executions[1].outputs[0])[0];
+        const { viewId } = JSON.parse(again.text) as INotebookResultPayload;
+        expect(results.view(viewId)).toBeDefined();
+
+        fireNotebookClose(notebook);
+        expect(results.view(viewId)).toBeUndefined();
 
         controller.dispose();
     });

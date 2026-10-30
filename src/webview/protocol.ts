@@ -285,6 +285,12 @@ export interface IViewState {
      */
     maximized?: boolean;
     /**
+     * True under a notebook cell, which holds that cell's result sets as
+     * tabs and none of the view's pickers or its actions. A result set
+     * there can be neither maximized nor closed.
+     */
+    notebook?: boolean;
+    /**
      * Whether a result set's primary key columns start out frozen - the
      * extension's setting. Each result set can switch it for itself.
      */

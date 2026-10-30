@@ -16,22 +16,33 @@
  */
 
 /**
- * The notebook renderer for a result set: the panel's result grid, read
- * only, under the cell that produced it.
+ * The notebook renderer for a cell's result sets: the MariaDB panel's
+ * result view - a tab per result set, its toolbar, paging, editing, the
+ * SQL preview - under the cell that produced them.
  *
  * VS Code loads this module into the notebook's output webview and calls
- * `activate`; each output of the result set type is then handed to
- * `renderOutputItem` with an element of its own to draw into. There is no
- * page of ours around it, so the stylesheet is added to the webview's head
- * from beside this module, once.
+ * `activate`; each output of the result type is then handed to
+ * `renderOutputItem` with an element of its own to draw into. The view
+ * talks to the extension through the renderer's messaging, each message
+ * carrying the output's view id, since every output of the notebook hears
+ * every message. There is no page of ours around it, so the stylesheet is
+ * linked into the webview's head from beside this module, once.
  */
 
-import { render, type JSX } from "preact";
-import { useMemo } from "preact/hooks";
+import { render } from "preact";
 
-import { initialRows } from "../../src/webview/changes.js";
-import type { IResultSet } from "../../src/webview/protocol.js";
-import { ResultGrid } from "./ResultGrid.js";
+import type {
+    IHostRendererMessage,
+    INotebookResultPayload,
+    IRendererMessage,
+} from "../../src/notebook/notebookProtocol.js";
+import type {
+    HostMessage,
+    IResultSet,
+    IViewState,
+} from "../../src/webview/protocol.js";
+import { App } from "./App.js";
+import type { IHostTransport } from "./transport.js";
 import "./notebookRenderer.css";
 
 /** An output item, as far as this renderer reads one. */
@@ -39,6 +50,15 @@ export interface IOutputItem {
     readonly id: string;
     readonly mime: string;
     json(): unknown;
+}
+
+/** The part of VS Code's renderer context this renderer uses. */
+export interface IRendererContext {
+    /** Missing where the notebook gives the renderer no messaging. */
+    postMessage?(message: unknown): void;
+    onDidReceiveMessage?(
+        listener: (message: unknown) => void,
+    ): { dispose(): void };
 }
 
 /** What `activate` returns to VS Code. */
@@ -50,79 +70,67 @@ export interface IRenderer {
 /** The stylesheet the build writes beside this module. */
 const STYLESHEET = "notebookRenderer.css";
 
+/** The class the result view's stylesheet is scoped to here. */
+export const VIEW_CLASS = "mariadbResultView";
+
 /** The header's height, with a column's type under its name. */
 const HEADER_HEIGHT = 42;
 /** One row's height. */
 const ROW_HEIGHT = 24;
-/** The most an output grows to before its rows scroll. */
-const MAX_GRID_HEIGHT = 360;
-/** The least, which leaves room for Tabulator's "no rows" placeholder. */
-const MIN_GRID_HEIGHT = 72;
+/** The result set's own bar and the row of tabs under it. */
+const BARS_HEIGHT = 64;
+/** The most an output starts out as; it can be dragged taller. */
+const MAX_HEIGHT = 480;
+/** The least, which leaves the grid room for a few rows. */
+const MIN_HEIGHT = 180;
 
 /**
- * How tall a grid of so many rows is drawn: all of them while they fit,
- * scrolling past `MAX_GRID_HEIGHT`.
+ * How tall a cell's view starts out: its longest result set whole while
+ * that fits, so switching tabs does not make the cell jump.
  *
- * @param rowCount How many rows it has.
+ * @param resultSets The result sets.
  *
  * @returns The height in pixels.
  */
-export const gridHeight = (rowCount: number): number => {
-    return Math.min(MAX_GRID_HEIGHT,
-        Math.max(MIN_GRID_HEIGHT, HEADER_HEIGHT + rowCount * ROW_HEIGHT + 2));
+export const viewHeight = (resultSets: IResultSet[]): number => {
+    const rows = Math.max(0, ...resultSets.map((set) => {
+        return set.rows.length;
+    }));
+
+    return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT,
+        HEADER_HEIGHT + rows * ROW_HEIGHT + BARS_HEIGHT));
 };
 
-/**
- * What the line under a grid says: its rows, and that only the first page
- * of them is here where the server holds more.
- *
- * @param resultSet The result set.
- *
- * @returns The line.
- */
-export const notebookStatusOf = (resultSet: IResultSet): string => {
-    return resultSet.page?.hasMore === true
-        ? `${resultSet.status} · the first ${resultSet.page.size} rows`
-        : resultSet.status;
-};
-
-/** Edits are not taken in a notebook; the grid is read only. */
-const ignore = (): void => { /* read only */ };
+/** Why a result set cannot be edited where nothing can reach the extension. */
+const NO_MESSAGING = "Read only: this notebook cannot reach the extension.";
 
 /**
- * One result set under its cell.
+ * The state a cell's view starts from: what its output holds. The
+ * extension answers the view's `ready` with the same, or with what it has
+ * moved on to - another page, say.
  *
- * @param props The result set.
- * @param props.resultSet The result set.
+ * @param payload The output.
+ * @param connected Whether the view can reach the extension; where not,
+ *                  nothing in it can be edited.
  *
- * @returns The grid, and the line saying what is in it.
+ * @returns The state.
  */
-export const NotebookResult = (
-    { resultSet }: { resultSet: IResultSet },
-): JSX.Element => {
-    const shown = useMemo((): IResultSet => {
-        return { ...resultSet, editable: false };
-    }, [resultSet]);
-    const rows = useMemo(() => {
-        return initialRows(shown);
-    }, [shown]);
-
-    return (
-        <div class="notebookResult">
-            <div
-                class="notebookResultGrid"
-                style={{ height: `${gridHeight(rows.length)}px` }}
-            >
-                <ResultGrid
-                    resultSet={shown}
-                    rows={rows}
-                    onCellEdited={ignore}
-                    onToggleDeleted={ignore}
-                />
-            </div>
-            <div class="notebookResultStatus">{notebookStatusOf(resultSet)}</div>
-        </div>
-    );
+export const seedState = (
+    payload: INotebookResultPayload,
+    connected: boolean,
+): IViewState => {
+    return {
+        connections: [],
+        connection: payload.connection,
+        sessions: [],
+        actions: [],
+        resultSets: connected
+            ? payload.resultSets
+            : payload.resultSets.map((set) => {
+                return { ...set, editable: false, readOnlyReason: NO_MESSAGING };
+            }),
+        notebook: true,
+    };
 };
 
 /**
@@ -149,19 +157,79 @@ const addStylesheet = (base: string): void => {
 };
 
 /**
- * Called by VS Code when the first output of a result set is shown.
+ * Called by VS Code when the first output of a result type is shown.
+ *
+ * @param context The renderer's context, with its messaging.
  *
  * @returns The renderer.
  */
-export const activate = (): IRenderer => {
+export const activate = (context: IRendererContext = {}): IRenderer => {
     addStylesheet(import.meta.url);
     const drawn = new Map<string, HTMLElement>();
+    /** Each view's listeners, by its id. */
+    const listeners = new Map<string, Set<(message: HostMessage) => void>>();
+    const connected = context.postMessage !== undefined;
+
+    context.onDidReceiveMessage?.((received) => {
+        const { viewId, message } = received as IHostRendererMessage;
+        for (const listener of listeners.get(viewId) ?? []) {
+            listener(message);
+        }
+    });
+
+    /**
+     * @param payload An output's result sets.
+     *
+     * @returns How its view talks to the extension.
+     */
+    const transportFor = (payload: INotebookResultPayload): IHostTransport => {
+        const { viewId } = payload;
+        const tell = (message: HostMessage): void => {
+            for (const listener of listeners.get(viewId) ?? []) {
+                listener(message);
+            }
+        };
+
+        return {
+            post: (message) => {
+                const sent: IRendererMessage = { viewId, message };
+                if (message.type === "ready") {
+                    // Shown from the output at once, whether or not the
+                    // extension answers; sent along, so a view it does not
+                    // know - a reopened notebook's - can be taken up.
+                    tell({ type: "state", state: seedState(payload, connected) });
+                    sent.seed = payload;
+                }
+                context.postMessage?.(sent);
+            },
+            listen: (listener) => {
+                let own = listeners.get(viewId);
+                if (own === undefined) {
+                    own = new Set();
+                    listeners.set(viewId, own);
+                }
+                own.add(listener);
+
+                return () => {
+                    own.delete(listener);
+                };
+            },
+        };
+    };
 
     return {
         renderOutputItem: (item, element) => {
+            const payload = item.json() as INotebookResultPayload;
             drawn.set(item.id, element);
-            render(<NotebookResult resultSet={item.json() as IResultSet} />,
-                element);
+            render(
+                <div
+                    class={VIEW_CLASS}
+                    style={{ height: `${viewHeight(payload.resultSets)}px` }}
+                >
+                    <App transport={transportFor(payload)} />
+                </div>,
+                element,
+            );
         },
         disposeOutputItem: (id) => {
             const ids = id === undefined ? [...drawn.keys()] : [id];

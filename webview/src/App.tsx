@@ -47,7 +47,7 @@ import {
 } from "./ResultStatusBar.js";
 import { SqlPreview } from "./SqlPreview.js";
 import { COPIED_FOR_MS } from "./overflowPopup.js";
-import { post } from "./vscodeApi.js";
+import { type IHostTransport, windowTransport } from "./transport.js";
 import { counted } from "../../src/text.js";
 import {
     markSeen,
@@ -237,9 +237,18 @@ const valueFileName = (
  * or all of them together, which is what it opens on and the only case
  * in which the actions name a connection per row.
  *
+ * The same view is a maximized result set's editor tab, and the result
+ * sets under a notebook cell: there the state says so, and the transport
+ * is the notebook renderer's.
+ *
+ * @param props How it talks to the extension.
+ * @param props.transport The window's messages, unless given another.
+ *
  * @returns The rendered view.
  */
-export const App = (): JSX.Element => {
+export const App = (
+    { transport = windowTransport }: { transport?: IHostTransport } = {},
+): JSX.Element => {
     const [state, setState] = useState<IViewState | undefined>();
     /** The state last received, for the message handler to read. */
     const latestState = useRef<IViewState | undefined>(undefined);
@@ -326,8 +335,7 @@ export const App = (): JSX.Element => {
     const seenActions = useRef<SeenActions>(new Map());
 
     useEffect(() => {
-        const onMessage = (event: MessageEvent<HostMessage>): void => {
-            const message = event.data;
+        const onMessage = (message: HostMessage): void => {
             switch (message.type) {
                 case "state": {
                     // Another connection's log is not news: the user went
@@ -456,7 +464,7 @@ export const App = (): JSX.Element => {
                             .find((set) => {
                                 return set.id === message.resultId;
                             });
-                        post(applied?.page === undefined
+                        transport.post(applied?.page === undefined
                             ? { type: "refresh", resultId: message.resultId }
                             : {
                                 type: "page",
@@ -500,7 +508,7 @@ export const App = (): JSX.Element => {
                                 message.column, message.value);
                         }
                     }
-                    post({
+                    transport.post({
                         type: "valueEditResult",
                         requestId: message.requestId,
                         ...(error === undefined ? {} : { error }),
@@ -524,13 +532,11 @@ export const App = (): JSX.Element => {
             }
         };
 
-        window.addEventListener("message", onMessage);
-        post({ type: "ready" });
+        const stopListening = transport.listen(onMessage);
+        transport.post({ type: "ready" });
 
-        return () => {
-            window.removeEventListener("message", onMessage);
-        };
-    }, []);
+        return stopListening;
+    }, [transport]);
 
     const measureTabs = useCallback((): void => {
         if (!resultTabs.current) {
@@ -736,7 +742,7 @@ export const App = (): JSX.Element => {
             rowIndex,
             column,
         });
-        post({ type: "loadValue", requestId });
+        transport.post({ type: "loadValue", requestId });
     }, [activeTab]);
 
     const onOpenValue = useCallback((
@@ -753,7 +759,7 @@ export const App = (): JSX.Element => {
 
         const display = described.display;
         const value = row.current[column];
-        post({
+        transport.post({
             type: "openValue",
             resultId: active.id,
             rowIndex,
@@ -784,7 +790,7 @@ export const App = (): JSX.Element => {
             return;
         }
 
-        post({
+        transport.post({
             type: "saveValue",
             value: String(value),
             // The extension is guessed from the content.
@@ -838,7 +844,7 @@ export const App = (): JSX.Element => {
             return;
         }
 
-        post({
+        transport.post({
             type: "applyChanges",
             resultId: active.id,
             changes: collectChanges(active, editState.rows),
@@ -861,7 +867,7 @@ export const App = (): JSX.Element => {
 
         switch (action) {
             case "close": {
-                post({ type: "closeResult", resultId: active.id });
+                transport.post({ type: "closeResult", resultId: active.id });
                 break;
             }
 
@@ -892,7 +898,7 @@ export const App = (): JSX.Element => {
             return;
         }
 
-        post({ type: "refresh", resultId: active.id });
+        transport.post({ type: "refresh", resultId: active.id });
     }, [active]);
 
     const toggleMaximized = useCallback((): void => {
@@ -900,7 +906,7 @@ export const App = (): JSX.Element => {
             return;
         }
 
-        post({
+        transport.post({
             type: state?.maximized ? "minimize" : "maximize",
             resultId: active.id,
             rows: editState.rows,
@@ -923,7 +929,7 @@ export const App = (): JSX.Element => {
 
     const goToStatement = useCallback((row: IActionRow): void => {
         if (row.source) {
-            post({ type: "revealStatement", source: row.source });
+            transport.post({ type: "revealStatement", source: row.source });
         }
 
         // The row of a failed run also opens it and carries the actions
@@ -954,15 +960,16 @@ export const App = (): JSX.Element => {
 
         setErrorIndex(index);
         if (error.source) {
-            post({ type: "revealStatement", source: error.source });
+            transport.post({ type: "revealStatement", source: error.source });
         }
-        // A maximized result set has no actions to go to.
-        if (error.rowId !== undefined && !state?.maximized) {
+        // A maximized result set, or a notebook's, has no actions to go to.
+        if (error.rowId !== undefined && !state?.maximized
+            && !state?.notebook) {
             // The row is no use behind a result tab.
             setActiveTab(ACTIONS_TAB);
             setScrollToRowId(error.rowId);
         }
-    }, [errors, state?.maximized]);
+    }, [errors, state?.maximized, state?.notebook, transport]);
 
     // Whatever the Actions tab shows while it is on show has been seen.
     useEffect(() => {
@@ -1045,7 +1052,7 @@ export const App = (): JSX.Element => {
                             : "Copy this error message to the clipboard"}
                         aria-label="Copy this error message"
                         onClick={() => {
-                            post({
+                            transport.post({
                                 type: "copyToClipboard",
                                 text: errors[errorIndex]!.message,
                             });
@@ -1076,14 +1083,14 @@ export const App = (): JSX.Element => {
                             onGoToStatement={goToStatement}
                             onOpenLog={(row) => {
                                 if (row.logPath !== undefined) {
-                                    post({
+                                    transport.post({
                                         type: "openLog",
                                         path: row.logPath,
                                     });
                                 }
                             }}
                             onCopyText={(text) => {
-                                post({ type: "copyToClipboard", text });
+                                transport.post({ type: "copyToClipboard", text });
                             }}
                             scrollToRowId={scrollToRowId}
                         />
@@ -1123,7 +1130,7 @@ export const App = (): JSX.Element => {
                                 previewActive={editState.previewActive}
                                 onSelectView={selectView}
                                 onPage={(index) => {
-                                    post({
+                                    transport.post({
                                         type: "page",
                                         resultId: active.id,
                                         page: index,
@@ -1144,6 +1151,7 @@ export const App = (): JSX.Element => {
                                 onApply={apply}
                                 onRefresh={refresh}
                                 maximized={state.maximized === true}
+                                movable={!state.notebook}
                                 freezeKeys={editState.freezeKeys}
                                 showTypes={showTypes}
                                 onToggleMaximized={toggleMaximized}
@@ -1152,10 +1160,13 @@ export const App = (): JSX.Element => {
                     )}
             </section>
 
-            {/* An editor tab holds one result set, with nothing to pick. */}
+            {/*
+              * An editor tab holds one result set, with nothing to pick; a
+              * notebook cell holds its own result sets and no actions.
+              */}
             {!state.maximized && <footer class="contentSelectionBar">
                 <nav class="tabs" role="tablist">
-                    <button
+                    {!state.notebook && <button
                         type="button"
                         role="tab"
                         aria-selected={activeTab === ACTIONS_TAB}
@@ -1168,7 +1179,7 @@ export const App = (): JSX.Element => {
                     >
                         <span class="tabCaption">Actions</span>
                         {unseen > 0 && <span class="badge">{unseen}</span>}
-                    </button>
+                    </button>}
                     {paging.overflowing && (
                         <button
                             type="button"
@@ -1233,12 +1244,12 @@ export const App = (): JSX.Element => {
                     )}
                 </nav>
 
-                <select
+                {!state.notebook && <select
                     class="connectionPicker"
                     title="The connection whose actions and results are shown"
                     value={state.connection}
                     onChange={(event) => {
-                        post({
+                        transport.post({
                             type: "selectConnection",
                             connection:
                                 (event.target as HTMLSelectElement).value,
@@ -1248,9 +1259,9 @@ export const App = (): JSX.Element => {
                     {state.connections.map((uri) => {
                         return <option key={uri} value={uri}>{uri}</option>;
                     })}
-                </select>
+                </select>}
 
-                {state.sessions.length > 0 && (
+                {!state.notebook && state.sessions.length > 0 && (
                     <select
                         class="sessionPicker"
                         title="Which of its open connections to show"
@@ -1258,7 +1269,7 @@ export const App = (): JSX.Element => {
                         onChange={(event) => {
                             const picked =
                                 (event.target as HTMLSelectElement).value;
-                            post({
+                            transport.post({
                                 type: "selectSession",
                                 session: picked === ALL_SESSIONS
                                     ? undefined
@@ -1282,7 +1293,7 @@ export const App = (): JSX.Element => {
                     </select>
                 )}
 
-                <button
+                {!state.notebook && <button
                     type="button"
                     class="clearShownActions codicon codicon-clear-all"
                     title={state.session === undefined
@@ -1290,9 +1301,9 @@ export const App = (): JSX.Element => {
                         : `Clear the actions of session ${state.session}`}
                     aria-label="Clear these actions"
                     onClick={() => {
-                        post({ type: "clearActions" });
+                        transport.post({ type: "clearActions" });
                     }}
-                />
+                />}
             </footer>}
         </div>
     );

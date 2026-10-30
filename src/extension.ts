@@ -176,6 +176,7 @@ import {
 } from "./notebook/notebookConnection.js";
 import { NOTEBOOK_TYPE } from "./notebook/notebookFormat.js";
 import { NotebookSerializer } from "./notebook/notebookSerializer.js";
+import { NotebookResults } from "./notebook/notebookResults.js";
 
 /**
  * Everything the extension builds on activation, kept together so
@@ -615,7 +616,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
     context.subscriptions.push(
         vscode.workspace.registerNotebookSerializer(NOTEBOOK_TYPE,
             new NotebookSerializer(), { transientOutputs: false }),
-        new NotebookController(editors, log),
+    );
+    // A cell's result sets are the panel's view, kept live through the
+    // renderer's messaging.
+    const notebookResults = new NotebookResults(resultView, editors,
+        connections, log);
+    context.subscriptions.push(
+        notebookResults,
+        new NotebookController(editors, notebookResults, log),
     );
     // Marks where each statement begins. The ranges come from the SQL
     // scanner for now; a language server would report the same thing.
