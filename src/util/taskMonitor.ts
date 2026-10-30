@@ -26,6 +26,7 @@ import {
     type ITaskMessage,
     type ITaskStarted,
     type ITaskState,
+    type TaskType,
 } from "../mcp/taskApi.js";
 import type { UtilOptions } from "../mcp/utilApi.js";
 
@@ -180,12 +181,18 @@ export class TaskMonitor {
         private readonly saveIntervalMs = SAVE_INTERVAL_MS,
     ) {
         // The tasks of the last window: one that had not ended ended with
-        // it, since the server ran in that window's extension host.
-        for (const kept of store?.get<ITrackedTask[]>(TASKS_KEY) ?? []) {
+        // it, since the server ran in that window's extension host. A list
+        // saved before the task.* tools (26.10.1 and earlier) has no
+        // task_type: every task followed then was a util one.
+        type IKeptTask = Omit<ITrackedTask, "state"> & {
+            state: Omit<ITaskState, "task_type"> & { task_type?: TaskType };
+        };
+        for (const kept of store?.get<IKeptTask[]>(TASKS_KEY) ?? []) {
             const over = kept.interrupted === true
                 || isFinished(kept.state.status);
             this.#tasks.set(kept.state.task_id, {
                 ...kept, cancelling: false, ...(over ? {} : { interrupted: true }),
+                state: { task_type: "util", ...kept.state },
             });
         }
         this.#changed.event(() => { this.#saveSoon(); });

@@ -17,43 +17,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { IToolCaller } from "../../mcp/mariaDbApi.js";
-import type { IToolResult } from "../../mcp/protocol.js";
 import { START_TIMEOUT_MS, UtilApi } from "../../mcp/utilApi.js";
-
-interface ICall {
-    name: string;
-    args: Record<string, unknown>;
-    timeoutMs?: number;
-}
-
-const caller = (answer: unknown[]): { caller: IToolCaller; calls: ICall[] } => {
-    const calls: ICall[] = [];
-
-    return {
-        calls,
-        caller: {
-            callTool: (name, args, timeoutMs) => {
-                calls.push({ name, args, ...(timeoutMs === undefined ? {}
-                    : { timeoutMs }) });
-                const result: IToolResult = {
-                    content: answer.map((value) => {
-                        return { type: "text", text: JSON.stringify(value) };
-                    }),
-                };
-
-                return Promise.resolve(result);
-            },
-        },
-    };
-};
+import { createFakeToolCaller } from "../helpers.js";
 
 const STARTED = { task_id: "t1", status: "running" };
 
 describe("UtilApi", () => {
     it("starts every utility with its arguments, and options only when given",
         async () => {
-            const { caller: c, calls } = caller([STARTED]);
+            const { caller: c, calls } = createFakeToolCaller([STARTED]);
             const api = new UtilApi(c);
 
             expect(await api.dumpInstance("c1", "/d")).toEqual(STARTED);

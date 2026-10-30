@@ -508,6 +508,24 @@ describe("tasks across a window reload", () => {
         expect(monitor.tasks).toEqual([]);
     });
 
+    it("gives a task saved before there were task types the util one", () => {
+        // what 26.10.1 and earlier kept, before the task.* tools: no task_type
+        const { task_type: _t, ...untyped } = finished("completed");
+        const store = memento([
+            { connection: "root@h", cancelling: false, state: untyped },
+            { connection: "root@h", cancelling: false,
+                state: finished("failed", { task_id: "t2", task_type: "dba",
+                    kind: "deploy_object" }) },
+        ]);
+        const monitor = new TaskMonitor(() => { return Promise.reject(new Error("no")); },
+            new MockOutputChannel("t"), () => { /* not needed */ }, store, 0);
+
+        const [typed, restored] = monitor.tasks;
+        expect(restored.state.task_type).toBe("util");
+        // one that has its type keeps it
+        expect(typed.state.task_type).toBe("dba");
+    });
+
     it("says on the view that running tasks end with the window", async () => {
         let release: (() => void) | undefined;
         const api = {
