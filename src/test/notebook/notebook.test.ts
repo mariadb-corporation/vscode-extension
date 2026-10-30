@@ -32,6 +32,10 @@ import {
 import { NotebookResults } from "../../notebook/notebookResults.js";
 import { LanguageSwitcher } from "../../notebook/languageSwitcher.js";
 import { ScriptRunner } from "../../notebook/scriptRunner.js";
+import {
+    type INotebookSdkDependencies,
+    NotebookSdk,
+} from "../../notebook/notebookSdk.js";
 import { createInProcessWorker } from "./inProcessWorker.js";
 import {
     NOTEBOOK_TYPE,
@@ -75,7 +79,10 @@ const decoder = new TextDecoder();
  *
  * @returns A binding and the notebook controller over a fake server.
  */
-const createController = (defaultConnection?: string) => {
+const createController = (
+    defaultConnection?: string,
+    sdkDeps: Partial<INotebookSdkDependencies> = {},
+) => {
     const api = createFakeApi({
         connections: ["dba@localhost:3310", "app@localhost:3311"],
         connectionIds: {
@@ -112,8 +119,21 @@ const createController = (defaultConnection?: string) => {
     const results = new NotebookResults(resultView, binding, connections,
         log);
     const languages = new LanguageSwitcher(log, 0);
+    // No REST metadata, unless a test says otherwise: no SDK.
+    const sdks = new NotebookSdk({
+        connect: (uri) => { return connections.connect(uri); },
+        query: () => {
+            return Promise.reject(new Error("No REST metadata schema."));
+        },
+        tools: () => { return Promise.reject(new Error("No tools.")); },
+        restdUrl: () => { return Promise.resolve(undefined); },
+        certificateAuthority: () => { return Promise.resolve(undefined); },
+        publishTypings: () => { /* no editor */ },
+        log,
+        ...sdkDeps,
+    });
     const controller = new NotebookController(binding, results,
-        new ScriptRunner(createInProcessWorker), languages, log);
+        new ScriptRunner(createInProcessWorker), sdks, languages, log);
 
     return {
         api,
@@ -739,6 +759,34 @@ describe("TypeScript cells", () => {
         expect(JSON.parse(items[0].text)).toEqual({ series: [{
             type: "pie", data: [{ name: "a", value: 1 }], radius: [120, 160],
         }] });
+
+        controller.dispose();
+    });
+
+    it("run with the REST SDK of the notebook's connection", async () => {
+        const { kernel, controller } = createController(undefined, {
+            query: () => {
+                return Promise.resolve([{ "REST SERVICES": JSON.stringify([{
+                    id: "s1", full_service_path: "/svc", is_current: true,
+                }]) }]);
+            },
+            tools: () => {
+                return Promise.resolve({
+                    getSdkBaseClasses: () => {
+                        return Promise.resolve("class Base { hi() { return \"hi\"; } }");
+                    },
+                    getSdkServiceClasses: () => {
+                        return Promise.resolve("const svc = new Base();");
+                    },
+                    getRuntimeManagementCode: () => { return Promise.resolve(""); },
+                });
+            },
+        });
+        const notebook = notebookOfLanguages([["svc.hi()", "typescript"]]);
+
+        await kernel.executeHandler!(notebook.getCells(), notebook);
+
+        expect(itemsOf(kernel.executions[0].outputs[0])[0].text).toBe("hi\n");
 
         controller.dispose();
     });

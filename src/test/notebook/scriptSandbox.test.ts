@@ -28,6 +28,7 @@ import {
     rewriteCell,
 } from "../../notebook/scriptSandbox.js";
 import { ScriptRunner } from "../../notebook/scriptRunner.js";
+import type { INotebookSdk } from "../../notebook/scriptProtocol.js";
 import { createInProcessWorker } from "./inProcessWorker.js";
 
 describe("the TypeScript sandbox", () => {
@@ -167,6 +168,7 @@ describe("ScriptRunner", () => {
                 printed.push(value.text ?? "");
             },
             runSql: () => { return Promise.resolve([]); },
+            call: () => { return Promise.resolve({}); },
         };
 
         const slow = runner.run("nb", "await new Promise((r) => "
@@ -187,6 +189,7 @@ describe("ScriptRunner", () => {
                 printed.push(value.text ?? "");
             },
             runSql: () => { return Promise.resolve([]); },
+            call: () => { return Promise.resolve({}); },
         };
 
         const who = "print(typeof who === 'undefined' ? 'none' : who);";
@@ -198,6 +201,155 @@ describe("ScriptRunner", () => {
 
         expect(printed).toEqual(["none", "a", "none"]);
 
+        runner.dispose();
+    });
+});
+
+describe("the REST SDK in a notebook's runtime", () => {
+    /**
+     * A host that records what the cells printed and answers their calls.
+     *
+     * @param answers What each call answers.
+     *
+     * @returns The host, and what was printed.
+     */
+    const recordingHost = (answers: Partial<Record<string, {
+        value?: unknown;
+        sdk?: INotebookSdk;
+    }>> = {}) => {
+        const printed: string[] = [];
+        const calls: Array<[string, Record<string, unknown>]> = [];
+
+        return {
+            printed,
+            calls,
+            host: {
+                print: (value: { kind: string; text?: string; json?: string;
+                    stream?: string }) => {
+                    printed.push(`${value.stream ?? value.kind}: `
+                        + `${value.text ?? value.json ?? ""}`);
+                },
+                runSql: () => { return Promise.resolve([]); },
+                call: (call: string, args: Record<string, unknown>) => {
+                    calls.push([call, args]);
+
+                    return Promise.resolve(answers[call] ?? {});
+                },
+            },
+        };
+    };
+
+    const sdk = (version: string, code: string): INotebookSdk => {
+        return { version, code };
+    };
+
+    it("loads it before the cell, once a version", async () => {
+        const runner = new ScriptRunner(createInProcessWorker);
+        const { host, printed } = recordingHost();
+        const first = sdk("1", "loads = (typeof loads === \"undefined\" ? 0 "
+            + ": loads) + 1;\nclass Svc { hello() { return \"hi\"; } }\n"
+            + "const svc = new Svc();");
+
+        await runner.run("nb", "svc.hello()", host, first);
+        await runner.run("nb", "loads", host, first);
+        await runner.run("nb", "loads", host, { ...first, version: "2" });
+
+        expect(printed).toEqual(["stdout: hi", "stdout: 1", "stdout: 2"]);
+        runner.dispose();
+    });
+
+    it("says where it does not load, and runs the cell all the same",
+        async () => {
+            const runner = new ScriptRunner(createInProcessWorker);
+            const { host, printed } = recordingHost();
+
+            await runner.run("nb", "1 + 1", host,
+                sdk("1", "throw new Error(\"broken\");"));
+            await runner.run("nb", "2 + 2", host, sdk("1", "ignored"));
+
+            expect(printed).toEqual([
+                "stderr: The REST SDK could not be loaded: Error: broken",
+                "stdout: 2",
+                "stdout: 4",
+            ]);
+            runner.dispose();
+        });
+
+    it("prints it, builds it again, and sends the dialogs' calls away",
+        async () => {
+            const runner = new ScriptRunner(createInProcessWorker);
+            const { host, printed, calls } = recordingHost({
+                refreshSdk: { sdk: sdk("2", "const fresh = \"yes\";") },
+            });
+
+            await runner.run("nb", "mrsPrintSdkCode();", host,
+                sdk("1", "const old = 1;"));
+            await runner.run("nb", "await mrsRefreshSdkCode();\nfresh", host);
+            await runner.run("nb", "mrsEditService(\"s\");", host);
+
+            expect(calls.map(([call]) => { return call; }))
+                .toEqual(["refreshSdk"]);
+            expect(printed).toEqual([
+                "stdout: const old = 1;",
+                "stdout: yes",
+                "stderr: mrsEditService: not in a notebook yet - use the REST "
+                    + "Service in the MariaDB Connections view.",
+            ]);
+            runner.dispose();
+        });
+
+    it("logs in, the SDK's objects made again with the token", async () => {
+        const runner = new ScriptRunner(createInProcessWorker);
+        const { host, printed, calls } = recordingHost({
+            authenticate: { value: { app: "MRS", username: "jane",
+                password: "pw" } },
+        });
+        const service = sdk("1", [
+            "class MrsBaseService {",
+            "    constructor(public url: string, public path?: string) {}",
+            "    async authenticate(o: { app: string; password: string }) {",
+            "        return o.password === \"pw\"",
+            "            ? { authApp: o.app, jwt: \"token\" }",
+            "            : { errorMessage: \"wrong\" };",
+            "    }",
+            "}",
+            "const svc = { token: typeof mrsLoginResult === \"undefined\"",
+            "    ? undefined : mrsLoginResult.jwt };",
+        ].join("\n"));
+
+        // Not awaited, as the SDK's generated authenticate does not: the
+        // cell is over once the login is.
+        await runner.run("nb", "mrsAuthenticate(\"https://s\", \"/auth\");",
+            host, service);
+        await runner.run("nb", "svc.token", host);
+
+        expect(calls).toEqual([["authenticate",
+            { serviceUrl: "https://s", app: undefined, username: undefined }]]);
+        expect(printed).toEqual([
+            "stdout: Logged in to https://s as jane.",
+            "stdout: token",
+        ]);
+        runner.dispose();
+    });
+
+    it("says why a login did not happen", async () => {
+        const runner = new ScriptRunner(createInProcessWorker);
+        const cancelled = recordingHost();
+        const wrong = recordingHost({
+            authenticate: { value: { app: "MRS", username: "jane",
+                password: "no" } },
+        });
+        const service = sdk("1", "class MrsBaseService {\n"
+            + "    async authenticate() { return { errorMessage: \"wrong\" }; }\n}");
+
+        await runner.run("nb", "await mrsAuthenticate(\"https://s\", \"/a\");",
+            cancelled.host, service);
+        await runner.run("nb", "await mrsAuthenticate(\"https://s\", \"/a\");",
+            wrong.host, service);
+
+        expect(cancelled.printed)
+            .toEqual(["stderr: Not logged in: the login was cancelled."]);
+        expect(wrong.printed).toEqual(["stderr: wrong"]);
         runner.dispose();
     });
 });

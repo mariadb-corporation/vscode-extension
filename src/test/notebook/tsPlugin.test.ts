@@ -29,8 +29,9 @@ const require = createRequire(import.meta.url);
 const plugin = require("../../../ts-plugin/index.js") as {
     createInit(folder: string): () => {
         create(info: unknown): unknown;
+        onConfigurationChanged(configuration: unknown): void;
     };
-    withTypings(fileNames: string[], typings: string): string[];
+    withTypings(fileNames: string[], typings: string, sdkFile?: string): string[];
 };
 const typings = require("../../../ts-plugin/typings.js") as string;
 
@@ -78,6 +79,31 @@ describe("the TypeScript server plugin", () => {
         expect(fs.readdirSync(folder)).toHaveLength(1);
     });
 
+    it("adds the REST SDK the extension names, and looks again", () => {
+        const folder = fs.mkdtempSync(path.join(os.tmpdir(), "ts-plugin-"));
+        folders.push(folder);
+        const files = [CELL];
+        const host = { getScriptFileNames: () => { return files; } };
+        let dirty = 0;
+        const module = plugin.createInit(folder)();
+        module.create({
+            languageServiceHost: host,
+            languageService: {},
+            project: {
+                markAsDirty: () => { dirty += 1; },
+                projectService: { logger: { info: () => {} } },
+            },
+        });
+
+        module.onConfigurationChanged({ sdkFile: "/s/mrs-sdk-1.ts" });
+        module.onConfigurationChanged({ sdkFile: "/s/mrs-sdk-1.ts" });
+
+        expect(host.getScriptFileNames().at(-1)).toBe("/s/mrs-sdk-1.ts");
+        expect(dirty).toBe(1);
+        expect(plugin.withTypings(["/x.ts"], "/t.d.ts", "/s.ts"))
+            .toEqual(["/x.ts"]);
+    });
+
     it("describes the runtime as cells use it", () => {
         const cell = [
             "const rows = await runSql(\"SELECT name, n FROM t\");",
@@ -94,6 +120,9 @@ describe("the TypeScript server plugin", () => {
             "            data: [{ name: \"a\", value: 1 }] },",
             "    ],",
             "});",
+            "await mrsRefreshSdkCode();",
+            "mrsPrintSdkCode();",
+            "const token: string | undefined = mrsLoginResult?.jwt;",
         ].join("\n");
         const files = new Map([["/typings.d.ts", typings], ["/cell.ts", cell]]);
         const options: ts.CompilerOptions = {

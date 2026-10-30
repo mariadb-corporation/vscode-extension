@@ -20,6 +20,8 @@ import { Worker } from "node:worker_threads";
 import { errorText } from "../text.js";
 import type {
     FromWorkerMessage,
+    HostCall,
+    INotebookSdk,
     PrintedValue,
     ToWorkerMessage,
 } from "./scriptProtocol.js";
@@ -39,6 +41,15 @@ export interface IScriptHost {
     print(value: PrintedValue): void;
     /** Runs SQL on the notebook's connection and answers its rows. */
     runSql(sql: string): Promise<Array<Record<string, unknown>>>;
+    /**
+     * Does what the cell asked of the extension, beside SQL.
+     *
+     * @returns The answer, and the SDK it built, for the worker to load.
+     */
+    call(call: HostCall, args: Record<string, unknown>): Promise<{
+        value?: unknown;
+        sdk?: INotebookSdk;
+    }>;
 }
 
 /** How a cell's run ended. */
@@ -60,6 +71,8 @@ interface IRunning {
 interface INotebookWorker {
     worker: IScriptWorker;
     running?: IRunning;
+    /** The version of the REST SDK it has loaded, if any. */
+    sdkVersion?: string;
 }
 
 /**
@@ -97,6 +110,8 @@ export class ScriptRunner {
      * @param notebook Which notebook, as `Uri.toString()` renders it.
      * @param code The cell's TypeScript.
      * @param host What it prints to and runs SQL through.
+     * @param sdk The REST SDK it runs with: loaded first, where the worker
+     *            has not loaded it yet.
      *
      * @returns How it ended.
      */
@@ -104,6 +119,7 @@ export class ScriptRunner {
         notebook: string,
         code: string,
         host: IScriptHost,
+        sdk?: INotebookSdk,
     ): Promise<IScriptOutcome> {
         const held = this.#workerFor(notebook);
         if (held.running !== undefined) {
@@ -124,6 +140,10 @@ export class ScriptRunner {
                     resolve(outcome);
                 },
             };
+            if (sdk !== undefined && sdk.version !== held.sdkVersion) {
+                held.sdkVersion = sdk.version;
+                held.worker.postMessage({ type: "sdk", sdk });
+            }
             held.worker.postMessage({ type: "run", runId, code });
         });
     }
@@ -225,6 +245,31 @@ export class ScriptRunner {
                 } catch (error) {
                     reply = {
                         type: "sqlResult",
+                        requestId: message.requestId,
+                        error: errorText(error),
+                    };
+                }
+                held.worker.postMessage(reply);
+                break;
+            }
+
+            case "host": {
+                let reply: ToWorkerMessage;
+                try {
+                    const answer = await running.host.call(message.call,
+                        message.args);
+                    if (answer.sdk !== undefined) {
+                        held.sdkVersion = answer.sdk.version;
+                    }
+                    reply = {
+                        type: "hostResult",
+                        requestId: message.requestId,
+                        value: answer.value,
+                        ...answer.sdk === undefined ? {} : { sdk: answer.sdk },
+                    };
+                } catch (error) {
+                    reply = {
+                        type: "hostResult",
                         requestId: message.requestId,
                         error: errorText(error),
                     };

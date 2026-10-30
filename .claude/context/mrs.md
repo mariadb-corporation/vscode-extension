@@ -3,8 +3,8 @@
 The REST Service part of the Connections view and its dialogs: a port of
 the MySQL Shell for VS Code extension's MySQL REST Service support
 (`mysql-shell-plugins/gui/extension` + the frontend's `modules/mrs`), with
-MariaDB's names and REST SQL as the only API. TypeScript notebooks are out
-of scope for now.
+MariaDB's names and REST SQL as the only API. The REST client SDK in a
+notebook's TypeScript cells is in [notebooks.md](notebooks.md).
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 

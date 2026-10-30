@@ -54,6 +54,32 @@ declare function print(...values: unknown[]): void;
  */
 declare function runSql(sql: string): Promise<IDataRecord[]>;
 
+// ---------- The REST Service ----------
+//
+// The REST client SDK of the notebook's current REST service - its
+// classes, and an object per service, "myServiceV1" say, and "mrs" - comes
+// from the extension, as the service is. These are what its generated code
+// calls.
+
+/** The login the SDK's service objects are made with, once logged in. */
+declare var mrsLoginResult: { authApp?: string; jwt?: string } | undefined;
+
+/** Makes a REST service the session's current one, its SDK the notebook's. */
+declare function mrsSetCurrentService(serviceId: string): Promise<void>;
+
+/** Builds the notebook's REST SDK again, from the REST metadata as it is. */
+declare function mrsRefreshSdkCode(): Promise<void>;
+
+/** Shows the notebook's REST SDK's source. */
+declare function mrsPrintSdkCode(): void;
+
+/**
+ * Logs in to a REST service, asking for what is not given - the password,
+ * always - and makes the SDK's service objects logged in.
+ */
+declare function mrsAuthenticate(serviceUrl: string, authPath: string,
+    app?: string, username?: string): Promise<void>;
+
 // ---------- Graphs ----------
 
 /** A value a graph's data can hold. */

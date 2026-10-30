@@ -26,6 +26,7 @@ import {
     createWorkspaceSettings,
     publishConnectMode,
 } from "./connections/settings.js";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -179,6 +180,10 @@ import { NotebookSerializer } from "./notebook/notebookSerializer.js";
 import { NotebookResults } from "./notebook/notebookResults.js";
 import { LanguageSwitcher } from "./notebook/languageSwitcher.js";
 import { ScriptRunner } from "./notebook/scriptRunner.js";
+import {
+    NotebookSdk,
+    publishSdkTypings,
+} from "./notebook/notebookSdk.js";
 
 /**
  * Everything the extension builds on activation, kept together so
@@ -626,13 +631,53 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // A cell's language follows what is typed in it; its TypeScript runs
     // in a worker of the notebook's own.
     const notebookLanguages = new LanguageSwitcher(log);
+    // The REST client SDK a TypeScript cell runs with: its connection's
+    // current REST service's, reached through the daemon serving it.
+    const notebookSdks = new NotebookSdk({
+        connect: (uri) => { return connections.connect(uri); },
+        query: async (uri, sql) => {
+            const connectionId = await connections.connect(uri);
+            const results = await (await connections.api()).executeScript(
+                connectionId, sql, true);
+            const failed = results.find((result) => {
+                return result.error !== undefined;
+            });
+            if (failed !== undefined) {
+                throw new Error(failed.error);
+            }
+
+            return results[0]?.result_sets?.[0]?.rows ?? [];
+        },
+        tools: () => { return serverApi(() => { return session.restTools; }); },
+        restdUrl: (uri) => { return restdUrl(uri); },
+        certificateAuthority: async () => {
+            const status = await (await restdApi()).certificateStatus();
+
+            return status.exists
+                ? await fs.promises.readFile(status.ca_path, "utf8")
+                : undefined;
+        },
+        publishTypings: (sdk) => {
+            void publishSdkTypings(vscode.Uri.joinPath(
+                context.globalStorageUri, "notebook-sdk"), sdk, log);
+        },
+        log,
+    });
+    // DDL - REST SQL above all - may have changed what the SDK has.
+    const stopFollowingSdks = editors.onDidRunScript(
+        (uri, script, changedCatalog) => {
+            if (changedCatalog || /\bREST\b/i.test(script)) {
+                notebookSdks.invalidate(uri);
+            }
+        });
     context.subscriptions.push(
         notebookResults,
         notebookLanguages,
+        { dispose: stopFollowingSdks },
         new NotebookController(editors, notebookResults,
             ScriptRunner.fromFile(vscode.Uri.joinPath(context.extensionUri,
                 "dist", "notebookWorker.js").fsPath),
-            notebookLanguages, log),
+            notebookSdks, notebookLanguages, log),
     );
     // Marks where each statement begins. The ranges come from the SQL
     // scanner for now; a language server would report the same thing.

@@ -19,8 +19,9 @@ so far: SQL cells and their result sets in the panel's own view; a cell's
 language told from what is typed in it; TypeScript cells run in a worker
 with the old runtime's `print` and `runSql`, and its graphs (`Graph`,
 `PieGraph`); a TypeScript server plugin giving the cells the runtime's
-typings. Still to come: the REST SDK generated, its typings handed to the
-cells the same way, and reloaded live. None of it needs Monaco.
+typings; the REST client SDK of the connection's current REST service,
+run in the cells, its typings in the editor, built again as the REST
+metadata changes. None of it needs Monaco.
 
 ## Files
 
@@ -35,7 +36,9 @@ cells the same way, and reloaded live. None of it needs Monaco.
 | `src/notebook/scriptRunner.ts` | `ScriptRunner`: a worker thread per notebook, one cell at a time, interrupting. |
 | `src/notebook/scriptSandbox.ts` | The worker's runtime: the cell compiled (sucrase), run in a `vm` context kept across cells, `print` / `runSql` / `console`. Free of the worker API. |
 | `src/notebook/scriptWorker.ts` | The worker's entry, wiring its port to the sandbox; built to `dist/notebookWorker.js` by `vite.worker.config.ts`. |
-| `src/notebook/scriptProtocol.ts` | What the runner and a worker say to each other. |
+| `src/notebook/scriptProtocol.ts` | What the runner and a worker say to each other: the cells, their SQL, the REST SDK (`INotebookSdk`) and the host calls (`HostCall`). |
+| `src/notebook/notebookSdk.ts` | `NotebookSdk`: a connection's REST client SDK, built and kept; making a service current; asking for a login; `publishSdkTypings`. |
+| `src/notebook/trustingFetch.ts` | The `fetch` a cell has once the SDK is loaded: HTTPS to this machine trusting the shell's local certificate authority. |
 | `webview/src/graphs/renderGraph.ts` | `renderGraph`: a graph's options, as a cell sent them, drawn as plain SVG - pie, line and bar series. |
 | `webview/src/graphs/graphMath.ts` | Their arithmetic: round ticks and domains, linear and time scales, bands, pie angles and arc paths, line curves, number formats. Free of the DOM. |
 | `ts-plugin/` | The TypeScript server plugin (`mariadb-notebook-ts-plugin`), its own package: `index.js`, and `typings.js`, the runtime's typings as the editor knows them. |
@@ -311,6 +314,67 @@ hover and signature help. **`mariadb-notebook-ts-plugin`**
   completion offering the runtime, and a Jupyter cell of another folder
   without it.
 
+## The REST Service SDK
+
+A TypeScript cell runs with the REST client SDK of its notebook's
+connection, as the MySQL Shell's notebooks had it: `myServiceV1` - an
+object per service, named after it - and `mrs`, typed in the editor.
+
+- **What it is** (`NotebookSdk`): the SDK's base classes
+  (`rest.get_sdk_base_classes`, asked for once) and the classes of the
+  session's current REST service, else of the only one
+  (`rest.get_sdk_service_classes`, `prepare_for_runtime`), as TypeScript.
+  The service is reached at the URL of the REST Daemon serving the
+  connection's server (`restdFor`) plus its path. With no service at all,
+  the REST Service management code (`rest.get_runtime_management_code`);
+  with several and none current, or no REST metadata, no SDK. The services
+  are read with `SHOW REST SERVICES FORMAT=JSON` on the connection's
+  session, not as an action, so reading them drops nothing.
+- **When**: built the first time a TypeScript cell runs on a connection -
+  a notebook with no connection gets none, and is not asked for one -
+  and kept. Dropped when a run on the connection changes the catalog or
+  says REST (`onDidRunScript`), so REST DDL in a SQL cell has the next
+  TypeScript cell build it again; `mrs.refreshSdkCode()` builds it now.
+- **In the worker**: the runner sends a notebook's SDK before a cell when
+  the worker has not loaded that version (`INotebookSdk.version`, a hash of
+  the code). The sandbox compiles it as a cell, so its classes and objects
+  are the notebook's - loaded again, they are replaced - and a failure is
+  said once, in the next cell, which runs all the same. The cells get what
+  the SDK runs on: `AbortSignal`, Web Crypto, `btoa`/`atob`, `Request`,
+  `Response`, `Headers`.
+- **HTTPS to the daemon**: Node's `fetch` trusts its own roots, not the
+  system's store, so the daemon's certificate - signed by the shell's local
+  certificate authority (`restd.get_certificate_status`, `ca_path`) - is
+  refused even once the system trusts it. With an SDK, `fetch` in a cell is
+  `trustingFetch`: HTTPS to a loopback address goes through Node's `https`
+  with that authority trusted beside the usual roots; everything else is
+  `fetch` as it is.
+- **What the generated code calls** (the old runtime's functions):
+  `mrsPrintSdkCode` prints the SDK; `mrsRefreshSdkCode` builds it again;
+  `mrsSetCurrentService(id)` runs `USE REST SERVICE` on the session and
+  builds it for that service; `mrsAuthenticate` - a service's static
+  `authenticate` - asks for the authentication app (where the service has
+  several), the user (where the cell named none) and the password, logs in
+  with the SDK's `MrsBaseService`, sets `mrsLoginResult` and loads the SDK
+  again, so the service objects carry the token. These are host calls
+  (`host` / `hostResult`): the extension answers, with a new SDK where it
+  built one. A cell is over once what it set off without waiting is - the
+  generated `authenticate` does not return its promise. The functions that
+  open the old dialogs (`mrsEditService`, `mrsExportServiceSdk`,
+  `mrsAddContentSet`, `mrsEditSchema`, `mrsEditDbObject`,
+  `mrsSetServiceUrl`) say they are not in a notebook yet.
+- **In the editor**: the SDK's source is written to
+  `<global storage>/notebook-sdk/mrs-sdk-<version>.ts` and named to the
+  TypeScript server plugin (`configurePlugin`, `{ sdkFile }`), which adds it
+  to the cells' projects and marks them to be looked at again. One SDK at a
+  time: the last one built. `typings.js` declares the host functions and
+  `mrsLoginResult`.
+- Checked against the real thing: a sandbox's REST Daemon serving a
+  service, its SDK fetched over MCP and loaded into the built worker - a
+  cell's `getMetadata()` and `getAuthApps()` reached the daemon over HTTPS -
+  and named to a real TypeScript server, which then completed
+  `myServiceV1.` with the SDK's methods.
+
 ## Keybindings
 
 The run commands' keybindings and their editor context menu items carry
@@ -329,6 +393,9 @@ send the cell to the panel. `keybindings.test.ts` checks every one.
 - The editor sees every cell's declarations, not only the cells run
   before it, and another notebook's in the same folder too.
 - `runSql` takes no parameters yet.
+- The REST SDK's dialogs (edit a service, export its SDK, add a content
+  set, edit a schema or an object) are not in a notebook; the editor knows
+  one SDK at a time, the last built.
 - The watch task does not rebuild the worker; `npm run build` (and F5)
   does.
 - Not yet exercised in a real VS Code: the unit tests cover the format,

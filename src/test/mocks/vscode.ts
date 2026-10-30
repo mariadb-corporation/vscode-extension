@@ -1181,6 +1181,10 @@ export const workspace = {
     textDocuments,
 
     fs: {
+        createDirectory: (): Promise<void> => {
+            return Promise.resolve();
+        },
+
         writeFile: (uri: Uri, content: Uint8Array): Promise<void> => {
             files.set(uri.fsPath, content);
 
@@ -1867,6 +1871,15 @@ Object.assign(workspace, {
     },
 });
 
+/** The extensions `extensions.getExtension` finds, by id. */
+export const mockExtensions = new Map<string, unknown>();
+
+export const extensions = {
+    getExtension: (id: string): unknown => {
+        return mockExtensions.get(id);
+    },
+};
+
 export const resetVscodeMock = (): void => {
     openedWith.length = 0;
     semanticTokensProviders.length = 0;
@@ -1936,6 +1949,7 @@ export const resetVscodeMock = (): void => {
     closeNotebookListeners.clear();
     rendererMessagings.length = 0;
     languageSwitches.length = 0;
+    mockExtensions.clear();
     untitledNotebooks = 0;
     (window as Record<string, unknown>).activeNotebookEditor = undefined;
 };

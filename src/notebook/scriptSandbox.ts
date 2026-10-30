@@ -18,10 +18,12 @@
 /**
  * Where a notebook's TypeScript cells run: one `vm` context per notebook,
  * kept across its cells, with the scripting runtime of the MySQL Shell's
- * notebooks as far as it goes so far - `print`, `runSql` and `console` -
- * and, as there, a cell's last expression shown once it is over. What a
- * cell declares at its top is there for the cells after it, as in the
- * Node REPL; the old runtime's `$` is not there. Lives in the notebook's
+ * notebooks - `print`, `runSql`, `Graph`, `PieGraph`, `console`, and the
+ * REST client SDK of the notebook's current service with the host
+ * functions its generated code calls - and, as there, a cell's last
+ * expression shown once it is over. What a cell declares at its top is
+ * there for the cells after it, as in the Node REPL; the old runtime's `$`
+ * is not there. Lives in the notebook's
  * worker thread (`scriptWorker.ts`); free of the worker API, so the tests
  * run it in-process.
  */
@@ -34,12 +36,18 @@ import { transform } from "sucrase";
 
 import type {
     FromWorkerMessage,
+    HostCall,
+    INotebookSdk,
     PrintedValue,
     ToWorkerMessage,
 } from "./scriptProtocol.js";
+import { trustingFetch } from "./trustingFetch.js";
 
 /** The file name a cell's code goes by in a stack. */
 export const CELL_FILE = "cell.ts";
+
+/** The file name the REST SDK's code goes by in a stack. */
+const SDK_FILE = "mrs-sdk.ts";
 
 /** A stack frame in the cell, and its line. */
 const CELL_FRAME = /cell\.ts:(\d+):/;
@@ -461,6 +469,16 @@ export interface IScriptSandbox {
     receive(message: ToWorkerMessage): void;
 }
 
+/** The host functions of the old runtime that open its dialogs. */
+const DIALOG_FUNCTIONS = [
+    "mrsEditService",
+    "mrsExportServiceSdk",
+    "mrsAddContentSet",
+    "mrsEditSchema",
+    "mrsEditDbObject",
+    "mrsSetServiceUrl",
+] as const;
+
 /**
  * Builds a notebook's TypeScript runtime.
  *
@@ -475,9 +493,19 @@ export const createScriptSandbox = (
     let runId = 0;
     let requests = 0;
     const pending = new Map<number, {
-        resolve: (rows: Array<Record<string, unknown>>) => void;
+        resolve: (value: unknown) => void;
         reject: (error: Error) => void;
     }>();
+    /**
+     * What a cell started and did not wait for - a login a generated
+     * method sets off without returning it: the cell is over once it is.
+     */
+    const started = new Set<Promise<unknown>>();
+    /** The REST client SDK loaded, and its loading, in order. */
+    let sdk: INotebookSdk | undefined;
+    let sdkLoaded: Promise<string | undefined> = Promise.resolve(undefined);
+    /** What `fetch` is now: the SDK's authority trusted, once it has one. */
+    let fetchNow: typeof fetch = fetch;
 
     const print = (...values: unknown[]): void => {
         for (const value of values) {
@@ -495,6 +523,19 @@ export const createScriptSandbox = (
             send({ type: "print", runId, value: { kind: "text", stream, text } });
         };
     };
+    const printError = printTo("stderr");
+
+    /**
+     * @param work Something a cell set off.
+     *
+     * @returns It, kept until it is over.
+     */
+    const track = <T>(work: Promise<T>): Promise<T> => {
+        started.add(work);
+        void work.finally(() => { started.delete(work); }).catch(() => {});
+
+        return work;
+    };
 
     /**
      * Runs SQL on the notebook's connection.
@@ -508,8 +549,32 @@ export const createScriptSandbox = (
         const requestId = requests;
 
         return new Promise((resolve, reject) => {
-            pending.set(requestId, { resolve, reject });
+            pending.set(requestId, {
+                resolve: resolve as (value: unknown) => void,
+                reject,
+            });
             send({ type: "runSql", runId, requestId, sql: String(sql) });
+        });
+    };
+
+    /**
+     * Asks the extension something, and loads the SDK it answers with.
+     *
+     * @param call What to ask.
+     * @param args Its arguments.
+     *
+     * @returns The answer.
+     */
+    const host = (
+        call: HostCall,
+        args: Record<string, unknown> = {},
+    ): Promise<unknown> => {
+        requests += 1;
+        const requestId = requests;
+
+        return new Promise((resolve, reject) => {
+            pending.set(requestId, { resolve, reject });
+            send({ type: "host", runId, requestId, call, args });
         });
     };
 
@@ -539,25 +604,164 @@ export const createScriptSandbox = (
             log: printTo("stdout"),
             info: printTo("stdout"),
             debug: printTo("stdout"),
-            warn: printTo("stderr"),
-            error: printTo("stderr"),
+            warn: printError,
+            error: printError,
         },
         setTimeout,
         clearTimeout,
         setInterval,
         clearInterval,
+        setImmediate,
+        clearImmediate,
         queueMicrotask,
         structuredClone,
-        fetch,
+        fetch: (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+            return fetchNow(input, init);
+        },
+        Request,
+        Response,
+        Headers,
+        FormData,
+        Blob,
         URL,
         URLSearchParams,
         TextEncoder,
         TextDecoder,
         AbortController,
+        AbortSignal,
+        // The REST SDK's login hashes with Web Crypto, and encodes base64.
+        crypto: globalThis.crypto,
+        btoa,
+        atob,
+        performance,
+    });
+
+    /**
+     * Loads the REST client SDK into the notebook's runtime: its classes
+     * and its service objects are the notebook's, as a cell's declarations
+     * are. Loading it again - a newer one, or after a login - replaces
+     * them.
+     *
+     * @param next The SDK.
+     *
+     * @returns What it failed with, if it did.
+     */
+    const loadSdk = async (next: INotebookSdk): Promise<string | undefined> => {
+        sdk = next;
+        fetchNow = next.certificateAuthority === undefined
+            ? fetch
+            : trustingFetch(next.certificateAuthority);
+        try {
+            const compiled = compileCell(next.code);
+            await (new vm.Script(compiled.code, { filename: SDK_FILE })
+                .runInContext(context) as Promise<unknown>);
+
+            return undefined;
+        } catch (failure) {
+            return failure instanceof Error
+                ? `${failure.name}: ${failure.message}`
+                : String(failure);
+        }
+    };
+
+    /**
+     * Logs in to a REST service, as the SDK's generated `authenticate`
+     * asks: the extension asks the user for what is missing - the
+     * password, always - and the SDK is loaded again with the token, so
+     * every service object made from then on is logged in.
+     *
+     * @param serviceUrl The service.
+     * @param authPath Its authentication path.
+     * @param app The authentication app, if the cell named one.
+     * @param username The user, if the cell named one.
+     *
+     * @returns Once logged in, or told why not.
+     */
+    const authenticate = async (
+        serviceUrl: unknown,
+        authPath: unknown,
+        app: unknown,
+        username: unknown,
+    ): Promise<void> => {
+        const answer = await host("authenticate",
+            { serviceUrl, app, username }) as {
+            app: string;
+            username: string;
+            password: string;
+        } | undefined;
+        if (answer === undefined) {
+            printError("Not logged in: the login was cancelled.");
+
+            return;
+        }
+
+        const Service = context.MrsBaseService as (new (
+            url: string, path?: string) => {
+            authenticate(options: {
+                app: string; username: string; password: string;
+            }): Promise<{ authApp?: string; jwt?: string; errorMessage?: string }>;
+        }) | undefined;
+        if (Service === undefined) {
+            printError("Not logged in: the REST SDK is not loaded.");
+
+            return;
+        }
+
+        const result = await new Service(String(serviceUrl),
+            typeof authPath === "string" ? authPath : undefined)
+            .authenticate(answer);
+        if (result.jwt === undefined) {
+            printError(result.errorMessage ?? "Not logged in.");
+
+            return;
+        }
+
+        context.mrsLoginResult = { authApp: result.authApp, jwt: result.jwt };
+        if (sdk !== undefined) {
+            const failed = await loadSdk(sdk);
+            if (failed !== undefined) {
+                printError(`The REST SDK could not be loaded again: ${failed}`);
+            }
+        }
+        print(`Logged in to ${String(serviceUrl)} as ${answer.username}.`);
+    };
+
+    // What the SDK's generated code calls, as the old runtime had them.
+    Object.assign(context, {
+        mrsPrintSdkCode: (): void => {
+            print(sdk?.code ?? "There is no REST SDK: the notebook has no "
+                + "connection, or its server no REST service.");
+        },
+        mrsRefreshSdkCode: (): Promise<unknown> => {
+            return track(host("refreshSdk"));
+        },
+        mrsSetCurrentService: (serviceId: unknown): Promise<unknown> => {
+            return track(host("setCurrentService", { serviceId }));
+        },
+        mrsAuthenticate: (
+            serviceUrl: unknown,
+            authPath: unknown,
+            app?: unknown,
+            username?: unknown,
+        ): Promise<void> => {
+            return track(authenticate(serviceUrl, authPath, app, username));
+        },
+        ...Object.fromEntries(DIALOG_FUNCTIONS.map((name) => {
+            return [name, (): void => {
+                printError(`${name}: not in a notebook yet - use the REST `
+                    + "Service in the MariaDB Connections view.");
+            }];
+        })),
     });
 
     const run = async (code: string): Promise<void> => {
         let error: string | undefined;
+        const sdkFailure = await sdkLoaded;
+        if (sdkFailure !== undefined) {
+            printError(`The REST SDK could not be loaded: ${sdkFailure}`);
+            sdkLoaded = Promise.resolve(undefined);
+        }
+
         let compiled: ICompiledCell | undefined;
         try {
             compiled = compileCell(code);
@@ -580,6 +784,15 @@ export const createScriptSandbox = (
                     compiled.shifts);
             }
         }
+
+        // What it set off and did not wait for is part of it.
+        while (started.size > 0) {
+            for (const outcome of await Promise.allSettled([...started])) {
+                if (outcome.status === "rejected") {
+                    error ??= describeFailure(outcome.reason);
+                }
+            }
+        }
         send({ type: "done", runId, ...error === undefined ? {} : { error } });
     };
 
@@ -592,6 +805,11 @@ export const createScriptSandbox = (
                     break;
                 }
 
+                case "sdk": {
+                    sdkLoaded = loadSdk(message.sdk);
+                    break;
+                }
+
                 case "sqlResult": {
                     const waiting = pending.get(message.requestId);
                     pending.delete(message.requestId);
@@ -600,6 +818,26 @@ export const createScriptSandbox = (
                     } else {
                         waiting?.resolve(message.rows ?? []);
                     }
+                    break;
+                }
+
+                case "hostResult": {
+                    const waiting = pending.get(message.requestId);
+                    pending.delete(message.requestId);
+                    if (message.error !== undefined) {
+                        waiting?.reject(new Error(message.error));
+                        break;
+                    }
+                    // A newer SDK is loaded before the cell goes on.
+                    void (message.sdk === undefined
+                        ? Promise.resolve(undefined)
+                        : loadSdk(message.sdk)).then((failed) => {
+                        if (failed !== undefined) {
+                            printError(`The REST SDK could not be loaded: ${
+                                failed}`);
+                        }
+                        waiting?.resolve(message.value);
+                    });
                     break;
                 }
             }

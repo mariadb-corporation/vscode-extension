@@ -33,8 +33,9 @@ import {
 } from "./notebookFormat.js";
 import { GRAPH_MIME } from "./notebookProtocol.js";
 import type { NotebookResults } from "./notebookResults.js";
+import type { NotebookSdk } from "./notebookSdk.js";
 import { toCellOutput } from "./notebookSerializer.js";
-import type { PrintedValue } from "./scriptProtocol.js";
+import type { INotebookSdk, PrintedValue } from "./scriptProtocol.js";
 import type { ScriptRunner } from "./scriptRunner.js";
 import { errorText } from "../text.js";
 
@@ -72,6 +73,7 @@ export class NotebookController implements vscode.Disposable {
      *                script on it.
      * @param results Where a run's result sets are kept for their view.
      * @param scripts Runs the TypeScript cells.
+     * @param sdks The REST client SDK a TypeScript cell runs with.
      * @param languages Settles a cell's language before it runs, where it
      *                  was run before typing paused.
      * @param log Where failures are noted.
@@ -80,6 +82,7 @@ export class NotebookController implements vscode.Disposable {
         private readonly editors: SqlEditorBinding,
         private readonly results: NotebookResults,
         private readonly scripts: ScriptRunner,
+        private readonly sdks: NotebookSdk,
         private readonly languages: LanguageSwitcher,
         private readonly log: (message: string) => void,
     ) {
@@ -252,22 +255,55 @@ export class NotebookController implements vscode.Disposable {
             }
         };
 
+        // The REST SDK of the notebook's connection, where it has one: not
+        // asked for, a cell that runs no SQL needs none.
+        const bound = this.editors.notebookConnectionFor(notebook);
+        let sdk: INotebookSdk | undefined;
+        if (bound !== undefined) {
+            try {
+                sdk = await this.sdks.forConnection(bound);
+            } catch (error) {
+                await show({ kind: "text", stream: "stderr", text: "The REST "
+                    + `SDK could not be built: ${errorText(error)}` });
+            }
+        }
+
         // Asked for only once a cell runs SQL: one that does not needs none.
         let uri: string | undefined;
+        const connection = async (): Promise<string> => {
+            uri ??= this.editors.notebookConnectionFor(notebook)
+                ?? await this.editors.selectNotebookConnection(notebook);
+            if (uri === undefined) {
+                throw new Error(NO_CONNECTION);
+            }
+
+            return uri;
+        };
         const outcome = await this.scripts.run(notebook.uri.toString(), code, {
             print: (value) => {
                 shown = shown.then(() => { return show(value); });
             },
             runSql: async (sql) => {
-                uri ??= this.editors.notebookConnectionFor(notebook)
-                    ?? await this.editors.selectNotebookConnection(notebook);
-                if (uri === undefined) {
-                    throw new Error(NO_CONNECTION);
-                }
-
-                return this.editors.queryRows(uri, sql);
+                return this.editors.queryRows(await connection(), sql);
             },
-        });
+            call: async (call, args) => {
+                const on = await connection();
+                switch (call) {
+                    case "authenticate": {
+                        return { value: await this.sdks.askLogin(on, args) };
+                    }
+
+                    case "refreshSdk": {
+                        return { sdk: await this.sdks.refresh(on) };
+                    }
+
+                    case "setCurrentService": {
+                        return { sdk: await this.sdks.setCurrentService(on,
+                            String(args.serviceId)) };
+                    }
+                }
+            },
+        }, sdk);
         await shown;
 
         if (outcome.interrupted === true) {

@@ -731,6 +731,56 @@ export class RestToolsApi {
                 `Read the REST Client SDK options in ${directory}`));
     }
 
+    /**
+     * @returns The source of the REST client SDK's base classes in
+     *          TypeScript, prepared to run in an editor rather than to be
+     *          written to files - as a notebook runs it.
+     */
+    public async getSdkBaseClasses(): Promise<string> {
+        return await this.#tool("rest.get_sdk_base_classes", undefined,
+            { sdk_language: "TypeScript", prepare_for_runtime: true },
+            decodeScalar,
+            words("Reading the REST Client SDK base classes",
+                "Read the REST Client SDK base classes"));
+    }
+
+    /**
+     * @param connectionId The connection the service is on.
+     * @param serviceId The service; the session's current one, or the
+     *                  only one, where left out.
+     * @param serviceUrl Where the service is reached.
+     *
+     * @returns The source of the service's REST client SDK classes in
+     *          TypeScript, prepared to run in an editor.
+     */
+    public async getSdkServiceClasses(
+        connectionId: string,
+        serviceId?: string,
+        serviceUrl?: string,
+    ): Promise<string> {
+        return await this.#tool("rest.get_sdk_service_classes", connectionId, {
+            sdk_language: "TypeScript",
+            prepare_for_runtime: true,
+            ...serviceId === undefined ? {} : { service_id: serviceId },
+            ...serviceUrl === undefined ? {} : { service_url: serviceUrl },
+        }, decodeScalar,
+        words("Reading the REST Client SDK of the service",
+            "Read the REST Client SDK of the service"));
+    }
+
+    /**
+     * @param connectionId The connection the services are on.
+     *
+     * @returns The TypeScript that manages the REST services at runtime,
+     *          for where no service's SDK can be had.
+     */
+    public async getRuntimeManagementCode(connectionId: string): Promise<string> {
+        return await this.#tool("rest.get_runtime_management_code",
+            connectionId, {}, decodeScalar,
+            words("Reading the REST Service management code",
+                "Read the REST Service management code"));
+    }
+
     public async dumpSdkServiceFiles(
         connectionId: string,
         directory: string,

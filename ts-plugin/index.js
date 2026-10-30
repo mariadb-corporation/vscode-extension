@@ -37,6 +37,12 @@
  * named after what they hold, so the server reads them as it reads any
  * file: the package carries no .d.ts, which the Marketplace refuses.
  *
+ * The REST client SDK of a notebook's current REST service comes from the
+ * extension: it writes the SDK's source to a file and names it in the
+ * plugin's configuration (`configurePlugin`, `{ sdkFile }`); the file is
+ * added beside the typings, and the projects are marked to be looked at
+ * again. One SDK at a time: the last one built.
+ *
  * Plain CommonJS with no dependencies: the server loads it from
  * `node_modules/mariadb-notebook-ts-plugin` beside the extension.
  */
@@ -78,17 +84,18 @@ const writeTypings = (folder) => {
 /**
  * @param {readonly string[]} fileNames A project's files.
  * @param {string} typings The typings' file.
+ * @param {string} [sdkFile] The REST SDK's file, if there is one.
  *
- * @returns {string[]} The same, with the typings where one of them is a
- *          MariaDB Notebook's cell.
+ * @returns {string[]} The same, with the typings - and the SDK - where one
+ *          of them is a MariaDB Notebook's cell.
  */
-const withTypings = (fileNames, typings) => {
-    if (fileNames.includes(typings)
-        || !fileNames.some((name) => { return NOTEBOOK_CELL.test(name); })) {
+const withTypings = (fileNames, typings, sdkFile) => {
+    if (!fileNames.some((name) => { return NOTEBOOK_CELL.test(name); })) {
         return [...fileNames];
     }
 
-    return [...fileNames, typings];
+    return [...new Set([...fileNames, typings,
+        ...sdkFile === undefined ? [] : [sdkFile]])];
 };
 
 /**
@@ -101,15 +108,42 @@ const createInit = (folder = path.join(os.tmpdir(),
     "mariadb-notebook-ts-plugin")) => {
     /** @type {string | undefined} */
     let typings;
+    /** @type {string | undefined} */
+    let sdkFile;
+    /**
+     * The projects it was created for, looked at again for a new SDK.
+     *
+     * @type {Set<{ markAsDirty(): void }>}
+     */
+    const projects = new Set();
 
     return () => {
         return {
             /**
+             * Takes the REST SDK's file from the extension.
+             *
+             * @param {{ sdkFile?: unknown }} configuration What it sent.
+             *
+             * @returns {void}
+             */
+            onConfigurationChanged: (configuration) => {
+                const next = typeof configuration.sdkFile === "string"
+                    ? configuration.sdkFile
+                    : undefined;
+                if (next === sdkFile) {
+                    return;
+                }
+                sdkFile = next;
+                for (const project of projects) {
+                    project.markAsDirty();
+                }
+            },
+            /**
              * @param {{
              *     languageServiceHost: { getScriptFileNames(): string[] };
              *     languageService: unknown;
-             *     project: { projectService: { logger: {
-             *         info(message: string): void } } };
+             *     project: { markAsDirty(): void; projectService: {
+             *         logger: { info(message: string): void } } };
              * }} info What the server hands a plugin for a project.
              *
              * @returns {unknown} The project's language service, as it is.
@@ -129,8 +163,9 @@ const createInit = (folder = path.join(os.tmpdir(),
                 const own = host.getScriptFileNames.bind(host);
                 const file = typings;
                 host.getScriptFileNames = () => {
-                    return withTypings(own(), file);
+                    return withTypings(own(), file, sdkFile);
                 };
+                projects.add(info.project);
 
                 return info.languageService;
             },

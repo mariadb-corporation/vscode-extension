@@ -18,7 +18,11 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   and the graphs of the MySQL Shell's notebooks (`Graph.render` for pie,
   line and bar graphs, `PieGraph.render`), shows the value of its last
   expression, and what it declares is there for the cells after it; its
-  editor knows the runtime for completion and hover.
+  editor knows the runtime for completion and hover. It runs with the REST
+  client SDK of the connection's current REST service too - `myServiceV1`
+  and `mrs`, as in the MySQL Shell's notebooks - reaching the REST Daemon
+  on this machine, logging in where asked, and built again as the REST
+  metadata changes.
   The connection is picked from the notebook's toolbar or the status bar
   and saved with the notebook, as are the last results.
 - **MariaDB Deployments view.** A second activity bar icon opens a view of
