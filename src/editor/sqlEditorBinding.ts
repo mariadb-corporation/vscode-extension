@@ -36,6 +36,7 @@ import {
     type IScriptSource,
     pendingRunRow,
 } from "../sql/executionService.js";
+import { changesCatalog } from "../sql/catalogChange.js";
 import { quoteIdentifier } from "../sql/queryBuilder.js";
 import {
     type ISqlStatement,
@@ -879,6 +880,53 @@ export class SqlEditorBinding implements vscode.Disposable {
             }
             for (const listener of this.#runListeners) {
                 listener(uri, script, changedCatalog);
+            }
+        }
+    }
+
+    /**
+     * Runs SQL for a script - a notebook's TypeScript cell's `runSql` - and
+     * answers its rows: every one, not a page, since a script works on
+     * what it asked for. Shown nowhere; the run listeners are told, as for
+     * any run, so DDL redraws the Connections view.
+     *
+     * @param uri The connection to run on.
+     * @param sql The SQL: one statement or several.
+     *
+     * @returns The rows of the first result set, an object a row; none
+     *          where no statement returned one.
+     *
+     * @throws What the first failing statement failed with.
+     */
+    public async queryRows(
+        uri: string,
+        sql: string,
+    ): Promise<Array<Record<string, unknown>>> {
+        let connectionId: string | undefined;
+        let changedCatalog = false;
+        try {
+            connectionId = await this.connections.connect(uri);
+            const ansiQuotes = await this.sqlModes.ansiQuotes(uri);
+            const api = await this.connections.api();
+            const results = await api.executeScript(connectionId, sql, true,
+                undefined, { ansiQuotes });
+            const failed = results.find((result) => {
+                return result.error !== undefined;
+            });
+            changedCatalog = changesCatalog(sql) && failed === undefined;
+            if (failed !== undefined) {
+                throw new Error(failed.error);
+            }
+
+            return results.find((result) => {
+                return (result.result_sets?.length ?? 0) > 0;
+            })?.result_sets?.[0]?.rows ?? [];
+        } finally {
+            if (connectionId !== undefined && CHANGES_SCHEMA.test(sql)) {
+                await this.#readSchema(uri, connectionId);
+            }
+            for (const listener of this.#runListeners) {
+                listener(uri, sql, changedCatalog);
             }
         }
     }

@@ -22,7 +22,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   [connection-editor.md](connection-editor.md)). The notebook renderer
   is one more, `vite.notebook.config.ts`, not a dialog build: VS Code calls
   its `activate` export (see [notebooks.md](notebooks.md)).
-  `build:webview` runs them all. The extension
+  `build:webview` runs them all. A notebook's TypeScript worker is a
+  second Node bundle beside the extension's, `vite.worker.config.ts` to
+  `dist/notebookWorker.js`, run by `build:extension`, so its transpiler is
+  not loaded at activation. The extension
   build has `emptyOutDir: false` on purpose: it runs again on every change
   in watch mode, and emptying `dist/` would delete the panel's assets out
   from under a running extension host. `npm run clean` wipes `dist/`, and

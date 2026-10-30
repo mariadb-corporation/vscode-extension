@@ -98,6 +98,9 @@ export class NotebookSerializer implements vscode.NotebookSerializer {
             if (cell.outputs !== undefined) {
                 cellData.outputs = cell.outputs.map(toCellOutput);
             }
+            if (cell.languagePinned === true) {
+                cellData.metadata = { languagePinned: true };
+            }
 
             return cellData;
         }));
@@ -122,11 +125,14 @@ export class NotebookSerializer implements vscode.NotebookSerializer {
             cells: data.cells.map((cell): INotebookCell => {
                 const markdown = cell.kind === vscode.NotebookCellKind.Markup;
                 const outputs = (cell.outputs ?? []).map(fromCellOutput);
+                const pinned = !markdown
+                    && cell.metadata?.languagePinned === true;
 
                 return {
                     kind: markdown ? "markdown" : "code",
                     ...markdown ? {} : { language: cell.languageId },
                     source: cell.value,
+                    ...pinned ? { languagePinned: true } : {},
                     ...outputs.length > 0 ? { outputs } : {},
                 };
             }),

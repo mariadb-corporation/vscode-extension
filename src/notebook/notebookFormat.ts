@@ -59,6 +59,11 @@ export interface INotebookCell {
     /** A code cell's language; a markdown cell has none. */
     language?: string;
     source: string;
+    /**
+     * True once the user picked a code cell's language by hand: it is not
+     * switched by what is typed in it from then on.
+     */
+    languagePinned?: boolean;
     /** What its last run left, saved so a reopened notebook shows it. */
     outputs?: INotebookOutput[];
 }
@@ -121,6 +126,9 @@ export const parseNotebook = (text: string): INotebookFile => {
                 ? { language: cell.language }
                 : {},
             source: typeof cell.source === "string" ? cell.source : "",
+            ...kind === "code" && cell.languagePinned === true
+                ? { languagePinned: true }
+                : {},
             ...Array.isArray(cell.outputs) && cell.outputs.length > 0
                 ? { outputs: cell.outputs }
                 : {},

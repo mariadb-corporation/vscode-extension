@@ -29,6 +29,9 @@ import type {
     INotebookResultPayload,
 } from "../../notebook/notebookProtocol.js";
 import { NotebookResults } from "../../notebook/notebookResults.js";
+import { LanguageSwitcher } from "../../notebook/languageSwitcher.js";
+import { ScriptRunner } from "../../notebook/scriptRunner.js";
+import { createInProcessWorker } from "./inProcessWorker.js";
 import {
     NOTEBOOK_TYPE,
     RESULT_SET_MIME,
@@ -43,7 +46,9 @@ import { createFakeApi, createFakeSettings, createRecordingLog } from
     "../helpers.js";
 import {
     fireActiveNotebookChange,
+    fireDocumentEdit,
     fireNotebookClose,
+    languageSwitches,
     MockTextDocument,
     NotebookCellData,
     NotebookCellKind,
@@ -105,13 +110,16 @@ const createController = (defaultConnection?: string) => {
         new SqlModes(connections, log));
     const results = new NotebookResults(resultView, binding, connections,
         log);
-    const controller = new NotebookController(binding, results, log);
+    const languages = new LanguageSwitcher(log, 0);
+    const controller = new NotebookController(binding, results,
+        new ScriptRunner(createInProcessWorker), languages, log);
 
     return {
         api,
         binding,
         controller,
         results,
+        languages,
         log,
         kernel: notebookControllers[0],
         messaging: rendererMessagings[0],
@@ -162,6 +170,7 @@ describe("NotebookSerializer", () => {
                     { kind: "markdown", source: "# Report" },
                     { kind: "code", language: "mariadb-sql",
                         source: "SELECT 1;",
+                        languagePinned: true,
                         outputs: [{ items: [
                             { mime: RESULT_SET_MIME, json: { id: "r" } },
                             { mime: STDOUT_MIME, text: "done\n" },
@@ -173,6 +182,7 @@ describe("NotebookSerializer", () => {
                 encoder.encode(text)) as unknown as NotebookData;
 
             expect(data.metadata).toEqual({ connection: "dba@localhost:3310" });
+            expect(data.cells[1].metadata).toEqual({ languagePinned: true });
             expect(data.cells.map((cell) => {
                 return [cell.kind, cell.languageId, cell.value];
             })).toEqual([
@@ -296,7 +306,8 @@ describe("NotebookController", () => {
             "app@localhost:3311");
 
         expect(kernel.notebookType).toBe(NOTEBOOK_TYPE);
-        expect(kernel.supportedLanguages).toEqual(["mariadb-sql"]);
+        expect(kernel.supportedLanguages)
+            .toEqual(["mariadb-sql", "typescript"]);
 
         await kernel.executeHandler!(notebook.getCells(), notebook);
 
@@ -570,6 +581,204 @@ describe("NotebookResults", () => {
 
         fireNotebookClose(notebook);
         expect(results.view(viewId)).toBeUndefined();
+
+        controller.dispose();
+    });
+});
+
+/**
+ * @param sources Each cell's text and language.
+ *
+ * @returns An open MariaDB Notebook of those cells.
+ */
+const notebookOfLanguages = (sources: Array<[string, string]>) => {
+    const data = new NotebookData(sources.map(([source, language]) => {
+        return new NotebookCellData(NotebookCellKind.Code, source, language);
+    }));
+    data.metadata = { connection: "dba@localhost:3310" };
+    notebookCount += 1;
+
+    return openMockNotebook(NOTEBOOK_TYPE, data,
+        Uri.file(`/work/script${notebookCount}.mariadb-notebook`));
+};
+
+describe("TypeScript cells", () => {
+    beforeEach(() => {
+        resetVscodeMock();
+    });
+
+    it("run in the notebook's worker, printing as they go, sharing $",
+        async () => {
+            const { api, kernel, controller } = createController();
+            const notebook = notebookOfLanguages([
+                ["const rows = await runSql(\"SELECT 1;\");\n"
+                    + "print(`${rows.length} row`);\nprint(rows);\n"
+                    + "$.answer = 42;", "typescript"],
+                ["print(\"one\"); print(\"two\"); console.error(\"bad\");\n"
+                    + "print($.answer);", "typescript"],
+            ]);
+
+            await kernel.executeHandler!(notebook.getCells(), notebook);
+
+            expect(api.scripts).toEqual(["SELECT 1;"]);
+            const [first, second] = kernel.executions;
+            expect([first.success, second.success]).toEqual([true, true]);
+            expect(first.outputs.map(itemsOf)).toEqual([
+                [{ mime: STDOUT_MIME, text: "1 row\n" }],
+                [
+                    { mime: "application/json",
+                        text: JSON.stringify([{ 1: 1 }], null, 2) },
+                    { mime: "text/plain",
+                        text: JSON.stringify([{ 1: 1 }], null, 2) },
+                ],
+            ]);
+            // One stream output for as long as the stream goes on.
+            expect(second.outputs.map(itemsOf)).toEqual([
+                [
+                    { mime: STDOUT_MIME, text: "one\n" },
+                    { mime: STDOUT_MIME, text: "two\n" },
+                ],
+                [{ mime: STDERR_MIME, text: "bad\n" }],
+                [{ mime: STDOUT_MIME, text: "42\n" }],
+            ]);
+
+            controller.dispose();
+        });
+
+    it("say where they failed, in the cell's own lines", async () => {
+        const { kernel, controller } = createController();
+        const notebook = notebookOfLanguages([
+            ["print(\"before\");\nconst o: any = null;\no.boom;",
+                "typescript"],
+            ["const x = ;", "typescript"],
+            ["await runSql(\"SELECT nope;\");", "typescript"],
+        ]);
+
+        await kernel.executeHandler!(notebook.getCells(), notebook);
+
+        const [thrown, unparsed, failedSql] = kernel.executions;
+        expect(thrown.success).toBe(false);
+        expect(itemsOf(thrown.outputs[1])[0].text).toBe(
+            "TypeError: Cannot read properties of null (reading 'boom')\n"
+            + "    at cell.ts:3:3\n");
+        expect(itemsOf(unparsed.outputs[0])[0]).toEqual({
+            mime: STDERR_MIME,
+            text: "SyntaxError: Unexpected token (1:11)\n",
+        });
+        expect(itemsOf(failedSql.outputs[0])[0].text)
+            .toMatch(/^Error: Unknown column 'nope'/);
+
+        controller.dispose();
+    });
+
+    it("ask for a connection only once they run SQL", async () => {
+        const { kernel, controller } = createController();
+        const data = new NotebookData([
+            new NotebookCellData(NotebookCellKind.Code, "print(1 + 1);",
+                "typescript"),
+            new NotebookCellData(NotebookCellKind.Code,
+                "await runSql(\"SELECT 1;\");", "typescript"),
+        ]);
+        const notebook = openMockNotebook(NOTEBOOK_TYPE, data,
+            Uri.file("/work/unbound.mariadb-notebook"));
+
+        await kernel.executeHandler!(notebook.getCells(), notebook);
+
+        const [plain, sql] = kernel.executions;
+        expect(plain.success).toBe(true);
+        expect(itemsOf(plain.outputs[0])[0].text).toBe("2\n");
+        expect(sql.success).toBe(false);
+        expect(itemsOf(sql.outputs[0])[0].text).toMatch(/No connection/);
+
+        controller.dispose();
+    });
+
+    it("start afresh once interrupted", async () => {
+        const { kernel, controller } = createController();
+        const notebook = notebookOfLanguages([
+            ["$.kept = 1;\nawait new Promise(() => {});", "typescript"],
+            ["print($.kept ?? \"gone\");", "typescript"],
+        ]);
+        const [hanging, after] = notebook.getCells();
+
+        const running = kernel.executeHandler!([hanging], notebook);
+        await new Promise((resolve) => { setTimeout(resolve, 10); });
+        kernel.interruptHandler!(notebook);
+        await running;
+        await kernel.executeHandler!([after], notebook);
+
+        const [stopped, next] = kernel.executions;
+        expect(stopped.success).toBe(false);
+        expect(itemsOf(stopped.outputs[0])[0].text).toMatch(/^Interrupted/);
+        expect(itemsOf(next.outputs[0])[0].text).toBe("gone\n");
+
+        controller.dispose();
+    });
+});
+
+describe("LanguageSwitcher", () => {
+    beforeEach(() => {
+        resetVscodeMock();
+    });
+
+    it("switches a cell to what is typed in it", async () => {
+        const { controller } = createController();
+        const notebook = notebookOfLanguages([["", "mariadb-sql"]]);
+        const document = notebook.getCells()[0].document;
+
+        fireDocumentEdit(document, "const a = 1;");
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+        expect(document.languageId).toBe("typescript");
+
+        fireDocumentEdit(document, "SELECT * FROM t");
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+        expect(document.languageId).toBe("mariadb-sql");
+
+        // Undecided so far: left as it is.
+        fireDocumentEdit(document, "foo");
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+        expect(languageSwitches.map((each) => {
+            return each.language;
+        })).toEqual(["typescript", "mariadb-sql"]);
+        expect(notebook.getCells()[0].metadata.languagePinned)
+            .toBeUndefined();
+
+        controller.dispose();
+    });
+
+    it("leaves a cell alone once its language was picked by hand",
+        async () => {
+            const { controller } = createController();
+            const notebook = notebookOfLanguages([
+                ["SELECT 1", "mariadb-sql"]]);
+            const cell = notebook.getCells()[0];
+            fireDocumentEdit(cell.document, "SELECT 1;");
+            await new Promise((resolve) => { setTimeout(resolve, 5); });
+
+            // The user picks TypeScript in the cell's language picker.
+            const { languages: vscodeLanguages } =
+                await import("../mocks/vscode.js");
+            await vscodeLanguages.setTextDocumentLanguage(
+                cell.document, "typescript");
+            expect(cell.metadata.languagePinned).toBe(true);
+
+            fireDocumentEdit(cell.document, "SELECT 2;");
+            await new Promise((resolve) => { setTimeout(resolve, 5); });
+            expect(cell.document.languageId).toBe("typescript");
+
+            controller.dispose();
+        });
+
+    it("settles a cell's language before it runs", async () => {
+        const { kernel, controller } = createController();
+        const notebook = notebookOfLanguages([
+            ["print(\"typed fast\");", "mariadb-sql"]]);
+
+        await kernel.executeHandler!(notebook.getCells(), notebook);
+
+        expect(notebook.getCells()[0].document.languageId).toBe("typescript");
+        expect(itemsOf(kernel.executions[0].outputs[0])[0].text)
+            .toBe("typed fast\n");
 
         controller.dispose();
     });

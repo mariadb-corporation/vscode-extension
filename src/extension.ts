@@ -177,6 +177,8 @@ import {
 import { NOTEBOOK_TYPE } from "./notebook/notebookFormat.js";
 import { NotebookSerializer } from "./notebook/notebookSerializer.js";
 import { NotebookResults } from "./notebook/notebookResults.js";
+import { LanguageSwitcher } from "./notebook/languageSwitcher.js";
+import { ScriptRunner } from "./notebook/scriptRunner.js";
 
 /**
  * Everything the extension builds on activation, kept together so
@@ -621,9 +623,16 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // renderer's messaging.
     const notebookResults = new NotebookResults(resultView, editors,
         connections, log);
+    // A cell's language follows what is typed in it; its TypeScript runs
+    // in a worker of the notebook's own.
+    const notebookLanguages = new LanguageSwitcher(log);
     context.subscriptions.push(
         notebookResults,
-        new NotebookController(editors, notebookResults, log),
+        notebookLanguages,
+        new NotebookController(editors, notebookResults,
+            ScriptRunner.fromFile(vscode.Uri.joinPath(context.extensionUri,
+                "dist", "notebookWorker.js").fsPath),
+            notebookLanguages, log),
     );
     // Marks where each statement begins. The ranges come from the SQL
     // scanner for now; a language server would report the same thing.

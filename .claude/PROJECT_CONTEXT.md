@@ -27,7 +27,7 @@ extension grows.
 | `src/util/` | Dump and Load: the operations' fields, the dialog, the commands, the task monitor, the Tasks view, a task's Actions row (`taskActions.ts`) and its log file (`taskLogs.ts`) (see [`context/dump-and-load.md`](context/dump-and-load.md)). |
 | `src/sandboxes/` | The New Sandbox dialog: its fields, protocol and panel. |
 | `src/deployments/` | The New Deployment wizard: its choices, protocol and panel (see [`context/deployments.md`](context/deployments.md)). |
-| `src/notebook/` | MariaDB Notebooks: the `.mariadb-notebook` format and serializer, the notebook's connection, the kernel that runs SQL cells, and the live views of their result sets (see [`context/notebooks.md`](context/notebooks.md)). |
+| `src/notebook/` | MariaDB Notebooks: the `.mariadb-notebook` format and serializer, the notebook's connection, the kernel that runs SQL and TypeScript cells (a worker per notebook), telling a cell's language from what is typed, and the live views of their result sets (see [`context/notebooks.md`](context/notebooks.md)). |
 | `src/overview/` | The MariaDB Overview editor tab: the snapshot it shows and its folder walking, its protocol and panel (see [`context/overview.md`](context/overview.md)). |
 | `src/msm/` | MariaDB Schema Management from the Explorer's folder menu: the dialogs' fields, protocol and panel, and the commands, each an action of the Actions tab (see [`context/msm.md`](context/msm.md)). |
 | `src/restd/` | The MariaDB REST Daemon: a sandbox deployed with the REST Service, its daemon following it, the REST Daemons view's commands, and `ActionGroup`, one Actions row with a row per step (see [`context/restd.md`](context/restd.md)). |

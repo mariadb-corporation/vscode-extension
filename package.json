@@ -2794,7 +2794,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
-    "build:extension": "vite build",
+    "build:extension": "vite build && vite build --config vite.worker.config.ts",
     "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.overview.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.modeler.config.ts && vite build --config vite.notebook.config.ts",
     "watch:webview": "vite build --config vite.webview.config.ts --watch",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
@@ -2842,6 +2842,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@vscode/codicons": "^0.0.46-24",
     "preact": "^10.29.8",
+    "sucrase": "^3.35.0",
     "tabulator-tables": "^6.3.1",
     "three": "^0.186.1",
     "vscode-languageclient": "^10.1.2"

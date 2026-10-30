@@ -590,7 +590,7 @@ export class MockTextDocument {
 
     public constructor(
         public readonly uri: Uri,
-        public readonly languageId: string,
+        public languageId: string,
         private text: string,
     ) { }
 
@@ -818,7 +818,26 @@ export const fireVisibleEditorsChange = (
  */
 export const fireDocumentChange = (document: MockTextDocument): void => {
     for (const listener of changeDocumentListeners) {
-        listener({ document });
+        listener({ document, contentChanges: [] });
+    }
+};
+
+/**
+ * Types into a document: sets its text and fires the change event with
+ * the change in it, as an edit does.
+ *
+ * @param document The document.
+ * @param text Its new text.
+ *
+ * @returns Nothing.
+ */
+export const fireDocumentEdit = (
+    document: MockTextDocument,
+    text: string,
+): void => {
+    document.setText(text);
+    for (const listener of changeDocumentListeners) {
+        listener({ document, contentChanges: [{ text }] });
     }
 };
 
@@ -1284,7 +1303,28 @@ export const workspace = {
     },
 };
 
+/** The languages documents were switched to, in order. */
+export const languageSwitches: Array<{ uri: string; language: string }> = [];
+
 export const languages = {
+    // As VS Code does: the document is closed and opened again in its new
+    // language.
+    setTextDocumentLanguage: (
+        document: MockTextDocument,
+        language: string,
+    ): Promise<MockTextDocument> => {
+        languageSwitches.push({ uri: document.uri.toString(), language });
+        document.languageId = language;
+        for (const listener of closeDocumentListeners) {
+            listener(document);
+        }
+        for (const listener of openDocumentListeners) {
+            listener(document);
+        }
+
+        return Promise.resolve(document);
+    },
+
     registerDocumentSemanticTokensProvider: (
         selector: unknown,
         provider: SemanticTokensRegistration["provider"],
@@ -1451,6 +1491,7 @@ export class NotebookCellOutput {
 
 export class NotebookCellData {
     public outputs?: NotebookCellOutput[];
+    public metadata?: Record<string, unknown>;
 
     public constructor(
         public readonly kind: NotebookCellKind,
@@ -1471,6 +1512,7 @@ export interface IMockNotebookCell {
     kind: NotebookCellKind;
     document: MockTextDocument;
     notebook: MockNotebookDocument;
+    metadata: Record<string, unknown>;
 }
 
 /** A notebook, its cells' documents under the notebook cell scheme. */
@@ -1495,6 +1537,7 @@ export class MockNotebookDocument {
                     }),
                     cell.languageId, cell.value),
                 notebook: this,
+                metadata: { ...cell.metadata },
             };
         });
     }
@@ -1531,6 +1574,24 @@ export class MockCellExecution {
         return Promise.resolve();
     }
 
+    public appendOutput(
+        outputs: NotebookCellOutput | NotebookCellOutput[],
+    ): Promise<void> {
+        this.outputs.push(...Array.isArray(outputs) ? outputs : [outputs]);
+
+        return Promise.resolve();
+    }
+
+    public appendOutputItems(
+        items: NotebookCellOutputItem | NotebookCellOutputItem[],
+        output: NotebookCellOutput,
+    ): Promise<void> {
+        (output.items as NotebookCellOutputItem[]).push(
+            ...Array.isArray(items) ? items : [items]);
+
+        return Promise.resolve();
+    }
+
     public end(success: boolean): void {
         this.success = success;
     }
@@ -1544,6 +1605,7 @@ export class MockNotebookController {
         cells: IMockNotebookCell[],
         notebook: MockNotebookDocument,
     ) => Promise<void>;
+    public interruptHandler?: (notebook: MockNotebookDocument) => void;
     public readonly executions: MockCellExecution[] = [];
     public disposed = false;
 
@@ -1657,13 +1719,22 @@ export const notebooks = {
 /** One notebook edit: only metadata is edited so far. */
 export class NotebookEdit {
     public constructor(
-        public readonly newNotebookMetadata: Record<string, unknown>,
+        public readonly newNotebookMetadata?: Record<string, unknown>,
+        public readonly cellIndex?: number,
+        public readonly newCellMetadata?: Record<string, unknown>,
     ) { }
 
     public static updateNotebookMetadata(
         metadata: Record<string, unknown>,
     ): NotebookEdit {
         return new NotebookEdit(metadata);
+    }
+
+    public static updateCellMetadata(
+        index: number,
+        metadata: Record<string, unknown>,
+    ): NotebookEdit {
+        return new NotebookEdit(undefined, index, metadata);
     }
 }
 
@@ -1777,6 +1848,13 @@ Object.assign(workspace, {
                 return Promise.resolve(false);
             }
             for (const each of edits) {
+                const cell = each.cellIndex === undefined
+                    ? undefined
+                    : notebook.getCells()[each.cellIndex];
+                if (cell !== undefined) {
+                    cell.metadata = { ...each.newCellMetadata };
+                    continue;
+                }
                 notebook.metadata = { ...each.newNotebookMetadata };
                 for (const listener of notebookChangeListeners) {
                     listener({ notebook, metadata: notebook.metadata,
@@ -1857,6 +1935,7 @@ export const resetVscodeMock = (): void => {
     notebookChangeListeners.clear();
     closeNotebookListeners.clear();
     rendererMessagings.length = 0;
+    languageSwitches.length = 0;
     untitledNotebooks = 0;
     (window as Record<string, unknown>).activeNotebookEditor = undefined;
 };
