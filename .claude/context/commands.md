@@ -23,6 +23,8 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.connect` | Connect | Connection context menu; the inline button only in the explicit connect mode |
 | `mariadb.disconnect` | Disconnect | Connection context menu |
 | `mariadb.newSqlEditor` | New SQL Editor | Connection row, beside Connect |
+| `mariadb.newNotebook` | New Notebook | Connection context menu; the Overview's Create New Notebook; the palette, on the default connection. Opens an untitled MariaDB Notebook (see [notebooks.md](notebooks.md)) |
+| `mariadb.selectNotebookConnection` | Select Connection | MariaDB Notebook toolbar, status bar while a notebook is active; the palette in a notebook |
 | `mariadb.setDefaultConnection` | Set as Default Connection | Connection context menu |
 | `mariadb.clearDefaultConnection` | Clear Default Connection | Connection context menu |
 | `mariadb.newDeployment` | New Deployment… | MariaDB Deployments view title (`+`); its welcome content (as Create or Import a Deployment...); the palette. Opens the New Deployment wizard (see [deployments.md](deployments.md)) |
@@ -56,7 +58,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.msm.deploySchema` | Deploy MSM Schema... | As above; onto a configured connection |
 | `mariadb.clearResultView` | Clear Actions | Result view toolbar |
 | `mariadb.selectEditorConnection` | Select Connection for this SQL File | SQL editor toolbar, status bar |
-| `mariadb.runSqlFile` | Run SQL Script | SQL editor toolbar, `Ctrl`/`Cmd`+`Enter` |
+| `mariadb.runSqlFile` | Run SQL Script | SQL editor toolbar, `Ctrl`/`Cmd`+`Enter` (not in a notebook cell, which runs itself) |
 | `mariadb.runSqlStatement` | Run SQL Statement at Cursor | SQL editor toolbar, `Shift`+`Enter` |
 | `mariadb.stopOnError.disable` / `.enable` | Stop on Error (on/off) | SQL editor toolbar, one shown at a time |
 | `mariadb.restartMcpServer` | Restart MCP Server | Command palette |

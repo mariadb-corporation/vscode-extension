@@ -52,6 +52,7 @@ import type {
     RowChange,
     WebviewMessage,
 } from "./protocol.js";
+import { notebookViewState } from "../notebook/notebookProtocol.js";
 
 /** The id the result view is contributed under. */
 export const RESULT_VIEW_ID = "mariadb.results";
@@ -61,6 +62,36 @@ export interface IApplyContext {
     connectionUri: string;
     connectionId: string;
     service: ExecutionService;
+}
+
+/**
+ * The result sets under a notebook cell, as the view that shows them is
+ * held: the notebook's own glue keeps these, and hands each message from
+ * the view to `onNotebookMessage`.
+ */
+export interface INotebookResultView {
+    /** The view's id, which its messages carry. */
+    readonly id: string;
+    /** The connection the cell ran on. */
+    readonly connection: string;
+    /** Which connection open on it, for the actions an apply is filed in. */
+    readonly label: string;
+    /** Its result sets, each on the page it is on now. */
+    resultSets: IResultSet[];
+    /**
+     * What its edits are written back and its pages fetched through;
+     * missing for a reopened notebook's view until it has connected.
+     */
+    applyContext?: IApplyContext;
+    /** Sends to the view. */
+    send(message: HostMessage): void;
+    /**
+     * Opens what its edits are written back and its pages fetched
+     * through, where it has nothing yet - a reopened notebook's view.
+     */
+    connect(): Promise<void>;
+    /** Runs a result set's statement again, into the same tab. */
+    refresh(resultId: string): Promise<void>;
 }
 
 /** What a refresh is to re-run on, and where its result goes. */
@@ -1085,6 +1116,104 @@ export class ResultViewProvider
                 await this.#onShared(message, (reply) => {
                     maximized.send(reply);
                 }, true);
+                break;
+            }
+
+            default:
+        }
+    }
+
+    /**
+     * The state a notebook cell's view shows: its result sets as tabs,
+     * and nothing of the panel's pickers or actions.
+     *
+     * @param view The view.
+     *
+     * @returns The message to send it.
+     */
+    public notebookState(view: INotebookResultView): HostMessage {
+        return {
+            type: "state",
+            state: notebookViewState(view.connection, view.resultSets, {
+                freezeKeyColumns: freezePrimaryKeyColumns(),
+                showColumnTypes: showColumnDataTypes(),
+            }),
+        };
+    }
+
+    /**
+     * Handles a message from a notebook cell's view: what it shares with
+     * the panel and a maximized tab - writing edits back, paging, the
+     * values - done the same way, and filed in the connection's actions.
+     * A refresh, which re-runs the statement, is the view's own.
+     *
+     * @param view The view it came from.
+     * @param message The message that arrived.
+     *
+     * @returns Nothing.
+     */
+    public async onNotebookMessage(
+        view: INotebookResultView,
+        message: WebviewMessage,
+    ): Promise<void> {
+        const held = (resultId: string): IResultSet | undefined => {
+            return view.resultSets.find((set) => {
+                return set.id === resultId;
+            });
+        };
+        const send = (reply: HostMessage): void => { view.send(reply); };
+
+        switch (message.type) {
+            case "ready": {
+                send(this.notebookState(view));
+                break;
+            }
+
+            case "applyChanges": {
+                await view.connect();
+                await this.#applyChanges(
+                    held(message.resultId),
+                    view.applyContext,
+                    view.label,
+                    message.resultId,
+                    message.changes,
+                    send,
+                );
+                break;
+            }
+
+            case "refresh": {
+                await view.refresh(message.resultId);
+                break;
+            }
+
+            case "page": {
+                await view.connect();
+                await this.#fetchPage(
+                    held(message.resultId),
+                    view.applyContext,
+                    view.label,
+                    message.page,
+                    (next) => {
+                        view.resultSets = view.resultSets.map((set) => {
+                            return set.id === next.id ? next : set;
+                        });
+                        send(this.notebookState(view));
+                    },
+                    send,
+                );
+                break;
+            }
+
+            case "revealStatement":
+            case "copyToClipboard":
+            case "saveValue":
+            case "loadValue":
+            case "openValue":
+            case "valueEditResult": {
+                // A value opens beside the notebook, as beside a
+                // maximized tab.
+                await this.#onShared(message, send, true);
                 break;
             }
 

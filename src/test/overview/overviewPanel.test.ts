@@ -325,6 +325,11 @@ describe("OverviewPanel", () => {
 
                 return Promise.resolve();
             },
+            openNotebook: (connection: IOverviewConnectionRef) => {
+                host.calls.push(["openNotebook", connection]);
+
+                return Promise.resolve();
+            },
             newConnection: (folder) => {
                 host.calls.push(["newConnection", folder]);
             },
@@ -454,16 +459,15 @@ describe("OverviewPanel", () => {
         ]);
     });
 
-    it("refuses a DB Notebook, which is not there yet", async () => {
+    it("opens a notebook on a connection", async () => {
         OverviewPanel.show(extensionUri as never, host);
+        const connection = {
+            uri: "mariadb://root@localhost:3306",
+            kind: "gui" as const,
+        };
 
-        await receive({
-            type: "open",
-            connection: { uri: "mariadb://root@localhost:3306", kind: "gui" },
-            editor: "notebook",
-        });
+        await receive({ type: "open", connection, editor: "notebook" });
 
-        expect(host.calls).toEqual([]);
-        expect(host.logs).toEqual(["DB Notebooks are not available yet."]);
+        expect(host.calls).toEqual([["openNotebook", connection]]);
     });
 });

@@ -1,0 +1,8 @@
+{
+  "name": "mariadb-notebook-ts-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gives the TypeScript cells of a MariaDB Notebook the typings of its runtime: print, runSql, Graph, PieGraph.",
+  "license": "GPL-2.0-only",
+  "main": "index.js"
+}

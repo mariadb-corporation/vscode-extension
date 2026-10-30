@@ -217,6 +217,7 @@ interface ITileProps {
     actions?: {
         onMenu(anchor: HTMLElement): void;
         onSqlEditor(): void;
+        onNotebook(): void;
     };
 }
 
@@ -297,14 +298,15 @@ const Tile = (props: ITileProps): preact.JSX.Element => {
                         >
                             <span class="overview-icon-menu" />
                         </button>
-                        {/* Drawn faded until DB Notebooks are there. */}
                         <button
                             type="button"
                             class="overview-tile-action"
-                            title="Create New Notebook (not available yet)"
+                            title="Create New Notebook"
                             aria-label="Create New Notebook"
-                            disabled
-                            onClick={(event) => { event.stopPropagation(); }}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                actions.onNotebook();
+                            }}
                         >
                             <span class="overview-icon-notebook" />
                         </button>
@@ -523,6 +525,14 @@ export const OverviewPage = (): preact.JSX.Element => {
         });
     };
 
+    const openNotebook = (connection: IOverviewConnection): void => {
+        post<OverviewWebviewMessage>({
+            type: "open",
+            connection: refOf(connection),
+            editor: "notebook",
+        });
+    };
+
     const openMenu = (
         connection: IOverviewConnection,
         anchor: HTMLElement,
@@ -600,6 +610,9 @@ export const OverviewPage = (): preact.JSX.Element => {
                                 },
                                 onSqlEditor: () => {
                                     openSqlEditor(connection);
+                                },
+                                onNotebook: () => {
+                                    openNotebook(connection);
                                 },
                             }}
                         />

@@ -228,6 +228,16 @@ describe("names", () => {
         expect(camelCase("")).toBe("");
     });
 
+    it("lowers a word in capitals, and leaves one in mixed case", () => {
+        // performance_schema's tables have upper-case columns.
+        expect(camelCase("USER")).toBe("user");
+        expect(camelCase("CURRENT_CONNECTIONS")).toBe("currentConnections");
+        expect(camelCase("COL1")).toBe("col1");
+        expect(camelCase("city_ID")).toBe("cityId");
+        expect(camelCase("lastUpdate")).toBe("lastUpdate");
+        expect(camelCase("Last_Update")).toBe("lastUpdate");
+    });
+
     it("makes camelCase of accented names in ASCII", () => {
         expect(camelCase("größe")).toBe("grosse");
         expect(camelCase("café_menü")).toBe("cafeMenu");

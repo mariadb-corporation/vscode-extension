@@ -147,3 +147,13 @@ which puts it back.
 
 Maximize and minimize use the user-supplied
 `images/light/{maximize,minimize}.svg`, as masks like the others.
+
+## Under a notebook cell
+
+A notebook cell's result sets are the same frontend a third time, told
+by `IViewState.notebook` to show its tabs and toolbar with no Actions
+tab, no pickers and no Clear (see [notebooks.md](notebooks.md)). A result
+set there stays with its cell: the toolbar has no Maximize, its menu no
+Close Result Set (`movable={false}` on `ResultStatusBar`). `App` takes an
+`IHostTransport` (`webview/src/transport.ts`): the window's messages by
+default, the renderer's messaging under a cell.

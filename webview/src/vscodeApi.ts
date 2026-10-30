@@ -41,8 +41,19 @@ interface IVsCodeApi {
 declare function acquireVsCodeApi(): IVsCodeApi;
 
 // acquireVsCodeApi may be called only once per webview, so the handle is
-// taken at module load and shared from there.
-const api = acquireVsCodeApi();
+// taken once and shared from there - on first use, not at module load: a
+// notebook renderer bundles the result view, and runs in VS Code's output
+// page, which is not ours to take the handle of.
+let handle: IVsCodeApi | undefined;
+
+/**
+ * @returns The webview's handle on VS Code.
+ */
+const vscodeApi = (): IVsCodeApi => {
+    handle ??= acquireVsCodeApi();
+
+    return handle;
+};
 
 /**
  * Sends a message to the extension.
@@ -64,7 +75,7 @@ export const post = <
 >(
     message: T,
 ): void => {
-    api.postMessage(message);
+    vscodeApi().postMessage(message);
 };
 
 /**
@@ -74,7 +85,7 @@ export const post = <
  * @returns The state, or nothing where none was kept.
  */
 export const loadState = (): unknown => {
-    return api.getState();
+    return vscodeApi().getState();
 };
 
 /**
@@ -85,5 +96,5 @@ export const loadState = (): unknown => {
  * @returns Nothing.
  */
 export const saveState = (state: unknown): void => {
-    api.setState(state);
+    vscodeApi().setState(state);
 };

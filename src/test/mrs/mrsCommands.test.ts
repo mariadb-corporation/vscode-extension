@@ -858,9 +858,9 @@ describe("copying and dumping REST SQL", () => {
             "SHOW CREATE REST CONTENT SET /app ON SERVICE /myService",
             "Content Set", "app.myService.mrs.sql"],
         ["dumpCreateAuthAppSql", serviceAuthAppNode,
-            "SHOW CREATE REST AUTH APP 'MRS'", "Auth App", "mRS.mrs.sql"],
+            "SHOW CREATE REST AUTH APP 'MRS'", "Auth App", "mrs.mrs.sql"],
         ["dumpCreateUserSql", userNode, "SHOW CREATE REST USER 'anna'@'MRS'",
-            "User", "anna.mRS.mrs.sql"],
+            "User", "anna.mrs.mrs.sql"],
     ];
 
     for (const [id, node, sql, kind, name] of dumps) {

@@ -136,4 +136,34 @@ describe("the contributed keybindings", () => {
             }
         }
     });
+
+    it("leave a notebook's cells to the notebook", async () => {
+        // In a SQL cell, Cmd/Ctrl+Enter and Shift+Enter run the cell; the
+        // run commands would take them and send the cell to the panel.
+        const manifest = await import("../../../package.json", {
+            with: { type: "json" },
+        }) as unknown as {
+            default: {
+                contributes: {
+                    keybindings: Array<{ command: string; when: string }>;
+                    menus: Record<string,
+                        Array<{ command: string; when?: string }>>;
+                };
+            };
+        };
+        const { keybindings, menus } = manifest.default.contributes;
+        const runs = [
+            ...keybindings,
+            ...menus["editor/context"],
+        ].filter((entry) => {
+            return entry.command === "mariadb.runSqlFile"
+                || entry.command === "mariadb.runSqlStatement";
+        });
+
+        expect(runs.length).toBeGreaterThan(2);
+        for (const entry of runs) {
+            expect(entry.when, entry.command)
+                .toContain("!notebookEditorFocused");
+        }
+    });
 });

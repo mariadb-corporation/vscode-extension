@@ -64,6 +64,8 @@ export interface IOverviewHost {
     closeGreeting(): Promise<void>;
     /** Opens a new SQL editor on the connection. */
     openSqlEditor(connection: IOverviewConnectionRef): Promise<void>;
+    /** Opens a new MariaDB Notebook on the connection. */
+    openNotebook(connection: IOverviewConnectionRef): Promise<void>;
     /** Opens the connection editor for a new one, filed in the folder. */
     newConnection(folder: string): void;
     /** Does what a tile's More Actions menu asked for. */
@@ -354,13 +356,11 @@ export class OverviewPanel
             }
 
             case "open": {
-                // The page shows the notebook's button disabled; refused
-                // again here, as every dialog's host does.
-                if (message.editor !== "script") {
-                    this.host.log("DB Notebooks are not available yet.");
-                    break;
+                if (message.editor === "notebook") {
+                    await this.host.openNotebook(message.connection);
+                } else {
+                    await this.host.openSqlEditor(message.connection);
                 }
-                await this.host.openSqlEditor(message.connection);
                 break;
             }
 

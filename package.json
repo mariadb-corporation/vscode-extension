@@ -46,6 +46,35 @@
         "path": "./syntaxes/mariadb-sql.tmLanguage.json"
       }
     ],
+    "typescriptServerPlugins": [
+      {
+        "name": "mariadb-notebook-ts-plugin",
+        "enableForWorkspaceTypeScriptVersions": true
+      }
+    ],
+    "notebooks": [
+      {
+        "type": "mariadb-notebook",
+        "displayName": "MariaDB Notebook",
+        "selector": [
+          {
+            "filenamePattern": "*.mariadb-notebook"
+          }
+        ]
+      }
+    ],
+    "notebookRenderer": [
+      {
+        "id": "mariadb.resultSetRenderer",
+        "displayName": "MariaDB Results and Graphs",
+        "entrypoint": "./dist/webview/notebookRenderer.js",
+        "requiresMessaging": "optional",
+        "mimeTypes": [
+          "application/vnd.mariadb.resultset+json",
+          "application/vnd.mariadb.graph+json"
+        ]
+      }
+    ],
     "semanticTokenTypes": [
       {
         "id": "sqlQuotedIdentifier",
@@ -562,6 +591,18 @@
         "title": "New SQL Editor",
         "category": "MariaDB",
         "icon": "$(new-file)"
+      },
+      {
+        "command": "mariadb.newNotebook",
+        "title": "New Notebook",
+        "category": "MariaDB",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "mariadb.selectNotebookConnection",
+        "title": "Select Connection",
+        "category": "MariaDB",
+        "icon": "$(database)"
       },
       {
         "command": "mariadb.setDefaultConnection",
@@ -1209,6 +1250,11 @@
           "group": "1_connection@2"
         },
         {
+          "command": "mariadb.newNotebook",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\./",
+          "group": "1_connection@3"
+        },
+        {
           "command": "mariadb.connect",
           "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\.disconnected/",
           "group": "1_connection@1"
@@ -1674,12 +1720,12 @@
       "editor/context": [
         {
           "command": "mariadb.runSqlFile",
-          "when": "resourceLangId =~ /^(sql|mariadb-sql)$/",
+          "when": "resourceLangId =~ /^(sql|mariadb-sql)$/ && !notebookEditorFocused",
           "group": "mariadb@1"
         },
         {
           "command": "mariadb.runSqlStatement",
-          "when": "resourceLangId =~ /^(sql|mariadb-sql)$/",
+          "when": "resourceLangId =~ /^(sql|mariadb-sql)$/ && !notebookEditorFocused",
           "group": "mariadb@2"
         }
       ],
@@ -1703,6 +1749,10 @@
         {
           "command": "mariadb.newSqlEditor",
           "when": "false"
+        },
+        {
+          "command": "mariadb.selectNotebookConnection",
+          "when": "notebookType == mariadb-notebook"
         },
         {
           "command": "mariadb.setDefaultConnection",
@@ -2138,6 +2188,13 @@
           "group": "1_load@2"
         }
       ],
+      "notebook/toolbar": [
+        {
+          "command": "mariadb.selectNotebookConnection",
+          "when": "notebookType == mariadb-notebook",
+          "group": "navigation"
+        }
+      ],
       "explorer/context": [
         {
           "submenu": "mariadb.mrs.explorer",
@@ -2294,65 +2351,65 @@
         "command": "mariadb.runSqlFile",
         "key": "ctrl+enter",
         "mac": "cmd+enter",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'cmdOrCtrl+enter'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'cmdOrCtrl+enter'"
       },
       {
         "command": "mariadb.runSqlFile",
         "key": "shift+enter",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'shift+enter'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'shift+enter'"
       },
       {
         "command": "mariadb.runSqlFile",
         "key": "ctrl+shift+enter",
         "mac": "cmd+shift+enter",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'cmdOrCtrl+shift+enter'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'cmdOrCtrl+shift+enter'"
       },
       {
         "command": "mariadb.runSqlFile",
         "key": "alt+enter",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'alt+enter'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'alt+enter'"
       },
       {
         "command": "mariadb.runSqlFile",
         "key": "f5",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'f5'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'f5'"
       },
       {
         "command": "mariadb.runSqlFile",
         "key": "f8",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'f8'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runScript == 'f8'"
       },
       {
         "command": "mariadb.runSqlStatement",
         "key": "ctrl+enter",
         "mac": "cmd+enter",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'cmdOrCtrl+enter'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'cmdOrCtrl+enter'"
       },
       {
         "command": "mariadb.runSqlStatement",
         "key": "shift+enter",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'shift+enter'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'shift+enter'"
       },
       {
         "command": "mariadb.runSqlStatement",
         "key": "ctrl+shift+enter",
         "mac": "cmd+shift+enter",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'cmdOrCtrl+shift+enter'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'cmdOrCtrl+shift+enter'"
       },
       {
         "command": "mariadb.runSqlStatement",
         "key": "alt+enter",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'alt+enter'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'alt+enter'"
       },
       {
         "command": "mariadb.runSqlStatement",
         "key": "f5",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'f5'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'f5'"
       },
       {
         "command": "mariadb.runSqlStatement",
         "key": "f8",
-        "when": "editorTextFocus && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'f8'"
+        "when": "editorTextFocus && !notebookEditorFocused && editorLangId =~ /^(sql|mariadb-sql)$/ && mariadb.chord.runStatement == 'f8'"
       }
     ],
     "submenus": [
@@ -2732,7 +2789,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package",
     "postpackage": "npm run check:package",
     "check:package": "node tools/checkPackage.mts",
     "build": "npm run clean && npm run sync:skills && npm run build:extension && npm run build:webview",
@@ -2744,8 +2801,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
-    "build:extension": "vite build",
-    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.overview.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.modeler.config.ts",
+    "build:extension": "vite build && vite build --config vite.worker.config.ts",
+    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.overview.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.modeler.config.ts && vite build --config vite.notebook.config.ts",
     "watch:webview": "vite build --config vite.webview.config.ts --watch",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "grammar:sync": "node tools/grammar.mts sync",
@@ -2791,7 +2848,10 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@vscode/codicons": "^0.0.46-24",
+    "acorn": "^8.18.0",
+    "mariadb-notebook-ts-plugin": "file:ts-plugin",
     "preact": "^10.29.8",
+    "sucrase": "^3.35.0",
     "tabulator-tables": "^6.3.1",
     "three": "^0.186.1",
     "vscode-languageclient": "^10.1.2"

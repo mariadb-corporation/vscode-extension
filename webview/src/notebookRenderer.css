@@ -1,0 +1,64 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+/*
+ * A cell's result sets: the result view's own stylesheets, as the panel
+ * loads them. The output webview is VS Code's page, shared by every
+ * output of the notebook, so the build scopes styles.css to the view
+ * (`vite.notebook.config.ts`): its html and body rules land on the view's
+ * element, and everything else only applies inside it.
+ */
+
+@import "./styles.css";
+@import "./resultGrid.css";
+
+/*
+ * Set into the cell's output rather than the panel: no ground of its own,
+ * a frame, and a height the renderer starts it at and the user can drag.
+ */
+.mariadbResultView {
+    background: transparent;
+    border: 1px solid var(--vscode-panel-border);
+    resize: vertical;
+    overflow: hidden;
+}
+
+/*
+ * A graph: as wide as the output, scaled to its viewport, and no higher
+ * than 300px - a taller viewport is drawn smaller rather than filling the
+ * notebook. Its text is in the viewport's units, so it scales with it.
+ */
+.mariadbGraph svg {
+    display: block;
+    width: 100%;
+    max-height: 300px;
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: 20px;
+}
+
+.mariadbGraph .graphTitle {
+    font-size: 28px;
+    font-weight: 600;
+}
+
+.mariadbGraph .xAxis path,
+.mariadbGraph .xAxis line,
+.mariadbGraph .yAxis path,
+.mariadbGraph .yAxis line {
+    stroke: currentColor;
+}

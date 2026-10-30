@@ -72,10 +72,7 @@ export interface IOverviewConnectionRef {
     kind: ConnectionKind;
 }
 
-/**
- * Open a connection. `script` is a SQL editor; `notebook` is to come,
- * and refused until it does.
- */
+/** Open a connection: `script` in a SQL editor, `notebook` in a notebook. */
 export interface IOverviewOpenMessage {
     type: "open";
     connection: IOverviewConnectionRef;

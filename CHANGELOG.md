@@ -8,6 +8,23 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Added
 
+- **MariaDB Notebooks (preview).** New Notebook, on a connection's context
+  menu and its tile in the Overview, opens a `.mariadb-notebook`: SQL,
+  TypeScript and Markdown cells, a code cell's language following what is
+  typed in it unless picked by hand. Each SQL cell runs on the notebook's
+  connection with its result sets shown under it as the MariaDB panel
+  shows them: a tab each, with the result set toolbar - paging, editing,
+  the SQL preview, refresh. A TypeScript cell runs with `print`, `runSql`
+  and the graphs of the MySQL Shell's notebooks (`Graph.render` for pie,
+  line and bar graphs, `PieGraph.render`), shows the value of its last
+  expression, and what it declares is there for the cells after it; its
+  editor knows the runtime for completion and hover. It runs with the REST
+  client SDK of the connection's current REST service too - `myServiceV1`
+  and `mrs`, as in the MySQL Shell's notebooks - reaching the REST Daemon
+  on this machine, logging in where asked, and built again as the REST
+  metadata changes.
+  The connection is picked from the notebook's toolbar or the status bar
+  and saved with the notebook, as are the last results.
 - **MariaDB Deployments view.** A second activity bar icon opens a view of
   the MariaDB deployments you manage: for now every sandbox, in a
   Sandboxes folder, with its REST Daemons under it. Its `+` opens the New

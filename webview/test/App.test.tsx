@@ -2186,3 +2186,106 @@ describe("App", () => {
         expect(iconButton("Refresh")?.disabled).toBe(false);
     });
 });
+
+describe("App under a notebook cell", () => {
+    /**
+     * @returns A cell's two result sets, as the notebook sends them.
+     */
+    const notebookState = (): IViewState => {
+        const [first] = report().resultSets;
+
+        return {
+            connections: [],
+            connection: "dba@localhost:3310",
+            sessions: [],
+            actions: [],
+            resultSets: [first!, {
+                ...first!,
+                id: "run1-result-1",
+                caption: "Result #2",
+            }],
+            notebook: true,
+        };
+    };
+
+    /**
+     * Mounts the view on a transport of its own, as the renderer does.
+     *
+     * @returns What it sent, and a way to deliver it a message.
+     */
+    const mountOnTransport = async () => {
+        const sent: unknown[] = [];
+        const listeners = new Set<(message: HostMessage) => void>();
+        await act(async () => {
+            render(<App transport={{
+                post: (message) => { sent.push(message); },
+                listen: (listener) => {
+                    listeners.add(listener);
+
+                    return () => { listeners.delete(listener); };
+                },
+            }} />, host);
+            await Promise.resolve();
+        });
+        const deliver = async (message: HostMessage): Promise<void> => {
+            await act(async () => {
+                for (const listener of listeners) {
+                    listener(message);
+                }
+                await Promise.resolve();
+            });
+        };
+
+        return { sent, deliver };
+    };
+
+    it("speaks through the transport it is given, not the window",
+        async () => {
+            const { sent, deliver } = await mountOnTransport();
+            expect(sent).toEqual([{ type: "ready" }]);
+            expect(posted).toEqual([]);
+
+            await deliver({ type: "state", state: notebookState() });
+            await clickIcon("Refresh");
+
+            expect(sent.at(-1)).toEqual(
+                { type: "refresh", resultId: "run1-result-0" });
+            expect(posted).toEqual([]);
+        });
+
+    it("shows a tab per result set, and nothing of the panel's own",
+        async () => {
+            const { deliver } = await mountOnTransport();
+            await deliver({ type: "state", state: notebookState() });
+
+            const tabs = [...host.querySelectorAll(".tab")].map((tab) => {
+                return tab.textContent;
+            });
+            expect(tabs).toEqual(["Result #1", "Result #2"]);
+            expect(host.querySelector(".tab.active")?.textContent)
+                .toBe("Result #1");
+            expect(host.querySelector(".connectionPicker")).toBeNull();
+            expect(host.querySelector(".sessionPicker")).toBeNull();
+            expect(host.querySelector(".clearShownActions")).toBeNull();
+            expect(host.querySelector(".statusBar")).not.toBeNull();
+
+            await click((label) => { return label === "Result #2"; });
+            expect(host.querySelector(".tab.active")?.textContent)
+                .toBe("Result #2");
+        });
+
+    it("keeps a result set with its cell: no Maximize, no Close", async () => {
+        const { deliver } = await mountOnTransport();
+        await deliver({ type: "state", state: notebookState() });
+
+        expect(iconButton("Maximize")).toBeUndefined();
+        expect(iconButton("Minimize")).toBeUndefined();
+        await clickIcon("Show Action Menu");
+        const items = [...host.querySelectorAll(".toolbarMenuItem")]
+            .map((item) => { return item.textContent; });
+        expect(items).toEqual([
+            "Freeze Primary Key Columns",
+            "Show Column Data Types",
+        ]);
+    });
+});

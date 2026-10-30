@@ -41,6 +41,11 @@ interface IResultStatusBarProperties {
     previewActive: boolean;
     /** True when the result set is in an editor tab of its own. */
     maximized: boolean;
+    /**
+     * False under a notebook cell, where a result set stays with its cell:
+     * no Maximize button, and no Close Result Set in the action menu.
+     */
+    movable?: boolean;
     /** Whether its primary key columns are frozen. */
     freezeKeys: boolean;
     /** Whether the grid's header shows the column types. */
@@ -128,6 +133,7 @@ export const ResultStatusBar = (
     props: IResultStatusBarProperties,
 ): JSX.Element => {
     const { resultSet, rows, notice, dirty, previewActive, maximized } = props;
+    const movable = props.movable ?? true;
     const editable = resultSet.editable;
     const pending = dirty > 0;
     const status = notice ?? editingStatusOf(rows) ?? resultSet.status;
@@ -245,18 +251,23 @@ export const ResultStatusBar = (
                     onClick={props.onRefresh}
                 />
 
-                <span class="toolbarDivider" />
-                <button
-                    type="button"
-                    class={`toolbarIcon ${maximized
-                        ? "minimizeIcon"
-                        : "maximizeIcon"}`}
-                    title={maximized
-                        ? "Put this result set back in the MariaDB panel"
-                        : "Open this result set in an editor tab"}
-                    aria-label={maximized ? "Minimize" : "Maximize"}
-                    onClick={props.onToggleMaximized}
-                />
+                {movable && (
+                    <>
+                        <span class="toolbarDivider" />
+                        <button
+                            type="button"
+                            class={`toolbarIcon ${maximized
+                                ? "minimizeIcon"
+                                : "maximizeIcon"}`}
+                            title={maximized
+                                ? "Put this result set back in the MariaDB "
+                                + "panel"
+                                : "Open this result set in an editor tab"}
+                            aria-label={maximized ? "Minimize" : "Maximize"}
+                            onClick={props.onToggleMaximized}
+                        />
+                    </>
+                )}
 
                 <span class="toolbarDivider" />
                 <ToolbarMenu
@@ -278,8 +289,12 @@ export const ResultStatusBar = (
                             caption: "Show Column Data Types",
                             checked: props.showTypes,
                         },
-                        { id: "separator" },
-                        { id: "close", caption: "Close Result Set" },
+                        ...movable
+                            ? [
+                                { id: "separator" },
+                                { id: "close", caption: "Close Result Set" },
+                            ]
+                            : [],
                     ]}
                     onSelect={(id) => {
                         props.onAction(id as ResultAction);
