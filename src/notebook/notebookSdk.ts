@@ -237,6 +237,12 @@ export class NotebookSdk {
      * @returns Its SDK, as built now.
      */
     async #build(uri: string): Promise<INotebookSdk | undefined> {
+        // The connection first, on its own: one that cannot be opened - a
+        // password not given, a server down - fails the build, which is
+        // not kept, rather than passing for a server without REST
+        // metadata, which is.
+        const connectionId = await this.deps.connect(uri);
+
         let services: IMrsService[];
         try {
             const [row] = await this.deps.query(uri,
@@ -261,9 +267,8 @@ export class NotebookSdk {
         }
 
         // What does not wait on another is asked for together.
-        const [connectionId, tools, daemon, certificateAuthority] =
+        const [tools, daemon, certificateAuthority] =
             await Promise.all([
-                this.deps.connect(uri),
                 this.deps.tools(),
                 service === undefined
                     ? undefined

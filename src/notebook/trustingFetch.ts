@@ -49,12 +49,15 @@ export const trustingFetch = (
     const agent = new https.Agent({ ca: certificateAuthority, keepAlive: true });
 
     return async (input, init) => {
-        const request = new Request(input, init);
-        const url = new URL(request.url);
+        // Where it goes is read off the input as given: a `Request` put in
+        // a new one has its body locked to the new one, and `fetch` would
+        // then refuse it as used.
+        const url = new URL(input instanceof Request ? input.url : String(input));
         if (url.protocol !== "https:" || !LOOPBACK.has(url.hostname)) {
             return base(input, init);
         }
 
+        const request = new Request(input, init);
         const body = request.method === "GET" || request.method === "HEAD"
             ? undefined
             : Buffer.from(await request.arrayBuffer());

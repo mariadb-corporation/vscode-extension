@@ -75,6 +75,56 @@ export interface INotebookFile {
 }
 
 /**
+ * @param item An item of a saved output, as the file has it.
+ *
+ * @returns The item, where it is one: a type, and text or JSON.
+ */
+const savedOutputItem = (item: unknown): NotebookOutputItem | undefined => {
+    if (typeof item !== "object" || item === null) {
+        return undefined;
+    }
+
+    const { mime, text, json } = item as Partial<Record<string, unknown>>;
+    if (typeof mime !== "string") {
+        return undefined;
+    }
+    if (typeof text === "string") {
+        return { mime, text };
+    }
+
+    return "json" in item ? { mime, json } : undefined;
+};
+
+/**
+ * Reads a cell's saved outputs, leaving out what is not one: a file edited
+ * by hand still opens, short of what it got wrong.
+ *
+ * @param outputs The cell's `outputs`, as the file has them.
+ *
+ * @returns The outputs that hold items, each with the items that are ones.
+ */
+const savedOutputs = (outputs: unknown): INotebookOutput[] => {
+    if (!Array.isArray(outputs)) {
+        return [];
+    }
+
+    return outputs.flatMap((output: unknown): INotebookOutput[] => {
+        const items = (output as Partial<INotebookOutput> | null)?.items;
+        if (!Array.isArray(items)) {
+            return [];
+        }
+
+        const kept = items.flatMap((item) => {
+            const saved = savedOutputItem(item);
+
+            return saved === undefined ? [] : [saved];
+        });
+
+        return kept.length === 0 ? [] : [{ items: kept }];
+    });
+};
+
+/**
  * Reads a notebook file.
  *
  * @param text The file's contents. An empty file is an empty notebook,
@@ -117,6 +167,7 @@ export const parseNotebook = (text: string): INotebookFile => {
         return typeof cell === "object" && cell !== null;
     }).map((cell): INotebookCell => {
         const kind = cell.kind === "markdown" ? "markdown" : "code";
+        const outputs = savedOutputs(cell.outputs);
 
         return {
             kind,
@@ -127,9 +178,7 @@ export const parseNotebook = (text: string): INotebookFile => {
             ...kind === "code" && cell.languagePinned === true
                 ? { languagePinned: true }
                 : {},
-            ...Array.isArray(cell.outputs) && cell.outputs.length > 0
-                ? { outputs: cell.outputs }
-                : {},
+            ...outputs.length > 0 ? { outputs } : {},
         };
     });
 

@@ -54,7 +54,8 @@ changed in the language picker.
 ## TypeScript cells
 
 Run in a **worker thread per notebook** (`ScriptRunner`), one cell at a
-time: `dist/notebookWorker.js`, a bundle of its own so the transpiler
+time - the runner refuses a second, and the kernel queues runs so it is
+never asked to (see Running a cell in [notebooks.md](notebooks.md)): `dist/notebookWorker.js`, a bundle of its own so the transpiler
 (**sucrase**, which strips the types - all a cell needs, a fraction of the
 TypeScript compiler's size) and the parser (**acorn**) are only loaded
 once a TypeScript cell runs. A
@@ -209,9 +210,13 @@ object per service, named after it - and `mrs`, typed in the editor.
   with several and none current, or no REST metadata, no SDK. The services
   are read with `SHOW REST SERVICES FORMAT=JSON` on the connection's
   session (`queryRows`, `quiet`: the run listeners are not told), so
-  reading them drops nothing. The steps that do not wait on each other -
-  the session, the tools, the daemon's URL, the certificate authority -
-  are asked for together.
+  reading them drops nothing. The session is opened first, on its own:
+  a connection that cannot be opened (a password prompt dismissed, a
+  server down) fails the build, which is not kept and shows in the cell
+  as `The REST SDK could not be built: ...`; a failing `SHOW REST
+  SERVICES` on an open session means no REST metadata, which is kept.
+  Then the steps that do not wait on each other - the tools, the
+  daemon's URL, the certificate authority - are asked for together.
 - **When**: built the first time a TypeScript cell runs on a connection -
   a notebook with no connection gets none, and is not asked for one -
   and kept. Dropped when a run on the connection changes the catalog or
@@ -231,7 +236,9 @@ object per service, named after it - and `mrs`, typed in the editor.
   `trustingFetch`: HTTPS to a loopback address goes through Node's `https`,
   one agent trusting that authority - the only one a daemon's certificate
   is signed by - and keeping its connections open; everything else is
-  `fetch` as it is.
+  `fetch` as it is. The URL is read off the input as given and the input
+  is passed to `fetch` untouched: wrapping a `Request` in a new one first
+  would lock its body, and `fetch` would refuse it as used.
 - **What the generated code calls** (the old runtime's functions):
   `mrsPrintSdkCode` prints the SDK; `mrsRefreshSdkCode` builds it again;
   `mrsSetCurrentService(id)` runs `USE REST SERVICE` on the session and
@@ -266,5 +273,8 @@ object per service, named after it - and `mrs`, typed in the editor.
 - The REST SDK's dialogs (edit a service, export its SDK, add a content
   set, edit a schema or an object) are not in a notebook; the editor knows
   one SDK at a time, the last built.
+- `trustingFetch`'s loopback HTTPS path does not follow redirects, as
+  Node's `fetch` would: a daemon answering 301/302 hands the SDK the 3xx
+  itself.
 - The watch task does not rebuild the worker; `npm run build` (and F5)
   does.

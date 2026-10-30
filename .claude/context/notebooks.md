@@ -47,7 +47,10 @@ file created on disk); one of a later `version` is refused. Outputs are
 saved (`transientOutputs: false`), so a reopened notebook shows its last
 results: an output item of a JSON type is saved as JSON - a result set
 reads as one in the file - anything else as text. The execution order and
-timing are not saved.
+timing are not saved. Saved outputs are read as untrusted: an output
+without an `items` array, or an item without a string `mime` and either
+string `text` or a `json` key, is left out, so a hand-edited or
+merge-damaged file still opens.
 
 ## The connection
 
@@ -84,7 +87,17 @@ one output** (`INotebookResultPayload`: a view id, the connection, the
 sets), which the renderer draws with a tab each. A cell with a failing
 statement ends unsuccessful. A failure to run at all (no shell, a
 connection that will not open) is the cell's `stderr` and is logged, not
-notified: the cell already says it.
+notified: the cell already says it. `#run` starts the execution and wraps
+everything after it (`#runCell`): whatever throws around the run - the
+connection pick, the worker's start, an output that cannot be appended -
+ends the cell with the error, never leaves it spinning.
+
+**One run at a time per notebook.** VS Code calls `executeHandler` for
+each run gesture as it is made, even while another still runs; `#queue`
+chains each call after the notebook's run under way, so a cell run during
+another waits rather than failing (the `ScriptRunner` refuses a second
+cell) or sharing the session with it. An interrupt bumps the notebook's
+counter, and cells that were still waiting end unrun (`end(undefined)`).
 
 ## The result view under a cell
 
@@ -157,6 +170,10 @@ send the cell to the panel. `keybindings.test.ts` checks every one.
   closed, and it reopens on the run's first page.
 - No maximizing a result set into a tab of its own.
 - A SQL cell cannot be interrupted: it runs to its end.
+- A reopened notebook's view taken up from its seed has no cell, so
+  re-running or deleting that cell does not forget it: it stays (with its
+  connected session) until the notebook closes. Fixing it needs the
+  renderer to send its cell with `ready`.
 - Not yet exercised in a real VS Code: the unit tests cover the format,
   the kernel, the views' messages, the renderer's output under jsdom, the
   language switching against a mock, the worker's runtime in-process (and

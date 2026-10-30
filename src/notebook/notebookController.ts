@@ -67,6 +67,10 @@ export class NotebookController implements vscode.Disposable {
     #executionOrder = 0;
     /** Lets go of a closed notebook's worker. */
     readonly #closing: vscode.Disposable;
+    /** Notebook -> the run of its cells under way, which the next waits for. */
+    readonly #running = new Map<string, Promise<void>>();
+    /** Notebook -> how often it was interrupted: what waited is let go of. */
+    readonly #interruptions = new Map<string, number>();
 
     /**
      * @param editors Which connection a notebook runs on, and running a
@@ -95,13 +99,14 @@ export class NotebookController implements vscode.Disposable {
         this.#controller.supportsExecutionOrder = true;
         this.#controller.description =
             "Runs SQL and TypeScript on the notebook's connection";
-        this.#controller.executeHandler = async (cells, notebook) => {
-            for (const cell of cells) {
-                await this.#run(cell, notebook);
-            }
+        this.#controller.executeHandler = (cells, notebook) => {
+            return this.#queue(cells, notebook);
         };
         this.#controller.interruptHandler = (notebook) => {
-            this.scripts.interrupt(notebook.uri.toString());
+            const key = notebook.uri.toString();
+            this.#interruptions.set(key,
+                (this.#interruptions.get(key) ?? 0) + 1);
+            this.scripts.interrupt(key);
         };
         this.#closing = vscode.workspace.onDidCloseNotebookDocument(
             (notebook) => {
@@ -109,6 +114,58 @@ export class NotebookController implements vscode.Disposable {
             });
     }
 
+    /**
+     * Runs cells one after the other, after whatever the notebook is
+     * running already: VS Code hands over each run gesture as it is made,
+     * a cell run while another still runs included, and a notebook's cells
+     * run one at a time - on its one connection, in its one worker.
+     * Interrupt lets go of what waited, as of what ran: those cells end
+     * unrun.
+     *
+     * @param cells The cells to run, in order.
+     * @param notebook The notebook they are in.
+     *
+     * @returns Once they have run.
+     */
+    async #queue(
+        cells: readonly vscode.NotebookCell[],
+        notebook: vscode.NotebookDocument,
+    ): Promise<void> {
+        const key = notebook.uri.toString();
+        const interruptions = this.#interruptions.get(key) ?? 0;
+        const before = this.#running.get(key) ?? Promise.resolve();
+        const run = before.catch(() => { /* its own cells' */ })
+            .then(async () => {
+                for (const cell of cells) {
+                    if ((this.#interruptions.get(key) ?? 0) !== interruptions) {
+                        this.#skip(cell);
+                        continue;
+                    }
+                    await this.#run(cell, notebook);
+                }
+            });
+        this.#running.set(key, run);
+        try {
+            await run;
+        } finally {
+            if (this.#running.get(key) === run) {
+                this.#running.delete(key);
+            }
+        }
+    }
+
+    /**
+     * Ends a cell unrun: one that waited on a run that was interrupted.
+     *
+     * @param cell The cell.
+     *
+     * @returns Nothing.
+     */
+    #skip(cell: vscode.NotebookCell): void {
+        const execution = this.#controller.createNotebookCellExecution(cell);
+        execution.start(Date.now());
+        execution.end(undefined, Date.now());
+    }
 
     /**
      * Runs one cell.
@@ -126,6 +183,35 @@ export class NotebookController implements vscode.Disposable {
         this.#executionOrder += 1;
         execution.executionOrder = this.#executionOrder;
         execution.start(Date.now());
+        try {
+            await this.#runCell(execution, cell, notebook);
+        } catch (error) {
+            // Whatever failed around the run - the pick of a connection,
+            // the worker's start - ends the cell, rather than leaving it
+            // running for good.
+            const message = errorText(error);
+            this.log(`Could not run the cell: ${message}`);
+            await this.#fail(execution, message);
+        }
+    }
+
+    /**
+     * Runs one cell, its execution started.
+     *
+     * @param execution The cell's execution.
+     * @param cell The cell.
+     * @param notebook The notebook it is in.
+     *
+     * @returns Nothing.
+     *
+     * @throws What failed around the run; the run's own failures are the
+     *         cell's output.
+     */
+    async #runCell(
+        execution: vscode.NotebookCellExecution,
+        cell: vscode.NotebookCell,
+        notebook: vscode.NotebookDocument,
+    ): Promise<void> {
         await execution.clearOutput();
         this.results.forgetCell(cell);
 
@@ -202,10 +288,13 @@ export class NotebookController implements vscode.Disposable {
         execution: vscode.NotebookCellExecution,
         text: string,
     ): Promise<void> {
-        await execution.replaceOutput(toCellOutput({
-            items: [{ mime: STDERR_MIME, text: `${text}\n` }],
-        }));
-        execution.end(false, Date.now());
+        try {
+            await execution.replaceOutput(toCellOutput({
+                items: [{ mime: STDERR_MIME, text: `${text}\n` }],
+            }));
+        } finally {
+            execution.end(false, Date.now());
+        }
     }
 
     /**
@@ -283,7 +372,13 @@ export class NotebookController implements vscode.Disposable {
         };
         const outcome = await this.scripts.run(notebook.uri.toString(), code, {
             print: (value) => {
-                shown = shown.then(() => { return show(value); });
+                shown = shown.then(() => { return show(value); })
+                    .catch((error) => {
+                        // One that could not be shown holds up neither
+                        // the rest nor the cell's end.
+                        this.log("Could not show what a cell printed: "
+                            + errorText(error));
+                    });
             },
             call: async (call, args) => {
                 const on = await connection();
