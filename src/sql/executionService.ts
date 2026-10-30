@@ -33,6 +33,7 @@ import type {
     RowChange,
 } from "../webview/protocol.js";
 import { ObjectNotFoundError } from "../mcp/mariaDbApi.js";
+import { changesCatalog } from "./catalogChange.js";
 import { valueDisplayOf } from "./dataTypes.js";
 import { createQueryBuilder } from "./resultSetQueryBuilder.js";
 import { type ISqlStatement, splitStatements } from "./splitStatements.js";
@@ -472,6 +473,13 @@ export interface IExecutionOptions {
      * reports it - so a script that changed it is followed.
      */
     onSqlMode?: (sqlMode: string) => void;
+    /**
+     * Told once the script is over where a statement of it that changes
+     * the catalog - a CREATE, ALTER, DROP or RENAME - succeeded, so what
+     * lists the catalog can read it again. Not told where each such
+     * statement failed or never ran.
+     */
+    onCatalogChange?: () => void;
 }
 
 /**
@@ -636,12 +644,15 @@ export class ExecutionService {
             options.onSqlMode?.(last.sql_mode);
         }
 
+        let changedCatalog = false;
         for (const [position, result] of results.entries()) {
             // The server reports which statement each result belongs to.
             // Falling back to the position keeps a shell that predates
             // that working, where the two splits agree.
             const index = result.statement_index ?? position;
             const statement = statements[index]?.text ?? "";
+            changedCatalog ||= result.error === undefined
+                && changesCatalog(statement);
             const source = sourceOf(index);
             const id = `${runId}-${index}`;
             const elapsedMs = result.execution_time === undefined
@@ -738,6 +749,10 @@ export class ExecutionService {
                 resultId: resultSet.id,
                 ...(nested.length > 0 ? { children: nested } : {}),
             });
+        }
+
+        if (changedCatalog) {
+            options.onCatalogChange?.();
         }
 
         const ran = results.length;

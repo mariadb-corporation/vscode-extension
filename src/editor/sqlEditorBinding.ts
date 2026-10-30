@@ -78,6 +78,17 @@ const CHANGES_SCHEMA = /\bUSE\b|\bDROP\s+(DATABASE|SCHEMA)\b/i;
 export const SCHEMA_QUERY = "SELECT DATABASE()";
 
 /**
+ * Told of a script that has run.
+ *
+ * @param uri The connection it ran on.
+ * @param script The script.
+ * @param changedCatalog Whether a statement of it that changes the
+ *        catalog - a CREATE, ALTER, DROP or RENAME - succeeded.
+ */
+export type ScriptRunListener =
+    (uri: string, script: string, changedCatalog: boolean) => void;
+
+/**
  * Builds the header line recording a file's connection.
  *
  * @param uri The connection the file runs on.
@@ -151,8 +162,7 @@ export class SqlEditorBinding implements vscode.Disposable {
     /** Told when a document is bound to another connection. */
     readonly #bindListeners = new Set<() => void>();
     /** Told when a script has run, whether it succeeded or not. */
-    readonly #runListeners =
-        new Set<(uri: string, script: string) => void>();
+    readonly #runListeners = new Set<ScriptRunListener>();
     readonly #disposables: vscode.Disposable[] = [];
 
     /**
@@ -298,13 +308,12 @@ export class SqlEditorBinding implements vscode.Disposable {
      * Listens for scripts that have run, failed ones too: a script that
      * failed part way may still have changed the schema.
      *
-     * @param listener Called with the connection and the script.
+     * @param listener Called with the connection, the script and whether
+     *        a statement of it that changes the catalog succeeded.
      *
      * @returns A function that stops listening.
      */
-    public onDidRunScript(
-        listener: (uri: string, script: string) => void,
-    ): () => void {
+    public onDidRunScript(listener: ScriptRunListener): () => void {
         this.#runListeners.add(listener);
 
         return () => {
@@ -611,6 +620,7 @@ export class SqlEditorBinding implements vscode.Disposable {
         await this.resultView.startRun(uri, run, into);
 
         let connectionId: string | undefined;
+        let changedCatalog = false;
         try {
             connectionId = await this.connections.connect(uri);
             // Read on the first run, known from the last one after that.
@@ -636,6 +646,7 @@ export class SqlEditorBinding implements vscode.Disposable {
                 onSqlMode: (sqlMode) => {
                     this.sqlModes.record(uri, sqlMode);
                 },
+                onCatalogChange: () => { changedCatalog = true; },
             });
             await this.resultView.showResults(report, {
                 connectionUri: uri,
@@ -679,7 +690,7 @@ export class SqlEditorBinding implements vscode.Disposable {
                 await this.#readSchema(uri, connectionId);
             }
             for (const listener of this.#runListeners) {
-                listener(uri, script);
+                listener(uri, script, changedCatalog);
             }
         }
     }

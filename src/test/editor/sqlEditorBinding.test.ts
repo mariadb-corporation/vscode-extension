@@ -562,6 +562,28 @@ describe("SqlEditorBinding", () => {
             binding.dispose();
         });
 
+    it("says whether a run changed the catalog", async () => {
+        const run = async (
+            results: IStatementResult[],
+        ): Promise<boolean[]> => {
+            const { binding } = createBinding("dba@localhost:3310",
+                { defaultResults: results });
+            const told: boolean[] = [];
+            binding.onDidRunScript((_uri, _script, changedCatalog) => {
+                told.push(changedCatalog);
+            });
+            const editor = createEditor("CREATE TABLE t (id INT);");
+            await binding.run(editor as never);
+            binding.dispose();
+
+            return told;
+        };
+
+        expect(await run([{ statement_index: 0 }])).toEqual([true]);
+        expect(await run([{ statement_index: 0,
+            error: "Table 't' already exists" }])).toEqual([false]);
+    });
+
     it("shows a failure to connect in the view", async () => {
         const { api, view, binding } = createBinding("dba@localhost:3310");
         api.connect = () => {

@@ -149,9 +149,11 @@ default), and the other two what the editors' session reported (below):
 first names it and then only when asked (`catalogRefreshSeconds` is not
 set), so a table created from an editor would never be completed. The
 binding tells listeners every script it ran (`onDidRunScript`, failed runs
-too), and when the script has `CREATE`, `ALTER`, `DROP` or `RENAME` in it
-the controller sends `mariadb/refreshCatalog` naming a document the
-server has open on that connection; none open on it, nothing is sent.
+too) and whether a `CREATE`, `ALTER`, `DROP` or `RENAME` of it succeeded
+(`changesCatalog`, the same flag that redraws the Connections view; see
+[connections.md](connections.md)), and when one did the controller sends
+`mariadb/refreshCatalog` naming a document the server has open on that
+connection; none open on it, nothing is sent.
 `LanguageServer.refreshCatalog` does the same for a load, a copy (the
 target's connection) or an import that finished (`UtilCommands`' host
 `refresh(uri)`), and with no connection, for every catalog, from the

@@ -62,7 +62,7 @@ interface Fixture {
     lines: string[];
     connections: Map<string, string>;
     changed: () => void;
-    ran: (connection: string, script: string) => void;
+    ran: (connection: string, script: string, changedCatalog: boolean) => void;
     /** What each connection's editors' session reported. */
     sessions: Map<string, ISessionState>;
     /** Says a session's report changed. */
@@ -96,9 +96,12 @@ const build = (options: {
     const lines: string[] = [];
     const connections = new Map<string, string>();
     let listener = (): void => { /* set below */ };
-    let runListener = (connection: string, script: string): void => {
+    let runListener = (
+        connection: string, script: string, changedCatalog: boolean,
+    ): void => {
         void connection;
         void script;
+        void changedCatalog;
     };
     const sessions = new Map<string, ISessionState>();
     let sessionListener = (): void => { /* set below */ };
@@ -180,8 +183,8 @@ const build = (options: {
     return {
         server, clients, lines, connections, changed: () => {
             listener();
-        }, ran: (connection, script) => {
-            runListener(connection, script);
+        }, ran: (connection, script, changedCatalog) => {
+            runListener(connection, script, changedCatalog);
         }, sessions, sessionChanged: () => {
             sessionListener();
         },
@@ -442,7 +445,7 @@ describe("LanguageServer", () => {
             ]);
         });
 
-    it("has the catalog read again after a script that may change it",
+    it("has the catalog read again after a script that changed it",
         async () => {
             const { clients, connections, server, ran } = build();
             const document = sqlDocument("ddl.sql");
@@ -450,15 +453,17 @@ describe("LanguageServer", () => {
             await server.start();
             clients[0].options.onDidOpen(asDocument(document));
 
-            ran("mariadb://root@h:1", "SELECT * FROM t;");
+            ran("mariadb://root@h:1", "SELECT * FROM t;", false);
+            // A CREATE that failed changed nothing.
+            ran("mariadb://root@h:1", "create table t (id int);", false);
             expect(clients[0].requests).toHaveLength(0);
-            ran("mariadb://root@h:1", "create table t (id int);");
+            ran("mariadb://root@h:1", "create table t (id int);", true);
             expect(clients[0].requests).toEqual([{
                 method: REFRESH_CATALOG_REQUEST,
                 params: { textDocument: { uri: document.uri.toString() } },
             }]);
             // No document of the server's runs on it: nothing was read.
-            ran("mariadb://root@other:1", "DROP TABLE t;");
+            ran("mariadb://root@other:1", "DROP TABLE t;", true);
             expect(clients[0].requests).toHaveLength(1);
         });
 

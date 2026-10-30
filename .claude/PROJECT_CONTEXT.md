@@ -31,7 +31,7 @@ extension grows.
 | `src/msm/` | MariaDB Schema Management from the Explorer's folder menu: the dialogs' fields, protocol and panel, and the commands, each an action of the Actions tab (see [`context/msm.md`](context/msm.md)). |
 | `src/restd/` | The MariaDB REST Daemon: a sandbox deployed with the REST Service, its daemon following it, the REST Daemons view's commands, and `ActionGroup`, one Actions row with a row per step (see [`context/restd.md`](context/restd.md)). |
 | `src/modeler/` | The schema diagram viewer's extension side: the `msm_schema_diagrams` rows (`mwb-schema/1`, `mwb-diagram/1`) and their queries, the Diagram session's service, the page model (A4 sheets the diagram is printed on), and the panel (see [`context/modeler.md`](context/modeler.md)). |
-| `src/sql/` | The statement scanner, statement splitting, single-table detection, the edit query builder and the execution service. |
+| `src/sql/` | The statement scanner, statement splitting, single-table detection, which statements change the catalog (`catalogChange.ts`), the edit query builder and the execution service. |
 | `src/editor/` | The SQL editor toolbar, status bar entry and run command; `sqlLanguage.ts`, which documents are SQL; `ansiQuotes.ts`, the semantic tokens that mark `"..."` as an identifier where the connection has ANSI_QUOTES. |
 | `syntaxes/` | The MariaDB SQL TextMate grammar: the hand-written template, the generated `words.json`, and the built grammar (see [`context/sql-grammar.md`](context/sql-grammar.md)). |
 | `tools/syncAiSkills.mts` | `sync:skills`, run by `build`: fetches the pinned ai-plugins release into `skills/` and matches `contributes.chatSkills` to it. |
