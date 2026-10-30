@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { posted } from "./setup.js";
 import {
     activate,
+    GRAPH_CLASS,
     type IRendererContext,
     seedState,
     viewHeight,
@@ -179,6 +180,24 @@ describe("the notebook renderer", () => {
             renderer.disposeOutputItem("output-1");
             expect(element.innerHTML).toBe("");
         });
+
+    it("draws a graph output as a graph", async () => {
+        const renderer = activate(createContext().context);
+        const element = document.createElement("div");
+        renderer.renderOutputItem({
+            id: "graph-1",
+            mime: "application/vnd.mariadb.graph+json",
+            json: () => {
+                return { series: [{ type: "pie",
+                    data: [{ name: "a", value: 1 }] }] };
+            },
+        }, element);
+
+        expect(element.querySelector(`.${GRAPH_CLASS} svg path.slice`))
+            .not.toBeNull();
+        renderer.disposeOutputItem("graph-1");
+        expect(element.innerHTML).toBe("");
+    });
 
     it("tells each view only what is meant for it", async () => {
         const { context, sent, answer } = createContext();

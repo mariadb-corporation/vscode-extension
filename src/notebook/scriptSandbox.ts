@@ -276,6 +276,94 @@ export const compileCell = (code: string): ICompiledCell => {
 };
 
 /**
+ * The shapes of `PieGraph`, as the MySQL Shell's notebooks had them: an
+ * enum, so it maps its names to numbers and back.
+ */
+export const PieGraphLayout: Readonly<Record<string, string | number>> =
+    Object.freeze(Object.fromEntries(["Donut", "ThickDonut", "ThinDonut",
+        "Pie"].flatMap((name, index) => {
+        return [[name, index], [String(index), name]];
+    })));
+
+/** Each `PieGraphLayout`'s inner and outer radius. */
+const PIE_RADIUS: Record<number, [number, number]> = {
+    0: [120, 200],
+    1: [80, 200],
+    2: [150, 200],
+    3: [0, 200],
+};
+
+/**
+ * Turns rows into a pie graph's options, as the MySQL Shell's `PieGraph`
+ * did: each row a slice, named and sized by the columns `keys` names, or
+ * its `name` and `value` columns, or its two columns in turn.
+ *
+ * @param data The rows.
+ * @param layout The pie's shape, a `PieGraphLayout` (default: Pie).
+ * @param keys The columns that are a slice's name and its value.
+ *
+ * @returns The graph's options.
+ *
+ * @throws Where a row says nothing that makes a slice.
+ */
+export const pieGraphOptions = (
+    data: unknown,
+    layout?: number,
+    keys?: { name: string; value: string },
+): Record<string, unknown> => {
+    if (!Array.isArray(data)) {
+        throw new TypeError("PieGraph.render: the data must be an array of "
+            + "rows.");
+    }
+
+    const slices = data.map((row: Record<string, unknown>) => {
+        if (keys !== undefined) {
+            return { name: String(row[keys.name]), value: Number(row[keys.value]) };
+        }
+        if (row.name !== undefined && row.value !== undefined) {
+            return { name: String(row.name), value: Number(row.value) };
+        }
+
+        const values = Object.values(row);
+        if (values.length > 2) {
+            throw new Error("PieGraph.render: a row of more than two columns "
+                + "needs the keys of its name and its value.");
+        }
+        if (values.length < 2) {
+            throw new Error("PieGraph.render: a row needs a name and a value.");
+        }
+
+        return { name: String(values[0]), value: Number(values[1]) };
+    });
+
+    return {
+        series: [{
+            type: "pie",
+            data: slices,
+            radius: PIE_RADIUS[layout ?? 3] ?? PIE_RADIUS[3],
+        }],
+    };
+};
+
+/**
+ * A graph to draw, as it goes to the renderer: JSON, a `Date` as its ISO
+ * text, which the renderer reads back.
+ *
+ * @param options The graph's options.
+ *
+ * @returns The printed value.
+ *
+ * @throws Where the options are not an object.
+ */
+export const graphValueOf = (options: unknown): PrintedValue => {
+    if (options === null || typeof options !== "object") {
+        throw new TypeError("Graph.render: the options must be an object.");
+    }
+
+    return { kind: "graph", json: JSON.stringify(options) };
+};
+
+/**
  * Says what a value printed is: text for text, numbers and errors, JSON
  * for what JSON can hold, and Node's own rendering for the rest.
  *
@@ -424,6 +512,25 @@ export const createScriptSandbox = (
     const context = vm.createContext({
         print,
         runSql,
+        Graph: {
+            render: (options: unknown): void => {
+                send({ type: "print", runId, value: graphValueOf(options) });
+            },
+        },
+        PieGraph: {
+            render: (
+                data: unknown,
+                layout?: number,
+                keys?: { name: string; value: string },
+            ): void => {
+                send({
+                    type: "print",
+                    runId,
+                    value: graphValueOf(pieGraphOptions(data, layout, keys)),
+                });
+            },
+        },
+        PieGraphLayout,
         console: {
             log: printTo("stdout"),
             info: printTo("stdout"),

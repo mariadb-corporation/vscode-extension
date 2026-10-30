@@ -18,7 +18,8 @@
 /**
  * The notebook renderer for a cell's result sets: the MariaDB panel's
  * result view - a tab per result set, its toolbar, paging, editing, the
- * SQL preview - under the cell that produced them.
+ * SQL preview - under the cell that produced them. It draws the graphs a
+ * TypeScript cell asked for too (`renderGraph`).
  *
  * VS Code loads this module into the notebook's output webview and calls
  * `activate`; each output of the result type is then handed to
@@ -31,10 +32,11 @@
 
 import { render } from "preact";
 
-import type {
-    IHostRendererMessage,
-    INotebookResultPayload,
-    IRendererMessage,
+import {
+    GRAPH_MIME,
+    type IHostRendererMessage,
+    type INotebookResultPayload,
+    type IRendererMessage,
 } from "../../src/notebook/notebookProtocol.js";
 import type {
     HostMessage,
@@ -42,6 +44,7 @@ import type {
     IViewState,
 } from "../../src/webview/protocol.js";
 import { App } from "./App.js";
+import { renderGraph } from "./graphs/renderGraph.js";
 import type { IHostTransport } from "./transport.js";
 import "./notebookRenderer.css";
 
@@ -72,6 +75,9 @@ const STYLESHEET = "notebookRenderer.css";
 
 /** The class the result view's stylesheet is scoped to here. */
 export const VIEW_CLASS = "mariadbResultView";
+
+/** The class of a graph's frame. */
+export const GRAPH_CLASS = "mariadbGraph";
 
 /** The header's height, with a column's type under its name. */
 const HEADER_HEIGHT = 42;
@@ -219,8 +225,17 @@ export const activate = (context: IRendererContext = {}): IRenderer => {
 
     return {
         renderOutputItem: (item, element) => {
-            const payload = item.json() as INotebookResultPayload;
             drawn.set(item.id, element);
+            if (item.mime === GRAPH_MIME) {
+                const frame = document.createElement("div");
+                frame.className = GRAPH_CLASS;
+                frame.append(renderGraph(document, item.json()));
+                element.replaceChildren(frame);
+
+                return;
+            }
+
+            const payload = item.json() as INotebookResultPayload;
             render(
                 <div
                     class={VIEW_CLASS}
@@ -237,6 +252,8 @@ export const activate = (context: IRendererContext = {}): IRenderer => {
                 const element = drawn.get(each);
                 if (element !== undefined) {
                     render(null, element);
+                    // A graph is no Preact tree.
+                    element.replaceChildren();
                     drawn.delete(each);
                 }
             }

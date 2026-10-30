@@ -104,7 +104,9 @@ export const packageProblems = (
 export const packageFiles = (root: string): string[] => {
     const vsce = path.join(root, "node_modules", "@vscode", "vsce", "vsce");
 
-    return execFileSync(process.execPath, [vsce, "ls", "--no-dependencies"],
+    // As `npm run package` packages it: with node_modules looked through,
+    // for the TypeScript server plugin .vscodeignore lets through.
+    return execFileSync(process.execPath, [vsce, "ls"],
         { cwd: root, encoding: "utf8" }).split("\n").filter((file) => {
         return file.trim() !== "";
     });

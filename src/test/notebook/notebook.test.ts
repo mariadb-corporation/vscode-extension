@@ -25,8 +25,9 @@ import {
     openNewNotebook,
 } from "../../notebook/notebookConnection.js";
 import { NotebookController } from "../../notebook/notebookController.js";
-import type {
-    INotebookResultPayload,
+import {
+    GRAPH_MIME,
+    type INotebookResultPayload,
 } from "../../notebook/notebookProtocol.js";
 import { NotebookResults } from "../../notebook/notebookResults.js";
 import { LanguageSwitcher } from "../../notebook/languageSwitcher.js";
@@ -713,6 +714,31 @@ describe("TypeScript cells", () => {
         })).toEqual([true, true, true, true]);
         expect(itemsOf(kernel.executions[3].outputs[0])[0].text)
             .toBe("1\n");
+
+        controller.dispose();
+    });
+
+    it("draw the graphs they ask for", async () => {
+        const { kernel, controller } = createController();
+        const notebook = notebookOfLanguages([
+            ["PieGraph.render([{ name: \"a\", value: 1 }], "
+                + "PieGraphLayout.ThinDonut);\n"
+                + "Graph.render({ series: [{ type: \"bar\", data: [] }] });",
+                "typescript"],
+        ]);
+
+        await kernel.executeHandler!(notebook.getCells(), notebook);
+
+        const [execution] = kernel.executions;
+        expect(execution.success).toBe(true);
+        const items = execution.outputs.map((output) => {
+            return itemsOf(output)[0];
+        });
+        expect(items.map((item) => { return item.mime; }))
+            .toEqual([GRAPH_MIME, GRAPH_MIME]);
+        expect(JSON.parse(items[0].text)).toEqual({ series: [{
+            type: "pie", data: [{ name: "a", value: 1 }], radius: [150, 200],
+        }] });
 
         controller.dispose();
     });

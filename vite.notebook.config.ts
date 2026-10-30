@@ -93,6 +93,10 @@ export default defineConfig({
         sourcemap: true,
         target: "es2022",
         assetsInlineLimit: 0,
+        // One module, as VS Code imports it: the result view and the graphs'
+        // part of d3 come to some 600 kB, and a chunk split off would rely
+        // on the output page loading modules beside the renderer.
+        chunkSizeWarningLimit: 700,
         rollupOptions: {
             input: "webview/src/notebookRenderer.tsx",
             preserveEntrySignatures: "exports-only",

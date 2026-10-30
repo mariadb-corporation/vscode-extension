@@ -96,16 +96,23 @@ locked tree and never writes the lockfile back.
 
 ## Packaging
 
-`npm run package` runs `vsce package --no-dependencies` (`@vscode/vsce` is a
+`npm run package` runs `vsce package` (`@vscode/vsce` is a
 devDependency), which first runs `vscode:prepublish`, the build, and writes
 `mariadb-shell-<version>.vsix` into the repository root (gitignored). The
 extension identifier is `MariaDB.mariadb-shell`: `publisher` and `name` in
 `package.json`. The settings namespace and every command id stay `mariadb.*`,
 since those come from `contributes`, not from the name.
 
-- **`--no-dependencies` is required.** The four runtime dependencies are
-  bundled into `dist/` by Vite; without the flag vsce ships their
-  `node_modules` as well, thousands of files for nothing.
+- **`node_modules` stays out but for one package.** The runtime
+  dependencies are bundled into `dist/` by Vite, so `.vscodeignore` keeps
+  their `node_modules` out (`node_modules/**`) - thousands of files for
+  nothing - all but `mariadb-notebook-ts-plugin`, the TypeScript server
+  plugin of MariaDB Notebooks, which the server can only load from
+  `node_modules` beside the extension (see [notebooks.md](notebooks.md)).
+  That is why it is `vsce package` and no longer `--no-dependencies`: with
+  that flag vsce never looks in `node_modules`, whatever `.vscodeignore`
+  says. The plugin is a `file:` dependency, which npm links to
+  `ts-plugin/`; vsce packages it from the link.
 - **`npm run package` checks the package afterwards** (`postpackage`
   runs `check:package`, `tools/checkPackage.mts`; a post script, so that
   `npm run package -- --pre-release` still hands the flag to vsce), for what the Marketplace refuses as
@@ -133,7 +140,7 @@ since those come from `contributes`, not from the name.
   list: sources, tests, configs, the grammar tooling, the context notes, the
   workspace file and the CI workflow stay out; `dist/` (without its source
   maps) and `images/` go in. A file added at the repository root ships
-  unless it is listed there - check with `npx vsce ls --no-dependencies`.
+  unless it is listed there - check with `npx vsce ls`.
   A negated pattern (`!images/**`) wins over every ignore, `.DS_Store`
   included, so what ships from a folder is listed by type
   (`!images/**/*.svg`).

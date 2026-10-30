@@ -17,11 +17,10 @@ language switched by hand; drew result sets, JSON and graphs under each
 block; and fed the current REST service's TypeScript SDK to Monaco. Done
 so far: SQL cells and their result sets in the panel's own view; a cell's
 language told from what is typed in it; TypeScript cells run in a worker
-with the old runtime's `print` and `runSql`. Still to come, in
-order: a TypeScript server plugin giving the cells the runtime's and the
-REST SDK's typings, and one another's declarations; a graph renderer
-(`Graph`, `PieGraph`); the REST SDK generated and reloaded live. None of it
-needs Monaco.
+with the old runtime's `print` and `runSql`, and its graphs (`Graph`,
+`PieGraph`); a TypeScript server plugin giving the cells the runtime's
+typings. Still to come: the REST SDK generated, its typings handed to the
+cells the same way, and reloaded live. None of it needs Monaco.
 
 ## Files
 
@@ -37,6 +36,8 @@ needs Monaco.
 | `src/notebook/scriptSandbox.ts` | The worker's runtime: the cell compiled (sucrase), run in a `vm` context kept across cells, `print` / `runSql` / `console`. Free of the worker API. |
 | `src/notebook/scriptWorker.ts` | The worker's entry, wiring its port to the sandbox; built to `dist/notebookWorker.js` by `vite.worker.config.ts`. |
 | `src/notebook/scriptProtocol.ts` | What the runner and a worker say to each other. |
+| `webview/src/graphs/renderGraph.ts` | `renderGraph`: a graph's options, as a cell sent them, drawn as an SVG with d3 - pie, line and bar series. |
+| `ts-plugin/` | The TypeScript server plugin (`mariadb-notebook-ts-plugin`), its own package: `index.js`, and `typings.js`, the runtime's typings as the editor knows them. |
 | `src/notebook/notebookProtocol.ts` | The result output's payload (`INotebookResultPayload`) and the messages between a view and the extension. Free of `vscode`. |
 | `src/notebook/notebookResults.ts` | `NotebookResults`: the renderer messaging, the views of this session's cells, taking up a reopened notebook's, and refresh. |
 | `webview/src/notebookRenderer.tsx` | The renderer (`mariadb.resultSetRenderer`) for `application/vnd.mariadb.resultset+json`: the panel's `App` per output. |
@@ -229,6 +230,72 @@ one starts on a fresh worker, nothing declared. A closed notebook's worker goes
 too. The context is no sandbox: the code is the user's own, with Node a
 constructor away, and the extension runs only in trusted workspaces.
 
+## Graphs
+
+`Graph.render(options)` and `PieGraph.render(rows, layout?, keys?)`, as
+in the MySQL Shell's notebooks, print a graph: its options go out as JSON
+(`kind: "graph"`, a `Date` as its ISO text), an output of their own
+(`application/vnd.mariadb.graph+json`), which the notebook renderer draws
+with `renderGraph` - an SVG scaled to the output's width, no taller than
+450px, saved with the notebook like any output.
+
+- **The series**: `pie` (slices, a label each beside the pie with a line
+  to it, `radius` making it a donut), `line` (a line per `group`, against
+  a time axis where the x values are dates, a legend where there is more
+  than one group, the `curve` d3's), `bar` (a bar per category, from
+  tabular data or rows). A tooltip is SVG's own `<title>`. A series goes in
+  its `transformation` box of the viewport (default 0 0 1200 900); a title
+  gets room of its own above the viewport.
+- **`PieGraph`** takes rows: the columns `keys` names, or `name` and
+  `value`, or a row's two columns in turn; `PieGraphLayout` (an enum, its
+  names and numbers both ways) picks the radii the MySQL Shell's did.
+- **What the old API had and this does not**: functions among the options
+  (a tooltip's `format`, `xTitle`, `yFormat` as a function) - they never
+  crossed the old worker's `postMessage` either - and animations, which
+  moved a graph from one rendering to the next; under a cell each
+  rendering is an output of its own. The options are read as untrusted
+  JSON: a value of the wrong kind is left out, at most 100 slices or bars.
+- The renderer bundle is some 600 kB with d3's parts; one module, so
+  `vite.notebook.config.ts` raises the size warning to 700 kB.
+
+## IntelliSense in TypeScript cells
+
+VS Code drops a notebook cell's semantic diagnostics (the TypeScript
+extension skips them for `vscode-notebook-cell`), so a cell is never
+marked for an unknown name; what it lacks without typings is completion,
+hover and signature help. **`mariadb-notebook-ts-plugin`**
+(`ts-plugin/`), a TypeScript server plugin
+(`contributes.typescriptServerPlugins`), gives them:
+
+- VS Code opens a cell in the server as an in-memory file named
+  `^/vscode-notebook-cell/<authority>/<notebook path>#<cell>`, in the
+  inferred project of its workspace folder; a MariaDB Notebook's path ends
+  in `.mariadb-notebook`, an untitled one's too. The plugin appends the
+  typings' file to the file names any project holding such a cell gives
+  its language service. A plugin's `getExternalFiles` would not do: it
+  only reaches a configured project's program.
+- **The cells see each other's declarations** already: they are scripts
+  in one project, which shares their global scope - as the runtime has it.
+  Redeclaring a name in two cells would be an error, but a cell shows no
+  semantic errors. A Jupyter notebook's cells in the same folder see a
+  MariaDB Notebook's names, and the other way round; another folder's do
+  not get the typings.
+- **The typings** are `typings.js`, a string: the Marketplace refuses a
+  .d.ts in a package (`check:package`). The plugin writes them once to
+  `<tmp>/mariadb-notebook-ts-plugin/notebook-<hash>.d.ts` (written whole,
+  then renamed) and serves that file, so the server reads it as any file.
+  `typings.js` describes the runtime by hand: kept in step with
+  `scriptSandbox.ts`; `tsPlugin.test.ts` compiles cell code against it.
+- **Where the server finds it**: only as a package name, under
+  `node_modules` beside the extension (`--pluginProbeLocations`). The
+  plugin is a `file:` dependency, so npm links `node_modules/mariadb-
+  notebook-ts-plugin` to `ts-plugin/`, and the package carries it from
+  there - see Packaging in [toolchain.md](toolchain.md).
+- Checked against a real TypeScript server started as VS Code starts it:
+  hover on `runSql` and on a cell's `rows`, another cell's `rows`,
+  completion offering the runtime, and a Jupyter cell of another folder
+  without it.
+
 ## Keybindings
 
 The run commands' keybindings and their editor context menu items carry
@@ -244,14 +311,14 @@ send the cell to the panel. `keybindings.test.ts` checks every one.
   closed, and it reopens on the run's first page.
 - No maximizing a result set into a tab of its own.
 - A SQL cell cannot be interrupted: it runs to its end.
-- A TypeScript cell's editor does not know `print` or `runSql` yet,
-  nor what the cells before it declared, and marks them: their typings,
-  and the cells sharing a project, are the next step.
+- The editor sees every cell's declarations, not only the cells run
+  before it, and another notebook's in the same folder too.
 - `runSql` takes no parameters yet.
 - The watch task does not rebuild the worker; `npm run build` (and F5)
   does.
 - Not yet exercised in a real VS Code: the unit tests cover the format,
   the kernel, the views' messages, the renderer's output under jsdom, the
-  language switching against a mock, and the worker's runtime in-process
-  (and the built worker was run from Node), but not the output webview's
-  layout or how a switched cell's editor behaves.
+  language switching against a mock, the worker's runtime in-process (and
+  the built worker was run from Node), the graphs under jsdom, and the
+  plugin in a real TypeScript server, but not the output webview's layout
+  or how a switched cell's editor behaves.

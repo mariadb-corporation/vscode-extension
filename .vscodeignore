@@ -37,3 +37,12 @@ tools/**
 skills.new/**
 syntaxes/mariadb-sql.template.json
 syntaxes/words.json
+# The runtime dependencies are bundled into dist/, so none ships as it is
+# - but the TypeScript server plugin of MariaDB Notebooks, which the server
+# can only load from node_modules beside the extension. Its source folder,
+# which npm links there, goes in that way only.
+node_modules/**
+!node_modules/mariadb-notebook-ts-plugin/index.js
+!node_modules/mariadb-notebook-ts-plugin/typings.js
+!node_modules/mariadb-notebook-ts-plugin/package.json
+ts-plugin/**

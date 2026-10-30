@@ -21,6 +21,9 @@ import {
     cellSyntaxMessage,
     compileCell,
     describeFailure,
+    graphValueOf,
+    PieGraphLayout,
+    pieGraphOptions,
     printedValueOf,
     rewriteCell,
 } from "../../notebook/scriptSandbox.js";
@@ -103,6 +106,55 @@ describe("the TypeScript sandbox", () => {
         expect(describeFailure(error, 2, new Map([[2, 4]])))
             .toBe("TypeError: bad\n    at cell.ts:2:2");
         expect(describeFailure("thrown")).toBe("Uncaught 'thrown'");
+    });
+});
+
+describe("the graphs", () => {
+    const rows = [{ Continent: "Asia", n: 51 }, { Continent: "Europe", n: 46 }];
+
+    it("maps the layouts' names to numbers and back, as an enum", () => {
+        expect(PieGraphLayout.Donut).toBe(0);
+        expect(PieGraphLayout.Pie).toBe(3);
+        expect(PieGraphLayout[1]).toBe("ThickDonut");
+    });
+
+    it("makes a pie of rows, as the MySQL Shell's PieGraph did", () => {
+        expect(pieGraphOptions(rows, PieGraphLayout.Donut as number,
+            { name: "Continent", value: "n" })).toEqual({
+            series: [{
+                type: "pie",
+                data: [{ name: "Asia", value: 51 }, { name: "Europe", value: 46 }],
+                radius: [120, 200],
+            }],
+        });
+        // Two columns in turn, and a pie where no layout is given.
+        expect(pieGraphOptions(rows)).toMatchObject({
+            series: [{ radius: [0, 200],
+                data: [{ name: "Asia", value: 51 }, { name: "Europe", value: 46 }] }],
+        });
+        expect(pieGraphOptions([{ name: "a", value: "2", other: 1 }]))
+            .toMatchObject({ series: [{ data: [{ name: "a", value: 2 }] }] });
+    });
+
+    it("says why rows make no pie", () => {
+        expect(() => { return pieGraphOptions("rows"); })
+            .toThrow(/must be an array/);
+        expect(() => { return pieGraphOptions([{ a: 1, b: 2, c: 3 }]); })
+            .toThrow(/needs the keys/);
+        expect(() => { return pieGraphOptions([{ a: 1 }]); })
+            .toThrow(/a name and a value/);
+        expect(() => { return graphValueOf(42); }).toThrow(/an object/);
+    });
+
+    it("sends a graph's options as JSON, a date as its ISO text", () => {
+        const when = new Date(Date.UTC(2026, 0, 2));
+
+        expect(graphValueOf({ series: [{ type: "line",
+            data: [{ xValue: when, yValue: 1 }] }] })).toEqual({
+            kind: "graph",
+            json: JSON.stringify({ series: [{ type: "line",
+                data: [{ xValue: "2026-01-02T00:00:00.000Z", yValue: 1 }] }] }),
+        });
     });
 });
 

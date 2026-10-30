@@ -31,6 +31,7 @@ import {
     STDOUT_MIME,
     succeeded,
 } from "./notebookFormat.js";
+import { GRAPH_MIME } from "./notebookProtocol.js";
 import type { NotebookResults } from "./notebookResults.js";
 import { toCellOutput } from "./notebookSerializer.js";
 import type { PrintedValue } from "./scriptProtocol.js";
@@ -56,8 +57,8 @@ export const NOTEBOOK_CONTROLLER_ID = "mariadb-notebook-kernel";
  * A SQL cell runs as a script, the way a SQL file does: every statement in
  * it, stopping at the first that fails where stop-on-error is set. Nothing
  * of it goes to the MariaDB panel. A TypeScript cell runs in its
- * notebook's worker (`ScriptRunner`), what it prints shown as it prints
- * it; Interrupt ends that worker.
+ * notebook's worker (`ScriptRunner`), what it prints - text, JSON, graphs
+ * - shown as it prints it; Interrupt ends that worker.
  */
 export class NotebookController implements vscode.Disposable {
     readonly #controller: vscode.NotebookController;
@@ -224,6 +225,16 @@ export class NotebookController implements vscode.Disposable {
                         encoder.encode(value.json), "application/json"),
                     new vscode.NotebookCellOutputItem(
                         encoder.encode(value.json), "text/plain"),
+                ]));
+
+                return;
+            }
+
+            if (value.kind === "graph") {
+                stream = undefined;
+                await execution.appendOutput(new vscode.NotebookCellOutput([
+                    new vscode.NotebookCellOutputItem(
+                        encoder.encode(value.json), GRAPH_MIME),
                 ]));
 
                 return;

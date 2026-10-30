@@ -30,6 +30,9 @@ import type {
 /** The renderer's id, as `contributes.notebookRenderer` declares it. */
 export const NOTEBOOK_RENDERER_ID = "mariadb.resultSetRenderer";
 
+/** The output type of a graph a TypeScript cell drew: `IGraphOptions`. */
+export const GRAPH_MIME = "application/vnd.mariadb.graph+json";
+
 /**
  * The output a cell's result sets are: one, with a tab each, drawn by the
  * result view. Saved with the notebook.

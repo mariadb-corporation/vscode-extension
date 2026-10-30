@@ -46,6 +46,12 @@
         "path": "./syntaxes/mariadb-sql.tmLanguage.json"
       }
     ],
+    "typescriptServerPlugins": [
+      {
+        "name": "mariadb-notebook-ts-plugin",
+        "enableForWorkspaceTypeScriptVersions": true
+      }
+    ],
     "notebooks": [
       {
         "type": "mariadb-notebook",
@@ -60,11 +66,12 @@
     "notebookRenderer": [
       {
         "id": "mariadb.resultSetRenderer",
-        "displayName": "MariaDB Result Set",
+        "displayName": "MariaDB Results and Graphs",
         "entrypoint": "./dist/webview/notebookRenderer.js",
         "requiresMessaging": "optional",
         "mimeTypes": [
-          "application/vnd.mariadb.resultset+json"
+          "application/vnd.mariadb.resultset+json",
+          "application/vnd.mariadb.graph+json"
         ]
       }
     ],
@@ -2782,7 +2789,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies",
+    "package": "vsce package",
     "postpackage": "npm run check:package",
     "check:package": "node tools/checkPackage.mts",
     "build": "npm run clean && npm run sync:skills && npm run build:extension && npm run build:webview",
@@ -2813,6 +2820,7 @@
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
     "@testing-library/preact": "^3.2.4",
+    "@types/d3": "^7.4.3",
     "@types/mocha": "^10.0.10",
     "@types/node": "24.x",
     "@types/tabulator-tables": "^6.2.6",
@@ -2842,6 +2850,8 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@vscode/codicons": "^0.0.46-24",
     "acorn": "^8.18.0",
+    "d3": "^7.9.0",
+    "mariadb-notebook-ts-plugin": "file:ts-plugin",
     "preact": "^10.29.8",
     "sucrase": "^3.35.0",
     "tabulator-tables": "^6.3.1",

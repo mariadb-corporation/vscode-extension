@@ -36,3 +36,28 @@
     resize: vertical;
     overflow: hidden;
 }
+
+/*
+ * A graph: as wide as the output, no taller than a screenful, scaled to
+ * its viewport. Its text is in the viewport's units, so it scales with it.
+ */
+.mariadbGraph svg {
+    display: block;
+    width: 100%;
+    max-height: 450px;
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: 20px;
+}
+
+.mariadbGraph .graphTitle {
+    font-size: 28px;
+    font-weight: 600;
+}
+
+.mariadbGraph .xAxis path,
+.mariadbGraph .xAxis line,
+.mariadbGraph .yAxis path,
+.mariadbGraph .yAxis line {
+    stroke: currentColor;
+}

@@ -113,7 +113,7 @@ describe("the package", () => {
             scripts: Record<string, string>;
         };
 
-        expect(scripts.package).toBe("vsce package --no-dependencies");
+        expect(scripts.package).toBe("vsce package");
         expect(scripts.postpackage).toBe("npm run check:package");
     });
 

@@ -26,7 +26,9 @@ export type PrintedValue =
     /** Text, as it reads: a string, a number, an error's stack. */
     | { kind: "text"; stream: "stdout" | "stderr"; text: string }
     /** A value that is JSON, shown as such: an object, an array, rows. */
-    | { kind: "json"; json: string };
+    | { kind: "json"; json: string }
+    /** A graph to draw: its options (`IGraphOptions`), as JSON. */
+    | { kind: "graph"; json: string };
 
 /** From the extension to the worker. */
 export type ToWorkerMessage =

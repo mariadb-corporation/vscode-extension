@@ -72,8 +72,10 @@ jobs:
         # aliases, an asset that is not copied - is invisible to the type
         # check and the tests alike; the packaging is here so that what
         # .vscodeignore lets through is seen on every change, not at release
-        # time. --no-dependencies: the runtime dependencies are bundled into
-        # dist/ by Vite, so node_modules has nothing to ship.
+        # time. The runtime dependencies are bundled into dist/ by Vite, so
+        # .vscodeignore keeps node_modules out - all but the TypeScript
+        # server plugin of MariaDB Notebooks, which the server can only load
+        # from there.
         run: npm run package
 
       - name: Check that the build left package.json as committed
