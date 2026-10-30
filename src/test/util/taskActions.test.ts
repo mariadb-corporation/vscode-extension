@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { IUtilTaskMessage, IUtilTaskState } from "../../mcp/utilApi.js";
+import type { ITaskMessage, ITaskState } from "../../mcp/taskApi.js";
 import {
     MAX_TASK_ACTION_CHILDREN,
     resultText,
@@ -27,14 +27,15 @@ import {
 import type { ITrackedTask } from "../../util/taskMonitor.js";
 import type { IActionRow } from "../../webview/protocol.js";
 
-const tracked = (state: Partial<IUtilTaskState> = {},
+const tracked = (state: Partial<ITaskState> = {},
     extra: Partial<ITrackedTask> = {}): ITrackedTask => {
     return {
         connection: "mariadb://root@h:3306",
         call: "util.dump_schemas(shop, /d)",
         cancelling: false,
         state: {
-            task_id: "t1", kind: "dump_schemas", title: "Dump shop to Disk",
+            task_id: "t1", task_type: "util", kind: "dump_schemas",
+            title: "Dump shop to Disk",
             connection_id: "c1", status: "running", cancel_requested: false,
             created_at: "2026-10-10T10:00:00Z",
             started_at: "2026-10-10T10:00:00Z", finished_at: null,
@@ -46,7 +47,7 @@ const tracked = (state: Partial<IUtilTaskState> = {},
 };
 
 const message = (seq: number, text: string, level = "status"):
-    IUtilTaskMessage => {
+    ITaskMessage => {
     return { seq, time: "2026-10-10T10:00:01Z", level, text };
 };
 
