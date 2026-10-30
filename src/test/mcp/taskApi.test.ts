@@ -17,39 +17,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { IToolCaller } from "../../mcp/mariaDbApi.js";
-import { McpToolError, type IToolResult } from "../../mcp/protocol.js";
+import { McpToolError } from "../../mcp/protocol.js";
 import { TaskApi, isFinished, type ITaskState } from "../../mcp/taskApi.js";
-
-interface ICall {
-    name: string;
-    args: Record<string, unknown>;
-    timeoutMs?: number;
-}
-
-const caller = (answer: unknown[], isError = false):
-    { caller: IToolCaller; calls: ICall[] } => {
-    const calls: ICall[] = [];
-
-    return {
-        calls,
-        caller: {
-            callTool: (name, args, timeoutMs) => {
-                calls.push({ name, args, ...(timeoutMs === undefined ? {}
-                    : { timeoutMs }) });
-                const result: IToolResult = {
-                    content: answer.map((value) => {
-                        return { type: "text", text: typeof value === "string"
-                            ? value : JSON.stringify(value) };
-                    }),
-                    ...(isError ? { isError } : {}),
-                };
-
-                return Promise.resolve(result);
-            },
-        },
-    };
-};
+import { createFakeToolCaller } from "../helpers.js";
 
 /** A cloud deployment, as `task.get` reports it: no connection. */
 const DBA_STATE: ITaskState = {
@@ -68,7 +38,7 @@ const DBA_STATE: ITaskState = {
 describe("TaskApi", () => {
     it("waits longer than the server for a task", async () => {
         const state = { task_id: "t1", status: "running", next_since: 3 };
-        const { caller: c, calls } = caller([state]);
+        const { caller: c, calls } = createFakeToolCaller([state]);
 
         expect(await new TaskApi(c).getTask("t1", 2, 2000)).toEqual(state);
         expect(calls).toEqual([{
@@ -79,7 +49,7 @@ describe("TaskApi", () => {
     });
 
     it("lists the tasks of one type, or all", async () => {
-        const { caller: c, calls } = caller([{ task_id: "a" }, { task_id: "b" }]);
+        const { caller: c, calls } = createFakeToolCaller([{ task_id: "a" }, { task_id: "b" }]);
         const api = new TaskApi(c);
 
         expect(await api.listTasks("util"))
@@ -95,14 +65,14 @@ describe("TaskApi", () => {
     });
 
     it("cancels a task", async () => {
-        const { caller: c, calls } = caller([{ task_id: "a" }]);
+        const { caller: c, calls } = createFakeToolCaller([{ task_id: "a" }]);
 
         await new TaskApi(c).cancelTask("a");
         expect(calls).toEqual([{ name: "task.cancel", args: { task_id: "a" } }]);
     });
 
     it("decodes a dba task, which has no connection", async () => {
-        const { caller: c } = caller([DBA_STATE]);
+        const { caller: c } = createFakeToolCaller([DBA_STATE]);
         const state = await new TaskApi(c).getTask("d1");
 
         expect(state).toEqual(DBA_STATE);
@@ -115,7 +85,7 @@ describe("TaskApi", () => {
         const { messages: _m, messages_dropped: _d, ...summary } = DBA_STATE;
         const util = { task_id: "t1", task_type: "util", kind: "dump_schemas",
             connection_id: "c1" };
-        const { caller: c } = caller([util, summary]);
+        const { caller: c } = createFakeToolCaller([util, summary]);
 
         const listed = await new TaskApi(c).listTasks();
         expect(listed.map((task) => { return task.task_type; }))
@@ -124,7 +94,7 @@ describe("TaskApi", () => {
     });
 
     it("rejects an unknown task as the server's answer", async () => {
-        const { caller: c } = caller(["There is no task with the id 'x'. "
+        const { caller: c } = createFakeToolCaller(["There is no task with the id 'x'. "
             + "Use task.list to see the tasks."], true);
 
         const failed = new TaskApi(c).getTask("x");
