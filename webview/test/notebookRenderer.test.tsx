@@ -136,10 +136,10 @@ beforeEach(() => {
 describe("the notebook renderer", () => {
     it("starts a view as tall as its longest result set, within bounds",
         () => {
-            expect(viewHeight([resultSet("a", 0)])).toBe(180);
-            expect(viewHeight([resultSet("a", 2), resultSet("b", 8)]))
-                .toBe(42 + 8 * 24 + 64);
-            expect(viewHeight([resultSet("a", 1000)])).toBe(480);
+            expect(viewHeight([resultSet("a", 0)])).toBe(42 + 24 + 64);
+            expect(viewHeight([resultSet("a", 2), resultSet("b", 4)]))
+                .toBe(42 + 4 * 24 + 64);
+            expect(viewHeight([resultSet("a", 1000)])).toBe(240);
         });
 
     it("makes nothing editable where it cannot reach the extension", () => {

@@ -130,7 +130,8 @@ codicons'. The panel's `main.css` is not built through it.
 
 **Its height.** The view starts as tall as its longest result set
 (header 42px, 24px a row, 64px for the toolbar and the tabs), between
-180px and 480px, so switching tabs does not make the cell jump; it can be
+130px - the header, one row and the bars - and 240px, so switching tabs
+does not make the cell jump; it can be
 dragged taller or shorter (`resize: vertical`), and Tabulator follows.
 
 `resultGrid.css` is the tail that was `styles.css` - Tabulator retyped in

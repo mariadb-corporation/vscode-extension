@@ -80,9 +80,9 @@ const ROW_HEIGHT = 24;
 /** The result set's own bar and the row of tabs under it. */
 const BARS_HEIGHT = 64;
 /** The most an output starts out as; it can be dragged taller. */
-const MAX_HEIGHT = 480;
-/** The least, which leaves the grid room for a few rows. */
-const MIN_HEIGHT = 180;
+const MAX_HEIGHT = 240;
+/** The least: the header, one row, the toolbar and the tabs. */
+const MIN_HEIGHT = HEADER_HEIGHT + ROW_HEIGHT + BARS_HEIGHT;
 
 /**
  * How tall a cell's view starts out: its longest result set whole while
