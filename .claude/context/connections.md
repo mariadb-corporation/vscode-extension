@@ -171,6 +171,22 @@ dba@localhost:3310/world      connection (icon by scheme; "default" if default)
   for its children again on every refresh, so a connection that opened
   itself there could never be disconnected - the refresh that
   disconnecting fires would open it straight back up.
+- **A run that changed the catalog redraws its connection** (the user's
+  call), no Refresh needed: where a CREATE, ALTER, DROP or RENAME of a
+  script run from an editor succeeded (`changesCatalog` in
+  `src/sql/catalogChange.ts`, the first keyword past blanks, comments and
+  into an executable `/*!...` comment; `ExecutionService`'s
+  `onCatalogChange`), `onDidRunScript` says so and
+  `ConnectionsTreeProvider.refreshConnection(uri)` redraws that
+  connection's row, if the tree has it open. VS Code reads every open row
+  under it again and keeps them open: rows have no ids, so it matches
+  them by label. The provider keeps the connection rows it last listed,
+  by URI with the scheme filled in, since VS Code redraws only the very
+  node it was given. The whole connection rather than the one schema: a
+  statement can touch several (`RENAME TABLE a.t TO b.t`, `DROP
+  DATABASE`), and an unqualified name would need the session's schema.
+  DDL run by a `CALL`, another client or an agent still needs Refresh.
+  `01-sandbox`'s CREATEs show up without it.
 - A schema lists all seven object folders without querying for them; the
   query happens when a folder is opened. Its one query is the look for an
   `msm_schema_diagrams` view (`hasDiagramsSql`, UI Backend session; a
@@ -282,6 +298,24 @@ and a retry has to redraw the very object the tree holds. Success deletes
 the attempt; the manager's own change event has already listed the schemas.
 The Connect command does not use this - its row is collapsed, so there is
 nothing to show a spinner in.
+
+**A closed connection's row is drawn collapsed** (the user's call), never
+open over nothing. VS Code takes a row's collapsible state only from a
+row it has not seen, keeps the rest as the user left them, and has no
+call that collapses one row; the row of a connection whose session went
+away stayed open and empty. So a connection row has an id (the only rows
+under the view with one besides folders and the REST Service's):
+`connection:<kind>:<uri>#<window>.<n>`, where `n` counts how often the
+tree's own session on it went away (`#followSessions`, on every manager
+change: Disconnect, the result view closing that session, a sandbox
+stopped) and `<window>` is new per activation, since no session outlives
+the window. A new id is a new row, drawn closed. The same session keeps
+its id, so a refresh (`refreshConnection` after DDL among them) keeps
+what is open under it. A connection whose schemas cannot be listed has
+the tree's session closed (`#dropSession`, the editors' left alone): the
+server went away or the shell was restarted, and expanding opens a new
+one. The failure is notified as before, without marking the whole view
+failed. `03-connections` checks the row collapses on Disconnect.
 
 Whether a node is drawn with a twistie is `IConnectionNode.expandable`,
 which the model works out (`connected || connectOnOpen()`), not something

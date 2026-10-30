@@ -177,6 +177,11 @@ describe("Connections", () => {
             return (await contextMenuEntries(await treeItem(connections,
                 path))).includes("Connect");
         }, "the connection to close");
+        // Open before, with its schemas under it: closed now, not open
+        // over nothing.
+        await waitFor(async () => {
+            return !await (await treeItem(connections, path)).isExpanded();
+        }, "the closed connection's row to collapse");
         await menuAction(connections, path, ["Connect"], async () => {
             return (await contextMenuEntries(await treeItem(connections,
                 path))).includes("Disconnect");

@@ -594,6 +594,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const sqlModes = new SqlModes(connections, log);
     const editors = new SqlEditorBinding(connections, resultView, log,
         sqlModes);
+    // A schema, table or view created, changed or dropped from an editor
+    // shows under its connection, the open rows staying open.
+    const stopRefreshingTree = editors.onDidRunScript(
+        (uri, _script, changedCatalog) => {
+            if (changedCatalog) {
+                tree.refreshConnection(uri);
+            }
+        });
+    context.subscriptions.push({ dispose: stopRefreshingTree });
     // Marks where each statement begins. The ranges come from the SQL
     // scanner for now; a language server would report the same thing.
     const statementDots = new StatementDecorator(context.extensionUri, {

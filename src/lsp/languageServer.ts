@@ -47,12 +47,6 @@ export const DOCUMENT_CONTEXT_NOTIFICATION = "mariadb/documentContext";
 /** The request that makes the server read a connection's catalog again. */
 export const REFRESH_CATALOG_REQUEST = "mariadb/refreshCatalog";
 
-/**
- * Whether a script may have changed what a catalog holds. A plain word
- * match: one read too many is cheap, a stale catalog is not.
- */
-const CHANGES_CATALOG = /\b(CREATE|ALTER|DROP|RENAME)\b/i;
-
 /** The notification that hands the server changed settings. */
 export const DID_CHANGE_CONFIGURATION_NOTIFICATION =
     "workspace/didChangeConfiguration";
@@ -168,12 +162,15 @@ export interface ILanguageServerDependencies {
     /**
      * Listens for scripts run on a connection.
      *
-     * @param listener Called with the connection URI and the script.
+     * @param listener Called with the connection URI, the script and
+     *        whether a statement of it that changes the catalog succeeded.
      *
      * @returns A function that stops listening.
      */
     onDidRunScript(
-        listener: (connection: string, script: string) => void,
+        listener: (
+            connection: string, script: string, changedCatalog: boolean,
+        ) => void,
     ): () => void;
     /**
      * What the editors' session on a connection reported of itself: the
@@ -271,11 +268,12 @@ export class LanguageServer implements vscode.Disposable {
                 }),
             },
             {
-                dispose: deps.onDidRunScript((connection, script) => {
-                    if (CHANGES_CATALOG.test(script)) {
-                        this.refreshCatalog(connection);
-                    }
-                }),
+                dispose: deps.onDidRunScript(
+                    (connection, _script, changedCatalog) => {
+                        if (changedCatalog) {
+                            this.refreshCatalog(connection);
+                        }
+                    }),
             },
         );
 

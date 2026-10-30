@@ -113,6 +113,8 @@ describe("A sandbox to test with", () => {
     it("creates the test schema by running SQL from an editor", async () => {
         const connections = await openSection("Connections");
         const connection = await treeItem(connections, CONNECTION);
+        // Open, to see it stay open once the CREATEs redraw its parent.
+        await (await treeItem(connections, [...CONNECTION, "mysql"])).expand();
         await inlineAction(connection, "New SQL Editor");
         const editor = await waitFor(async () => {
             const active = await new EditorView().getActiveTab();
@@ -132,15 +134,14 @@ describe("A sandbox to test with", () => {
         // Never saved: closing VS Code would ask about it otherwise.
         await runCommand("View: Revert and Close Editor");
 
+        // No Refresh: the CREATEs redraw the connection's rows, and the
+        // mysql schema stays open.
         await waitFor(async () => {
-            // The view's own button: the command is hidden from the
-            // palette, where typing its title runs whatever matches.
-            await (await connections.getAction("Refresh Connections"))
-                ?.click();
-
             return (await childLabels(connections, CONNECTION))
                 .includes("uitest");
         }, "the uitest schema", SERVER_TIMEOUT);
+        assert.ok(await (await treeItem(connections, [...CONNECTION, "mysql"]))
+            .isExpanded(), "the mysql schema is still open");
         assert.deepEqual((await childLabels(connections,
             [...CONNECTION, "uitest", "Tables"])).sort(), ["city", "country"]);
         await screenshot("01-schema-created");

@@ -32,6 +32,7 @@ import {
     type IFiling,
     type IStoredConnection,
 } from "../connections/connectionStore.js";
+import { withDefaultScheme } from "../connections/connectionUri.js";
 import { reportError } from "../errorMessages.js";
 import type { IServerStatus } from "../mcp/serverStarter.js";
 import {
@@ -121,6 +122,28 @@ export class ConnectionsTreeProvider
      * under way and after they failed. Cleared once one succeeds.
      */
     readonly #attempts = new Map<string, IOpenAttempt>();
+    /**
+     * The connection rows last listed, by URI with its scheme filled in:
+     * VS Code redraws a row only when handed the very node it was given.
+     * One URI can be in both lists, so a row each.
+     */
+    #connectionRows = new Map<string, IConnectionNode[]>();
+    /** The connections the tree has its own session open on. */
+    readonly #browsing = new Set<string>();
+    /**
+     * How often the tree's session on each connection went away, which
+     * is part of its row's id. VS Code takes a row's collapsible state
+     * only from a row it has not seen and keeps it open otherwise, with
+     * nothing under it once the session is gone; there is no call that
+     * collapses one row. A row with a new id is a new row, drawn closed.
+     */
+    readonly #sessionsLost = new Map<string, number>();
+    /**
+     * Part of every connection row's id too: no session outlives the
+     * window, so a row VS Code kept open from the last one is not to be
+     * drawn open in this one.
+     */
+    readonly #window = Date.now().toString(36);
 
     public readonly onDidChangeTreeData = this.#onDidChangeTreeData.event;
 
@@ -161,10 +184,33 @@ export class ConnectionsTreeProvider
             (uri) => { return this.#attempts.get(uri); },
             () => { return customFolders.list(); }, mrs, diagrams);
         this.#unsubscribe = connections.onDidChange(() => {
+            this.#followSessions();
             this.refresh();
         });
         this.#viewState =
             new ViewStateTracker(CONNECTIONS_VIEW_STATE_CONTEXT_KEY, status);
+    }
+
+    /**
+     * Notes each connection the tree's own session on went away - closed,
+     * disconnected, its sandbox stopped, dropped as lost - so its row is
+     * drawn closed.
+     *
+     * @returns Nothing.
+     */
+    #followSessions(): void {
+        for (const uri of this.#browsing) {
+            if (!this.connections.isConnected(uri, UI_BACKEND_SESSION)) {
+                this.#browsing.delete(uri);
+                this.#sessionsLost.set(uri,
+                    (this.#sessionsLost.get(uri) ?? 0) + 1);
+            }
+        }
+        for (const uri of this.connections.openConnections) {
+            if (this.connections.isConnected(uri, UI_BACKEND_SESSION)) {
+                this.#browsing.add(uri);
+            }
+        }
     }
 
     /**
@@ -179,6 +225,25 @@ export class ConnectionsTreeProvider
     }
 
     /**
+     * Reads what is under a connection again - its schemas, and what is
+     * under each one that is open, which VS Code keeps open - after a
+     * statement run on it changed them. A connection not listed, or not
+     * open in the view, has nothing to redraw.
+     *
+     * @param uri The connection.
+     *
+     * @returns Nothing.
+     */
+    public refreshConnection(uri: string): void {
+        for (const node of this.#connectionRows.get(withDefaultScheme(uri))
+            ?? []) {
+            if (this.connections.isConnected(node.uri, UI_BACKEND_SESSION)) {
+                this.refresh(node);
+            }
+        }
+    }
+
+    /**
      * @param node The node to show.
      *
      * @returns The item VS Code should draw for it.
@@ -190,7 +255,15 @@ export class ConnectionsTreeProvider
                 this.folderColors.get(node.path));
         }
 
-        return createTreeItem(node, this.resolveIcon);
+        const item = createTreeItem(node, this.resolveIcon);
+        if (node.kind === "connection") {
+            // Unique as long as the row stands for the same session: a
+            // URI can be in both lists, and a folder's id starts `folder:`.
+            item.id = `connection:${node.connectionKind}:${node.uri}`
+                + `#${this.#window}.${this.#sessionsLost.get(node.uri) ?? 0}`;
+        }
+
+        return item;
     }
 
     /**
@@ -217,10 +290,13 @@ export class ConnectionsTreeProvider
     ): Promise<ConnectionsNode[]> {
         try {
             if (node !== undefined) {
-                return await this.#model.getChildren(node);
+                return this.#noteConnections(
+                    await this.#model.getChildren(node));
             }
 
-            const roots = await this.#model.getRoots();
+            // The whole tree is listed again, folder by folder.
+            this.#connectionRows = new Map();
+            const roots = this.#noteConnections(await this.#model.getRoots());
             this.#viewState.listed();
 
             return roots;
@@ -232,11 +308,60 @@ export class ConnectionsTreeProvider
 
                 return [];
             }
+            if (node?.kind === "connection") {
+                // The session the schemas were asked on is gone - the
+                // server went away, or the shell was restarted - or of no
+                // use. Closed, the row is drawn closed, and expanding it
+                // opens a new one.
+                this.#report(`list the schemas of '${node.uri}'`, error);
+                void this.#dropSession(node.uri);
+
+                return [];
+            }
             this.#report("list the connections", error);
             this.#viewState.failed();
 
             return [];
         }
+    }
+
+    /**
+     * Closes the tree's own session on a connection, leaving the others.
+     *
+     * @param uri The connection.
+     *
+     * @returns Nothing; a close the server refuses is logged. The session
+     *          is dropped from what is open either way.
+     */
+    async #dropSession(uri: string): Promise<void> {
+        try {
+            await this.connections.disconnect(uri, UI_BACKEND_SESSION);
+        } catch (error) {
+            this.log(`Failed to close the session on '${uri}': ${
+                errorText(error)}`);
+        }
+    }
+
+    /**
+     * @param nodes Rows just listed.
+     *
+     * @returns The rows, the connections among them noted for
+     *          `refreshConnection`.
+     */
+    #noteConnections(nodes: ConnectionsNode[]): ConnectionsNode[] {
+        for (const node of nodes) {
+            if (node.kind === "connection") {
+                const uri = withDefaultScheme(node.uri);
+                // A row listed again replaces the one before it.
+                const rows = (this.#connectionRows.get(uri) ?? [])
+                    .filter((row) => {
+                        return row.connectionKind !== node.connectionKind;
+                    });
+                this.#connectionRows.set(uri, [...rows, node]);
+            }
+        }
+
+        return nodes;
     }
 
     /**

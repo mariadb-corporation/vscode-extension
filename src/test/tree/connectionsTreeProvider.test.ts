@@ -173,6 +173,68 @@ describe("ConnectionsTreeProvider", () => {
         provider.dispose();
     });
 
+    it("draws a connection's row closed once the tree's session is gone",
+        async () => {
+            const { connections, provider } = createProvider();
+            const uri = "dba@localhost:3310";
+            const idOf = async (): Promise<string | undefined> => {
+                const [root] = await provider.getChildren();
+
+                return provider.getTreeItem(root).id;
+            };
+            await connections.connect(uri, UI_BACKEND_SESSION);
+            const open = await idOf();
+            // The same session, the same row: VS Code keeps it open.
+            expect(await idOf()).toBe(open);
+
+            // Another session going leaves the tree's alone.
+            await connections.connect(uri, "Editor");
+            await connections.disconnect(uri, "Editor");
+            expect(await idOf()).toBe(open);
+
+            // The tree's going makes a new row, which VS Code draws closed,
+            // whatever else is still open on the connection.
+            await connections.connect(uri, "Editor");
+            await connections.disconnect(uri, UI_BACKEND_SESSION);
+            const closed = await idOf();
+            expect(closed).not.toBe(open);
+
+            await connections.connect(uri, UI_BACKEND_SESSION);
+            expect(await idOf()).toBe(closed);
+            await connections.disconnect(uri);
+            expect(await idOf()).not.toBe(closed);
+
+            provider.dispose();
+        });
+
+    it("closes the tree's session where its schemas cannot be listed",
+        async () => {
+            const { api, connections, provider, log } = createProvider();
+            const uri = "dba@localhost:3310";
+            await connections.connect(uri, "Editor");
+            await connections.connect(uri, UI_BACKEND_SESSION);
+            // Before the first listing: the manager wraps the API then.
+            api.listSchemas = () => {
+                return Promise.reject(new Error("Lost connection"));
+            };
+            const [root] = await provider.getChildren();
+
+            await expect(provider.getChildren(root)).resolves.toEqual([]);
+            await Promise.resolve();
+
+            expect(errorMessages).toEqual(["MariaDB: Lost connection"]);
+            expect(log.lines.join("\n")).toContain(
+                `Failed to list the schemas of '${uri}'`);
+            expect(connections.isConnected(uri, UI_BACKEND_SESSION))
+                .toBe(false);
+            // The editor's session is not the tree's to close.
+            expect(connections.isConnected(uri, "Editor")).toBe(true);
+            // Nor is the view as a whole a failure.
+            expect(provider.state).not.toBe("failed");
+
+            provider.dispose();
+        });
+
     it("redraws when a connection opens", async () => {
         const { connections, provider } = createProvider();
         const fired: unknown[] = [];
@@ -230,6 +292,32 @@ describe("ConnectionsTreeProvider", () => {
 
         provider.dispose();
     });
+
+    it("redraws an open connection's rows after its catalog changed",
+        async () => {
+            const { connections, provider } = createProvider();
+            const fired: unknown[] = [];
+            provider.onDidChangeTreeData((node) => {
+                fired.push(node);
+            });
+            // Not listed yet: nothing to redraw.
+            provider.refreshConnection("dba@localhost:3310");
+            const [row] = await provider.getChildren();
+            // Listed, but not open in the view.
+            provider.refreshConnection("dba@localhost:3310");
+            expect(fired).toEqual([]);
+
+            await connections.connect("dba@localhost:3310",
+                UI_BACKEND_SESSION);
+            fired.length = 0;
+            // Named as an editor may name it, with its scheme.
+            provider.refreshConnection("mariadb://dba@localhost:3310");
+            provider.refreshConnection("mariadb://app@localhost:3311");
+
+            expect(fired).toEqual([row]);
+
+            provider.dispose();
+        });
 
     it("says nothing is configured only once it has asked", async () => {
         const { api, provider } = createProvider();

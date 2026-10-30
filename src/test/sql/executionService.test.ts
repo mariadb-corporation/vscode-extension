@@ -1677,4 +1677,32 @@ describe("ExecutionService and ANSI_QUOTES", () => {
 
             expect(reported).toEqual(["ANSI"]);
         });
+
+    it("says when a statement that changes the catalog succeeded",
+        async () => {
+            const told: boolean[] = [];
+            const run = async (script: string, results: object[]) => {
+                let changed = false;
+                await new ExecutionService(createFakeApi({
+                    defaultResults: results,
+                })).execute({
+                    connectionUri: "dba@h",
+                    connectionId: "id",
+                    script,
+                    runId: "run1",
+                    onCatalogChange: () => { changed = true; },
+                });
+                told.push(changed);
+            };
+
+            await run("SELECT 'CREATE'; -- DROP\n",
+                [{ statement_index: 0 }]);
+            await run("SELECT 1; CREATE TABLE t (id INT);",
+                [{ statement_index: 0 }, { statement_index: 1 }]);
+            // The CREATE failed; the DROP never ran.
+            await run("CREATE TABLE t (id INT); DROP TABLE u;",
+                [{ statement_index: 0, error: "Table 't' already exists" }]);
+
+            expect(told).toEqual([false, true, false]);
+        });
 });
