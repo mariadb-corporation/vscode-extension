@@ -268,7 +268,7 @@ describe("OverviewPage", () => {
             { type: "newConnection", folder: "/Production" });
     });
 
-    it("offers a connection's actions, the notebook's not yet", async () => {
+    it("offers a connection's actions", async () => {
         await mount();
         const actions = [...tile("root@localhost:3306")
             .querySelectorAll<HTMLButtonElement>(".overview-tile-action")];
@@ -277,16 +277,21 @@ describe("OverviewPage", () => {
             return [button.getAttribute("aria-label"), button.disabled];
         })).toEqual([
             ["More Actions", false],
-            ["Create New Notebook", true],
+            ["Create New Notebook", false],
             ["Open New SQL Editor", false],
         ]);
 
         posted.length = 0;
         await click(actions[2]!);
+        await click(actions[1]!);
         expect(posted).toEqual([{
             type: "open",
             connection: { uri: LOCAL.uri, kind: "gui" },
             editor: "script",
+        }, {
+            type: "open",
+            connection: { uri: LOCAL.uri, kind: "gui" },
+            editor: "notebook",
         }]);
     });
 

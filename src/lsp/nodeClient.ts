@@ -96,6 +96,8 @@ export const createNodeLanguageClient: LanguageClientFactory = (options) => {
             return [
                 { language, scheme: "file" },
                 { language, scheme: "untitled" },
+                // A SQL cell of a MariaDB Notebook.
+                { language, scheme: "vscode-notebook-cell" },
             ];
         }),
         initializationOptions: options.initializationOptions,

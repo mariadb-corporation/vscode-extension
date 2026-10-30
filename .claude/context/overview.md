@@ -48,8 +48,8 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   "Database Connections" and a breadcrumb, `/` and a step per folder.
 - **A click on a connection's tile opens a SQL editor** on it
   (`mariadb.newSqlEditor`). Hovering shows the actions column at its right:
-  More Actions, Create New Notebook - drawn at 35% and disabled until DB
-  Notebooks exist (the host refuses `editor: "notebook"` too) - and Open
+  More Actions, Create New Notebook (`mariadb.newNotebook`, a MariaDB
+  Notebook on the connection - see [notebooks.md](notebooks.md)) and Open
   New SQL Editor. More Actions has Edit Connection…, Copy Connection URI
   and Delete Connection…, the Connections view's own commands.
 
@@ -150,7 +150,6 @@ overview too.
 
 ## Known gaps
 
-- No DB Notebooks: the notebook action is a placeholder.
 - No dragging: the MySQL Shell's tiles were draggable, but its reordering
   was switched off and its drop only made SQLite connections.
 - No Duplicate Connection, which the MySQL Shell's menu had: the

@@ -8,6 +8,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Added
 
+- **MariaDB Notebooks (preview).** New Notebook, on a connection's context
+  menu and its tile in the Overview, opens a `.mariadb-notebook`: SQL and
+  Markdown cells, each SQL cell run on the notebook's connection with its
+  result sets shown under it as a read-only grid. The connection is picked
+  from the notebook's toolbar or the status bar and saved with the
+  notebook, as are the last results.
 - **MariaDB Deployments view.** A second activity bar icon opens a view of
   the MariaDB deployments you manage: for now every sandbox, in a
   Sandboxes folder, with its REST Daemons under it. Its `+` opens the New

@@ -37,13 +37,23 @@ import {
     pendingRunRow,
 } from "../sql/executionService.js";
 import { quoteIdentifier } from "../sql/queryBuilder.js";
-import { splitStatements } from "../sql/splitStatements.js";
+import {
+    type ISqlStatement,
+    splitStatements,
+} from "../sql/splitStatements.js";
 import { statementAtOffset } from "../sql/statementAtOffset.js";
+import {
+    isMariaDbNotebook,
+    notebookConnection,
+    notebookOf,
+    setNotebookConnection,
+} from "../notebook/notebookConnection.js";
 import { errorText } from "../text.js";
 import type { SqlModes } from "../connections/sqlModes.js";
 import { AnsiQuotesHighlighter } from "./ansiQuotes.js";
 import { isSqlDocument, MARIADB_SQL_LANGUAGE_ID } from "./sqlLanguage.js";
 import type {
+    IExecutionReport,
     IResultSet,
     IStatementSource,
 } from "../webview/protocol.js";
@@ -139,6 +149,34 @@ export interface IRunOptions {
     into?: RunInto;
 }
 
+/** How a script is executed, beyond the connection and the SQL. */
+export interface IExecuteOptions {
+    /** The run's id, which its rows and result sets are built from. */
+    runId: string;
+    /** What to call the run in the actions. */
+    label?: string;
+    /** Where the script came from, for the jump links. */
+    source?: IScriptSource;
+    /** Whether a failing statement ends the run. */
+    stopOnError: boolean;
+    /** Which connection open on the URI it runs on, where already known. */
+    connectionLabel?: string;
+    /**
+     * The script, split by what was known of the sql_mode, where the
+     * caller split it already; split again if that turns out wrong.
+     */
+    statements?: ISqlStatement[];
+    /** What `statements` was split by. */
+    ansiQuotes?: boolean;
+}
+
+/** A script that has run, and what it ran on. */
+export interface IExecutedScript {
+    report: IExecutionReport;
+    connectionId: string;
+    service: ExecutionService;
+}
+
 /**
  * Binds SQL editors to a connection and runs their contents.
  *
@@ -146,6 +184,10 @@ export interface IRunOptions {
  * one that has never been run uses the default connection. The choice is
  * shown in the status bar, and can be changed from there or from the
  * editor's toolbar.
+ *
+ * A cell of a MariaDB Notebook runs on the notebook's connection, which is
+ * in its metadata rather than kept here; the status bar shows and changes
+ * that one while a notebook is the active editor.
  */
 export class SqlEditorBinding implements vscode.Disposable {
     /** Document URI -> the connection chosen for it. */
@@ -183,14 +225,21 @@ export class SqlEditorBinding implements vscode.Disposable {
             vscode.StatusBarAlignment.Right,
             100,
         );
-        this.#statusItem.command = "mariadb.selectEditorConnection";
-        this.#statusItem.tooltip =
-            "The MariaDB connection this SQL file runs on";
         this.#disposables.push(this.#statusItem);
 
         this.#disposables.push(
             vscode.window.onDidChangeActiveTextEditor(() => {
                 this.updateStatusBar();
+            }),
+            vscode.window.onDidChangeActiveNotebookEditor(() => {
+                this.updateStatusBar();
+            }),
+            // Undoing a pick of connection puts the old one back.
+            vscode.workspace.onDidChangeNotebookDocument((event) => {
+                if (isMariaDbNotebook(event.notebook)
+                    && event.metadata !== undefined) {
+                    this.#notebookBound();
+                }
             }),
             vscode.workspace.onDidCloseTextDocument((document) => {
                 this.#chosen.delete(document.uri.toString());
@@ -215,7 +264,8 @@ export class SqlEditorBinding implements vscode.Disposable {
 
     /**
      * The connection a document runs on: the one picked for it, else the
-     * one its header names, else the default.
+     * one its header names, else the default. A notebook cell's is its
+     * notebook's.
      *
      * @param document The document to look up.
      *
@@ -225,11 +275,32 @@ export class SqlEditorBinding implements vscode.Disposable {
     public connectionFor(
         document: vscode.TextDocument,
     ): string | undefined {
+        const notebook = notebookOf(document);
+        if (notebook !== undefined) {
+            return this.notebookConnectionFor(notebook);
+        }
+
         return this.#chosen.get(document.uri.toString())
             // Asked on every change of editor, so only the lines the
             // header can be on are read, not the whole file.
             ?? readConnectionHeader(document.getText(
                 new vscode.Range(0, 0, HEADER_SEARCH_LINES, 0)))
+            ?? this.connections.defaultConnection;
+    }
+
+    /**
+     * The connection a MariaDB Notebook runs on: the one its metadata
+     * names, else the default.
+     *
+     * @param notebook The notebook.
+     *
+     * @returns The connection URI, or undefined if there is no default and
+     *          nothing was picked.
+     */
+    public notebookConnectionFor(
+        notebook: vscode.NotebookDocument,
+    ): string | undefined {
+        return notebookConnection(notebook)
             ?? this.connections.defaultConnection;
     }
 
@@ -371,6 +442,20 @@ export class SqlEditorBinding implements vscode.Disposable {
      * @returns Nothing.
      */
     public updateStatusBar(): void {
+        const notebook = vscode.window.activeNotebookEditor?.notebook;
+        if (isMariaDbNotebook(notebook)) {
+            const uri = this.notebookConnectionFor(notebook);
+            this.#statusItem.text = uri === undefined
+                ? "$(database) MariaDB: no connection"
+                : `$(database) ${uri}`;
+            this.#statusItem.command = "mariadb.selectNotebookConnection";
+            this.#statusItem.tooltip =
+                "The MariaDB connection this notebook runs on";
+            this.#statusItem.show();
+
+            return;
+        }
+
         const editor = vscode.window.activeTextEditor;
         if (!editor || !isSqlDocument(editor.document)) {
             this.#statusItem.hide();
@@ -382,6 +467,9 @@ export class SqlEditorBinding implements vscode.Disposable {
         this.#statusItem.text = uri === undefined
             ? "$(database) MariaDB: no connection"
             : `$(database) ${uri}`;
+        this.#statusItem.command = "mariadb.selectEditorConnection";
+        this.#statusItem.tooltip =
+            "The MariaDB connection this SQL file runs on";
         this.#statusItem.show();
 
         // A toolbar button cannot change its own icon, so the two states
@@ -407,6 +495,76 @@ export class SqlEditorBinding implements vscode.Disposable {
     public async selectConnection(
         document: vscode.TextDocument,
     ): Promise<string | undefined> {
+        const notebook = notebookOf(document);
+        if (notebook !== undefined) {
+            return this.selectNotebookConnection(notebook);
+        }
+
+        const picked = await this.#pickConnection(
+            this.connectionFor(document),
+            "Select the MariaDB connection for this SQL file");
+        if (picked === undefined) {
+            return undefined;
+        }
+
+        this.#chosen.set(document.uri.toString(), picked);
+        this.updateStatusBar();
+
+        return picked;
+    }
+
+    /**
+     * Asks the user which connection a MariaDB Notebook should run on, and
+     * records it in the notebook.
+     *
+     * @param notebook The notebook to choose for.
+     *
+     * @returns The chosen connection, or undefined if the pick was
+     *          cancelled.
+     */
+    public async selectNotebookConnection(
+        notebook: vscode.NotebookDocument,
+    ): Promise<string | undefined> {
+        const picked = await this.#pickConnection(
+            this.notebookConnectionFor(notebook),
+            "Select the MariaDB connection for this notebook");
+        if (picked === undefined) {
+            return undefined;
+        }
+
+        await setNotebookConnection(notebook, picked);
+        this.#notebookBound();
+
+        return picked;
+    }
+
+    /**
+     * Tells everything that follows a document's connection that a
+     * notebook's - and so each of its cells' - may have changed.
+     *
+     * @returns Nothing.
+     */
+    #notebookBound(): void {
+        this.updateStatusBar();
+        this.#ansiQuotes.refresh();
+        for (const listener of this.#bindListeners) {
+            listener();
+        }
+    }
+
+    /**
+     * The quick pick of connections, in the Connections view's order.
+     *
+     * @param current The connection to show as picked.
+     * @param title What the pick is for.
+     *
+     * @returns The chosen connection, or undefined if the pick was
+     *          cancelled or there is nothing to pick from.
+     */
+    async #pickConnection(
+        current: string | undefined,
+        title: string,
+    ): Promise<string | undefined> {
         const stored = await this.connections.listStoredConnections();
         if (stored.length === 0) {
             // A notification draws no codicon, so the button is named
@@ -420,7 +578,6 @@ export class SqlEditorBinding implements vscode.Disposable {
             return undefined;
         }
 
-        const current = this.connectionFor(document);
         const defaultUri = this.connections.defaultConnection;
 
         // In the Connections view's order, each with its folder, so a
@@ -443,19 +600,12 @@ export class SqlEditorBinding implements vscode.Disposable {
                 };
             }),
             {
-                title: "Select the MariaDB connection for this SQL file",
+                title,
                 matchOnDescription: true,
             },
         );
 
-        if (!picked) {
-            return undefined;
-        }
-
-        this.#chosen.set(document.uri.toString(), picked.label);
-        this.updateStatusBar();
-
-        return picked.label;
+        return picked?.label;
     }
 
     /**
@@ -600,12 +750,12 @@ export class SqlEditorBinding implements vscode.Disposable {
         // The run is put up before the connection is even opened, which
         // is what the shell may have to be started for, so the actions
         // shows it is under way rather than nothing at all.
-        const runId = this.#nextRunId();
+        const runId = this.nextRunId();
         // Split here and handed on, so the row can say what is about to
         // run without the script being split a second time to run it -
         // by what is known of the sql_mode; checked once it is open.
-        let ansiQuotes = this.sqlModes.known(uri) ?? false;
-        let statements = splitStatements(script, ansiQuotes);
+        const ansiQuotes = this.sqlModes.known(uri) ?? false;
+        const statements = splitStatements(script, ansiQuotes);
         const what = describeStatements(statements, label);
         // Which connection this will run on has to be known before it is
         // opened, because the row goes up first: the manager answers it
@@ -619,35 +769,17 @@ export class SqlEditorBinding implements vscode.Disposable {
         });
         await this.resultView.startRun(uri, run, into);
 
-        let connectionId: string | undefined;
-        let changedCatalog = false;
         try {
-            connectionId = await this.connections.connect(uri);
-            // Read on the first run, known from the last one after that.
-            const known = await this.sqlModes.ansiQuotes(uri);
-            if (known !== ansiQuotes) {
-                ansiQuotes = known;
-                statements = splitStatements(script, ansiQuotes);
-            }
-            const api = await this.connections.api();
-            const service = new ExecutionService(api);
-            const report = await service.execute({
-                connectionUri: uri,
-                connectionId,
-                connectionLabel,
-                script,
-                statements,
-                runId,
-                source,
-                label,
-                stopOnError: options.stopOnError ?? stopOnError(),
-                pageSize: pageSize(),
-                ansiQuotes,
-                onSqlMode: (sqlMode) => {
-                    this.sqlModes.record(uri, sqlMode);
-                },
-                onCatalogChange: () => { changedCatalog = true; },
-            });
+            const { report, connectionId, service } = await this.executeScript(
+                uri, script, {
+                    runId,
+                    label,
+                    source,
+                    stopOnError: options.stopOnError ?? stopOnError(),
+                    connectionLabel,
+                    statements,
+                    ansiQuotes,
+                });
             await this.resultView.showResults(report, {
                 connectionUri: uri,
                 connectionId,
@@ -684,6 +816,62 @@ export class SqlEditorBinding implements vscode.Disposable {
                 }],
                 resultSets: [],
             });
+        }
+    }
+
+    /**
+     * Runs a script on a connection without showing it anywhere: what a
+     * run shown in the panel and a notebook cell's run share. Opens the
+     * connection, splits by its sql_mode, and afterwards follows a change
+     * of schema and tells the run listeners - also where the run failed.
+     *
+     * @param uri The connection to run on.
+     * @param script The SQL to run.
+     * @param options The run's id, what to call it, where it came from
+     *                and whether a failing statement ends it.
+     *
+     * @returns The report, and the session and service it ran on.
+     *
+     * @throws Where the connection could not be opened or the call failed.
+     */
+    public async executeScript(
+        uri: string,
+        script: string,
+        options: IExecuteOptions,
+    ): Promise<IExecutedScript> {
+        const connectionLabel = options.connectionLabel
+            ?? this.connections.labelFor(uri);
+        let connectionId: string | undefined;
+        let changedCatalog = false;
+        try {
+            connectionId = await this.connections.connect(uri);
+            // Read on the first run, known from the last one after that.
+            const ansiQuotes = await this.sqlModes.ansiQuotes(uri);
+            const statements = options.statements !== undefined
+                && options.ansiQuotes === ansiQuotes
+                ? options.statements
+                : splitStatements(script, ansiQuotes);
+            const api = await this.connections.api();
+            const service = new ExecutionService(api);
+            const report = await service.execute({
+                connectionUri: uri,
+                connectionId,
+                connectionLabel,
+                script,
+                statements,
+                runId: options.runId,
+                source: options.source,
+                label: options.label,
+                stopOnError: options.stopOnError,
+                pageSize: pageSize(),
+                ansiQuotes,
+                onSqlMode: (sqlMode) => {
+                    this.sqlModes.record(uri, sqlMode);
+                },
+                onCatalogChange: () => { changedCatalog = true; },
+            });
+
+            return { report, connectionId, service };
         } finally {
             // Also after a run that failed part way, past its USE.
             if (connectionId !== undefined && CHANGES_SCHEMA.test(script)) {
@@ -768,7 +956,7 @@ export class SqlEditorBinding implements vscode.Disposable {
     /**
      * @returns An id no earlier run has used.
      */
-    #nextRunId(): string {
+    public nextRunId(): string {
         this.#runCount += 1;
 
         return `run${this.#runCount}`;

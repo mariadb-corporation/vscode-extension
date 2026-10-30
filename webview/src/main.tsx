@@ -19,6 +19,8 @@ import { render } from "preact";
 
 import { App } from "./App.js";
 import "./styles.css";
+// After styles.css, whose Tabulator rules its own override.
+import "./resultGrid.css";
 
 const root = document.getElementById("root");
 if (root) {

@@ -169,6 +169,13 @@ import {
     RESULT_VIEW_ID,
 } from "./webview/resultViewProvider.js";
 import { VALUE_SCHEME } from "./webview/valueDocuments.js";
+import { NotebookController } from "./notebook/notebookController.js";
+import {
+    isMariaDbNotebook,
+    openNewNotebook,
+} from "./notebook/notebookConnection.js";
+import { NOTEBOOK_TYPE } from "./notebook/notebookFormat.js";
+import { NotebookSerializer } from "./notebook/notebookSerializer.js";
 
 /**
  * Everything the extension builds on activation, kept together so
@@ -603,6 +610,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
             }
         });
     context.subscriptions.push({ dispose: stopRefreshingTree });
+    // MariaDB Notebooks: the file format, and the one kernel that runs
+    // their cells on the notebook's connection.
+    context.subscriptions.push(
+        vscode.workspace.registerNotebookSerializer(NOTEBOOK_TYPE,
+            new NotebookSerializer(), { transientOutputs: false }),
+        new NotebookController(editors, log),
+    );
     // Marks where each statement begins. The ranges come from the SQL
     // scanner for now; a language server would report the same thing.
     const statementDots = new StatementDecorator(context.extensionUri, {
@@ -1083,6 +1097,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
         openSqlEditor: async (ref) => {
             await guard(log, async () => {
                 await vscode.commands.executeCommand("mariadb.newSqlEditor",
+                    await overviewNode(ref));
+            });
+        },
+        openNotebook: async (ref) => {
+            await guard(log, async () => {
+                await vscode.commands.executeCommand("mariadb.newNotebook",
                     await overviewNode(ref));
             });
         },
@@ -1658,6 +1678,31 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         throw new Error("No connection was given.");
                     }
                     await editors.openSqlEditor(uri);
+                });
+            },
+        ),
+
+        vscode.commands.registerCommand(
+            "mariadb.newNotebook",
+            async (node?: IConnectionNode) => {
+                await guard(log, async () => {
+                    // Without a connection it runs on the default one, or
+                    // asks at its first run.
+                    await openNewNotebook(node?.uri);
+                });
+            },
+        ),
+
+        vscode.commands.registerCommand(
+            "mariadb.selectNotebookConnection",
+            async () => {
+                const notebook = vscode.window.activeNotebookEditor?.notebook;
+                if (!isMariaDbNotebook(notebook)) {
+                    return;
+                }
+
+                await guard(log, async () => {
+                    await editors.selectNotebookConnection(notebook);
                 });
             },
         ),

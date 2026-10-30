@@ -26,7 +26,10 @@ Two things about it are easy to break:
 
 Its stylesheet is `tabulator_simple`, imported at the top of
 `styles.css` and then overridden - surface by surface - with VS Code theme
-variables, since Tabulator ships a light theme of its own.
+variables, since Tabulator ships a light theme of its own. The overrides
+and the grid's own rules are `resultGrid.css`, loaded right after
+`styles.css`; the notebook renderer loads it on its own (see
+[notebooks.md](notebooks.md)).
 
 **Values are shown as the MySQL Shell shows them** (`formatValue` in
 `ResultGrid.tsx`, by `IResultColumn.display`). **`formatValue` returns an

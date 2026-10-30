@@ -1428,6 +1428,294 @@ export const resolveWebviewView = (viewType: string): MockWebviewView => {
  *
  * @returns Nothing.
  */
+/* ------------------------------------------------------------------ *
+ * Notebooks: the data classes, a document with cells, the controller and
+ * its cell executions, and the edits that change a notebook's metadata.
+ * ------------------------------------------------------------------ */
+
+export enum NotebookCellKind {
+    Markup = 1,
+    Code = 2,
+}
+
+export class NotebookCellOutputItem {
+    public constructor(
+        public readonly data: Uint8Array,
+        public readonly mime: string,
+    ) { }
+}
+
+export class NotebookCellOutput {
+    public constructor(public readonly items: NotebookCellOutputItem[]) { }
+}
+
+export class NotebookCellData {
+    public outputs?: NotebookCellOutput[];
+
+    public constructor(
+        public readonly kind: NotebookCellKind,
+        public readonly value: string,
+        public readonly languageId: string,
+    ) { }
+}
+
+export class NotebookData {
+    public metadata?: Record<string, unknown>;
+
+    public constructor(public readonly cells: NotebookCellData[]) { }
+}
+
+/** A cell of a `MockNotebookDocument`. */
+export interface IMockNotebookCell {
+    index: number;
+    kind: NotebookCellKind;
+    document: MockTextDocument;
+    notebook: MockNotebookDocument;
+}
+
+/** A notebook, its cells' documents under the notebook cell scheme. */
+export class MockNotebookDocument {
+    public metadata: Record<string, unknown>;
+    readonly #cells: IMockNotebookCell[];
+
+    public constructor(
+        public readonly uri: Uri,
+        public readonly notebookType: string,
+        data: NotebookData,
+    ) {
+        this.metadata = { ...data.metadata };
+        this.#cells = data.cells.map((cell, index) => {
+            return {
+                index,
+                kind: cell.kind,
+                document: new MockTextDocument(
+                    Uri.from({
+                        scheme: "vscode-notebook-cell",
+                        path: `${uri.path}#cell${index}`,
+                    }),
+                    cell.languageId, cell.value),
+                notebook: this,
+            };
+        });
+    }
+
+    public getCells(): IMockNotebookCell[] {
+        return this.#cells;
+    }
+}
+
+/** What one cell execution was told, in order. */
+export class MockCellExecution {
+    public executionOrder?: number;
+    public started = false;
+    public success?: boolean;
+    public outputs: NotebookCellOutput[] = [];
+
+    public constructor(public readonly cell: IMockNotebookCell) { }
+
+    public start(): void {
+        this.started = true;
+    }
+
+    public clearOutput(): Promise<void> {
+        this.outputs = [];
+
+        return Promise.resolve();
+    }
+
+    public replaceOutput(
+        outputs: NotebookCellOutput | NotebookCellOutput[],
+    ): Promise<void> {
+        this.outputs = Array.isArray(outputs) ? outputs : [outputs];
+
+        return Promise.resolve();
+    }
+
+    public end(success: boolean): void {
+        this.success = success;
+    }
+}
+
+export class MockNotebookController {
+    public supportedLanguages: string[] = [];
+    public supportsExecutionOrder = false;
+    public description?: string;
+    public executeHandler?: (
+        cells: IMockNotebookCell[],
+        notebook: MockNotebookDocument,
+    ) => Promise<void>;
+    public readonly executions: MockCellExecution[] = [];
+    public disposed = false;
+
+    public constructor(
+        public readonly id: string,
+        public readonly notebookType: string,
+        public readonly label: string,
+    ) { }
+
+    public createNotebookCellExecution(
+        cell: IMockNotebookCell,
+    ): MockCellExecution {
+        const execution = new MockCellExecution(cell);
+        this.executions.push(execution);
+
+        return execution;
+    }
+
+    public dispose(): void {
+        this.disposed = true;
+    }
+}
+
+export const notebookControllers: MockNotebookController[] = [];
+export const notebookSerializers = new Map<string, unknown>();
+export const notebookDocuments: MockNotebookDocument[] = [];
+export const shownNotebooks: MockNotebookDocument[] = [];
+const activeNotebookListeners = new Set<(editor: unknown) => void>();
+const notebookChangeListeners = new Set<(event: unknown) => void>();
+let untitledNotebooks = 0;
+
+export const notebooks = {
+    createNotebookController: (
+        id: string,
+        notebookType: string,
+        label: string,
+    ): MockNotebookController => {
+        const controller = new MockNotebookController(id, notebookType, label);
+        notebookControllers.push(controller);
+
+        return controller;
+    },
+};
+
+/** One notebook edit: only metadata is edited so far. */
+export class NotebookEdit {
+    public constructor(
+        public readonly newNotebookMetadata: Record<string, unknown>,
+    ) { }
+
+    public static updateNotebookMetadata(
+        metadata: Record<string, unknown>,
+    ): NotebookEdit {
+        return new NotebookEdit(metadata);
+    }
+}
+
+export class WorkspaceEdit {
+    public readonly entries: Array<[Uri, NotebookEdit[]]> = [];
+
+    public set(uri: Uri, edits: NotebookEdit[]): void {
+        this.entries.push([uri, edits]);
+    }
+}
+
+/**
+ * Makes a notebook the active editor, as focusing it would, and tells the
+ * listeners.
+ *
+ * @param notebook The notebook, or undefined for none.
+ *
+ * @returns Nothing.
+ */
+export const fireActiveNotebookChange = (
+    notebook: MockNotebookDocument | undefined,
+): void => {
+    const editor = notebook === undefined ? undefined : { notebook };
+    (window as Record<string, unknown>).activeNotebookEditor = editor;
+    for (const listener of activeNotebookListeners) {
+        listener(editor);
+    }
+};
+
+/**
+ * Opens a notebook, as the serializer would hand it over.
+ *
+ * @param notebookType The notebook's type.
+ * @param data Its cells and metadata.
+ * @param uri Where it is; an untitled one where left out.
+ *
+ * @returns The notebook.
+ */
+export const openMockNotebook = (
+    notebookType: string,
+    data: NotebookData,
+    uri?: Uri,
+): MockNotebookDocument => {
+    untitledNotebooks += 1;
+    const notebook = new MockNotebookDocument(
+        uri ?? Uri.from({
+            scheme: "untitled",
+            path: `Untitled-${untitledNotebooks}`,
+        }),
+        notebookType, data);
+    notebookDocuments.push(notebook);
+
+    return notebook;
+};
+
+Object.assign(window, {
+    activeNotebookEditor: undefined,
+    onDidChangeActiveNotebookEditor: (
+        listener: (editor: unknown) => void,
+    ): Disposable => {
+        activeNotebookListeners.add(listener);
+
+        return { dispose: () => { activeNotebookListeners.delete(listener); } };
+    },
+    showNotebookDocument: (notebook: MockNotebookDocument): Promise<unknown> => {
+        shownNotebooks.push(notebook);
+        fireActiveNotebookChange(notebook);
+
+        return Promise.resolve({ notebook });
+    },
+});
+
+Object.assign(workspace, {
+    notebookDocuments,
+    registerNotebookSerializer: (
+        notebookType: string,
+        serializer: unknown,
+    ): Disposable => {
+        notebookSerializers.set(notebookType, serializer);
+
+        return { dispose: () => { notebookSerializers.delete(notebookType); } };
+    },
+    openNotebookDocument: (
+        notebookType: string,
+        data: NotebookData,
+    ): Promise<MockNotebookDocument> => {
+        return Promise.resolve(openMockNotebook(notebookType, data));
+    },
+    onDidChangeNotebookDocument: (
+        listener: (event: unknown) => void,
+    ): Disposable => {
+        notebookChangeListeners.add(listener);
+
+        return { dispose: () => { notebookChangeListeners.delete(listener); } };
+    },
+    // Applies the metadata edits of a notebook that is open, and tells
+    // the listeners, as VS Code does.
+    applyEdit: (edit: WorkspaceEdit): Promise<boolean> => {
+        for (const [uri, edits] of edit.entries) {
+            const notebook = notebookDocuments.find((candidate) => {
+                return candidate.uri.toString() === uri.toString();
+            });
+            if (notebook === undefined) {
+                return Promise.resolve(false);
+            }
+            for (const each of edits) {
+                notebook.metadata = { ...each.newNotebookMetadata };
+                for (const listener of notebookChangeListeners) {
+                    listener({ notebook, metadata: notebook.metadata,
+                        cellChanges: [], contentChanges: [] });
+                }
+            }
+        }
+
+        return Promise.resolve(true);
+    },
+});
+
 export const resetVscodeMock = (): void => {
     openedWith.length = 0;
     semanticTokensProviders.length = 0;
@@ -1488,4 +1776,12 @@ export const resetVscodeMock = (): void => {
     env.clipboard.text = "";
     mcpServerDefinitionProviders.clear();
     treeViewsShown = true;
+    notebookControllers.length = 0;
+    notebookSerializers.clear();
+    notebookDocuments.length = 0;
+    shownNotebooks.length = 0;
+    activeNotebookListeners.clear();
+    notebookChangeListeners.clear();
+    untitledNotebooks = 0;
+    (window as Record<string, unknown>).activeNotebookEditor = undefined;
 };

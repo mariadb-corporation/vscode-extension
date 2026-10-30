@@ -19,8 +19,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   of `dialogBuild` (`vite.dialog.ts`) giving `<bundle>.js`/`<bundle>.css` -
   because one build with several entries hoists a shared chunk that a
   webview's script nonce refuses (see
-  [connection-editor.md](connection-editor.md)). `build:webview` runs all
-  seven. The extension
+  [connection-editor.md](connection-editor.md)). The notebook renderer
+  is one more, `vite.notebook.config.ts`, not a dialog build: VS Code calls
+  its `activate` export (see [notebooks.md](notebooks.md)).
+  `build:webview` runs them all. The extension
   build has `emptyOutDir: false` on purpose: it runs again on every change
   in watch mode, and emptying `dist/` would delete the panel's assets out
   from under a running extension host. `npm run clean` wipes `dist/`, and
