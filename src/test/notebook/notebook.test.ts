@@ -737,7 +737,7 @@ describe("TypeScript cells", () => {
         expect(items.map((item) => { return item.mime; }))
             .toEqual([GRAPH_MIME, GRAPH_MIME]);
         expect(JSON.parse(items[0].text)).toEqual({ series: [{
-            type: "pie", data: [{ name: "a", value: 1 }], radius: [150, 200],
+            type: "pie", data: [{ name: "a", value: 1 }], radius: [120, 160],
         }] });
 
         controller.dispose();

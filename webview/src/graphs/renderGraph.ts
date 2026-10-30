@@ -44,8 +44,12 @@ import {
 /** The SVG namespace. */
 const SVG = "http://www.w3.org/2000/svg";
 
-/** The viewport a graph is laid out in, unless it says otherwise. */
-export const DEFAULT_VIEWPORT = { left: 0, top: 0, width: 1200, height: 900 };
+/**
+ * The viewport a graph is laid out in, unless it says otherwise: wide and
+ * low, so a graph as wide as a cell's output is about 300px high with its
+ * text at the editor's size. (The MySQL Shell's was 1200 by 900.)
+ */
+export const DEFAULT_VIEWPORT = { left: 0, top: 0, width: 1200, height: 450 };
 
 /** The room a title takes above the viewport. */
 const TITLE_ROOM = 60;

@@ -201,7 +201,7 @@ declare interface IGraphOptions {
     series?: IGraphConfiguration[];
     /** The colors the series take in turn. */
     colors?: string[];
-    /** The space the series are laid out in (default: 0 0 1200 900). */
+    /** The space the series are laid out in (default: 0 0 1200 450). */
     viewport?: { left: number; top: number; width: number; height: number };
 }
 

@@ -124,12 +124,12 @@ describe("the graphs", () => {
             series: [{
                 type: "pie",
                 data: [{ name: "Asia", value: 51 }, { name: "Europe", value: 46 }],
-                radius: [120, 200],
+                radius: [96, 160],
             }],
         });
         // Two columns in turn, and a pie where no layout is given.
         expect(pieGraphOptions(rows)).toMatchObject({
-            series: [{ radius: [0, 200],
+            series: [{ radius: [0, 160],
                 data: [{ name: "Asia", value: 51 }, { name: "Europe", value: 46 }] }],
         });
         expect(pieGraphOptions([{ name: "a", value: "2", other: 1 }]))

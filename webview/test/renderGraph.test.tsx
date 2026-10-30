@@ -47,7 +47,7 @@ describe("renderGraph", () => {
             data: [{ name: "Asia", value: 51 }, { name: "Europe", value: 4.5 },
                 { name: "Nowhere", value: -1 }] }] });
 
-        expect(svg.getAttribute("viewBox")).toBe("0 0 1200 900");
+        expect(svg.getAttribute("viewBox")).toBe("0 0 1200 450");
         expect(svg.querySelectorAll("path.slice")).toHaveLength(2);
         expect(tooltips(svg, "path.slice")).toEqual(["Asia: 51", "Europe: 4.50"]);
         expect([...svg.querySelectorAll(".pieGraph text")].map((text) => {
@@ -108,7 +108,7 @@ describe("renderGraph", () => {
             series: [] });
         const title = svg.querySelector(".graphTitle");
 
-        expect(svg.getAttribute("viewBox")).toBe("0 -60 1200 960");
+        expect(svg.getAttribute("viewBox")).toBe("0 -60 1200 510");
         expect(title?.textContent).toBe("Load");
         expect(title?.getAttribute("text-anchor")).toBe("end");
     });
@@ -118,7 +118,7 @@ describe("renderGraph", () => {
             height: "tall" }, series: [null, { type: "radar" },
             { type: "pie", data: "lots" }, { type: "bar" }] });
 
-        expect(svg.getAttribute("viewBox")).toBe("0 0 400 900");
+        expect(svg.getAttribute("viewBox")).toBe("0 0 400 450");
         expect(svg.querySelectorAll("path.slice, rect")).toHaveLength(0);
         expect(draw("not even options").childElementCount).toBe(1);
     });

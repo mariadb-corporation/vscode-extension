@@ -285,12 +285,16 @@ export const PieGraphLayout: Readonly<Record<string, string | number>> =
         return [[name, index], [String(index), name]];
     })));
 
-/** Each `PieGraphLayout`'s inner and outer radius. */
+/**
+ * Each `PieGraphLayout`'s inner and outer radius, for the 450 high
+ * viewport a graph has unless it says otherwise: the MySQL Shell's
+ * proportions, room left for the labels.
+ */
 const PIE_RADIUS: Record<number, [number, number]> = {
-    0: [120, 200],
-    1: [80, 200],
-    2: [150, 200],
-    3: [0, 200],
+    0: [96, 160],
+    1: [64, 160],
+    2: [120, 160],
+    3: [0, 160],
 };
 
 /**

@@ -238,7 +238,11 @@ in the MySQL Shell's notebooks, print a graph: its options go out as JSON
 (`kind: "graph"`, a `Date` as its ISO text), an output of their own
 (`application/vnd.mariadb.graph+json`), which the notebook renderer draws
 with `renderGraph` - an SVG scaled to the output's width, no taller than
-450px, saved with the notebook like any output. **No charting library**:
+300px, saved with the notebook like any output. The viewport is 1200 by
+450 unless the graph says otherwise (the MySQL Shell's was 1200 by 900):
+half as high, so a graph as wide as a cell's output is about 300px high
+with its text at the editor's size, rather than half a screen; the
+`PieGraph` radii are scaled to it. **No charting library**:
 three simple kinds of graph need little of one, so `graphMath.ts` does
 the arithmetic - ticks on 1, 2 or 5 times a power of ten, time ticks on
 round steps (whole minutes, local midnights, the first of a month)
@@ -252,7 +256,7 @@ solves them - and `renderGraph` writes the SVG elements itself.
   `StepAfter`, `Natural`, `Basis`, `Bundle` drawn as `Basis`), `bar` (a
   bar per category, from
   tabular data or rows). A tooltip is SVG's own `<title>`. A series goes in
-  its `transformation` box of the viewport (default 0 0 1200 900); a title
+  its `transformation` box of the viewport (default 0 0 1200 450); a title
   gets room of its own above the viewport.
 - **`PieGraph`** takes rows: the columns `keys` names, or `name` and
   `value`, or a row's two columns in turn; `PieGraphLayout` (an enum, its
