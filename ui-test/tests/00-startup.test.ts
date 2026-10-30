@@ -136,7 +136,7 @@ describe("Startup", () => {
         await screenshot("00-overview");
         await new EditorView().closeEditor(OVERVIEW_TITLE);
 
-        assert.deepEqual(found.title, ["MariaDB Workbench"]);
+        assert.deepEqual(found.title, ["MariaDB Shell\nWorkbench"]);
         assert.deepEqual(found.sections,
             ["Database Connections", "Database Deployments"]);
         // Nothing yet: only the tiles that add one.

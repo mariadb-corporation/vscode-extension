@@ -164,12 +164,12 @@ describe("OverviewPage", () => {
                 .toBe("Looking for MariaDB connections...");
         });
 
-    it("greets, as MariaDB Workbench, until the greeting is closed",
+    it("greets, as MariaDB Shell Workbench, until the greeting is closed",
         async () => {
             await mount();
 
             expect(host.querySelector(".overview-title")?.textContent)
-                .toBe("MariaDB Workbench");
+                .toBe("MariaDB Shell Workbench");
             expect(host.querySelector(".overview-description")?.textContent)
                 .toBe(GREETING);
 
