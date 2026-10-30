@@ -157,18 +157,54 @@ body.vscode-light .overview {
 .overview-logo {
     width: 48px;
     height: 48px;
+    margin-top: 3px;
+}
+
+/* The logo with the title's two lines on its right. */
+.overview-greeting-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0;
 }
 
 .overview-title {
-    margin: 10px 0;
-    font-size: 26px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    margin: 0;
     font-weight: 600;
-    text-align: center;
+    line-height: 0.9;
+}
+
+.overview-title-product {
+    font-size: 18px;
+}
+
+/* Near white in a dark theme. */
+body.vscode-dark .overview-logo,
+body.vscode-dark .overview-title-product,
+body.vscode-high-contrast:not(.vscode-high-contrast-light) .overview-logo,
+body.vscode-high-contrast:not(.vscode-high-contrast-light) .overview-title-product {
+    color: #DDD;
+}
+
+/* The title's last word, in MariaDB's gradient. */
+.overview-title-workbench {
+    font-size: 36px;
+    color: transparent;
+    background: linear-gradient(90deg, rgb(81, 217, 247) 0%, 25%, rgb(140, 231, 134) 50%, 75%, rgb(205, 247, 10) 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+}
+
+body.vscode-light .overview-title-workbench {
+    background-image: linear-gradient(90deg, #0093c4, 25%, #00a37a 50%, 75%, #8de90f);
 }
 
 .overview-description {
     max-width: 700px;
-    margin: 0 0 40px;
+    margin: 0 0 30px;
     font-size: 0.8rem;
     text-align: center;
     white-space: pre-line;
@@ -203,7 +239,7 @@ body.vscode-light .overview {
     flex-wrap: wrap;
     align-items: center;
     gap: 12px;
-    padding: 20px 0 6px;
+    padding: 20px 0 0px;
 }
 
 .overview-content-title {

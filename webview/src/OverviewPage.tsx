@@ -547,8 +547,14 @@ export const OverviewPage = (): preact.JSX.Element => {
         <div class="overview">
             {showGreeting && (
                 <section class="overview-greeting">
-                    <span class="overview-logo" aria-hidden="true" />
-                    <h1 class="overview-title">MariaDB Workbench</h1>
+                    <div class="overview-greeting-heading">
+                        <span class="overview-logo" aria-hidden="true" />
+                        <h1 class="overview-title">
+                            <span class="overview-title-product">MariaDB Shell</span>
+                            {" "}
+                            <span class="overview-title-workbench">Workbench</span>
+                        </h1>
+                    </div>
                     <p class="overview-description">{GREETING}</p>
                     <button
                         type="button"
