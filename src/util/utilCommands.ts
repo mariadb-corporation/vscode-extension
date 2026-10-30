@@ -27,11 +27,8 @@ import type {
     IObjectNode,
     ISchemaNode,
 } from "../tree/connectionsModel.js";
-import type {
-    IUtilApi,
-    IUtilTaskStarted,
-    UtilOptions,
-} from "../mcp/utilApi.js";
+import type { ITaskStarted } from "../mcp/taskApi.js";
+import type { IUtilApi, UtilOptions } from "../mcp/utilApi.js";
 import { errorText } from "../text.js";
 import {
     canResume,
@@ -128,7 +125,7 @@ interface IStart {
     /** How to start it again, for a load. */
     resume?(options: UtilOptions, paths: string[]): IResumeLoad;
     run(api: IUtilApi, connectionId: string, options: UtilOptions,
-        paths: string[], targetId?: string): Promise<IUtilTaskStarted>;
+        paths: string[], targetId?: string): Promise<ITaskStarted>;
 }
 
 export class UtilCommands {

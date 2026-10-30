@@ -22,6 +22,7 @@ import { RestToolsApi } from "../mrs/mrsApi.js";
 import { MsmApi, type IMsmApi } from "./msmApi.js";
 import { RestdApi, type IRestdApi } from "./restdApi.js";
 import { SandboxApi, type ISandboxApi } from "./sandboxApi.js";
+import { TaskApi, type ITaskApi } from "./taskApi.js";
 import { UtilApi, type IUtilApi } from "./utilApi.js";
 import type { IMariaDbApi } from "./types.js";
 import { errorText } from "../text.js";
@@ -70,6 +71,7 @@ export class McpSession {
     /** Where what each `rest.*` tool call did is reported. */
     public onMrsAction?: (action: IMrsAction) => void;
     #utilApi?: IUtilApi;
+    #taskApi?: ITaskApi;
     #msmApi?: IMsmApi;
 
     public constructor(
@@ -125,6 +127,14 @@ export class McpSession {
     }
 
     /**
+     * @returns The `task.*` tools on the same server, which follow the tasks
+     *          `util.*` starts, if one is already running, else undefined.
+     */
+    public get taskApi(): ITaskApi | undefined {
+        return this.#taskApi;
+    }
+
+    /**
      * @returns The `msm.*` tools on the same server, if one is already
      *          running, else undefined.
      */
@@ -166,6 +176,7 @@ export class McpSession {
         this.#restdApi = undefined;
         this.#restTools = undefined;
         this.#utilApi = undefined;
+        this.#taskApi = undefined;
         this.#msmApi = undefined;
         if (!connection) {
             return;
@@ -202,6 +213,7 @@ export class McpSession {
             this.onMrsAction?.(action);
         });
         this.#utilApi = new UtilApi(connection);
+        this.#taskApi = new TaskApi(connection);
         this.#msmApi = new MsmApi(connection);
         this.log("MCP server ready.");
 

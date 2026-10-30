@@ -21,18 +21,19 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { IUtilTaskState } from "../../mcp/utilApi.js";
+import type { ITaskState } from "../../mcp/taskApi.js";
 import { TaskLogs } from "../../util/taskLogs.js";
 import type { ITrackedTask } from "../../util/taskMonitor.js";
 
-const tracked = (taskId: string, state: Partial<IUtilTaskState> = {}):
+const tracked = (taskId: string, state: Partial<ITaskState> = {}):
     ITrackedTask => {
     return {
         connection: "mariadb://root@h:3306",
         call: "util.load_dump(/d)",
         cancelling: false,
         state: {
-            task_id: taskId, kind: "load_dump", title: "Load a Dump into h",
+            task_id: taskId, task_type: "util", kind: "load_dump",
+            title: "Load a Dump into h",
             connection_id: "c1", status: "running", cancel_requested: false,
             created_at: "2026-10-10T10:00:00Z", started_at: null,
             finished_at: null, stage: null, progress: null, stages: [],

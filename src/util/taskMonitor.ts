@@ -22,12 +22,12 @@ import { errorText, stripAnsi } from "../text.js";
 import {
     isFinished,
     WAIT_MS,
-    type IUtilApi,
-    type IUtilTaskMessage,
-    type IUtilTaskStarted,
-    type IUtilTaskState,
-    type UtilOptions,
-} from "../mcp/utilApi.js";
+    type ITaskApi,
+    type ITaskMessage,
+    type ITaskStarted,
+    type ITaskState,
+} from "../mcp/taskApi.js";
+import type { UtilOptions } from "../mcp/utilApi.js";
 
 /**
  * How to start a load again: a load that stopped resumes where it stopped,
@@ -43,7 +43,7 @@ export interface IResumeLoad {
 
 /** A task the extension started, as the Tasks view and the commands see it. */
 export interface ITrackedTask {
-    state: IUtilTaskState;
+    state: ITaskState;
     /** The connection it works on, by address. */
     connection: string;
     /** The `util.*` call that started it, as the Actions tab shows it. */
@@ -66,7 +66,7 @@ export interface IFollowOptions {
     call?: string;
     resume?: IResumeLoad;
     /** Called once it ended, whichever way. */
-    onDone?(state: IUtilTaskState): void;
+    onDone?(state: ITaskState): void;
 }
 
 /**
@@ -75,7 +75,7 @@ export interface IFollowOptions {
  */
 export interface ITaskReport {
     tracked: ITrackedTask;
-    messages: IUtilTaskMessage[];
+    messages: ITaskMessage[];
     /** Whether this is the report of its start. */
     first: boolean;
 }
@@ -172,7 +172,7 @@ export class TaskMonitor {
     public openLog?: (tracked: ITrackedTask) => void;
 
     public constructor(
-        private readonly api: () => Promise<IUtilApi>,
+        private readonly api: () => Promise<ITaskApi>,
         private readonly output: ITaskOutput,
         private readonly log: (message: string) => void,
         private readonly store?: ITaskStore,
@@ -221,17 +221,17 @@ export class TaskMonitor {
      * @returns Its final state.
      */
     public async follow(
-        started: IUtilTaskStarted,
+        started: ITaskStarted,
         options: IFollowOptions,
-    ): Promise<IUtilTaskState> {
+    ): Promise<ITaskState> {
         const tracked: ITrackedTask = {
             connection: options.connection,
             ...(options.call === undefined ? {} : { call: options.call }),
             cancelling: false,
             ...(options.resume === undefined ? {} : { resume: options.resume }),
             state: {
-                task_id: started.task_id, kind: "dump_instance",
-                title: options.title, connection_id: null,
+                task_id: started.task_id, task_type: "util",
+                kind: "dump_instance", title: options.title, connection_id: null,
                 status: started.status, cancel_requested: false,
                 created_at: new Date().toISOString(), started_at: null,
                 finished_at: null, stage: null, progress: null, stages: [],
@@ -382,8 +382,8 @@ export class TaskMonitor {
     async #poll(
         tracked: ITrackedTask,
         title: string,
-        onUpdate: (state: IUtilTaskState) => void,
-    ): Promise<IUtilTaskState> {
+        onUpdate: (state: ITaskState) => void,
+    ): Promise<ITaskState> {
         let since = 0;
         let unanswered = 0;
         const pause = async (asked: number): Promise<void> => {
@@ -395,7 +395,7 @@ export class TaskMonitor {
 
         for (;;) {
             const asked = Date.now();
-            let state: IUtilTaskState;
+            let state: ITaskState;
             try {
                 state = await (await this.api()).getTask(
                     tracked.state.task_id, since, WAIT_MS);
@@ -455,7 +455,7 @@ export class TaskMonitor {
         }
     }
 
-    #line(title: string, message: IUtilTaskMessage): string {
+    #line(title: string, message: ITaskMessage): string {
         const level = message.level === "warning" || message.level === "error"
             ? `${message.level.toUpperCase()}: ` : "";
 
