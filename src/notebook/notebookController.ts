@@ -105,7 +105,7 @@ export class NotebookController implements vscode.Disposable {
         };
         this.#closing = vscode.workspace.onDidCloseNotebookDocument(
             (notebook) => {
-                this.scripts.forget(notebook.uri.toString());
+                this.scripts.interrupt(notebook.uri.toString());
             });
     }
 
@@ -146,10 +146,7 @@ export class NotebookController implements vscode.Disposable {
         const uri = this.editors.notebookConnectionFor(notebook)
             ?? await this.editors.selectNotebookConnection(notebook);
         if (uri === undefined) {
-            await execution.replaceOutput(toCellOutput({
-                items: [{ mime: STDERR_MIME, text: `${NO_CONNECTION}\n` }],
-            }));
-            execution.end(false, Date.now());
+            await this.#fail(execution, NO_CONNECTION);
 
             return;
         }
@@ -168,7 +165,6 @@ export class NotebookController implements vscode.Disposable {
             };
             const { report, connectionId, service } =
                 await this.editors.executeScript(uri, script, {
-                    runId: this.editors.nextRunId(),
                     stopOnError: stopOnError(),
                     source,
                 });
@@ -190,11 +186,26 @@ export class NotebookController implements vscode.Disposable {
             // Logged, not notified: the cell's output already says it.
             const message = errorText(error);
             this.log(`Could not run the cell on ${uri}: ${message}`);
-            await execution.replaceOutput(toCellOutput({
-                items: [{ mime: STDERR_MIME, text: `${message}\n` }],
-            }));
-            execution.end(false, Date.now());
+            await this.#fail(execution, message);
         }
+    }
+
+    /**
+     * Ends a cell's run unsuccessful, saying why as its output.
+     *
+     * @param execution The cell's execution.
+     * @param text Why.
+     *
+     * @returns Nothing.
+     */
+    async #fail(
+        execution: vscode.NotebookCellExecution,
+        text: string,
+    ): Promise<void> {
+        await execution.replaceOutput(toCellOutput({
+            items: [{ mime: STDERR_MIME, text: `${text}\n` }],
+        }));
+        execution.end(false, Date.now());
     }
 
     /**
@@ -221,24 +232,15 @@ export class NotebookController implements vscode.Disposable {
         } | undefined;
 
         const show = async (value: PrintedValue): Promise<void> => {
-            if (value.kind === "json") {
+            // JSON and graphs are an output each, the stream broken off.
+            if (value.kind !== "text") {
                 stream = undefined;
-                await execution.appendOutput(new vscode.NotebookCellOutput([
-                    new vscode.NotebookCellOutputItem(
-                        encoder.encode(value.json), "application/json"),
-                    new vscode.NotebookCellOutputItem(
-                        encoder.encode(value.json), "text/plain"),
-                ]));
-
-                return;
-            }
-
-            if (value.kind === "graph") {
-                stream = undefined;
-                await execution.appendOutput(new vscode.NotebookCellOutput([
-                    new vscode.NotebookCellOutputItem(
-                        encoder.encode(value.json), GRAPH_MIME),
-                ]));
+                await execution.appendOutput(toCellOutput({
+                    items: value.kind === "graph"
+                        ? [{ mime: GRAPH_MIME, text: value.json }]
+                        : [{ mime: "application/json", text: value.json },
+                            { mime: "text/plain", text: value.json }],
+                }));
 
                 return;
             }
@@ -283,12 +285,14 @@ export class NotebookController implements vscode.Disposable {
             print: (value) => {
                 shown = shown.then(() => { return show(value); });
             },
-            runSql: async (sql) => {
-                return this.editors.queryRows(await connection(), sql);
-            },
             call: async (call, args) => {
                 const on = await connection();
                 switch (call) {
+                    case "runSql": {
+                        return { value: await this.editors.queryRows(on,
+                            String(args.sql)) };
+                    }
+
                     case "authenticate": {
                         return { value: await this.sdks.askLogin(on, args) };
                     }

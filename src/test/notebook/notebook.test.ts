@@ -52,6 +52,7 @@ import { createFakeApi, createFakeSettings, createRecordingLog } from
 import {
     fireActiveNotebookChange,
     fireDocumentEdit,
+    fireNotebookChange,
     fireNotebookClose,
     languageSwitches,
     MockTextDocument,
@@ -600,8 +601,12 @@ describe("NotebookResults", () => {
         const { viewId } = JSON.parse(again.text) as INotebookResultPayload;
         expect(results.view(viewId)).toBeDefined();
 
-        fireNotebookClose(notebook);
+        // A deleted cell's view goes with it.
+        fireNotebookChange({ notebook,
+            contentChanges: [{ removedCells: notebook.getCells() }] });
         expect(results.view(viewId)).toBeUndefined();
+
+        fireNotebookClose(notebook);
 
         controller.dispose();
     });

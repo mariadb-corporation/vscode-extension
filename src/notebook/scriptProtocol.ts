@@ -46,8 +46,10 @@ export interface INotebookSdk {
     certificateAuthority?: string;
 }
 
-/** What a cell asks of the extension, beside SQL. */
+/** What a cell asks of the extension. */
 export type HostCall =
+    /** Runs SQL on the notebook's connection: its rows, `runSql`'s. */
+    | "runSql"
     /** Logs in to a REST service: asks for what it lacks, a password. */
     | "authenticate"
     /** Builds the notebook's SDK again. */
@@ -68,21 +70,12 @@ export type ToWorkerMessage =
         value?: unknown;
         error?: string;
         sdk?: INotebookSdk;
-    }
-    /** The answer to a `runSql`. */
-    | {
-        type: "sqlResult";
-        requestId: number;
-        rows?: Array<Record<string, unknown>>;
-        error?: string;
     };
 
 /** From the worker to the extension. */
 export type FromWorkerMessage =
     | { type: "print"; runId: number; value: PrintedValue }
-    /** A cell asked for SQL to be run on the notebook's connection. */
-    | { type: "runSql"; runId: number; requestId: number; sql: string }
-    /** A cell asked something else of the extension. */
+    /** A cell asked something of the extension. */
     | {
         type: "host";
         runId: number;

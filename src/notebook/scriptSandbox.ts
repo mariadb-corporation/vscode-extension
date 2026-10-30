@@ -42,6 +42,7 @@ import type {
     ToWorkerMessage,
 } from "./scriptProtocol.js";
 import { trustingFetch } from "./trustingFetch.js";
+import { errorText } from "../text.js";
 
 /** The file name a cell's code goes by in a stack. */
 export const CELL_FILE = "cell.ts";
@@ -49,10 +50,7 @@ export const CELL_FILE = "cell.ts";
 /** The file name the REST SDK's code goes by in a stack. */
 const SDK_FILE = "mrs-sdk.ts";
 
-/** A stack frame in the cell, and its line. */
-const CELL_FRAME = /cell\.ts:(\d+):/;
-
-/** Where in the cell a frame is: its line and column. */
+/** Where in the cell a stack frame is: its line and column. */
 const CELL_POSITION = /cell\.ts:(\d+):(\d+)/;
 
 /** What a cell's code is put in, on its first line. */
@@ -447,7 +445,7 @@ export const describeFailure = (
 
     const failure = error as Error;
     const frames = (failure.stack ?? "").split("\n").filter((line) => {
-        const at = CELL_FRAME.exec(line);
+        const at = CELL_POSITION.exec(line);
 
         return at !== null && Number(at[1]) <= lineCount;
     }).map((frame) => {
@@ -538,26 +536,6 @@ export const createScriptSandbox = (
     };
 
     /**
-     * Runs SQL on the notebook's connection.
-     *
-     * @param sql The SQL: one statement or several.
-     *
-     * @returns The rows of the first result set, an object a row.
-     */
-    const runSql = (sql: string): Promise<Array<Record<string, unknown>>> => {
-        requests += 1;
-        const requestId = requests;
-
-        return new Promise((resolve, reject) => {
-            pending.set(requestId, {
-                resolve: resolve as (value: unknown) => void,
-                reject,
-            });
-            send({ type: "runSql", runId, requestId, sql: String(sql) });
-        });
-    };
-
-    /**
      * Asks the extension something, and loads the SDK it answers with.
      *
      * @param call What to ask.
@@ -576,6 +554,18 @@ export const createScriptSandbox = (
             pending.set(requestId, { resolve, reject });
             send({ type: "host", runId, requestId, call, args });
         });
+    };
+
+    /**
+     * Runs SQL on the notebook's connection.
+     *
+     * @param sql The SQL: one statement or several.
+     *
+     * @returns The rows of the first result set, an object a row.
+     */
+    const runSql = (sql: string): Promise<Array<Record<string, unknown>>> => {
+        return host("runSql", { sql: String(sql) }) as
+            Promise<Array<Record<string, unknown>>>;
     };
 
     const context = vm.createContext({
@@ -766,8 +756,7 @@ export const createScriptSandbox = (
         try {
             compiled = compileCell(code);
         } catch (failure) {
-            error = `SyntaxError: ${cellSyntaxMessage(
-                failure instanceof Error ? failure.message : String(failure))}`;
+            error = `SyntaxError: ${cellSyntaxMessage(errorText(failure))}`;
         }
         if (compiled !== undefined) {
             try {
@@ -807,17 +796,6 @@ export const createScriptSandbox = (
 
                 case "sdk": {
                     sdkLoaded = loadSdk(message.sdk);
-                    break;
-                }
-
-                case "sqlResult": {
-                    const waiting = pending.get(message.requestId);
-                    pending.delete(message.requestId);
-                    if (message.error !== undefined) {
-                        waiting?.reject(new Error(message.error));
-                    } else {
-                        waiting?.resolve(message.rows ?? []);
-                    }
                     break;
                 }
 

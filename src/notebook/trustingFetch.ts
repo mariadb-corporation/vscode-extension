@@ -20,13 +20,13 @@
  * certificates are signed by the shell's local certificate authority,
  * which Node's `fetch` does not know - it trusts its own roots, not the
  * system's store, so a certificate trusted there is still refused. HTTPS
- * to a loopback address is made with Node's `https`, that authority's
- * certificate trusted beside the usual roots; everything else is Node's
+ * to a loopback address is made with Node's `https`, through one agent
+ * that trusts that authority - the only one a daemon's certificate is
+ * signed by - and keeps its connections open; everything else is Node's
  * `fetch` as it is. Free of `vscode`: it runs in a notebook's worker.
  */
 
 import * as https from "node:https";
-import * as tls from "node:tls";
 
 /** The hosts a REST Daemon of this machine is reached at. */
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
@@ -44,7 +44,9 @@ export const trustingFetch = (
     certificateAuthority: string,
     base: typeof fetch = fetch,
 ): typeof fetch => {
-    const ca = [...tls.rootCertificates, certificateAuthority];
+    // One TLS context and its connections for every request, rather than
+    // a context built and a handshake made for each.
+    const agent = new https.Agent({ ca: certificateAuthority, keepAlive: true });
 
     return async (input, init) => {
         const request = new Request(input, init);
@@ -61,7 +63,7 @@ export const trustingFetch = (
             const outgoing = https.request(url, {
                 method: request.method,
                 headers: Object.fromEntries(request.headers),
-                ca,
+                agent,
                 signal: request.signal,
             }, (incoming) => {
                 const chunks: Buffer[] = [];

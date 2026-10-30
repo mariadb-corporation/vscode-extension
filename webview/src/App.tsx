@@ -143,6 +143,18 @@ const errorKey = (errors: IRunError[]): string => {
     }).join("\u0000");
 };
 
+/**
+ * @param state What the view shows.
+ *
+ * @returns Whether it is the panel's own view, with the Actions tab and
+ *          the pickers - not a maximized result set's, nor a notebook
+ *          cell's.
+ */
+const isPanel = (state: IViewState | undefined): boolean => {
+    return state !== undefined && state.maximized !== true
+        && state.notebook !== true;
+};
+
 /** The value the session picker offers every connection together under. */
 const ALL_SESSIONS = "";
 
@@ -963,13 +975,12 @@ export const App = (
             transport.post({ type: "revealStatement", source: error.source });
         }
         // A maximized result set, or a notebook's, has no actions to go to.
-        if (error.rowId !== undefined && !state?.maximized
-            && !state?.notebook) {
+        if (error.rowId !== undefined && isPanel(state)) {
             // The row is no use behind a result tab.
             setActiveTab(ACTIONS_TAB);
             setScrollToRowId(error.rowId);
         }
-    }, [errors, state?.maximized, state?.notebook, transport]);
+    }, [errors, state, transport]);
 
     // Whatever the Actions tab shows while it is on show has been seen.
     useEffect(() => {
@@ -987,6 +998,7 @@ export const App = (
     }
 
     const dirty = statements.length;
+    const panel = isPanel(state);
     // Never counted while the tab is on show: what comes in is in sight.
     const unseen = activeTab === ACTIONS_TAB
         ? 0 : unseenCount(seenActions.current, state.actions);
@@ -1166,7 +1178,7 @@ export const App = (
               */}
             {!state.maximized && <footer class="contentSelectionBar">
                 <nav class="tabs" role="tablist">
-                    {!state.notebook && <button
+                    {panel && <button
                         type="button"
                         role="tab"
                         aria-selected={activeTab === ACTIONS_TAB}
@@ -1244,7 +1256,7 @@ export const App = (
                     )}
                 </nav>
 
-                {!state.notebook && <select
+                {panel && <select
                     class="connectionPicker"
                     title="The connection whose actions and results are shown"
                     value={state.connection}
@@ -1261,7 +1273,7 @@ export const App = (
                     })}
                 </select>}
 
-                {!state.notebook && state.sessions.length > 0 && (
+                {panel && state.sessions.length > 0 && (
                     <select
                         class="sessionPicker"
                         title="Which of its open connections to show"
@@ -1293,7 +1305,7 @@ export const App = (
                     </select>
                 )}
 
-                {!state.notebook && <button
+                {panel && <button
                     type="button"
                     class="clearShownActions codicon codicon-clear-all"
                     title={state.session === undefined

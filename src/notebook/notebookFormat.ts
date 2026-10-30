@@ -24,12 +24,10 @@
 
 import type { IActionRow, IExecutionReport } from "../webview/protocol.js";
 import type { INotebookResultPayload } from "./notebookProtocol.js";
+import { errorText } from "../text.js";
 
 /** The notebook type, as `contributes.notebooks` declares it. */
 export const NOTEBOOK_TYPE = "mariadb-notebook";
-
-/** The file extension a notebook is saved with. */
-export const NOTEBOOK_EXTENSION = ".mariadb-notebook";
 
 /** The format version written; a file with a later one is refused. */
 export const NOTEBOOK_FORMAT_VERSION = 1;
@@ -95,8 +93,8 @@ export const parseNotebook = (text: string): INotebookFile => {
     try {
         parsed = JSON.parse(text);
     } catch (error) {
-        throw new Error(`The notebook is not valid JSON: ${
-            error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+            `The notebook is not valid JSON: ${errorText(error)}`);
     }
 
     if (typeof parsed !== "object" || parsed === null

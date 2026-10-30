@@ -52,6 +52,7 @@ import type {
     RowChange,
     WebviewMessage,
 } from "./protocol.js";
+import { notebookViewState } from "../notebook/notebookProtocol.js";
 
 /** The id the result view is contributed under. */
 export const RESULT_VIEW_ID = "mariadb.results";
@@ -84,6 +85,13 @@ export interface INotebookResultView {
     applyContext?: IApplyContext;
     /** Sends to the view. */
     send(message: HostMessage): void;
+    /**
+     * Opens what its edits are written back and its pages fetched
+     * through, where it has nothing yet - a reopened notebook's view.
+     */
+    connect(): Promise<void>;
+    /** Runs a result set's statement again, into the same tab. */
+    refresh(resultId: string): Promise<void>;
 }
 
 /** What a refresh is to re-run on, and where its result goes. */
@@ -1126,16 +1134,10 @@ export class ResultViewProvider
     public notebookState(view: INotebookResultView): HostMessage {
         return {
             type: "state",
-            state: {
-                connections: [],
-                connection: view.connection,
-                sessions: [],
-                actions: [],
-                resultSets: view.resultSets,
-                notebook: true,
+            state: notebookViewState(view.connection, view.resultSets, {
                 freezeKeyColumns: freezePrimaryKeyColumns(),
                 showColumnTypes: showColumnDataTypes(),
-            },
+            }),
         };
     }
 
@@ -1143,7 +1145,7 @@ export class ResultViewProvider
      * Handles a message from a notebook cell's view: what it shares with
      * the panel and a maximized tab - writing edits back, paging, the
      * values - done the same way, and filed in the connection's actions.
-     * A refresh, which re-runs the statement, is the notebook's own.
+     * A refresh, which re-runs the statement, is the view's own.
      *
      * @param view The view it came from.
      * @param message The message that arrived.
@@ -1168,6 +1170,7 @@ export class ResultViewProvider
             }
 
             case "applyChanges": {
+                await view.connect();
                 await this.#applyChanges(
                     held(message.resultId),
                     view.applyContext,
@@ -1179,7 +1182,13 @@ export class ResultViewProvider
                 break;
             }
 
+            case "refresh": {
+                await view.refresh(message.resultId);
+                break;
+            }
+
             case "page": {
+                await view.connect();
                 await this.#fetchPage(
                     held(message.resultId),
                     view.applyContext,

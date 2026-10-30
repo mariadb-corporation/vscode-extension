@@ -28,7 +28,7 @@ import {
     STOP_ON_ERROR_CONTEXT_KEY,
 } from "../connections/settings.js";
 import { reportError } from "../errorMessages.js";
-import { firstCell } from "../mcp/types.js";
+import { firstCell, type IMariaDbApi } from "../mcp/types.js";
 import {
     captionFor,
     describeStatements,
@@ -152,8 +152,11 @@ export interface IRunOptions {
 
 /** How a script is executed, beyond the connection and the SQL. */
 export interface IExecuteOptions {
-    /** The run's id, which its rows and result sets are built from. */
-    runId: string;
+    /**
+     * The run's id, which its rows and result sets are built from; a new
+     * one where left out.
+     */
+    runId?: string;
     /** What to call the run in the actions. */
     label?: string;
     /** Where the script came from, for the jump links. */
@@ -751,7 +754,7 @@ export class SqlEditorBinding implements vscode.Disposable {
         // The run is put up before the connection is even opened, which
         // is what the shell may have to be started for, so the actions
         // shows it is under way rather than nothing at all.
-        const runId = this.nextRunId();
+        const runId = this.#nextRunId();
         // Split here and handed on, so the row can say what is about to
         // run without the script being split a second time to run it -
         // by what is known of the sql_mode; checked once it is open.
@@ -842,56 +845,48 @@ export class SqlEditorBinding implements vscode.Disposable {
     ): Promise<IExecutedScript> {
         const connectionLabel = options.connectionLabel
             ?? this.connections.labelFor(uri);
-        let connectionId: string | undefined;
-        let changedCatalog = false;
-        try {
-            connectionId = await this.connections.connect(uri);
-            // Read on the first run, known from the last one after that.
-            const ansiQuotes = await this.sqlModes.ansiQuotes(uri);
-            const statements = options.statements !== undefined
-                && options.ansiQuotes === ansiQuotes
-                ? options.statements
-                : splitStatements(script, ansiQuotes);
-            const api = await this.connections.api();
-            const service = new ExecutionService(api);
-            const report = await service.execute({
-                connectionUri: uri,
-                connectionId,
-                connectionLabel,
-                script,
-                statements,
-                runId: options.runId,
-                source: options.source,
-                label: options.label,
-                stopOnError: options.stopOnError,
-                pageSize: pageSize(),
-                ansiQuotes,
-                onSqlMode: (sqlMode) => {
-                    this.sqlModes.record(uri, sqlMode);
-                },
-                onCatalogChange: () => { changedCatalog = true; },
-            });
 
-            return { report, connectionId, service };
-        } finally {
-            // Also after a run that failed part way, past its USE.
-            if (connectionId !== undefined && CHANGES_SCHEMA.test(script)) {
-                await this.#readSchema(uri, connectionId);
-            }
-            for (const listener of this.#runListeners) {
-                listener(uri, script, changedCatalog);
-            }
-        }
+        return this.#onSession(uri, script, false,
+            async ({ connectionId, ansiQuotes, api }, changedCatalog) => {
+                const statements = options.statements !== undefined
+                    && options.ansiQuotes === ansiQuotes
+                    ? options.statements
+                    : splitStatements(script, ansiQuotes);
+                const service = new ExecutionService(api);
+                const report = await service.execute({
+                    connectionUri: uri,
+                    connectionId,
+                    connectionLabel,
+                    script,
+                    statements,
+                    runId: options.runId ?? this.#nextRunId(),
+                    source: options.source,
+                    label: options.label,
+                    stopOnError: options.stopOnError,
+                    pageSize: pageSize(),
+                    ansiQuotes,
+                    onSqlMode: (sqlMode) => {
+                        this.sqlModes.record(uri, sqlMode);
+                    },
+                    onCatalogChange: changedCatalog,
+                });
+
+                return { report, connectionId, service };
+            });
     }
 
     /**
      * Runs SQL for a script - a notebook's TypeScript cell's `runSql` - and
      * answers its rows: every one, not a page, since a script works on
      * what it asked for. Shown nowhere; the run listeners are told, as for
-     * any run, so DDL redraws the Connections view.
+     * any run, so DDL redraws the Connections view - unless it is quiet.
      *
      * @param uri The connection to run on.
      * @param sql The SQL: one statement or several.
+     * @param options Whether the run listeners are left untold: SQL the
+     *        extension runs for itself - reading the REST services - is no
+     *        run anything follows.
+     * @param options.quiet True to leave them untold.
      *
      * @returns The rows of the first result set, an object a row; none
      *          where no statement returned one.
@@ -901,32 +896,77 @@ export class SqlEditorBinding implements vscode.Disposable {
     public async queryRows(
         uri: string,
         sql: string,
+        { quiet = false }: { quiet?: boolean } = {},
     ): Promise<Array<Record<string, unknown>>> {
+        return this.#onSession(uri, sql, quiet,
+            async ({ connectionId, ansiQuotes, api }, changedCatalog) => {
+                const results = await api.executeScript(connectionId, sql,
+                    true, undefined, { ansiQuotes });
+                const failed = results.find((result) => {
+                    return result.error !== undefined;
+                });
+                if (failed !== undefined) {
+                    throw new Error(failed.error);
+                }
+                if (changesCatalog(sql)) {
+                    changedCatalog();
+                }
+
+                return results.find((result) => {
+                    return (result.result_sets?.length ?? 0) > 0;
+                })?.result_sets?.[0]?.rows ?? [];
+            });
+    }
+
+    /**
+     * What a run and a script's SQL share around the SQL itself: the
+     * connection opened and its sql_mode known first; afterwards - also
+     * where it failed - a change of schema followed and the run listeners
+     * told.
+     *
+     * @param uri The connection.
+     * @param script The SQL, for what it may have changed.
+     * @param quiet True to leave the run listeners untold.
+     * @param work Runs the SQL on the session; told how to say a statement
+     *        that changes the catalog succeeded.
+     *
+     * @returns What the work came to.
+     */
+    async #onSession<T>(
+        uri: string,
+        script: string,
+        quiet: boolean,
+        work: (
+            session: {
+                connectionId: string;
+                ansiQuotes: boolean;
+                api: IMariaDbApi;
+            },
+            changedCatalog: () => void,
+        ) => Promise<T>,
+    ): Promise<T> {
         let connectionId: string | undefined;
         let changedCatalog = false;
         try {
             connectionId = await this.connections.connect(uri);
-            const ansiQuotes = await this.sqlModes.ansiQuotes(uri);
-            const api = await this.connections.api();
-            const results = await api.executeScript(connectionId, sql, true,
-                undefined, { ansiQuotes });
-            const failed = results.find((result) => {
-                return result.error !== undefined;
-            });
-            changedCatalog = changesCatalog(sql) && failed === undefined;
-            if (failed !== undefined) {
-                throw new Error(failed.error);
-            }
+            // Read on the first run, known from the last one after that.
+            const [ansiQuotes, api] = await Promise.all([
+                this.sqlModes.ansiQuotes(uri),
+                this.connections.api(),
+            ]);
 
-            return results.find((result) => {
-                return (result.result_sets?.length ?? 0) > 0;
-            })?.result_sets?.[0]?.rows ?? [];
+            return await work({ connectionId, ansiQuotes, api }, () => {
+                changedCatalog = true;
+            });
         } finally {
-            if (connectionId !== undefined && CHANGES_SCHEMA.test(sql)) {
+            // Also after a run that failed part way, past its USE.
+            if (connectionId !== undefined && CHANGES_SCHEMA.test(script)) {
                 await this.#readSchema(uri, connectionId);
             }
-            for (const listener of this.#runListeners) {
-                listener(uri, sql, changedCatalog);
+            if (!quiet) {
+                for (const listener of this.#runListeners) {
+                    listener(uri, script, changedCatalog);
+                }
             }
         }
     }
@@ -1004,7 +1044,7 @@ export class SqlEditorBinding implements vscode.Disposable {
     /**
      * @returns An id no earlier run has used.
      */
-    public nextRunId(): string {
+    #nextRunId(): string {
         this.#runCount += 1;
 
         return `run${this.#runCount}`;

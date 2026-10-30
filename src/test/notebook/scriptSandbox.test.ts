@@ -167,7 +167,6 @@ describe("ScriptRunner", () => {
             print: (value: { kind: string; text?: string }) => {
                 printed.push(value.text ?? "");
             },
-            runSql: () => { return Promise.resolve([]); },
             call: () => { return Promise.resolve({}); },
         };
 
@@ -188,7 +187,6 @@ describe("ScriptRunner", () => {
             print: (value: { kind: string; text?: string }) => {
                 printed.push(value.text ?? "");
             },
-            runSql: () => { return Promise.resolve([]); },
             call: () => { return Promise.resolve({}); },
         };
 
@@ -196,7 +194,7 @@ describe("ScriptRunner", () => {
         await runner.run("a", "const who = 'a';", host);
         await runner.run("b", who, host);
         await runner.run("a", who, host);
-        runner.forget("a");
+        runner.interrupt("a");
         await runner.run("a", who, host);
 
         expect(printed).toEqual(["none", "a", "none"]);
@@ -229,7 +227,6 @@ describe("the REST SDK in a notebook's runtime", () => {
                     printed.push(`${value.stream ?? value.kind}: `
                         + `${value.text ?? value.json ?? ""}`);
                 },
-                runSql: () => { return Promise.resolve([]); },
                 call: (call: string, args: Record<string, unknown>) => {
                     calls.push([call, args]);
 

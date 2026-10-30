@@ -39,9 +39,7 @@ export interface IHostTransport {
 
 /** A webview of the result view's own: the window's messages. */
 export const windowTransport: IHostTransport = {
-    post: (message) => {
-        post(message);
-    },
+    post,
     listen: (listener) => {
         const onMessage = (event: MessageEvent<HostMessage>): void => {
             listener(event.data);

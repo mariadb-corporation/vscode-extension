@@ -108,7 +108,8 @@ since those come from `contributes`, not from the name.
   their `node_modules` out (`node_modules/**`) - thousands of files for
   nothing - all but `mariadb-notebook-ts-plugin`, the TypeScript server
   plugin of MariaDB Notebooks, which the server can only load from
-  `node_modules` beside the extension (see [notebooks.md](notebooks.md)).
+  `node_modules` beside the extension (see
+  [notebook-typescript.md](notebook-typescript.md)).
   That is why it is `vsce package` and no longer `--no-dependencies`: with
   that flag vsce never looks in `node_modules`, whatever `.vscodeignore`
   says. The plugin is a `file:` dependency, which npm links to

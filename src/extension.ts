@@ -635,18 +635,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // current REST service's, reached through the daemon serving it.
     const notebookSdks = new NotebookSdk({
         connect: (uri) => { return connections.connect(uri); },
-        query: async (uri, sql) => {
-            const connectionId = await connections.connect(uri);
-            const results = await (await connections.api()).executeScript(
-                connectionId, sql, true);
-            const failed = results.find((result) => {
-                return result.error !== undefined;
-            });
-            if (failed !== undefined) {
-                throw new Error(failed.error);
-            }
-
-            return results[0]?.result_sets?.[0]?.rows ?? [];
+        // Quiet: reading the services is no run to drop the SDK for.
+        query: (uri, sql) => {
+            return editors.queryRows(uri, sql, { quiet: true });
         },
         tools: () => { return serverApi(() => { return session.restTools; }); },
         restdUrl: (uri) => { return restdUrl(uri); },

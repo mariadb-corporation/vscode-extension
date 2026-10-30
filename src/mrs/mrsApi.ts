@@ -195,7 +195,7 @@ export class MrsError extends Error {
  *
  * @returns The value.
  */
-const parseCell = <T>(value: unknown): T => {
+export const parseCell = <T>(value: unknown): T => {
     if (typeof value !== "string") {
         return value as T;
     }

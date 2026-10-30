@@ -26,7 +26,7 @@ import { MARIADB_SQL_LANGUAGE_ID } from "../editor/sqlLanguage.js";
 import { NOTEBOOK_TYPE } from "./notebookFormat.js";
 
 /** The scheme of a notebook cell's document. */
-const CELL_SCHEME = "vscode-notebook-cell";
+export const CELL_SCHEME = "vscode-notebook-cell";
 
 /**
  * @param notebook A notebook.
@@ -40,6 +40,40 @@ export const isMariaDbNotebook = (
 };
 
 /**
+ * The cell of a MariaDB Notebook a document is. Asked on every keystroke
+ * in a SQL cell, so only the notebook whose path the cell's URI has - a
+ * cell is its notebook's path with the cell in the fragment - is searched.
+ *
+ * @param document Any document.
+ *
+ * @returns The cell and its notebook, or undefined for anything that is
+ *          not a cell of one.
+ */
+export const cellOf = (
+    document: vscode.TextDocument,
+): { notebook: vscode.NotebookDocument; cell: vscode.NotebookCell } | undefined => {
+    if (document.uri.scheme !== CELL_SCHEME) {
+        return undefined;
+    }
+
+    const key = document.uri.toString();
+    for (const notebook of vscode.workspace.notebookDocuments) {
+        if (notebook.uri.path !== document.uri.path
+            || !isMariaDbNotebook(notebook)) {
+            continue;
+        }
+        const cell = notebook.getCells().find((candidate) => {
+            return candidate.document.uri.toString() === key;
+        });
+        if (cell !== undefined) {
+            return { notebook, cell };
+        }
+    }
+
+    return undefined;
+};
+
+/**
  * The MariaDB Notebook a document is a cell of.
  *
  * @param document Any document.
@@ -50,18 +84,7 @@ export const isMariaDbNotebook = (
 export const notebookOf = (
     document: vscode.TextDocument,
 ): vscode.NotebookDocument | undefined => {
-    if (document.uri.scheme !== CELL_SCHEME) {
-        return undefined;
-    }
-
-    const key = document.uri.toString();
-
-    return vscode.workspace.notebookDocuments.find((notebook) => {
-        return isMariaDbNotebook(notebook)
-            && notebook.getCells().some((cell) => {
-                return cell.document.uri.toString() === key;
-            });
-    });
+    return cellOf(document)?.notebook;
 };
 
 /**

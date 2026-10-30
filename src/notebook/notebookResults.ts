@@ -63,8 +63,9 @@ export interface INotebookViewRegistration {
  *
  * A run of a cell registers its view; the view's messages are then
  * handled as the panel's are (`ResultViewProvider.onNotebookMessage`),
- * except a refresh, which re-runs the statement here and puts the new
- * result in the same tab. A reopened notebook's outputs are views of a
+ * the view bringing what is its own: connecting where it has nothing yet,
+ * and a refresh, which re-runs the statement and puts the new result in
+ * the same tab. A reopened notebook's outputs are views of a
  * session long gone: such a view is taken up from what it sends with its
  * `ready`, and connects the first time it needs to.
  */
@@ -96,6 +97,14 @@ export class NotebookResults implements vscode.Disposable {
                 this.#forget((view) => {
                     return view.notebook === notebook.uri.toString();
                 });
+            }),
+            // A deleted cell's result sets go with it.
+            vscode.workspace.onDidChangeNotebookDocument((event) => {
+                for (const change of event.contentChanges) {
+                    for (const cell of change.removedCells) {
+                        this.forgetCell(cell);
+                    }
+                }
             }),
         );
     }
@@ -171,6 +180,8 @@ export class NotebookResults implements vscode.Disposable {
                 };
                 void this.#messaging.postMessage(wrapped, view.editor);
             },
+            connect: () => { return this.#connect(view); },
+            refresh: (resultId) => { return this.#refresh(view, resultId); },
         };
 
         return view;
@@ -212,14 +223,6 @@ export class NotebookResults implements vscode.Disposable {
 
         const message: WebviewMessage = received.message;
         try {
-            if (message.type === "refresh") {
-                await this.#refresh(view, message.resultId);
-
-                return;
-            }
-            if (message.type === "applyChanges" || message.type === "page") {
-                await this.#connect(view);
-            }
             await this.resultView.onNotebookMessage(view, message);
         } catch (error) {
             this.log(`A notebook result set's ${message.type} failed: `
@@ -277,7 +280,6 @@ export class NotebookResults implements vscode.Disposable {
             const { report, connectionId, service } =
                 await this.editors.executeScript(
                     view.connection, `${shown.statement};`, {
-                        runId: this.editors.nextRunId(),
                         stopOnError: true,
                         label: "1 statement",
                     });

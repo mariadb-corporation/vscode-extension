@@ -16,9 +16,12 @@
  */
 
 import { createHash } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 import * as vscode from "vscode";
 
+import { parseCell } from "../mrs/mrsApi.js";
 import { useServiceSql } from "../mrs/restSql.js";
 import type { IMrsService } from "../mrs/mrsTypes.js";
 import { errorText } from "../text.js";
@@ -238,9 +241,9 @@ export class NotebookSdk {
         try {
             const [row] = await this.deps.query(uri,
                 "SHOW REST SERVICES FORMAT=JSON");
-            const cell = row === undefined ? "[]" : Object.values(row)[0];
-            services = JSON.parse(typeof cell === "string" ? cell : "[]") as
-                IMrsService[];
+            services = row === undefined
+                ? []
+                : parseCell<IMrsService[]>(Object.values(row)[0]) ?? [];
         } catch (error) {
             // No REST metadata on this server: no SDK to have.
             this.deps.log(`No REST SDK for ${uri}: ${errorText(error)}`);
@@ -257,25 +260,29 @@ export class NotebookSdk {
             return undefined;
         }
 
-        const connectionId = await this.deps.connect(uri);
-        const tools = await this.deps.tools();
+        // What does not wait on another is asked for together.
+        const [connectionId, tools, daemon, certificateAuthority] =
+            await Promise.all([
+                this.deps.connect(uri),
+                this.deps.tools(),
+                service === undefined
+                    ? undefined
+                    : this.deps.restdUrl(uri),
+                this.deps.certificateAuthority(),
+            ]);
         this.#base ??= tools.getSdkBaseClasses();
         this.#base.catch(() => { this.#base = undefined; });
-        const base = await this.#base;
-
-        let code: string;
-        if (service === undefined) {
-            code = await tools.getRuntimeManagementCode(connectionId);
-        } else {
-            const daemon = await this.deps.restdUrl(uri);
-            code = await tools.getSdkServiceClasses(connectionId, service.id,
-                daemon === undefined
-                    ? undefined
-                    : `${daemon}${service.full_service_path}`);
-        }
+        const [base, code] = await Promise.all([
+            this.#base,
+            service === undefined
+                ? tools.getRuntimeManagementCode(connectionId)
+                : tools.getSdkServiceClasses(connectionId, service.id,
+                    daemon === undefined
+                        ? undefined
+                        : `${daemon}${service.full_service_path}`),
+        ]);
 
         const sourceCode = `${base}\n${code}`;
-        const certificateAuthority = await this.deps.certificateAuthority();
         const sdk: INotebookSdk = {
             version: createHash("sha256").update(sourceCode).digest("hex")
                 .slice(0, 16),
@@ -296,7 +303,8 @@ const TS_PLUGIN = "mariadb-notebook-ts-plugin";
  * Hands an SDK's source to the TypeScript server plugin, for the cells'
  * completion and hover: written to a file of the extension's own, which
  * the plugin adds to the cells' project. The last SDK built is the one the
- * editor knows - one at a time, as the cells of a folder share a project.
+ * editor knows - one at a time, as the cells of a folder share a project -
+ * so an SDK's file is written once, and the ones before it are deleted.
  *
  * @param folder Where the file is written.
  * @param sdk The SDK.
@@ -310,10 +318,19 @@ export const publishSdkTypings = async (
     log: (message: string) => void,
 ): Promise<void> => {
     try {
-        const file = vscode.Uri.joinPath(folder, `mrs-sdk-${sdk.version}.ts`);
-        await vscode.workspace.fs.createDirectory(folder);
-        await vscode.workspace.fs.writeFile(file,
-            new TextEncoder().encode(sdk.code));
+        const name = `mrs-sdk-${sdk.version}.ts`;
+        const file = path.join(folder.fsPath, name);
+        await fs.promises.mkdir(folder.fsPath, { recursive: true });
+        const present = await fs.promises.readdir(folder.fsPath);
+        await Promise.all(present.filter((each) => {
+            return /^mrs-sdk-.*\.ts$/.test(each) && each !== name;
+        }).map((stale) => {
+            return fs.promises.rm(path.join(folder.fsPath, stale),
+                { force: true });
+        }));
+        if (!present.includes(name)) {
+            await fs.promises.writeFile(file, sdk.code);
+        }
 
         const typescript = vscode.extensions.getExtension<{
             getAPI(version: 0): {
@@ -321,7 +338,7 @@ export const publishSdkTypings = async (
             } | undefined;
         }>("vscode.typescript-language-features");
         const api = (await typescript?.activate())?.getAPI(0);
-        api?.configurePlugin(TS_PLUGIN, { sdkFile: file.fsPath });
+        api?.configurePlugin(TS_PLUGIN, { sdkFile: file });
     } catch (error) {
         log(`Could not hand the REST SDK to the editor: ${errorText(error)}`);
     }

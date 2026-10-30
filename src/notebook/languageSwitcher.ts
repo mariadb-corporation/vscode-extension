@@ -18,13 +18,12 @@
 import * as vscode from "vscode";
 
 import { detectLanguage } from "./languageDetection.js";
-import { isMariaDbNotebook } from "./notebookConnection.js";
+import { CELL_SCHEME, cellOf } from "./notebookConnection.js";
+import { errorText } from "../text.js";
 
 /** How long typing has to pause before a cell's language is looked at. */
 export const DETECT_DELAY_MS = 300;
 
-/** The scheme of a notebook cell's document. */
-const CELL_SCHEME = "vscode-notebook-cell";
 
 /**
  * Switches a MariaDB Notebook's code cells between SQL and TypeScript as
@@ -119,7 +118,7 @@ export class LanguageSwitcher implements vscode.Disposable {
             return;
         }
 
-        const found = this.#cellOf(document);
+        const found = cellOf(document);
         if (found !== undefined && !this.#pinned(found.cell)) {
             void this.#pin(found.notebook, found.cell);
         }
@@ -133,7 +132,7 @@ export class LanguageSwitcher implements vscode.Disposable {
      * @returns Nothing.
      */
     async #detect(document: vscode.TextDocument): Promise<void> {
-        const found = this.#cellOf(document);
+        const found = cellOf(document);
         if (found === undefined
             || found.cell.kind !== vscode.NotebookCellKind.Code
             || this.#pinned(found.cell)) {
@@ -150,34 +149,9 @@ export class LanguageSwitcher implements vscode.Disposable {
             await vscode.languages.setTextDocumentLanguage(document, language);
         } catch (error) {
             this.#expected.set(document.uri.toString(), document.languageId);
-            this.log(`Could not switch a notebook cell to ${language}: ${
-                error instanceof Error ? error.message : String(error)}`);
+            this.log(`Could not switch a notebook cell to ${language}: `
+                + errorText(error));
         }
-    }
-
-    /**
-     * @param document A cell's document.
-     *
-     * @returns The cell, and the MariaDB Notebook it is in.
-     */
-    #cellOf(document: vscode.TextDocument): {
-        notebook: vscode.NotebookDocument;
-        cell: vscode.NotebookCell;
-    } | undefined {
-        const key = document.uri.toString();
-        for (const notebook of vscode.workspace.notebookDocuments) {
-            if (!isMariaDbNotebook(notebook)) {
-                continue;
-            }
-            const cell = notebook.getCells().find((candidate) => {
-                return candidate.document.uri.toString() === key;
-            });
-            if (cell !== undefined) {
-                return { notebook, cell };
-            }
-        }
-
-        return undefined;
     }
 
     /**

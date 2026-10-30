@@ -4,7 +4,8 @@ The REST Service part of the Connections view and its dialogs: a port of
 the MySQL Shell for VS Code extension's MySQL REST Service support
 (`mysql-shell-plugins/gui/extension` + the frontend's `modules/mrs`), with
 MariaDB's names and REST SQL as the only API. The REST client SDK in a
-notebook's TypeScript cells is in [notebooks.md](notebooks.md).
+notebook's TypeScript cells is in
+[notebook-typescript.md](notebook-typescript.md).
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
@@ -152,6 +153,12 @@ The new-schema dialog (the user's request):
     them: `/filmList2`. The object name must be unique on the REST schema
     too (`MyServiceV1ZzReviewFilmList`), so it is made from the numbered
     path, not from the database object's name.
+  - `camelCase` lowers a word in capitals before it capitalizes it - an
+    upper-case column (performance_schema's `CURRENT_CONNECTIONS`) is a
+    `currentConnections` field, its table the path `/accounts` - and leaves
+    a word in mixed case as it is (`lastUpdate`). The shell's REST SQL
+    names the fields of a view created without them by its own rule
+    (`snake_to_camel_case`), which may name such a column differently.
   - Every path suggested from a name - a REST schema's, a REST object's,
     a content set's - is ASCII (`requestPathFor`): `camelCase` folds
     accents (`größe` is `/grosse`, `ß`/`æ`/`ł`... spelled out), and a name

@@ -24,6 +24,7 @@
 import type {
     HostMessage,
     IResultSet,
+    IViewState,
     WebviewMessage,
 } from "../webview/protocol.js";
 
@@ -49,6 +50,33 @@ export interface INotebookResultPayload {
     connection: string;
     resultSets: IResultSet[];
 }
+
+/**
+ * The state a cell's view shows: its result sets as tabs, and nothing of
+ * the panel's pickers or actions. The extension sends it, and the renderer
+ * starts a view from it before the extension answers.
+ *
+ * @param connection The connection the cell ran on.
+ * @param resultSets The cell's result sets.
+ * @param settings The grid settings, where the extension knows them.
+ *
+ * @returns The state.
+ */
+export const notebookViewState = (
+    connection: string,
+    resultSets: IResultSet[],
+    settings: Pick<IViewState, "freezeKeyColumns" | "showColumnTypes"> = {},
+): IViewState => {
+    return {
+        connections: [],
+        connection,
+        sessions: [],
+        actions: [],
+        resultSets,
+        notebook: true,
+        ...settings,
+    };
+};
 
 /** A message from an output's view to the extension. */
 export interface IRendererMessage {

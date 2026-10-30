@@ -83,17 +83,22 @@ const writeTypings = (folder) => {
 
 /**
  * @param {readonly string[]} fileNames A project's files.
+ *
+ * @returns {boolean} Whether one of them is a MariaDB Notebook's cell.
+ */
+const holdsNotebookCell = (fileNames) => {
+    return fileNames.some((name) => { return NOTEBOOK_CELL.test(name); });
+};
+
+/**
+ * @param {string[]} fileNames The files of a project holding a MariaDB
+ *        Notebook's cell.
  * @param {string} typings The typings' file.
  * @param {string} [sdkFile] The REST SDK's file, if there is one.
  *
- * @returns {string[]} The same, with the typings - and the SDK - where one
- *          of them is a MariaDB Notebook's cell.
+ * @returns {string[]} The same, with the typings and the SDK.
  */
 const withTypings = (fileNames, typings, sdkFile) => {
-    if (!fileNames.some((name) => { return NOTEBOOK_CELL.test(name); })) {
-        return [...fileNames];
-    }
-
     return [...new Set([...fileNames, typings,
         ...sdkFile === undefined ? [] : [sdkFile]])];
 };
@@ -111,7 +116,8 @@ const createInit = (folder = path.join(os.tmpdir(),
     /** @type {string | undefined} */
     let sdkFile;
     /**
-     * The projects it was created for, looked at again for a new SDK.
+     * The projects holding a MariaDB Notebook's cell, looked at again for
+     * a new SDK; let go of as each is disposed.
      *
      * @type {Set<{ markAsDirty(): void }>}
      */
@@ -159,13 +165,28 @@ const createInit = (folder = path.join(os.tmpdir(),
                     return info.languageService;
                 }
 
+                // Asked on every update of every project: one without a
+                // notebook's cell gets its own list back, as it is.
                 const host = info.languageServiceHost;
                 const own = host.getScriptFileNames.bind(host);
                 const file = typings;
                 host.getScriptFileNames = () => {
-                    return withTypings(own(), file, sdkFile);
+                    const fileNames = own();
+                    if (!holdsNotebookCell(fileNames)) {
+                        return fileNames;
+                    }
+                    projects.add(info.project);
+
+                    return withTypings(fileNames, file, sdkFile);
                 };
-                projects.add(info.project);
+
+                const service = /** @type {{ dispose?(): void }} */ (
+                    info.languageService);
+                const dispose = service.dispose?.bind(service);
+                service.dispose = () => {
+                    projects.delete(info.project);
+                    dispose?.();
+                };
 
                 return info.languageService;
             },
@@ -175,4 +196,5 @@ const createInit = (folder = path.join(os.tmpdir(),
 
 module.exports = createInit();
 module.exports.createInit = createInit;
+module.exports.holdsNotebookCell = holdsNotebookCell;
 module.exports.withTypings = withTypings;

@@ -39,10 +39,8 @@ export interface IScriptWorker {
 export interface IScriptHost {
     /** Shows something the cell printed, as it is printed. */
     print(value: PrintedValue): void;
-    /** Runs SQL on the notebook's connection and answers its rows. */
-    runSql(sql: string): Promise<Array<Record<string, unknown>>>;
     /**
-     * Does what the cell asked of the extension, beside SQL.
+     * Does what the cell asked of the extension: runs its SQL, logs it in.
      *
      * @returns The answer, and the SDK it built, for the worker to load.
      */
@@ -168,17 +166,6 @@ export class ScriptRunner {
     }
 
     /**
-     * Lets go of a notebook's worker, as when it is closed.
-     *
-     * @param notebook Which notebook.
-     *
-     * @returns Nothing.
-     */
-    public forget(notebook: string): void {
-        this.interrupt(notebook);
-    }
-
-    /**
      * @param notebook Which notebook.
      *
      * @returns Its worker, started if it has none.
@@ -231,25 +218,6 @@ export class ScriptRunner {
         switch (message.type) {
             case "print": {
                 running.host.print(message.value);
-                break;
-            }
-
-            case "runSql": {
-                let reply: ToWorkerMessage;
-                try {
-                    reply = {
-                        type: "sqlResult",
-                        requestId: message.requestId,
-                        rows: await running.host.runSql(message.sql),
-                    };
-                } catch (error) {
-                    reply = {
-                        type: "sqlResult",
-                        requestId: message.requestId,
-                        error: errorText(error),
-                    };
-                }
-                held.worker.postMessage(reply);
                 break;
             }
 

@@ -82,15 +82,17 @@ export class Uri {
         public readonly scheme: string,
         public readonly path: string,
         public readonly query = "",
+        public readonly fragment = "",
     ) { }
 
     public static from(components: {
         scheme: string;
         path?: string;
         query?: string;
+        fragment?: string;
     }): Uri {
-        return new Uri(
-            components.scheme, components.path ?? "", components.query ?? "");
+        return new Uri(components.scheme, components.path ?? "",
+            components.query ?? "", components.fragment ?? "");
     }
 
     public static file(path: string): Uri {
@@ -116,7 +118,8 @@ export class Uri {
     }
 
     public toString(): string {
-        return `${this.scheme}://${this.path}`;
+        return `${this.scheme}://${this.path}`
+            + (this.fragment === "" ? "" : `#${this.fragment}`);
     }
 }
 
@@ -1535,9 +1538,12 @@ export class MockNotebookDocument {
                 index,
                 kind: cell.kind,
                 document: new MockTextDocument(
+                    // As VS Code names a cell: its notebook's path, and the
+                    // cell in the fragment.
                     Uri.from({
                         scheme: "vscode-notebook-cell",
-                        path: `${uri.path}#cell${index}`,
+                        path: uri.path,
+                        fragment: `cell${index}`,
                     }),
                     cell.languageId, cell.value),
                 notebook: this,
@@ -1682,6 +1688,22 @@ export class MockRendererMessaging {
 
 export const rendererMessagings: MockRendererMessaging[] = [];
 const closeNotebookListeners = new Set<(notebook: unknown) => void>();
+
+/**
+ * Tells the listeners a notebook changed, as VS Code would.
+ *
+ * @param event What changed.
+ *
+ * @returns Nothing.
+ */
+export const fireNotebookChange = (event: {
+    notebook: MockNotebookDocument;
+    contentChanges?: Array<{ removedCells: IMockNotebookCell[] }>;
+}): void => {
+    for (const listener of notebookChangeListeners) {
+        listener({ cellChanges: [], contentChanges: [], ...event });
+    }
+};
 
 /**
  * Closes a notebook, as VS Code would, telling the listeners.

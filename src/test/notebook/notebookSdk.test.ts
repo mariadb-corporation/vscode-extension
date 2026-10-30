@@ -15,7 +15,11 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
     type INotebookSdkDependencies,
@@ -26,7 +30,6 @@ import {
 import type { INotebookSdk } from "../../notebook/scriptProtocol.js";
 import type { IMrsService } from "../../mrs/mrsTypes.js";
 import {
-    files,
     inputBoxAnswers,
     inputBoxCalls,
     mockExtensions,
@@ -200,11 +203,24 @@ describe("NotebookSdk", () => {
 });
 
 describe("publishSdkTypings", () => {
+    const folders: string[] = [];
+
     beforeEach(() => {
         resetVscodeMock();
     });
 
-    it("writes the SDK, and names it to the TypeScript plugin", async () => {
+    afterEach(() => {
+        for (const folder of folders.splice(0)) {
+            fs.rmSync(folder, { recursive: true, force: true });
+        }
+    });
+
+    it("writes the SDK once, drops the ones before, and names it to the "
+        + "TypeScript plugin", async () => {
+        const folder = fs.mkdtempSync(path.join(os.tmpdir(), "notebook-sdk-"));
+        folders.push(folder);
+        fs.writeFileSync(path.join(folder, "mrs-sdk-old.ts"), "old");
+        fs.writeFileSync(path.join(folder, "other.txt"), "kept");
         const configured: unknown[] = [];
         mockExtensions.set("vscode.typescript-language-features", {
             activate: () => {
@@ -220,19 +236,32 @@ describe("publishSdkTypings", () => {
             },
         });
 
-        await publishSdkTypings(Uri.file("/storage/notebook-sdk") as never,
-            { version: "abc", code: "class A {}" }, () => { /* quiet */ });
+        const sdk = { version: "abc", code: "class A {}" };
+        await publishSdkTypings(Uri.file(folder) as never, sdk,
+            () => { /* quiet */ });
+        // The same SDK again: nothing written.
+        const written = fs.statSync(path.join(folder, "mrs-sdk-abc.ts")).mtimeMs;
+        await new Promise((resolve) => { setTimeout(resolve, 10); });
+        await publishSdkTypings(Uri.file(folder) as never, sdk,
+            () => { /* quiet */ });
 
-        expect(new TextDecoder().decode(
-            files.get("/storage/notebook-sdk/mrs-sdk-abc.ts"))).toBe("class A {}");
-        expect(configured).toEqual([["mariadb-notebook-ts-plugin",
-            { sdkFile: "/storage/notebook-sdk/mrs-sdk-abc.ts" }]]);
+        expect(fs.readdirSync(folder).sort()).toEqual(
+            ["mrs-sdk-abc.ts", "other.txt"]);
+        expect(fs.readFileSync(path.join(folder, "mrs-sdk-abc.ts"), "utf8"))
+            .toBe("class A {}");
+        expect(fs.statSync(path.join(folder, "mrs-sdk-abc.ts")).mtimeMs)
+            .toBe(written);
+        expect(configured[0]).toEqual(["mariadb-notebook-ts-plugin",
+            { sdkFile: path.join(folder, "mrs-sdk-abc.ts") }]);
     });
 
     it("logs where there is no TypeScript extension to tell", async () => {
         const logged: string[] = [];
 
-        await publishSdkTypings(Uri.file("/storage") as never,
+        const folder = fs.mkdtempSync(path.join(os.tmpdir(), "notebook-sdk-"));
+        folders.push(folder);
+
+        await publishSdkTypings(Uri.file(folder) as never,
             { version: "abc", code: "" }, (message) => { logged.push(message); });
 
         expect(logged).toEqual([]);

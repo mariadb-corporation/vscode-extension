@@ -31,6 +31,7 @@ const plugin = require("../../../ts-plugin/index.js") as {
         create(info: unknown): unknown;
         onConfigurationChanged(configuration: unknown): void;
     };
+    holdsNotebookCell(fileNames: string[]): boolean;
     withTypings(fileNames: string[], typings: string, sdkFile?: string): string[];
 };
 const typings = require("../../../ts-plugin/typings.js") as string;
@@ -48,15 +49,16 @@ afterEach(() => {
 
 describe("the TypeScript server plugin", () => {
     it("adds the typings to a project with a MariaDB Notebook's cell", () => {
+        expect(plugin.holdsNotebookCell(["/w/x.ts", CELL])).toBe(true);
         expect(plugin.withTypings(["/w/x.ts", CELL], "/t.d.ts"))
             .toEqual(["/w/x.ts", CELL, "/t.d.ts"]);
-        expect(plugin.withTypings([CELL, "/t.d.ts"], "/t.d.ts"))
-            .toEqual([CELL, "/t.d.ts"]);
+        expect(plugin.withTypings([CELL, "/t.d.ts"], "/t.d.ts", "/s.ts"))
+            .toEqual([CELL, "/t.d.ts", "/s.ts"]);
         // A Jupyter notebook's, or a file's, project is left as it is.
-        expect(plugin.withTypings([
+        expect(plugin.holdsNotebookCell([
             "^/vscode-notebook-cell/ts-nul-authority/w/a.ipynb#c1",
             "/w/x.ts",
-        ], "/t.d.ts")).toHaveLength(2);
+        ])).toBe(false);
     });
 
     it("writes the typings once, and serves them to the project", () => {
@@ -82,26 +84,48 @@ describe("the TypeScript server plugin", () => {
     it("adds the REST SDK the extension names, and looks again", () => {
         const folder = fs.mkdtempSync(path.join(os.tmpdir(), "ts-plugin-"));
         folders.push(folder);
-        const files = [CELL];
-        const host = { getScriptFileNames: () => { return files; } };
-        let dirty = 0;
         const module = plugin.createInit(folder)();
-        module.create({
-            languageServiceHost: host,
-            languageService: {},
-            project: {
-                markAsDirty: () => { dirty += 1; },
-                projectService: { logger: { info: () => {} } },
-            },
-        });
+        /**
+         * @param files A project's files.
+         *
+         * @returns The project as the plugin sees it, and how often it
+         *          was marked to be looked at again.
+         */
+        const project = (files: string[]) => {
+            const made = {
+                dirty: 0,
+                host: { getScriptFileNames: () => { return files; } },
+                service: { dispose: () => { /* the server's own */ } },
+            };
+            module.create({
+                languageServiceHost: made.host,
+                languageService: made.service,
+                project: {
+                    markAsDirty: () => { made.dirty += 1; },
+                    projectService: { logger: { info: () => {} } },
+                },
+            });
+
+            return made;
+        };
+        const notebook = project([CELL]);
+        const plain = project(["/x.ts"]);
+        const closed = project([CELL]);
+        const plainFiles = plain.host.getScriptFileNames();
+        notebook.host.getScriptFileNames();
+        closed.host.getScriptFileNames();
+        closed.service.dispose();
 
         module.onConfigurationChanged({ sdkFile: "/s/mrs-sdk-1.ts" });
         module.onConfigurationChanged({ sdkFile: "/s/mrs-sdk-1.ts" });
 
-        expect(host.getScriptFileNames().at(-1)).toBe("/s/mrs-sdk-1.ts");
-        expect(dirty).toBe(1);
-        expect(plugin.withTypings(["/x.ts"], "/t.d.ts", "/s.ts"))
-            .toEqual(["/x.ts"]);
+        expect(notebook.host.getScriptFileNames().at(-1))
+            .toBe("/s/mrs-sdk-1.ts");
+        // Only a project holding a cell is looked at again, and not once
+        // it is gone; another one's list is its own, untouched.
+        expect([notebook.dirty, plain.dirty, closed.dirty]).toEqual([1, 0, 0]);
+        expect(plain.host.getScriptFileNames()).toBe(plainFiles);
+        expect(plainFiles).toEqual(["/x.ts"]);
     });
 
     it("describes the runtime as cells use it", () => {

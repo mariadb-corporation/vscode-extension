@@ -30,11 +30,19 @@ const https = vi.hoisted(() => {
             "set-cookie": ["a", "b"],
         } as Record<string, string | string[]>,
         body: "{\"ok\":true}",
+        agent: undefined as unknown,
+        agentOptions: undefined as unknown,
     };
 });
 
 vi.mock("node:https", () => {
     return {
+        Agent: class {
+            public constructor(public readonly options: unknown) {
+                https.agent = this;
+                https.agentOptions = options;
+            }
+        },
         request: (url: URL, options: Record<string, unknown>,
             respond: (incoming: EventEmitter) => void) => {
             const entry: { url: URL; options: Record<string, unknown>;
@@ -89,7 +97,9 @@ describe("trustingFetch", () => {
             expect(request.options.method).toBe("POST");
             expect(request.options.headers).toMatchObject(
                 { authorization: "Bearer t" });
-            expect((request.options.ca as string[]).at(-1)).toBe("LOCAL CA");
+            expect(request.options.agent).toBe(https.agent);
+            expect(https.agentOptions).toEqual(
+                { ca: "LOCAL CA", keepAlive: true });
             expect(request.body?.toString()).toBe("{\"a\":1}");
         });
 

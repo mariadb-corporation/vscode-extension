@@ -37,6 +37,7 @@ import {
     type IHostRendererMessage,
     type INotebookResultPayload,
     type IRendererMessage,
+    notebookViewState,
 } from "../../src/notebook/notebookProtocol.js";
 import type {
     HostMessage,
@@ -125,18 +126,11 @@ export const seedState = (
     payload: INotebookResultPayload,
     connected: boolean,
 ): IViewState => {
-    return {
-        connections: [],
-        connection: payload.connection,
-        sessions: [],
-        actions: [],
-        resultSets: connected
-            ? payload.resultSets
-            : payload.resultSets.map((set) => {
-                return { ...set, editable: false, readOnlyReason: NO_MESSAGING };
-            }),
-        notebook: true,
-    };
+    return notebookViewState(payload.connection, connected
+        ? payload.resultSets
+        : payload.resultSets.map((set) => {
+            return { ...set, editable: false, readOnlyReason: NO_MESSAGING };
+        }));
 };
 
 /**
@@ -176,11 +170,23 @@ export const activate = (context: IRendererContext = {}): IRenderer => {
     const listeners = new Map<string, Set<(message: HostMessage) => void>>();
     const connected = context.postMessage !== undefined;
 
-    context.onDidReceiveMessage?.((received) => {
-        const { viewId, message } = received as IHostRendererMessage;
+    /**
+     * Tells a view's listeners a message.
+     *
+     * @param viewId The view.
+     * @param message The message.
+     *
+     * @returns Nothing.
+     */
+    const deliver = (viewId: string, message: HostMessage): void => {
         for (const listener of listeners.get(viewId) ?? []) {
             listener(message);
         }
+    };
+
+    context.onDidReceiveMessage?.((received) => {
+        const { viewId, message } = received as IHostRendererMessage;
+        deliver(viewId, message);
     });
 
     /**
@@ -190,11 +196,6 @@ export const activate = (context: IRendererContext = {}): IRenderer => {
      */
     const transportFor = (payload: INotebookResultPayload): IHostTransport => {
         const { viewId } = payload;
-        const tell = (message: HostMessage): void => {
-            for (const listener of listeners.get(viewId) ?? []) {
-                listener(message);
-            }
-        };
 
         return {
             post: (message) => {
@@ -203,7 +204,8 @@ export const activate = (context: IRendererContext = {}): IRenderer => {
                     // Shown from the output at once, whether or not the
                     // extension answers; sent along, so a view it does not
                     // know - a reopened notebook's - can be taken up.
-                    tell({ type: "state", state: seedState(payload, connected) });
+                    deliver(viewId,
+                        { type: "state", state: seedState(payload, connected) });
                     sent.seed = payload;
                 }
                 context.postMessage?.(sent);
