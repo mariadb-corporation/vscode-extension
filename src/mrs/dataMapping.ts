@@ -158,7 +158,8 @@ export const asciiFolded = (text: string): string => {
 };
 
 /**
- * @param text `snake_case`, `kebab-case` or `space separated`.
+ * @param text `snake_case`, `kebab-case`, `space separated`, or in capitals,
+ *             `CURRENT_CONNECTIONS` - each word in capitals is lowered.
  *
  * @returns It in camelCase, in ASCII letters and digits: accents are
  *          folded, and what has no ASCII spelling is left out, so a name
@@ -167,6 +168,10 @@ export const asciiFolded = (text: string): string => {
 export const camelCase = (text: string): string => {
     const words = asciiFolded(text).split(/[^A-Za-z0-9]+/).filter((word) => {
         return word !== "";
+    }).map((word) => {
+        // A word in capitals - an upper-case column, USER - is a word, not
+        // an acronym to keep: lower case, then capitalized as any other.
+        return /[a-z]/.test(word) ? word : word.toLowerCase();
     });
 
     return words.map((word, index) => {
