@@ -97,7 +97,7 @@ which exposes the backend functions over the Model Context Protocol.
 
 ## Requirements
 
-MariaDB Shell **26.10.3** or newer, with at least one connection configured
+MariaDB Shell **26.10.5** or newer, with at least one connection configured
 via `mariadb-shell -- mcp setup`.
 
 The extension takes care of the shell on its own. The first time it needs

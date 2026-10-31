@@ -41,6 +41,14 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   the column alone. They need a
   `mariadb-lsp` that has them; an older one ignores them.
 
+### Changed
+
+- **Requires MariaDB Shell 26.10.5** (was 26.10.3), the first release
+  whose background tasks are the shell's own (`mysqlsh.task_manager`). Dumps,
+  loads, copies, exports and imports are followed and cancelled with the
+  MCP server's `task.get` and `task.cancel` (were `util.get_task` and
+  `util.cancel_task`, which the server no longer has).
+
 ## [26.10.1] - 2026-10-21
 
 ### Added

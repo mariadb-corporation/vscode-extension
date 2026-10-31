@@ -30,13 +30,18 @@
  * per-statement results of `db.execute_sql_script` - `statement_index`,
  * `execution_time`, `error`, `warnings` and `stop_on_error`.
  *
+ * 26.10.5 is the first that ships `mysqlsh.task_manager` and the MCP
+ * plugin's `task.get`, `task.list` and `task.cancel`, which follow the dumps
+ * and loads; it has no `util.get_task` any more, and the extension does not
+ * fall back to it, so an older server cannot follow or cancel a task.
+ *
  * Beyond that floor it tracks the shell release the plugins go out with:
  * `tools/update_version` sets it to the version on the shell repo's
  * `main` branch, where it is bumped for a release - which is also the shell
- * the extension installs when there is none. Never set it below 26.9.4 by
+ * the extension installs when there is none. Never set it below 26.10.5 by
  * hand.
  */
-export const MINIMUM_SHELL_VERSION = "26.10.3";
+export const MINIMUM_SHELL_VERSION = "26.10.5";
 
 /** Name of the shell executable, without a platform specific extension. */
 export const SHELL_BINARY_NAME = "mariadb-shell";
