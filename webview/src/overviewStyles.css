@@ -296,7 +296,7 @@ body.vscode-light .overview-title-workbench {
     display: flex;
     flex-direction: row;
     align-items: stretch;
-    width: 270px;
+    width: 250px;
     height: 80px;
     margin: 2px;
     padding: 0 0 0 20px;
@@ -427,6 +427,12 @@ body.vscode-light .overview-title-workbench {
     flex-direction: column;
     justify-content: center;
     min-width: 0;
+    padding-right: 15px;
+}
+
+/* Clear of the actions column while it is shown. */
+.overview-tile:hover:has(.overview-tile-actions) .overview-tile-text,
+.overview-tile:focus-within:has(.overview-tile-actions) .overview-tile-text {
     padding-right: 39px;
 }
 
