@@ -70,6 +70,7 @@ import {
     shownNotebooks,
     statusBarItems,
     Uri,
+    workspace,
 } from "../mocks/vscode.js";
 
 const encoder = new TextEncoder();
@@ -313,6 +314,32 @@ describe("the notebook's connection", () => {
             expect(notebook.getCells().map((cell) => {
                 return [cell.document.languageId, cell.document.getText()];
             })).toEqual([["mariadb-sql", ""]]);
+            expect(shownNotebooks).toEqual([notebook]);
+        });
+
+    it("sets the connection again where the host dropped the metadata",
+        async () => {
+            // Theia 1.76: a notebook created from data reaches the
+            // extension with empty metadata.
+            const host = workspace as unknown as {
+                openNotebookDocument(type: string, data: NotebookData):
+                    Promise<unknown>;
+            };
+            const original = host.openNotebookDocument;
+            host.openNotebookDocument = (type, data) => {
+                const bare = new NotebookData(data.cells);
+
+                return Promise.resolve(openMockNotebook(type, bare));
+            };
+            try {
+                await openNewNotebook("app@localhost:3311");
+            } finally {
+                host.openNotebookDocument = original;
+            }
+
+            const [notebook] = notebookDocuments;
+            expect(notebook.metadata).toEqual(
+                { connection: "app@localhost:3311" });
             expect(shownNotebooks).toEqual([notebook]);
         });
 });

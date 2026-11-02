@@ -61,6 +61,12 @@ and records the answer. Picked with **Select Connection** (`$(database)`)
 in the notebook toolbar or from the status bar entry, which shows the
 notebook's connection while a MariaDB Notebook is the active editor.
 
+`openNewNotebook` (Overview tiles, the Connections view) puts the
+connection in the new notebook's data, and sets it again with
+`setNotebookConnection` where the notebook arrives without it: Theia 1.76
+drops the metadata of a notebook created from data on the extension's
+side (the MariaDB Workbench patches that, other Theia hosts may not).
+
 `SqlEditorBinding.connectionFor` answers a cell's document with its
 notebook's connection, which is what the language server, the ANSI_QUOTES
 highlighting and the status bar all ask: so a SQL cell gets completion
