@@ -86,8 +86,10 @@ change belongs to up to date, and this table with it.
 
 - `MINIMUM_SHELL_VERSION` (`src/shell/constants.ts`) is set by the release
   tooling (`tools/update_version`, the shell repo's `main` version); the hard
-  floor is 26.10.5 (`mariadb://` URIs from 26.9.3, `db.test_connection` and
-  per-statement script results from 26.9.4, `task.*` from 26.10.5). 26.10.0 is the first release
+  floor is 26.10.4 (`mariadb://` URIs from 26.9.3, `db.test_connection` and
+  per-statement script results from 26.9.4), held below 26.10.5 (`task.*`)
+  so the Workbench can be tried on the shell builds in use; on 26.10.4
+  Dump and Load cannot follow or cancel its tasks. 26.10.0 is the first release
   whose bundled `mcp_plugin` has connection folders / captions / colors,
   `sandbox.list_instances` and `mcp_access`, paging (`has_more_pages`) and
   `column_metadata`. 26.10.3 is the first with the MRS module

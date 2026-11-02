@@ -43,11 +43,13 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Changed
 
-- **Requires MariaDB Shell 26.10.5** (was 26.10.3), the first release
-  whose background tasks are the shell's own (`mysqlsh.task_manager`). Dumps,
-  loads, copies, exports and imports are followed and cancelled with the
-  MCP server's `task.get` and `task.cancel` (were `util.get_task` and
-  `util.cancel_task`, which the server no longer has).
+- **Requires MariaDB Shell 26.10.4** (was 26.10.3). Dumps, loads, copies,
+  exports and imports are followed and cancelled with the MCP server's
+  `task.get` and `task.cancel` (were `util.get_task` and
+  `util.cancel_task`, which the server no longer has); those need MariaDB
+  Shell 26.10.5, the first release whose background tasks are the shell's
+  own (`mysqlsh.task_manager`), and an older one cannot follow or cancel
+  them.
 - The `LICENSE` file follows legal's review: MariaDB plc, for its
   modifications and additions, also grants the additional permission to
   link with separately licensed software, and the third-party list adds
