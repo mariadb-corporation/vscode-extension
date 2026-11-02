@@ -89,7 +89,8 @@ change belongs to up to date, and this table with it.
   floor is 26.10.4 (`mariadb://` URIs from 26.9.3, `db.test_connection` and
   per-statement script results from 26.9.4), held below 26.10.5 (`task.*`)
   so the Workbench can be tried on the shell builds in use; on 26.10.4
-  Dump and Load cannot follow or cancel its tasks. 26.10.0 is the first release
+  Dump and Load cannot follow or cancel its tasks. To do: raise it to
+  26.10.5 once that release is out. 26.10.0 is the first release
   whose bundled `mcp_plugin` has connection folders / captions / colors,
   `sandbox.list_instances` and `mcp_access`, paging (`has_more_pages`) and
   `column_metadata`. 26.10.3 is the first with the MRS module
