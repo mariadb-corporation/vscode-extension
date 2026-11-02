@@ -322,13 +322,17 @@ export class NotebookController implements vscode.Disposable {
 
         const show = async (value: PrintedValue): Promise<void> => {
             // JSON and graphs are an output each, the stream broken off.
+            // The text/plain copy comes first: Theia renders an output's
+            // first item and gives up when no renderer takes its type, and
+            // none takes application/json; VS Code picks by its own order
+            // of types, whatever the items' order.
             if (value.kind !== "text") {
                 stream = undefined;
                 await execution.appendOutput(toCellOutput({
                     items: value.kind === "graph"
                         ? [{ mime: GRAPH_MIME, text: value.json }]
-                        : [{ mime: "application/json", text: value.json },
-                            { mime: "text/plain", text: value.json }],
+                        : [{ mime: "text/plain", text: value.json },
+                            { mime: "application/json", text: value.json }],
                 }));
 
                 return;

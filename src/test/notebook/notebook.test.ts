@@ -652,9 +652,9 @@ describe("TypeScript cells", () => {
             expect(first.outputs.map(itemsOf)).toEqual([
                 [{ mime: STDOUT_MIME, text: "1 row\n" }],
                 [
-                    { mime: "application/json",
-                        text: JSON.stringify([{ 1: 1 }], null, 2) },
                     { mime: "text/plain",
+                        text: JSON.stringify([{ 1: 1 }], null, 2) },
+                    { mime: "application/json",
                         text: JSON.stringify([{ 1: 1 }], null, 2) },
                 ],
             ]);
@@ -710,7 +710,7 @@ describe("TypeScript cells", () => {
             await kernel.executeHandler!(notebook.getCells(), notebook);
 
             const [rows, assigned, printed] = kernel.executions;
-            expect(itemsOf(rows.outputs[0])[0]).toEqual({
+            expect(itemsOf(rows.outputs[0])[1]).toEqual({
                 mime: "application/json",
                 text: JSON.stringify([{ 1: 1 }], null, 2),
             });

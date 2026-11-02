@@ -91,7 +91,9 @@ ways, on the lines it was on:
 It runs in a `vm` context kept across the notebook's cells, with:
 
 - `print(...values)` - text as a stream, a value JSON can hold as JSON
-  (`application/json`, with a `text/plain` copy), anything else as Node
+  (`application/json`, after a `text/plain` copy: Theia renders an
+  output's first item only, and no renderer there takes
+  `application/json`), anything else as Node
   renders it. Shown as it is printed: consecutive text is one stream
   output.
 - `runSql(sql)` - runs on the notebook's connection
