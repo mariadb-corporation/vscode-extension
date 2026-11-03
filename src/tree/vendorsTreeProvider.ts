@@ -41,9 +41,9 @@ export interface IVendorNode {
 
 /** The vendors, in the order the view lists them. */
 export const VENDORS: IVendorNode[] = [
+    { id: "mariadb-cloud", label: "MariaDB Cloud", icon: "cloud" },
     { id: "container", label: "Local Container", icon: "package" },
     { id: "proxmox", label: "Proxmox", icon: "server-environment" },
-    { id: "mariadb-cloud", label: "MariaDB Cloud", icon: "cloud" },
     { id: "aws", label: "AWS", icon: "cloud" },
     { id: "hetzner", label: "Hetzner", icon: "cloud" },
     { id: "scaleway", label: "Scaleway", icon: "cloud" },
