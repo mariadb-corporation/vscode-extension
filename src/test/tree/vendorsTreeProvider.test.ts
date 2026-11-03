@@ -31,7 +31,7 @@ describe("VendorsTreeProvider", () => {
         const vendors = provider.getChildren();
 
         expect(vendors.map((vendor) => { return vendor.label; })).toEqual([
-            "Local Container", "Proxmox", "MariaDB Cloud", "AWS", "Hetzner",
+            "MariaDB Cloud", "Local Container", "Proxmox", "AWS", "Hetzner",
             "Scaleway", "STACKIT", "UpCloud",
         ]);
         expect(provider.getChildren(vendors[0])).toEqual([]);

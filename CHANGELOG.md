@@ -48,6 +48,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   link with separately licensed software, and the third-party list adds
   the packages the VS Code extension's notebooks bundle (sucrase and its
   dependencies, acorn).
+- The connection icons, SSH tunnel ones included, and the schema icons
+  are redrawn on one database shape, a connection's with a play arrow.
+- The Overview's tiles are 250px wide (were 270px), and a connection
+  tile's text keeps clear of its actions only while they are shown.
 
 ## [26.10.1] - 2026-10-21
 

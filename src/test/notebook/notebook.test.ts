@@ -70,6 +70,7 @@ import {
     shownNotebooks,
     statusBarItems,
     Uri,
+    workspace,
 } from "../mocks/vscode.js";
 
 const encoder = new TextEncoder();
@@ -313,6 +314,32 @@ describe("the notebook's connection", () => {
             expect(notebook.getCells().map((cell) => {
                 return [cell.document.languageId, cell.document.getText()];
             })).toEqual([["mariadb-sql", ""]]);
+            expect(shownNotebooks).toEqual([notebook]);
+        });
+
+    it("sets the connection again where the host dropped the metadata",
+        async () => {
+            // Theia 1.76: a notebook created from data reaches the
+            // extension with empty metadata.
+            const host = workspace as unknown as {
+                openNotebookDocument(type: string, data: NotebookData):
+                    Promise<unknown>;
+            };
+            const original = host.openNotebookDocument;
+            host.openNotebookDocument = (type, data) => {
+                const bare = new NotebookData(data.cells);
+
+                return Promise.resolve(openMockNotebook(type, bare));
+            };
+            try {
+                await openNewNotebook("app@localhost:3311");
+            } finally {
+                host.openNotebookDocument = original;
+            }
+
+            const [notebook] = notebookDocuments;
+            expect(notebook.metadata).toEqual(
+                { connection: "app@localhost:3311" });
             expect(shownNotebooks).toEqual([notebook]);
         });
 });
@@ -652,9 +679,9 @@ describe("TypeScript cells", () => {
             expect(first.outputs.map(itemsOf)).toEqual([
                 [{ mime: STDOUT_MIME, text: "1 row\n" }],
                 [
-                    { mime: "application/json",
-                        text: JSON.stringify([{ 1: 1 }], null, 2) },
                     { mime: "text/plain",
+                        text: JSON.stringify([{ 1: 1 }], null, 2) },
+                    { mime: "application/json",
                         text: JSON.stringify([{ 1: 1 }], null, 2) },
                 ],
             ]);
@@ -710,7 +737,7 @@ describe("TypeScript cells", () => {
             await kernel.executeHandler!(notebook.getCells(), notebook);
 
             const [rows, assigned, printed] = kernel.executions;
-            expect(itemsOf(rows.outputs[0])[0]).toEqual({
+            expect(itemsOf(rows.outputs[0])[1]).toEqual({
                 mime: "application/json",
                 text: JSON.stringify([{ 1: 1 }], null, 2),
             });

@@ -32,7 +32,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   back on, on an open page too. The MySQL Shell's Learn More /
   Documentation links are left out: there is no public documentation to
   link to yet.
-- **The tiles** are the MySQL Shell's: 270 x 80, its colors (dark and
+- **The tiles** are the MySQL Shell's, narrowed to 250 x 80 (the text
+  keeps 15px clear of the right edge, 39px while a connection's actions
+  column is shown on hover or focus), with its colors (dark and
   light, by VS Code's `vscode-light` body class, since VS Code's themes
   have no tile colors). Folders are not the MySQL Shell's bright orange
   (the user's call): an uncolored folder is plain grey, as Back is, so it

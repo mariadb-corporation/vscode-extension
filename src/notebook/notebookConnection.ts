@@ -143,6 +143,11 @@ export const openNewNotebook = async (
 
     const notebook = await vscode.workspace.openNotebookDocument(
         NOTEBOOK_TYPE, data);
+    // Theia (1.76) drops the metadata of a notebook created from data on
+    // the extension's side: set the connection again where it is missing.
+    if (uri !== undefined && notebookConnection(notebook) !== uri) {
+        await setNotebookConnection(notebook, uri);
+    }
     await vscode.window.showNotebookDocument(notebook);
 
     return notebook;
