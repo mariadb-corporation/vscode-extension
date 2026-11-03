@@ -149,6 +149,13 @@ since those come from `contributes`, not from the name.
   links against the repository root, and in the plugins monorepo that
   pointed them at the wrong directory. `LICENSE` is packaged as
   `extension/LICENSE.txt` and rendered as the Marketplace's License tab.
+- **`LICENSE`'s "Bundled JavaScript packages" lists what the builds bundle**,
+  transitive packages included (sucrase brings `ts-interface-checker`, the
+  one Apache-2.0 entry, among others). The source maps name every bundled
+  file: after a build, the `node_modules/<package>/` paths in the `sources`
+  of `dist/**/*.map` are the list to compare against. The same `LICENSE` is
+  shared by every mariadb-shell repository, so its title stays "MariaDB
+  Shell" without a version and its source pointer the GitHub organisations.
 
 ## Releasing
 

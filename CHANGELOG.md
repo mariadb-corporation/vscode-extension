@@ -41,6 +41,14 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   the column alone. They need a
   `mariadb-lsp` that has them; an older one ignores them.
 
+### Changed
+
+- The `LICENSE` file follows legal's review: MariaDB plc, for its
+  modifications and additions, also grants the additional permission to
+  link with separately licensed software, and the third-party list adds
+  the packages the VS Code extension's notebooks bundle (sucrase and its
+  dependencies, acorn).
+
 ## [26.10.1] - 2026-10-21
 
 ### Added
