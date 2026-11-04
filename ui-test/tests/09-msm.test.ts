@@ -25,7 +25,13 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { By, EditorView, VSBrowser, Workbench } from "vscode-extension-tester";
+import {
+    By,
+    EditorView,
+    SideBarView,
+    VSBrowser,
+    Workbench,
+} from "vscode-extension-tester";
 
 import {
     clearNotifications,
@@ -46,6 +52,7 @@ import {
     SERVER_TIMEOUT,
     setChecked,
     setField,
+    sleep,
     submitDialog,
     treeItem,
     waitDialogClosed,
@@ -133,6 +140,15 @@ describe("MariaDB Schema Management", () => {
         // Its development script is opened, and the folder is in the
         // Explorer.
         await waitForEditor(`${SCHEMA}_next.sql`);
+        // Shown in the Explorer it was made from: listed in the MSM
+        // Projects view too, but not revealed there, which would switch the
+        // side bar to it. The reveal follows the script's opening, so the
+        // side bar is watched a while.
+        for (let i = 0; i < 8; i++) {
+            assert.match(await new SideBarView().getTitlePart().getTitle(),
+                /^explorer/iu);
+            await sleep(250);
+        }
         assert.ok(existsSync(join(projectPath(), "msm.project.json")));
         await explorerItem(FOLDER, PROJECT_FOLDER);
         await waitForAction(/^Created MSM project for schema msm_shop/u);

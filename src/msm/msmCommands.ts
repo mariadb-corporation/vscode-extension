@@ -362,12 +362,15 @@ export class MsmCommands {
         }
 
         await this.createProject(dirname(chosen.fsPath),
-            schemaNameOfFolder(basename(chosen.fsPath)), { folder: listFolder });
+            schemaNameOfFolder(basename(chosen.fsPath)), { folder: listFolder },
+            "view");
     }
 
     /**
      * Open MSM Project from the MSM Projects view: a file dialog picks a
-     * project folder, or its `msm.project.json`, and it is added.
+     * project folder, and it is added. On macOS it may pick the folder's
+     * `msm.project.json` too; Windows and Linux have no dialog that picks
+     * both, so there it picks the folder only.
      *
      * @param listFolder The folder of the view it is filed in.
      */
@@ -375,7 +378,7 @@ export class MsmCommands {
         const chosen = await vscode.window.showOpenDialog({
             title: "Open MSM Project",
             openLabel: "Open MSM Project",
-            canSelectFiles: true,
+            canSelectFiles: process.platform === "darwin",
             canSelectFolders: true,
             canSelectMany: false,
             defaultUri: vscode.Uri.file(this.host.defaultFolder()),
@@ -572,11 +575,14 @@ export class MsmCommands {
      * @param folder The folder the project is to be made in.
      * @param schemaName The schema, where it was named already.
      * @param list How it is to be filed in the MSM Projects view.
+     * @param from Where it was asked for: the new project is shown there,
+     *             so the side bar stays as it is.
      */
     public async createProject(
         folder: string,
         schemaName = "",
         list: Partial<IMsmListValues> = {},
+        from: "explorer" | "view" = "explorer",
     ): Promise<void> {
         MsmDialogPanel.show(this.host.extensionUri, {
             kind: "create",
@@ -586,7 +592,7 @@ export class MsmCommands {
             folders: await this.#folders(),
         }, {
             check: (values) => { return this.#checkCreate(values); },
-            submit: (values) => { return this.#create(values); },
+            submit: (values) => { return this.#create(values, from); },
             onFailed: () => { this.host.showActions(GENERAL_ACTIONS); },
             log: this.host.log,
         });
@@ -800,11 +806,17 @@ export class MsmCommands {
 
     /**
      * Creates the project, then opens its development script and shows
-     * the folder in the Explorer.
+     * the project where it was asked for: the folder in the Explorer, or
+     * its row in the MSM Projects view. Not both, as showing the row
+     * switches the side bar to the view.
      *
      * @param values What New MSM Project says.
+     * @param from Where New MSM Project was asked for.
      */
-    async #create(values: IMsmCreateValues): Promise<void> {
+    async #create(
+        values: IMsmCreateValues,
+        from: "explorer" | "view",
+    ): Promise<void> {
         const schemaName = values.schemaName.trim();
         const targetPath = values.targetPath.trim();
         const copyrightHolder = values.copyrightHolder.trim();
@@ -845,8 +857,11 @@ export class MsmCommands {
         this.#afterwards(async () => {
             const info = await this.#readBack(projectPath);
             await this.#showFile(info.schemaDevelopmentFilePath);
-            await this.#reveal(projectPath);
-            await this.host.revealProject?.(projectPath);
+            if (from === "view") {
+                await this.host.revealProject?.(projectPath);
+            } else {
+                await this.#reveal(projectPath);
+            }
         });
     }
 

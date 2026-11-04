@@ -348,7 +348,10 @@ describe("New MSM Project", () => {
             expect(shownDocuments.map((document) => {
                 return document.uri.fsPath;
             })).toEqual([`${PROJECT}/development/sakila_next.sql`]);
+            // In the Explorer only: the view's reveal would switch the
+            // side bar away from it.
             expect(recorded.revealed).toEqual([PROJECT]);
+            expect(recorded.revealedProjects).toEqual([]);
         });
 
     it("leaves the Explorer alone for a project outside the workspace",
@@ -1018,7 +1021,9 @@ describe("the MSM Projects list", () => {
         expect(created.row.children?.map((child) => { return child.message; }))
             .toEqual(["Created the project folder"]);
         expect(recorded.projectsChanged).toBe(1);
+        // In the view only, where it was asked for.
         expect(recorded.revealedProjects).toEqual([PROJECT]);
+        expect(recorded.revealed).toEqual([]);
     });
 
     it("takes a name with or without the suffix, and stops on Cancel",
@@ -1048,11 +1053,38 @@ describe("the MSM Projects list", () => {
                 { name: "addProject", args: [PROJECT, { folder: "/Shop" }] },
                 { name: "addProject", args: [PROJECT, { folder: "/" }] },
             ]);
+            expect(fileDialogs.openCalls[0]).toMatchObject({
+                canSelectFolders: true,
+                canSelectFiles: process.platform === "darwin",
+            });
             expect(recorded.projectsChanged).toBe(2);
             expect(recorded.rows.some(({ row }) => {
                 return /^Added MSM project sakila\.msm\.project/u
                     .test(row.message);
             })).toBe(true);
+        });
+
+    it("picks a folder only where no dialog picks files and folders",
+        async () => {
+            const platform = Object.getOwnPropertyDescriptor(process,
+                "platform")!;
+            try {
+                for (const name of ["linux", "win32"]) {
+                    Object.defineProperty(process, "platform", { value: name });
+                    const recorded = setUp();
+                    fileDialogs.openAnswer = [Uri.file(PROJECT)];
+                    await run(MSM_LIST_COMMANDS.openProject);
+
+                    expect(fileDialogs.openCalls.at(-1), name).toMatchObject({
+                        canSelectFiles: false, canSelectFolders: true,
+                    });
+                    expect(recorded.calls, name).toEqual([
+                        { name: "addProject", args: [PROJECT, { folder: "/" }] },
+                    ]);
+                }
+            } finally {
+                Object.defineProperty(process, "platform", platform);
+            }
         });
 
     it("adds a project from the Explorer, where it is", async () => {

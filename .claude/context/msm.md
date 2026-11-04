@@ -49,8 +49,11 @@ MSM Projects (`mariadb.msmProjects`).
   (folders first, `node:fs` `readdir`), each with its own `resourceUri` so
   the theme's file icons show, a file opening with `vscode.open` on a click;
   rows have `id`s (`msmFolder:`, `msmProject:`, `msmFile:` + path), and
-  `getParent` serves `reveal`, which shows a project once it is created or
-  added.
+  `getParent` serves `reveal`, which shows a project once it is added, or
+  created from the view. `TreeView.reveal` opens the view's container, so a
+  project created from the Explorer is revealed in the Explorer only
+  (`createProject`'s `from`), keeping its side bar; Add to MSM Projects
+  does switch to the view.
 - **Folders work as the Connections view's** (see connection-folders.md):
   the server knows a folder only as where a project is filed, so New Folder,
   the collapsed folders and the folders' colors are `FolderSet` /
@@ -65,8 +68,9 @@ MSM Projects (`mariadb.msmProjects`).
   folder - its folder is where it is created, its name (`.msm.project` taken
   off, `schemaNameOfFolder`) the schema - then opens New MSM Project on that,
   filed in the selected row's folder (a toolbar command gets the focused
-  row). Open takes a folder or its `msm.project.json`
-  (`canSelectFiles` and `canSelectFolders`). Both are on a folder row's menu
+  row). Open takes a folder, or on macOS its `msm.project.json` too: only
+  macOS has a dialog that picks files and folders, so elsewhere
+  `canSelectFiles` is off. Both are on a folder row's menu
   too, and the welcome content has them as buttons.
 - **The welcome content** follows `ViewStateTracker` (`viewState.ts`), as
   the Connections, Sandboxes and Deployments views' does, on the context
@@ -106,7 +110,7 @@ MSM Projects (`mariadb.msmProjects`).
 
 | Command | Shown on | Does |
 | --- | --- | --- |
-| `mariadb.msm.createProject` | A folder NOT named `*.msm.project` | New MSM Project: schema name, license, copyright holder, the folder (Browse), Create the Folder / Allow Special Characters / Replace Existing Project. Opens `development/<schema>_next.sql` and reveals the project folder. |
+| `mariadb.msm.createProject` | A folder NOT named `*.msm.project` | New MSM Project: schema name, license, copyright holder, the folder (Browse), Create the Folder / Allow Special Characters / Replace Existing Project. Opens `development/<schema>_next.sql` and reveals the project folder in the Explorer. |
 | `mariadb.msm.showProjectInformation` | `*.msm.project` | The project's information, with buttons to open the development script and to go on to the three dialogs below (in its place). Replaces the old extension's JSON document. |
 | `mariadb.msm.prepareRelease` | `*.msm.project` | Release version (the development version) and next version (its patch + 1, following the first until typed into), Stay on the Same Version, Replace Existing Files. Opens the files written. |
 | `mariadb.msm.generateDeploymentScript` | `*.msm.project` | A released version (newest first, marked where it has a script), Replace Existing File. Opens the script. |
