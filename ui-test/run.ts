@@ -319,6 +319,12 @@ const runFiles = async (
     }
 
     const storage = join(root, ".vscode-test", "extest");
+    // ExTester installs the current build here but never removes others:
+    // an older build left from a past run, one under another name too,
+    // registers the same views first and hides the build under test. The
+    // extension has no dependencies, so the folder starts empty.
+    const extensions = join(storage, "extensions");
+    rmSync(extensions, { recursive: true, force: true });
     // A run started from inside VS Code - its terminal, or an agent in its
     // extension host - inherits what makes Electron run as plain Node and
     // what ties a window to that VS Code; the test instance must have none
@@ -355,7 +361,7 @@ const runFiles = async (
             // Before the next option: it takes every argument up to one.
             ...(workspace ? ["--open_resource", folder] : []),
             "--storage", storage,
-            "--extensions_dir", join(storage, "extensions"),
+            "--extensions_dir", extensions,
             "--code_settings", join(root, "ui-test", "settings.json"),
             "--mocha_config", join(root, "ui-test", ".mocharc.json"),
             "--code_version", process.env.UI_TEST_CODE_VERSION ?? "max",
