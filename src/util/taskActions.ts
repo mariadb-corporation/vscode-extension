@@ -15,7 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { isFinished, type IUtilTaskMessage } from "../mcp/utilApi.js";
+import { isFinished, type ITaskMessage } from "../mcp/taskApi.js";
 import { formatTime } from "../sql/executionService.js";
 import type { ActionSeverity, IActionRow } from "../webview/protocol.js";
 import type { ITaskReport, ITrackedTask } from "./taskMonitor.js";
@@ -40,7 +40,7 @@ export const MAX_TASK_ACTION_CHILDREN = 200;
  *
  * @returns How its row is marked.
  */
-const severityOf = (message: IUtilTaskMessage): ActionSeverity => {
+const severityOf = (message: ITaskMessage): ActionSeverity => {
     return message.level === "error" ? "error"
         : message.level === "warning" ? "warning" : "info";
 };
@@ -58,7 +58,7 @@ const RESULT = new RegExp("^(?:Total duration|Schemas dumped|Tables dumped"
  *          a task ends with; undefined for the steps along the way. A
  *          copy's "SRC:" / "TGT:" is left off.
  */
-export const resultText = (message: IUtilTaskMessage): string | undefined => {
+export const resultText = (message: ITaskMessage): string | undefined => {
     const text = message.text.replace(/^(?:SRC|TGT):\s*/u, "").trim();
     if (message.level === "warning" || message.level === "error") {
         return text;
@@ -79,7 +79,7 @@ export const resultText = (message: IUtilTaskMessage): string | undefined => {
  */
 export const sortMessages = (
     tracked: ITrackedTask,
-    messages: IUtilTaskMessage[],
+    messages: ITaskMessage[],
     time: string,
 ): { issues: IActionRow[]; results: string[] } => {
     const issues: IActionRow[] = [];

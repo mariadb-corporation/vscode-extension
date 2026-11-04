@@ -18,10 +18,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type {
-    IUtilApi,
-    IUtilTaskState,
-    UtilTaskStatus,
-} from "../../mcp/utilApi.js";
+    ITaskApi,
+    ITaskState,
+    TaskStatus,
+} from "../../mcp/taskApi.js";
 import { McpToolError } from "../../mcp/protocol.js";
 import {
     MAX_UNANSWERED_LOOKS,
@@ -49,9 +49,10 @@ import {
     withProgressCalls,
 } from "../mocks/vscode.js";
 
-const state = (overrides: Partial<IUtilTaskState>): IUtilTaskState => {
+const state = (overrides: Partial<ITaskState>): ITaskState => {
     return {
-        task_id: "t1", kind: "dump_schemas", title: "Dump shop to Disk",
+        task_id: "t1", task_type: "util", kind: "dump_schemas",
+        title: "Dump shop to Disk",
         connection_id: "c1", status: "running", cancel_requested: false,
         created_at: "2026-10-10T10:00:00Z", started_at: "2026-10-10T10:00:00Z",
         finished_at: null, stage: null, progress: null, stages: [],
@@ -61,13 +62,13 @@ const state = (overrides: Partial<IUtilTaskState>): IUtilTaskState => {
 };
 
 /** An API answering getTask with the states given, one per call. */
-const fakeApi = (states: Array<IUtilTaskState | Error>): {
-    api: IUtilApi; since: number[]; cancelled: string[];
+const fakeApi = (states: Array<ITaskState | Error>): {
+    api: ITaskApi; since: number[]; cancelled: string[];
 } => {
     const since: number[] = [];
     const cancelled: string[] = [];
     const api = {
-        getTask: (_taskId: string, from = 0): Promise<IUtilTaskState> => {
+        getTask: (_taskId: string, from = 0): Promise<ITaskState> => {
             since.push(from);
             const next = states.shift();
             if (next instanceof Error) {
@@ -76,18 +77,18 @@ const fakeApi = (states: Array<IUtilTaskState | Error>): {
 
             return Promise.resolve(next ?? state({ status: "completed" }));
         },
-        cancelTask: (taskId: string): Promise<IUtilTaskState> => {
+        cancelTask: (taskId: string): Promise<ITaskState> => {
             cancelled.push(taskId);
 
             return Promise.resolve(state({ cancel_requested: true }));
         },
-    } as unknown as IUtilApi;
+    } as unknown as ITaskApi;
 
     return { api, since, cancelled };
 };
 
-const finished = (status: UtilTaskStatus, extra: Partial<IUtilTaskState> = {}):
-    IUtilTaskState => {
+const finished = (status: TaskStatus, extra: Partial<ITaskState> = {}):
+    ITaskState => {
     return state({ status, finished_at: "2026-10-10T10:01:00Z", ...extra });
 };
 
@@ -101,7 +102,7 @@ describe("TaskMonitor", () => {
         logs.length = 0;
     });
 
-    const monitorWith = (api: IUtilApi): TaskMonitor => {
+    const monitorWith = (api: ITaskApi): TaskMonitor => {
         return new TaskMonitor(() => { return Promise.resolve(api); }, output,
             (message) => { logs.push(message); }, undefined, 0);
     };
@@ -277,8 +278,8 @@ describe("TaskMonitor", () => {
         });
 
     it("gives up on a task the server no longer knows", async () => {
-        const { api, since } = fakeApi([new McpToolError("util.get_task",
-            "There is no task with the id 't1'.")]);
+        const { api, since } = fakeApi([new McpToolError("task.get",
+            "There is no task with the id 't1'. Use task.list to see the tasks.")]);
 
         const end = await monitorWith(api).follow(
             { task_id: "t1", status: "running" },
@@ -457,13 +458,13 @@ describe("tasks across a window reload", () => {
         async () => {
             const store = memento();
             const api = {
-                getTask: (_taskId: string, since = 0): Promise<IUtilTaskState> => {
+                getTask: (_taskId: string, since = 0): Promise<ITaskState> => {
                     // the first look brings progress; the next never answers
                     return since === 0
                         ? Promise.resolve(state({ stage: "Loading data", next_since: 1 }))
                         : new Promise(() => { /* the window closes first */ });
                 },
-            } as unknown as IUtilApi;
+            } as unknown as ITaskApi;
             const monitor = new TaskMonitor(() => { return Promise.resolve(api); },
                 new MockOutputChannel("t"), () => { /* not needed */ }, store, 0,
                 60_000);
@@ -507,15 +508,33 @@ describe("tasks across a window reload", () => {
         expect(monitor.tasks).toEqual([]);
     });
 
+    it("gives a task saved before there were task types the util one", () => {
+        // what 26.10.1 and earlier kept, before the task.* tools: no task_type
+        const { task_type: _t, ...untyped } = finished("completed");
+        const store = memento([
+            { connection: "root@h", cancelling: false, state: untyped },
+            { connection: "root@h", cancelling: false,
+                state: finished("failed", { task_id: "t2", task_type: "dba",
+                    kind: "deploy_object" }) },
+        ]);
+        const monitor = new TaskMonitor(() => { return Promise.reject(new Error("no")); },
+            new MockOutputChannel("t"), () => { /* not needed */ }, store, 0);
+
+        const [typed, restored] = monitor.tasks;
+        expect(restored.state.task_type).toBe("util");
+        // one that has its type keeps it
+        expect(typed.state.task_type).toBe("dba");
+    });
+
     it("says on the view that running tasks end with the window", async () => {
         let release: (() => void) | undefined;
         const api = {
-            getTask: (): Promise<IUtilTaskState> => {
+            getTask: (): Promise<ITaskState> => {
                 return new Promise((resolve) => {
                     release = () => { resolve(finished("completed")); };
                 });
             },
-        } as unknown as IUtilApi;
+        } as unknown as ITaskApi;
         const monitor = new TaskMonitor(() => { return Promise.resolve(api); },
             new MockOutputChannel("t"), () => { /* not needed */ }, undefined,
             0);

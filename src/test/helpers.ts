@@ -17,7 +17,7 @@
 
 import type { IConnectionSettings } from "../connections/connectionManager.js";
 import { SQL_MODE_QUERY } from "../connections/sqlModes.js";
-import { ObjectNotFoundError } from "../mcp/mariaDbApi.js";
+import { ObjectNotFoundError, type IToolCaller } from "../mcp/mariaDbApi.js";
 import type { IToolResult } from "../mcp/protocol.js";
 import type { IMcpConnection, IMcpConnector } from "../mcp/session.js";
 import type {
@@ -624,6 +624,46 @@ export const createFakeConnector = (
             connections.push(connection);
 
             return Promise.resolve(connection);
+        },
+    };
+};
+
+/** A tool call a fake caller recorded. */
+export interface IRecordedCall {
+    name: string;
+    args: Record<string, unknown>;
+    timeoutMs?: number;
+}
+
+/**
+ * Builds a tool caller that answers every call with the same values, and
+ * records the calls with their timeouts.
+ *
+ * @param answer The values, a text item each: JSON, or a string as it is.
+ * @param isError Whether the answer is a tool error.
+ *
+ * @returns The fake caller, and the calls made to it.
+ */
+export const createFakeToolCaller = (answer: unknown[], isError = false):
+    { caller: IToolCaller; calls: IRecordedCall[] } => {
+    const calls: IRecordedCall[] = [];
+
+    return {
+        calls,
+        caller: {
+            callTool: (name, args, timeoutMs) => {
+                calls.push({ name, args, ...(timeoutMs === undefined ? {}
+                    : { timeoutMs }) });
+                const result: IToolResult = {
+                    content: answer.map((value) => {
+                        return { type: "text", text: typeof value === "string"
+                            ? value : JSON.stringify(value) };
+                    }),
+                    ...(isError ? { isError } : {}),
+                };
+
+                return Promise.resolve(result);
+            },
         },
     };
 };

@@ -18,7 +18,7 @@
 import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { isFinished, type IUtilTaskMessage } from "../mcp/utilApi.js";
+import { isFinished, type ITaskMessage } from "../mcp/taskApi.js";
 import type { ITaskReport, ITrackedTask } from "./taskMonitor.js";
 
 /**
@@ -34,7 +34,7 @@ import type { ITaskReport, ITrackedTask } from "./taskMonitor.js";
  *
  * @returns Its line in the log: time, level where it matters, text.
  */
-export const logLine = (message: IUtilTaskMessage): string => {
+export const logLine = (message: ITaskMessage): string => {
     const level = message.level === "warning" || message.level === "error"
         ? `${message.level.toUpperCase()}: ` : "";
 
