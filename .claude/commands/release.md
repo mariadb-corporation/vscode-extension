@@ -393,9 +393,12 @@ This step is manual until the Marketplace supports trusted publishing
 (`vsce publish --oidc`, with a trusted publisher policy set up on the
 Marketplace). Then it moves into a GitHub Actions job that the release tag
 starts. That job publishes the `.vsix` attached to the release and stores
-no credential. Do not set up a PAT or an Azure identity in the meantime:
-the PATs that publish are retired on December 1, 2026, and `--oidc` makes
-the Azure route unnecessary.
+no credential. Gate it as the shell's release build is gated: create a
+`release-build` environment in the repository settings with the devtools
+team as its required reviewer, and give the job `environment:
+release-build`, so a reviewer approves every publish. Do not set up a PAT
+or an Azure identity in the meantime: the PATs that publish are retired on
+December 1, 2026, and `--oidc` makes the Azure route unnecessary.
 
 ## 10. Clean up and report
 
