@@ -242,6 +242,16 @@ not GitHub's rate-limited API. It runs before the tests, which hold
 `git diff --exit-code package.json` fails a run whose pin moved without its
 `chatSkills`.
 
+A pull request whose title has `[bypass-ci]` skips the job (its `if:`).
+A job skipped by its condition reports success, so the required
+`Code-Ext-CI-Verification` check passes without a run. It is meant for pull
+requests that change no source code and no configuration the checks depend
+on - docs, the project context; nothing enforces that. The title is read
+from the event that started the run: `edited` is not among the
+`pull_request` types, so renaming a pull request does not rerun it (a body
+edit would otherwise report a skip over a failed run), and a re-run uses the
+old title too. Push after a rename, or close and reopen.
+
 Between the lint and the tests it runs `tools/check_openapi_ui_pins.py`,
 which fetches `rest_plugin/lib/open_api_ui.py` from the public
 mariadb-shell-plugins repository (`--ref`, `main` by default) and compares
