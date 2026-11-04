@@ -100,11 +100,15 @@ runner end anyway. A spawn that fails is reported with its error.
   pkill'ed first.
   - A shell home with the plugins of `../mariadb-shell-plugins` (or
     `MARIADB_SHELL_PLUGINS`) linked in and options.json
-    `sandboxDir` + `credentialStore.helper: plaintext`. The keychain is
-    the whole user's, so without the plaintext helper the test VS Code
-    would show the user's own connections.
+    `sandboxDir` + `credentialStore.helper: login-path`. The keychain is
+    the whole user's, so with it the test VS Code would show the user's
+    own connections. The login-path helper keeps the secrets in the login
+    file `MYSQL_TEST_LOGIN_FILE` names, the home's `.mylogin.cnf` (without
+    it, the user's `~/.mylogin.cnf`). Release packages ship it; the
+    plaintext helper, used before, is a development build's only, so a
+    released shell could not be tested.
   - A `mariadb-shell` wrapper first on the PATH, setting
-    `MARIADB_SHELL_USER_CONFIG_HOME`.
+    `MARIADB_SHELL_USER_CONFIG_HOME` and `MYSQL_TEST_LOGIN_FILE`.
   - `MARIADB_LSP`, when set, is linked beside the wrapper as
     `mariadb-lsp`; the extension runs it with `--mcp`, so it needs no
     secret store helpers of its own.
