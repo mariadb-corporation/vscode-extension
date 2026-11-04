@@ -17,43 +17,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { IToolCaller } from "../../mcp/mariaDbApi.js";
-import type { IToolResult } from "../../mcp/protocol.js";
-import { START_TIMEOUT_MS, UtilApi, isFinished } from "../../mcp/utilApi.js";
-
-interface ICall {
-    name: string;
-    args: Record<string, unknown>;
-    timeoutMs?: number;
-}
-
-const caller = (answer: unknown[]): { caller: IToolCaller; calls: ICall[] } => {
-    const calls: ICall[] = [];
-
-    return {
-        calls,
-        caller: {
-            callTool: (name, args, timeoutMs) => {
-                calls.push({ name, args, ...(timeoutMs === undefined ? {}
-                    : { timeoutMs }) });
-                const result: IToolResult = {
-                    content: answer.map((value) => {
-                        return { type: "text", text: JSON.stringify(value) };
-                    }),
-                };
-
-                return Promise.resolve(result);
-            },
-        },
-    };
-};
+import { START_TIMEOUT_MS, UtilApi } from "../../mcp/utilApi.js";
+import { createFakeToolCaller } from "../helpers.js";
 
 const STARTED = { task_id: "t1", status: "running" };
 
 describe("UtilApi", () => {
     it("starts every utility with its arguments, and options only when given",
         async () => {
-            const { caller: c, calls } = caller([STARTED]);
+            const { caller: c, calls } = createFakeToolCaller([STARTED]);
             const api = new UtilApi(c);
 
             expect(await api.dumpInstance("c1", "/d")).toEqual(STARTED);
@@ -78,35 +50,4 @@ describe("UtilApi", () => {
                 { name: "util.copy_tables", args: { connection_id: "c1", schema: "a", tables: ["t"], target_connection_id: "c2", options: { schema: "z" } }, timeoutMs: START_TIMEOUT_MS },
             ]);
         });
-
-    it("waits longer than the server for a task", async () => {
-        const state = { task_id: "t1", status: "running", next_since: 3 };
-        const { caller: c, calls } = caller([state]);
-
-        expect(await new UtilApi(c).getTask("t1", 2, 2000)).toEqual(state);
-        expect(calls).toEqual([{
-            name: "util.get_task",
-            args: { task_id: "t1", since: 2, wait_ms: 2000 },
-            timeoutMs: 32_000,
-        }]);
-    });
-
-    it("lists and cancels tasks", async () => {
-        const { caller: c, calls } = caller([{ task_id: "a" }, { task_id: "b" }]);
-        const api = new UtilApi(c);
-
-        expect(await api.listTasks()).toEqual([{ task_id: "a" }, { task_id: "b" }]);
-        await api.cancelTask("a");
-        expect(calls.map((call) => { return call.name; }))
-            .toEqual(["util.list_tasks", "util.cancel_task"]);
-        expect(calls[1].args).toEqual({ task_id: "a" });
-    });
-
-    it("tells finished states apart", () => {
-        expect(["completed", "failed", "cancelled"].every((status) => {
-            return isFinished(status as never);
-        })).toBe(true);
-        expect(isFinished("running")).toBe(false);
-        expect(isFinished("pending")).toBe(false);
-    });
 });

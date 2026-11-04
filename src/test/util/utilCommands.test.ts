@@ -21,7 +21,8 @@ import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { IUtilApi, IUtilTaskState } from "../../mcp/utilApi.js";
+import type { ITaskApi, ITaskState } from "../../mcp/taskApi.js";
+import type { IUtilApi } from "../../mcp/utilApi.js";
 import type { IObjectNode, ISchemaNode } from "../../tree/connectionsModel.js";
 import { TaskMonitor } from "../../util/taskMonitor.js";
 import {
@@ -61,9 +62,10 @@ interface IRecorded {
     shownActions: string[];
 }
 
-const done = (taskId: string): IUtilTaskState => {
+const done = (taskId: string): ITaskState => {
     return {
-        task_id: taskId, kind: "dump_schemas", title: "", connection_id: "c1",
+        task_id: taskId, task_type: "util", kind: "dump_schemas", title: "",
+        connection_id: "c1",
         status: "completed", cancel_requested: false, created_at: "",
         started_at: "", finished_at: "", stage: null, progress: null,
         stages: [], messages: [], next_since: 0, result: null, error: null,
@@ -93,11 +95,13 @@ const setUp = (failStart?: string): IRecorded => {
         loadDump: start("loadDump"), importTable: start("importTable"),
         copyInstance: start("copyInstance"), copySchemas: start("copySchemas"),
         copyTables: start("copyTables"),
-        getTask: (taskId: string) => { return Promise.resolve(done(taskId)); },
-        cancelTask: (taskId: string) => { return Promise.resolve(done(taskId)); },
-        listTasks: () => { return Promise.resolve([]); },
     } as unknown as IUtilApi;
-    const monitor = new TaskMonitor(() => { return Promise.resolve(api); },
+    const taskApi: ITaskApi = {
+        getTask: (taskId) => { return Promise.resolve(done(taskId)); },
+        cancelTask: (taskId) => { return Promise.resolve(done(taskId)); },
+        listTasks: () => { return Promise.resolve([]); },
+    };
+    const monitor = new TaskMonitor(() => { return Promise.resolve(taskApi); },
         new MockOutputChannel("MariaDB Tasks"), (message) => {
             recorded.logs.push(message);
         }, undefined, 0);

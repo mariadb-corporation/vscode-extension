@@ -31,6 +31,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { applyKeybindings } from "./editor/keybindings.js";
+import type { ITaskApi } from "./mcp/taskApi.js";
 import type { IUtilApi } from "./mcp/utilApi.js";
 import { TaskActionLog } from "./util/taskActions.js";
 import { TaskLogs } from "./util/taskLogs.js";
@@ -822,10 +823,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const utilApi = (): Promise<IUtilApi> => {
         return serverApi(() => { return session.utilApi; });
     };
+    const taskApi = (): Promise<ITaskApi> => {
+        return serverApi(() => { return session.taskApi; });
+    };
     const taskOutput = vscode.window.createOutputChannel("MariaDB Tasks");
     // Kept in the workspace state, so the tasks of the last window are
     // still listed, those it stopped among them.
-    const taskMonitor = new TaskMonitor(utilApi, taskOutput, log,
+    const taskMonitor = new TaskMonitor(taskApi, taskOutput, log,
         context.workspaceState);
     const tasksTree = new TasksTreeProvider(taskMonitor);
     const tasksView = vscode.window.createTreeView(TASKS_VIEW_ID, {
