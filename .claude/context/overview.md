@@ -25,7 +25,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 - **The welcome text** is the first line of the MySQL Shell's alone,
   "Welcome to the MariaDB Shell for VS Code extension." (the user dropped
   the rest); logo
-  `images/mariadb-shell-ext.svg` on the left of the title's two lines,
+  `images/activityBar-shell.svg` on the left of the title's two lines,
   "MariaDB Shell" (#DDD in a dark theme, as the logo) over a larger
   "Workbench" in MariaDB's gradient (one for dark, one for light). Its × sets
   `mariadb.overview.showGreeting` to false (globally); the setting turns it

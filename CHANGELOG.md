@@ -32,6 +32,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   view while it is being deployed. A Deployment Vendors view below it
   lists the places deployments are to be made, none configured yet. The first activity bar entry is now
   called MariaDB Shell, with a new icon.
+- **MariaDB Schema Management view.** A third activity bar icon opens the
+  MSM Projects view, which is to list the schema projects you work on.
+  Nothing can be added to it yet.
+- **A new Marketplace icon.**
 - **Formatting and completion settings.** `mariadb.lsp.indentClauses` and
   `mariadb.lsp.indentRoutineClauses` (on by default) put the clauses of a
   query or DML statement one level deeper than its first line, at the top

@@ -147,6 +147,10 @@ import {
 import type { IOverviewConnectionRef } from "./overview/overviewProtocol.js";
 import { redrawWhenShown } from "./tree/redrawWhenShown.js";
 import {
+    MSM_PROJECTS_VIEW_ID,
+    MsmProjectsTreeProvider,
+} from "./tree/msmProjectsTreeProvider.js";
+import {
     VENDORS_VIEW_ID,
     VendorDecorations,
     VendorsTreeProvider,
@@ -792,6 +796,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const vendorsView = vscode.window.createTreeView(VENDORS_VIEW_ID, {
         treeDataProvider: new VendorsTreeProvider(),
     });
+    // The schema projects the user added; nothing adds one yet.
+    const msmProjects = new MsmProjectsTreeProvider();
+    const msmProjectsView = vscode.window.createTreeView(
+        MSM_PROJECTS_VIEW_ID, { treeDataProvider: msmProjects });
     const restdCommands = new RestdCommands({
         extensionUri: context.extensionUri,
         connect: (uri) => {
@@ -950,6 +958,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
         // Grays out the vendors not configured (see vendorsTreeProvider.ts).
         vscode.window.registerFileDecorationProvider(new VendorDecorations()),
         vendorsView,
+        msmProjects,
+        msmProjectsView,
         tree,
         sandboxes,
         sandboxesView,

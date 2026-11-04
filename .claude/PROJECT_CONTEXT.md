@@ -22,7 +22,7 @@ extension grows.
 | `src/errorMessages.ts` | The error notification every failure uses, with its Show Log button, and `reportError` (log it, then notify). |
 | `src/text.ts` | `errorText`, `counted` and `stripAnsi`: text helpers shared with the webviews, so free of `vscode`. |
 | `src/connections/` | Which connections are open on which URI and which is the default, what happens on each one, what each one's `sql_mode` says about double quotes and what its editors' session reported of its `sql_mode` and schema for the language server (`sqlModes.ts`), plus the connection editor: URI building, the store, the panel and its protocol. |
-| `src/tree/` | The Connections view: its data model and its tree items; the Sandboxes, REST Daemons and Deployments views; `viewState.ts`, the welcome-content state machine they share. |
+| `src/tree/` | The Connections view: its data model and its tree items; the Sandboxes, REST Daemons, Deployments and MSM Projects views; `viewState.ts`, the welcome-content state machine they share. |
 | `src/mrs/` | The MariaDB REST Service: REST SQL builders, the data mapping model, the dialogs' fields, the API, the dialog panel and the commands, and what goes to the Actions tab (`mrsActions.ts`, `mrsActivity.ts`) (see [`context/mrs.md`](context/mrs.md)). |
 | `src/util/` | Dump and Load: the operations' fields, the dialog, the commands, the task monitor, the Tasks view, a task's Actions row (`taskActions.ts`) and its log file (`taskLogs.ts`) (see [`context/dump-and-load.md`](context/dump-and-load.md)). |
 | `src/sandboxes/` | The New Sandbox dialog: its fields, protocol and panel. |
@@ -46,7 +46,7 @@ extension grows.
 | `src/test/` | The extension-side test suite, mirroring the source layout; `grammar/` tokenizes with VS Code's own TextMate engine (word coverage, token classes, corpus snapshots). |
 | `webview/test/` | The frontend test suite, run under jsdom. |
 | `ui-test/` | The ExTester UI tests: the runner and its suites (`core`, `mrs`, `dump-load`, `lsp`, `restd`, `msm`, each with a sandbox of its own), the helpers, the test files (see [`context/testing-and-debugging.md`](context/testing-and-debugging.md)). |
-| `images/` | Icons: `light/` and `dark/` variants, the activity bar icons `mariadb-shell-ext.svg` (MariaDB) and `mariadb-dba-ext.svg` (MariaDB Deployments), and `marketplace-icon.png`. |
+| `images/` | Icons: `light/` and `dark/` variants, the activity bar icons `activityBar-shell.svg` (MariaDB Shell), `activityBar-dba.svg` (MariaDB Deployments) and `activityBar-msm.svg` (MariaDB Schema Management), and `marketplace-icon.png`. |
 
 ## Context files
 

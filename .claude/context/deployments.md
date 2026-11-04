@@ -17,11 +17,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 ## What the user decided
 
-- **Its own activity bar icon**, `images/mariadb-dba-ext.svg`, container
+- **Its own activity bar icon**, `images/activityBar-dba.svg`, container
   `mariadb-deployments`, titled "MariaDB Deployments"; its views are
   Deployments and Deployment Vendors. The
   first container is titled "MariaDB Shell" (it was "MariaDB"; the panel
-  container still is) and its icon is `images/mariadb-shell-ext.svg` (it
+  container still is) and its icon is `images/activityBar-shell.svg` (it
   was `mariadb-code-ext.svg`).
 - **Sandboxes only, for now**: a "Sandboxes" folder holding every sandbox
   instance, as the Sandboxes view lists them, each with the REST Daemons

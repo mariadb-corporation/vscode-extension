@@ -16,6 +16,16 @@ MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
 | `src/msm/msmProtocol.ts`, `msmDialogPanel.ts` | The dialog's messages and panel, a `DialogPanel` typed by the dialog's kind: one at a time, checks the values again (and `host.check`, the disk) before `host.submit`; a failure stays in the dialog, or is notified once it was closed. |
 | `src/msm/msmCommands.ts` | `MsmCommands`: the five commands, reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`). |
 | `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds; its own bundle, on `dialogStyles.css` as Dump and Load's and New Sandbox's. |
+| `src/tree/msmProjectsTreeProvider.ts` | The MSM Projects view: the schema projects the user adds to it. Empty so far (see below). |
+
+## The MSM Projects view
+
+Its own activity bar container, `mariadb-msm`, titled "MariaDB Schema
+Management", with the icon `images/activityBar-msm.svg`; its one view is
+MSM Projects (`mariadb.msmProjects`). The view is a placeholder: the
+provider lists nothing and its welcome content says none has been added
+yet. The list of projects, and the `msm.*` functions that add to and
+manage it, are the next step; the Explorer submenu stays as it is.
 
 ## The commands
 

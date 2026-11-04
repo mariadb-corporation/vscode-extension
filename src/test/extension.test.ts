@@ -306,7 +306,7 @@ describe("activate", () => {
         expect(fileSystemProviders.has("mariadb-value")).toBe(true);
     });
 
-    it("registers the Connections, Sandboxes, REST Daemons, Deployments, Deployment Vendors and Tasks views and every command", () => {
+    it("registers the Connections, Sandboxes, REST Daemons, Deployments, Deployment Vendors, MSM Projects and Tasks views and every command", () => {
         const context = createContext();
 
         activate(context as never);
@@ -315,7 +315,8 @@ describe("activate", () => {
             return view.id;
         })).toEqual(["mariadb.connections", "mariadb.sandboxes",
             "mariadb.restDaemons", "mariadb.deployments",
-            "mariadb.deploymentVendors", "mariadb.tasks"]);
+            "mariadb.deploymentVendors", "mariadb.msmProjects",
+            "mariadb.tasks"]);
         // What draws a connection's color on its row, and grays out the
         // vendors not configured.
         expect(fileDecorationProviders).toHaveLength(2);

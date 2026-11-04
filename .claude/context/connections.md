@@ -135,9 +135,9 @@ agent's `sandbox.deploy`) shows up at the next Refresh.
 
 Contributed into its own activity bar container (titled "MariaDB Shell";
 the UI tests' `VIEW_CONTAINER`), and into a panel container ("MariaDB"),
-both with the extension's icon (`images/mariadb-shell-ext.svg`, kept as a
+both with the extension's icon (`images/activityBar-shell.svg`, kept as a
 vector). The MariaDB Deployments view has a container of its own, with
-`images/mariadb-dba-ext.svg` (see [deployments.md](deployments.md)).
+`images/activityBar-dba.svg` (see [deployments.md](deployments.md)).
 
 **First-start layout**: `initialSize` weights in package.json,
 Connections 100, Sandboxes 16, REST Daemons 16 and Tasks 16, the last two

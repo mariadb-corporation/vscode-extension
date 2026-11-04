@@ -96,19 +96,24 @@
         {
           "id": "mariadb-view",
           "title": "MariaDB Shell",
-          "icon": "images/mariadb-shell-ext.svg"
+          "icon": "images/activityBar-shell.svg"
         },
         {
           "id": "mariadb-deployments",
           "title": "MariaDB Deployments",
-          "icon": "images/mariadb-dba-ext.svg"
+          "icon": "images/activityBar-dba.svg"
+        },
+        {
+          "id": "mariadb-msm",
+          "title": "MariaDB Schema Management",
+          "icon": "images/activityBar-msm.svg"
         }
       ],
       "panel": [
         {
           "id": "mariadb-panel",
           "title": "MariaDB",
-          "icon": "images/mariadb-shell-ext.svg"
+          "icon": "images/activityBar-shell.svg"
         }
       ]
     },
@@ -148,6 +153,12 @@
           "id": "mariadb.deploymentVendors",
           "name": "Deployment Vendors",
           "initialSize": 25
+        }
+      ],
+      "mariadb-msm": [
+        {
+          "id": "mariadb.msmProjects",
+          "name": "MSM Projects"
         }
       ],
       "mariadb-panel": [
@@ -199,6 +210,10 @@
         "view": "mariadb.deployments",
         "contents": "The MariaDB deployments you manage. None has been deployed or registered yet.\n[Create or Import a Deployment...](command:mariadb.newDeployment)",
         "when": "mariadb.deploymentsView == listed"
+      },
+      {
+        "view": "mariadb.msmProjects",
+        "contents": "The MariaDB Schema Management projects you work on. None has been added yet."
       },
       {
         "view": "mariadb.sandboxes",
