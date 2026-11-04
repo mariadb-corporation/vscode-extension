@@ -52,8 +52,8 @@ import { delimiter, join, resolve } from "node:path";
  * The extension takes the first `mariadb-shell` on the PATH, so each
  * suite puts a wrapper there that starts the given shell with a
  * configuration home of its own: its connections, its sandboxes (in a
- * directory of the suite's), its secrets (the plaintext credential
- * helper of a development build, in that home) and the plugins above,
+ * directory of the suite's), its secrets (the login-path credential
+ * helper, its login file in that home) and the plugins above,
  * never the user's. `mariadbd` has to be on the PATH for the
  * sandboxes, and `mariadb-lsp` for the language server (or named with
  * `MARIADB_LSP`). Everything a suite made is removed when it ends, also when
@@ -298,14 +298,18 @@ const runFiles = async (
     }
     // The secrets too: the keychain is the whole user's, whatever the
     // configuration home, so the connections would be the user's. The
-    // plaintext helper keeps them in the home; development builds have it.
+    // login-path helper keeps them in the login file MYSQL_TEST_LOGIN_FILE
+    // names, here in the home (~/.mylogin.cnf without it). Release builds
+    // have it; the plaintext helper is a development build's only.
     writeFileSync(join(home, "options.json"), JSON.stringify({
         "sandboxDir": sandboxes,
-        "credentialStore.helper": "plaintext",
+        "credentialStore.helper": "login-path",
     }, undefined, 4));
     const wrapper = join(bin, "mariadb-shell");
     writeFileSync(wrapper, "#!/bin/sh\n"
-        + `MARIADB_SHELL_USER_CONFIG_HOME='${home}' exec '${shell}' "$@"\n`);
+        + `MARIADB_SHELL_USER_CONFIG_HOME='${home}' `
+        + `MYSQL_TEST_LOGIN_FILE='${join(home, ".mylogin.cnf")}' `
+        + `exec '${shell}' "$@"\n`);
     chmodSync(wrapper, 0o755);
     // The language server: MARIADB_LSP if given, else whatever the PATH has.
     const lsp = process.env.MARIADB_LSP;
