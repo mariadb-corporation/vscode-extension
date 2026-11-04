@@ -272,10 +272,14 @@ export class MsmProjectsTreeProvider
 
     /**
      * @returns Every folder of the view: those projects are filed in, with
-     *          their parents, and those made with New Folder.
+     *          their parents, and those made with New Folder. The projects
+     *          are as last listed; before a listing - the view not drawn
+     *          yet - only the folders made with New Folder, so a dialog
+     *          asking for them does not wait for the server to start.
      */
     public async folders(): Promise<string[]> {
-        return this.#foldersOf(await this.projects());
+        return this.#foldersOf(this.#listing === undefined
+            ? [] : await this.#listing);
     }
 
     /**
@@ -331,7 +335,7 @@ export class MsmProjectsTreeProvider
             }
         } catch (error) {
             // A tree that throws shows nothing and says nothing.
-            reportError(this.host.log, error, "list the MSM projects");
+            reportError(this.host.log, error, whatFailed(node));
 
             return [];
         }
@@ -564,12 +568,15 @@ export class MsmProjectsTreeProvider
             const listed = new Map(projects.map((node) => {
                 return [node.project.projectPath, node.project.folder];
             }));
-            await Promise.all(all.filter(({ projectPath, folder }) => {
-                return listed.get(projectPath) !== folder;
-            }).map(async ({ projectPath, folder }) => {
-                await api.updateProject(projectPath, { folder });
-                this.host.log(`Moved '${projectPath}' to '${folder}'.`);
-            }));
+            // One after the other, as `fileConnections` moves connections:
+            // each call rewrites the server's one list, and two at once
+            // could lose each other's change.
+            for (const { projectPath, folder } of all) {
+                if (listed.get(projectPath) !== folder) {
+                    await api.updateProject(projectPath, { folder });
+                    this.host.log(`Moved '${projectPath}' to '${folder}'.`);
+                }
+            }
             for (const { from, to } of folders) {
                 await Promise.all([
                     this.customFolders.move(from, to),
@@ -594,7 +601,12 @@ export class MsmProjectsTreeProvider
         const listed = await (await this.host.msmApi()).listProjects();
 
         return listed.map((project) => {
-            return { kind: "project", project };
+            // In the one spelling the folder rows are drawn from, whatever
+            // wrote the entry: a project filed in `Shop/` is in `/Shop`.
+            return {
+                kind: "project",
+                project: { ...project, folder: normalizeFolder(project.folder) },
+            };
         });
     }
 
@@ -699,6 +711,24 @@ const fileItem = (node: IMsmFileNode): vscode.TreeItem => {
     }
 
     return item;
+};
+
+/**
+ * @param node The row whose children could not be listed; undefined for
+ *             the top level.
+ *
+ * @returns What failed, for the error message: the listing, or reading a
+ *          folder on disk, named - not the listing, which went fine.
+ */
+const whatFailed = (node: MsmProjectsNode | undefined): string => {
+    if (node?.kind === "project") {
+        return `read ${node.project.projectPath}`;
+    }
+    if (node?.kind === "file") {
+        return `read ${node.path}`;
+    }
+
+    return "list the MSM projects";
 };
 
 /**

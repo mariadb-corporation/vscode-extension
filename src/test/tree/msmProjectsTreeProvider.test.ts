@@ -320,6 +320,22 @@ describe("the MSM Projects view", () => {
         })).toBeUndefined();
     });
 
+    it("files a project by its folder in any spelling, and offers the "
+        + "folders made here before a listing", async () => {
+        const fake = setUp([listed("/p/a.msm.project", { folder: "Shop/" })]);
+        await fake.tree.newFolder("/Archive");
+        // No listing yet: a dialog asking does not start the server.
+        expect(await fake.tree.folders()).toEqual(["/Archive"]);
+
+        const roots = await fake.tree.getChildren();
+        const shop = roots[1] as IMsmFolderNode;
+        expect(shop.path).toBe("/Shop");
+        expect(shop.empty).toBe(false);
+        expect(labels(fake, await fake.tree.getChildren(shop)))
+            .toEqual(["shop"]);
+        expect(await fake.tree.folders()).toEqual(["/Archive", "/Shop"]);
+    });
+
     for (const tool of ["msm.list_projects", "msm_list_projects"]) {
         it(`asks for a newer MariaDB Shell where ${tool} is unknown to it`,
             async () => {
