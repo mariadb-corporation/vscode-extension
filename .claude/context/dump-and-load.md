@@ -17,10 +17,9 @@ export or import, `dba` for a cloud deployment or deletion (kinds
 `deploy_object`, `delete_object`; no `connection_id`, but `vendor`,
 `project` and `object_type`). The `util.*` start calls still answer
 `{task_id, status}`. There is no fallback to the `util.get_task`,
-`util.list_tasks` and `util.cancel_task` of older servers, so on a shell
-older than 26.10.5 a task starts but cannot be followed or cancelled. The
-shell floor is held at 26.10.4 all the same, so the Workbench can be tried
-on the shell builds in use (see [shell-and-mcp.md](shell-and-mcp.md)).
+`util.list_tasks` and `util.cancel_task` of older servers; the shell floor,
+26.11.0, is the first release with the `task.*` tools (see
+[shell-and-mcp.md](shell-and-mcp.md)).
 
 | File | Purpose |
 | --- | --- |

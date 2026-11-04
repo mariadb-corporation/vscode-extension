@@ -86,16 +86,14 @@ change belongs to up to date, and this table with it.
 
 - `MINIMUM_SHELL_VERSION` (`src/shell/constants.ts`) is set by the release
   tooling (`tools/update_version`, the shell repo's `main` version); the hard
-  floor is 26.10.4 (`mariadb://` URIs from 26.9.3, `db.test_connection` and
-  per-statement script results from 26.9.4), held below 26.10.5 (`task.*`)
-  so the Workbench can be tried on the shell builds in use; on 26.10.4
-  Dump and Load cannot follow or cancel its tasks. To do: raise it to
-  26.10.5 once that release is out. 26.10.0 is the first release
+  floor is 26.11.0 (`mariadb://` URIs from 26.9.3, `db.test_connection` and
+  per-statement script results from 26.9.4, the `task.*` tools from
+  26.11.0). 26.10.0 is the first release
   whose bundled `mcp_plugin` has connection folders / captions / colors,
   `sandbox.list_instances` and `mcp_access`, paging (`has_more_pages`) and
   `column_metadata`. 26.10.3 is the first with the MRS module
   (mariadb-shell #71) and mcp_plugin's `rest` group, which the REST Service
-  tree needs. 26.10.5 is the first whose background tasks are the shell's
+  tree needs. 26.11.0 is the first whose background tasks are the shell's
   own (`mysqlsh.task_manager`), followed with `task.get` / `task.list` /
   `task.cancel` rather than `util.get_task` and the like, which Dump and
   Load now needs - see [`context/dump-and-load.md`](context/dump-and-load.md).
@@ -123,7 +121,7 @@ change belongs to up to date, and this table with it.
   a PR name the shell build it needs and download it (shell PR CI would
   have to upload its Linux package; `rocky-linux.yml` can build one on
   dispatch); skip tests whose feature the shell lacks.
-- The UI tests need shell 26.10.5 or later, or a local build of the
+- The UI tests need shell 26.11.0 or later, or a local build of the
   shell's `main`, named with `MARIADB_SHELL=...`.
 - **Highlighting is lexical.** Non-reserved keywords used as names are
   coloured as keywords, data types have no scope of their own, and the
