@@ -26,8 +26,10 @@ import type {
     IMsmListedProject,
     IMsmProjectDetails,
 } from "../../mcp/msmApi.js";
+import { McpToolError } from "../../mcp/protocol.js";
 import {
     MSM_PROJECTS_DRAG_MIME,
+    MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY,
     MsmProjectsTreeProvider,
     projectDescription,
     projectLabel,
@@ -37,8 +39,10 @@ import {
     type MsmProjectsNode,
 } from "../../tree/msmProjectsTreeProvider.js";
 import {
+    contextKeys,
     DataTransfer,
     DataTransferItem,
+    errorMessages,
     resetVscodeMock,
     TreeItemCollapsibleState,
 } from "../mocks/vscode.js";
@@ -292,5 +296,35 @@ describe("the MSM Projects view", () => {
         expect(fake.tree.getParent({
             kind: "project", project: listed("/p/b.msm.project"),
         })).toBeUndefined();
+    });
+
+    it("asks for a newer MariaDB Shell where the list is unknown to it",
+        async () => {
+            const tree = new MsmProjectsTreeProvider({
+                msmApi: () => {
+                    return Promise.resolve({
+                        listProjects: () => {
+                            return Promise.reject(new McpToolError(
+                                "msm_list_projects",
+                                "Unknown tool: msm_list_projects"));
+                        },
+                    } as unknown as IMsmApi);
+                },
+                log: () => { /* not looked at */ },
+            });
+
+            expect(await tree.getChildren()).toEqual([]);
+            expect(contextKeys.get(MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY))
+                .toBe("unsupported");
+            // The welcome content says it; no error message on top.
+            expect(errorMessages).toEqual([]);
+        });
+
+    it("notes a listing for the welcome content", async () => {
+        const fake = setUp([]);
+
+        expect(await fake.tree.getChildren()).toEqual([]);
+        expect(contextKeys.get(MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY))
+            .toBe("listed");
     });
 });

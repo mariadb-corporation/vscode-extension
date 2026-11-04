@@ -65,6 +65,12 @@ MSM Projects (`mariadb.msmProjects`).
   row). Open takes a folder or its `msm.project.json`
   (`canSelectFiles` and `canSelectFolders`). Both are on a folder row's menu
   too, and the welcome content has them as buttons.
+- **An older shell**: one without the list answers `Unknown tool:
+  msm_list_projects` (`isUnsupportedShell`). The view then sets
+  `mariadb.msmProjectsView` to `unsupported`, logs it without an error
+  message, and its welcome content asks for a newer MariaDB Shell; New,
+  Open and New Folder leave the toolbar, Refresh stays. A listing sets
+  `listed`.
 - **New MSM Project's list settings**: Folder (a `<datalist>` of the view's
   folders), Caption, Color (the swatches of the connection editor) and Allow
   MCP Access, off by default. `mcp_access` goes with `msm.create_project`

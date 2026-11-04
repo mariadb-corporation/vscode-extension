@@ -46,6 +46,7 @@ const manifest = JSON.parse(readFileSync(
         }>;
         menus: Record<string, IMenuEntry[]>;
         submenus: Array<{ id: string; label: string }>;
+        viewsWelcome: Array<{ view: string; contents: string; when?: string }>;
     };
 };
 const { commands, menus, submenus } = manifest.contributes;
@@ -150,11 +151,34 @@ describe("the MSM Projects view's menus", () => {
 
     it("has New, Open, New Folder and Refresh in its toolbar", () => {
         expect(menus["view/title"].filter((entry) => {
-            return entry.when === VIEW;
+            return entry.when?.startsWith(VIEW) === true;
         }).map((entry) => { return entry.command; })).toEqual([
             MSM_LIST_COMMANDS.newProject, MSM_LIST_COMMANDS.openProject,
             MSM_FOLDER_COMMANDS.newFolder, MSM_FOLDER_COMMANDS.refresh,
         ]);
+    });
+
+    it("keeps only Refresh in its toolbar on a shell without MSM Projects",
+        () => {
+            const unsupported = "mariadb.msmProjectsView != unsupported";
+            expect(menus["view/title"].filter((entry) => {
+                return entry.when === `${VIEW} && ${unsupported}`;
+            }).map((entry) => { return entry.command; })).toEqual([
+                MSM_LIST_COMMANDS.newProject, MSM_LIST_COMMANDS.openProject,
+                MSM_FOLDER_COMMANDS.newFolder,
+            ]);
+        });
+
+    it("asks for a newer MariaDB Shell where it has no MSM Projects", () => {
+        const welcome = manifest.contributes.viewsWelcome.filter((entry) => {
+            return entry.view === "mariadb.msmProjects";
+        });
+        expect(welcome.map((entry) => { return entry.when; })).toEqual([
+            "mariadb.msmProjectsView != unsupported",
+            "mariadb.msmProjectsView == unsupported",
+        ]);
+        expect(welcome[1].contents)
+            .toMatch(/update to a newer version of the MariaDB Shell/u);
     });
 
     it("offers the Explorer's operations on a project, as icons too", () => {

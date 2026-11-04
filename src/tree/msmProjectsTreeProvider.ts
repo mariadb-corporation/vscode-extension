@@ -28,6 +28,7 @@ import {
     subfoldersOf,
 } from "../connections/connectionFolders.js";
 import { reportError } from "../errorMessages.js";
+import { McpToolError } from "../mcp/protocol.js";
 import type { IMsmApi, IMsmListedProject } from "../mcp/msmApi.js";
 import type { ConnectionColor } from "../mcp/types.js";
 import { colorUriOf } from "./connectionColors.js";
@@ -41,6 +42,27 @@ import {
 
 /** The id the MSM Projects view is contributed under. */
 export const MSM_PROJECTS_VIEW_ID = "mariadb.msmProjects";
+
+/**
+ * The context key the view's welcome content switches on: `unsupported`
+ * when the MariaDB Shell has no MSM Projects list yet (one released before
+ * `msm_list_projects`), `listed` once it listed the projects.
+ */
+export const MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY = "mariadb.msmProjectsView";
+
+/** What the view says while it has no rows. */
+export type MsmProjectsViewState = "listed" | "unsupported";
+
+/**
+ * @param error Why listing the projects failed.
+ *
+ * @returns Whether it failed because the MariaDB Shell is too old to have
+ *          the MSM Projects list, which answers `Unknown tool: <name>`.
+ */
+export const isUnsupportedShell = (error: unknown): boolean => {
+    return error instanceof McpToolError
+        && /Unknown tool: msm_/.test(error.message);
+};
 
 /** What a drag in the view carries: the rows dragged. */
 export const MSM_PROJECTS_DRAG_MIME = "application/vnd.mariadb.msmprojects";
@@ -180,6 +202,8 @@ export class MsmProjectsTreeProvider
 
     /** The projects the rows were drawn from, until the next refresh. */
     #listing: Promise<IMsmProjectNode[]> | undefined;
+    /** The state last handed to the welcome content. */
+    #shownState?: MsmProjectsViewState;
 
     public readonly customFolders: FolderSet;
     public readonly collapsedFolders: FolderSet;
@@ -269,7 +293,10 @@ export class MsmProjectsTreeProvider
     ): Promise<MsmProjectsNode[]> {
         try {
             if (node === undefined) {
-                return await this.#folderChildren(ROOT_FOLDER);
+                const children = await this.#folderChildren(ROOT_FOLDER);
+                this.#showState("listed");
+
+                return children;
             }
 
             switch (node.kind) {
@@ -287,6 +314,15 @@ export class MsmProjectsTreeProvider
                 }
             }
         } catch (error) {
+            // A shell without the list is not a failure to report again on
+            // every draw: the welcome content asks for a newer one.
+            if (node === undefined && isUnsupportedShell(error)) {
+                this.host.log("The MariaDB Shell has no MSM Projects list; "
+                    + "a newer version is needed.");
+                this.#showState("unsupported");
+
+                return [];
+            }
             // A tree that throws shows nothing and says nothing.
             reportError(this.host.log, error, "list the MSM projects");
 
@@ -526,6 +562,22 @@ export class MsmProjectsTreeProvider
     }
 
     // --- rows -------------------------------------------------------------
+
+    /**
+     * Hands the view's state to its welcome content, when it changed.
+     *
+     * @param state What the view says while it has no rows.
+     *
+     * @returns Nothing.
+     */
+    #showState(state: MsmProjectsViewState): void {
+        if (state === this.#shownState) {
+            return;
+        }
+        this.#shownState = state;
+        void vscode.commands.executeCommand("setContext",
+            MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY, state);
+    }
 
     /**
      * @returns The projects, each with its development version, read side

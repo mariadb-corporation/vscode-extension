@@ -101,8 +101,8 @@ change belongs to up to date, and this table with it.
   The MSM Projects view needs the msm plugin's project list and
   mcp_plugin's `msm.list_projects` / `add_project` / `update_project` /
   `remove_project` with `mcp_access` (mariadb-shell-plugins #80, not in a
-  shell release yet): with an older shell the view reports the missing
-  tool and stays on its welcome content.
+  shell release yet): with an older shell its welcome content asks for a
+  newer MariaDB Shell.
 - The result grid edits every value as text; there is no type-aware editor
   (date picker, BLOB viewer) yet. Its cell menu has Save / Load Value and
   Set Field to Null only - none of the MySQL Shell's Copy items.

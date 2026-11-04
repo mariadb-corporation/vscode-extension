@@ -213,7 +213,13 @@
       },
       {
         "view": "mariadb.msmProjects",
-        "contents": "The MariaDB Schema Management projects you work on. None has been added yet.\n[New MSM Project...](command:mariadb.msm.newProjectInView)\n[Open MSM Project...](command:mariadb.msm.openProjectInView)"
+        "contents": "The MariaDB Schema Management projects you work on. None has been added yet.\n[New MSM Project...](command:mariadb.msm.newProjectInView)\n[Open MSM Project...](command:mariadb.msm.openProjectInView)",
+        "when": "mariadb.msmProjectsView != unsupported"
+      },
+      {
+        "view": "mariadb.msmProjects",
+        "contents": "This version of the MariaDB Shell does not support MSM Projects. Please update to a newer version of the MariaDB Shell to use this view.",
+        "when": "mariadb.msmProjectsView == unsupported"
       },
       {
         "view": "mariadb.sandboxes",
@@ -1304,17 +1310,17 @@
         },
         {
           "command": "mariadb.msm.newProjectInView",
-          "when": "view == mariadb.msmProjects",
+          "when": "view == mariadb.msmProjects && mariadb.msmProjectsView != unsupported",
           "group": "navigation@0"
         },
         {
           "command": "mariadb.msm.openProjectInView",
-          "when": "view == mariadb.msmProjects",
+          "when": "view == mariadb.msmProjects && mariadb.msmProjectsView != unsupported",
           "group": "navigation@1"
         },
         {
           "command": "mariadb.msm.newProjectFolder",
-          "when": "view == mariadb.msmProjects",
+          "when": "view == mariadb.msmProjects && mariadb.msmProjectsView != unsupported",
           "group": "navigation@2"
         },
         {
