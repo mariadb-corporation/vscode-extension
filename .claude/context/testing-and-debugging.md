@@ -69,7 +69,13 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
-profile, a work dir, shell home, ports and sandbox of its own.
+profile, a work dir, shell home, ports and sandbox of its own. The
+runner empties `.vscode-test/extest/extensions` before each suite:
+ExTester installs the build under test there but never removes older
+ones, and an older build with the same view containers (such as a
+`mariadb-dev` build from before the extension's rename) registers them
+first and hides the views under test - a UI test then times out waiting
+for an activity bar entry.
 `01-sandbox` (New Sandbox dialog, the `uitest` schema) and `99-cleanup`
 (delete it) wrap every suite, so a suite can count on nothing another
 did. No suite named runs them all, one after the other; a failing one

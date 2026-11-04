@@ -37,7 +37,14 @@ MSM Projects (`mariadb.msmProjects`).
   leaves it out of the row). The provider lists once per refresh - one call,
   no project read per row - and keeps the listing until the next; New
   Folder and Remove Folder change only what is kept here, so they redraw
-  without listing again.
+  without listing again. A project's `folder` is put through
+  `normalizeFolder` as it is listed: another client may write `Shop/`,
+  and folder rows compare normalized paths. `folders()` (New MSM
+  Project's folder list) answers from the listing kept, or with the New
+  Folder folders alone where there is none yet, so opening the dialog
+  from the Explorer never waits for the server to start. A project's
+  files that cannot be read are reported as that folder's read, not as
+  the listing failing (`whatFailed`).
 - **Rows.** Folders first (sorted), then projects by label: the caption,
   else the schema, else the folder name without `.msm.project`. A project's
   description is its development version, and ` · MCP` after it where LLMs
@@ -60,8 +67,11 @@ MSM Projects (`mariadb.msmProjects`).
   `FolderColors` in `globalState` under `mariadb.msmProjects.*` keys of their
   own (`FolderColors` took a key argument for it). Drag and drop on a MIME of
   its own (`application/vnd.mariadb.msmprojects`) moves projects and whole
-  folders with one `msm.update_project(new_folder=)` per project that moves;
-  Rename Folder goes through the same `#refile`. Remove Folder is on an
+  folders with one `msm.update_project(new_folder=)` per project that moves,
+  sent one at a time: each call rewrites the server's one `projects.json`
+  and the MCP connector does not serialize calls, so parallel ones lose
+  moves (`fileConnections` does the same for connections). Rename Folder
+  goes through the same `#refile`. Remove Folder is on an
   empty folder only. No New Folder with Selection.
 - **The toolbar**: New MSM Project... (`+`), Open MSM Project..., New
   Folder..., Refresh. New asks with `showSaveDialog` for the project
