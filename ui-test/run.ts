@@ -99,7 +99,9 @@ const CLEANUP = "99-cleanup";
  * The suites, by name: the test files of each, in the order they run.
  * Each starts with SETUP and ends with CLEANUP - `core` with `00-startup`
  * first, as it checks the views of a first start, before anything is in
- * them.
+ * them - and `msm` with `10-msm-projects` before `09-msm`, as it checks
+ * the MSM Projects view empty, and a project created in the Explorer is
+ * listed there.
  */
 const SUITES: Record<string, string[]> = {
     core: ["00-startup", SETUP, "03-connections", "04-sql-results",
@@ -108,8 +110,7 @@ const SUITES: Record<string, string[]> = {
     "dump-load": [SETUP, "06-dump-load", CLEANUP],
     restd: [SETUP, "07-restd", CLEANUP],
     lsp: [SETUP, "08-lsp", CLEANUP],
-    msm: [SETUP, "09-msm", CLEANUP],
-    "msm-projects": [SETUP, "10-msm-projects", CLEANUP],
+    msm: [SETUP, "10-msm-projects", "09-msm", CLEANUP],
 };
 
 /**

@@ -65,8 +65,7 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `mrs` | `02-mrs` | `ui-test:mrs` |
 | `dump-load` | `06-dump-load` | `ui-test:dump-load` |
 | `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), the walk from `SELECT ` through schema, table and column to the FROM clause and a foreign-key join (`pickCompletion` opens the list and clicks an item; a dotted item reopens it by itself), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches); Format Document and the toolbar's format button with and without a selection; the Explorer's Outline (schema > table > columns and key, a view, a function) and a click on a symbol moving the cursor; an MSM script's `SOURCE` section in the Outline and in path completion. Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
-| `msm` | `09-msm`: MariaDB Schema Management from the Explorer, a project created, released, scripted and deployed onto the sandbox, through the dialogs (see [msm.md](msm.md)). Its VS Code opens `files/workspace` (`WORKSPACE_FILES`, `--open_resource`), as `msm-projects` does; `UI_TEST_WORKSPACE` names it | `ui-test:msm` |
-| `msm-projects` | `10-msm-projects`: the MSM Projects view - empty with its New / Open buttons, a project created from the toolbar (the save dialog names it, New MSM Project files and captions it), its files opened with a click, the Explorer's operations on its row (the information from its inline icon), Edit MSM Project (version, folder, MCP access: the row then says `0.1.0 · MCP`), removed and added back from the Explorer, removed and opened with the open dialog. Workspace folder as `msm` | `ui-test:msm-projects` |
+| `msm` | `10-msm-projects` first, as a project created in the Explorer is listed in the view: the MSM Projects view - empty with its New / Open buttons, a project created from the toolbar (the save dialog names it, New MSM Project files and captions it), its files opened with a click, the Explorer's operations on its row (the information from its inline icon), Edit MSM Project (version, folder, MCP access: the row then says `0.1.0 · MCP`), removed and added back from the Explorer, removed and opened with the open dialog. Then `09-msm`: MariaDB Schema Management from the Explorer, a project created, released, scripted and deployed onto the sandbox, through the dialogs (see [msm.md](msm.md)). Its VS Code opens `files/workspace` (`WORKSPACE_FILES`, `--open_resource`); `UI_TEST_WORKSPACE` names it | `ui-test:msm` |
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
@@ -127,6 +126,8 @@ runner end anyway. A spawn that fails is reported with its error.
   - `03-connections`
   - `04-sql-results`
   - `05-lifecycle`: sandbox stop/start, MCP restart and log
+  - `10-msm-projects`: the MSM Projects view, before `09-msm` in the
+    same suite, as it starts with the view empty
   - `09-msm`: MSM from the Explorer's folder menu (see msm.md); the
     Explorer is a `DefaultTreeSection`, so it has helpers of its own
     (`explorerItem`, `explorerSubmenuEntries`, `explorerMenuAction`,

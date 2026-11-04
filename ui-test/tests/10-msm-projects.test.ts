@@ -59,8 +59,8 @@ import {
  * entry: a project created from its toolbar (a file dialog names it, the
  * New MSM Project dialog does the rest), its files, editing it, the
  * Explorer's operations on its row, and adding and removing projects from
- * the Explorer and with Open MSM Project. The `msm-projects` suite's VS
- * Code has a workspace folder open for it (see run.ts).
+ * the Explorer and with Open MSM Project. It runs before 09-msm in the
+ * `msm` suite, which lists a project of its own, whose VS Code has a workspace folder open (see run.ts).
  */
 
 const CONTAINER = "MariaDB Schema Management";
@@ -111,7 +111,7 @@ const toolbar = async (label: string): Promise<void> => {
 describe("MSM Projects view", () => {
     before(async function () {
         if (WORKSPACE === "") {
-            // Run through the msm-projects suite, which opens the workspace.
+            // Run through the msm suite, which opens the workspace.
             this.skip();
         }
         await VSBrowser.instance.waitForWorkbench();
