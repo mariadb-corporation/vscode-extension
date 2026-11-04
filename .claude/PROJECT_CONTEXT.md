@@ -30,7 +30,7 @@ extension grows.
 | `ts-plugin/` | The TypeScript server plugin of MariaDB Notebooks, a package of its own that npm links into `node_modules`: the runtime's typings for TypeScript cells (see [`context/notebook-typescript.md`](context/notebook-typescript.md)). |
 | `src/notebook/` | MariaDB Notebooks: the `.mariadb-notebook` format and serializer, the notebook's connection, the kernel that runs SQL and TypeScript cells (a worker per notebook), telling a cell's language from what is typed, and the live views of their result sets (see [`context/notebooks.md`](context/notebooks.md)). |
 | `src/overview/` | The MariaDB Overview editor tab: the snapshot it shows and its folder walking, its protocol and panel (see [`context/overview.md`](context/overview.md)). |
-| `src/msm/` | MariaDB Schema Management from the Explorer's folder menu: the dialogs' fields, protocol and panel, and the commands, each an action of the Actions tab (see [`context/msm.md`](context/msm.md)). |
+| `src/msm/` | MariaDB Schema Management from the Explorer's folder menu and the MSM Projects view: the dialogs' fields, protocol and panel, the commands, each an action of the Actions tab, and the view's folder commands (`msmProjectsCommands.ts`) (see [`context/msm.md`](context/msm.md)). |
 | `src/restd/` | The MariaDB REST Daemon: a sandbox deployed with the REST Service, its daemon following it, the REST Daemons view's commands, and `ActionGroup`, one Actions row with a row per step (see [`context/restd.md`](context/restd.md)). |
 | `src/modeler/` | The schema diagram viewer's extension side: the `msm_schema_diagrams` rows (`mwb-schema/1`, `mwb-diagram/1`) and their queries, the Diagram session's service, the page model (A4 sheets the diagram is printed on), and the panel (see [`context/modeler.md`](context/modeler.md)). |
 | `src/sql/` | The statement scanner, statement splitting, single-table detection, which statements change the catalog (`catalogChange.ts`), the edit query builder and the execution service. |
@@ -66,7 +66,7 @@ change belongs to up to date, and this table with it.
 | [`context/running-sql.md`](context/running-sql.md) | The two run commands and stop on error, which connection a file runs on, the MariaDB SQL language and its ANSI_QUOTES highlight, the statement scanner, splitting agreeing with the server, what makes a result set editable, the gutter markers. |
 | [`context/sql-grammar.md`](context/sql-grammar.md) | The MariaDB SQL TextMate grammar: one language, ANSI_QUOTES as semantic tokens (and why not two languages), what a tokenizer can and cannot do and the policy for each, the generated word lists and the sync workflow, the three test layers. |
 | [`context/dump-and-load.md`](context/dump-and-load.md) | The Dump and Load submenu, its dialog, the background tasks (`util.*` tools) with their notification and the Tasks view, each task as a row of the Actions tab, and a log file per task. |
-| [`context/msm.md`](context/msm.md) | MariaDB Schema Management: the Explorer submenu on folders and `*.msm.project` folders, the five dialogs, the `msm.*` tools (and why version lists are read from `structuredContent`), every operation as an action, the checks made before calling the plugin, the release-version and schema-name bugs older plugins have. |
+| [`context/msm.md`](context/msm.md) | MariaDB Schema Management: the Explorer submenu on folders and `*.msm.project` folders, the MSM Projects view (the server's project list, folders, colors, MCP access, a project's files), the six dialogs, the `msm.*` tools (and why version lists are read from `structuredContent`), every operation as an action, the checks made before calling the plugin, the release-version and schema-name bugs older plugins have. |
 | [`context/restd.md`](context/restd.md) | The MariaDB REST Daemon: New Sandbox's REST Service option and its steps, Set Up MariaDB REST Daemon, the REST Daemons view, the sub-rows and the log button. |
 | [`context/deployments.md`](context/deployments.md) | The MariaDB Deployments view in its own activity bar container (sandboxes in a folder, each with its REST Daemons) and the New Deployment wizard, which so far leads to New Sandbox. |
 | [`context/notebooks.md`](context/notebooks.md) | MariaDB Notebooks on VS Code's notebook API: the file, the connection in its metadata (and how a cell answers `connectionFor`), running a SQL cell through `executeScript`, its outputs, the panel's result view under a cell (its messaging, the third host in `ResultViewProvider`, refresh, a reopened notebook), its scoped stylesheet, why the run keybindings stay out of cells. |
@@ -98,6 +98,11 @@ change belongs to up to date, and this table with it.
   `task.cancel` rather than `util.get_task` and the like, which Dump and
   Load now needs - see [`context/dump-and-load.md`](context/dump-and-load.md).
   The server runs each util task in a shell process of its own.
+  The MSM Projects view needs the msm plugin's project list and
+  mcp_plugin's `msm.list_projects` / `add_project` / `update_project` /
+  `remove_project` with `mcp_access` (mariadb-shell-plugins #80, not in a
+  shell release yet): with an older shell the view reports the missing
+  tool and stays on its welcome content.
 - The result grid edits every value as text; there is no type-aware editor
   (date picker, BLOB viewer) yet. Its cell menu has Save / Load Value and
   Set Field to Null only - none of the MySQL Shell's Copy items.

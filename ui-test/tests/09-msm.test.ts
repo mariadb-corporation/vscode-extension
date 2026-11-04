@@ -77,6 +77,7 @@ const PROJECT_ENTRIES = [
     "Prepare MSM Release...",
     "Generate MSM Deployment Script...",
     "Deploy MSM Schema...",
+    "Add to MSM Projects",
 ];
 
 const projectPath = (): string => {

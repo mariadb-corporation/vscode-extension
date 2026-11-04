@@ -33,8 +33,18 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   lists the places deployments are to be made, none configured yet. The first activity bar entry is now
   called MariaDB Shell, with a new icon.
 - **MariaDB Schema Management view.** A third activity bar icon opens the
-  MSM Projects view, which is to list the schema projects you work on.
-  Nothing can be added to it yet.
+  MSM Projects view: the schema projects you work on, filed in folders,
+  with a caption and a color each, as connections are. Its `+` names a new
+  project with a file dialog and opens New MSM Project on it; Open MSM
+  Project adds an existing one, and so does Add to MSM Projects on a
+  project folder in the Explorer. A project shows its development
+  version, opens into its files, and has the Explorer's operations as
+  icons and in its menu, with Edit MSM Project... (the development
+  version and how the view shows it) and Remove from MSM Projects. Each
+  project says whether LLMs may work on it through the MariaDB MCP server
+  (`MCP` beside its version): one added here starts without access, which
+  New and Edit MSM Project can give it. Needs a shell whose bundled
+  msm and mcp plugins have the project list.
 - **A new Marketplace icon.**
 - **Formatting and completion settings.** `mariadb.lsp.indentClauses` and
   `mariadb.lsp.indentRoutineClauses` (on by default) put the clauses of a

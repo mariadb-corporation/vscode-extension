@@ -39,6 +39,11 @@ export interface IMsmLoadMessage {
     licenses?: readonly string[];
     /** The connections Deploy Schema offers. */
     connections?: IMsmConnectionChoice[];
+    /**
+     * The folders of the MSM Projects list, offered by New and Edit MSM
+     * Project's Folder field.
+     */
+    folders?: string[];
 }
 
 /** A folder picked with Browse, for the field it was picked for. */

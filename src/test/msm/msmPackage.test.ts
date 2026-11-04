@@ -21,7 +21,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { MSM_COMMANDS } from "../../msm/msmCommands.js";
+import { MSM_COMMANDS, MSM_LIST_COMMANDS } from "../../msm/msmCommands.js";
+import { MSM_FOLDER_COMMANDS } from "../../msm/msmProjectsCommands.js";
 
 const EXTENSION_ROOT = join(
     dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -37,7 +38,12 @@ const manifest = JSON.parse(readFileSync(
     join(EXTENSION_ROOT, "package.json"), "utf8")) as {
     scripts: Record<string, string>;
     contributes: {
-        commands: Array<{ command: string; title: string; category?: string }>;
+        commands: Array<{
+            command: string;
+            title: string;
+            category?: string;
+            icon?: string;
+        }>;
         menus: Record<string, IMenuEntry[]>;
         submenus: Array<{ id: string; label: string }>;
     };
@@ -70,9 +76,13 @@ describe("the MariaDB Schema Management menu", () => {
             // Each opens a dialog, or a picker first.
             expect(command?.title, id).toMatch(/\.\.\.$/u);
         }
+        const all = [...Object.values(MSM_COMMANDS),
+            ...Object.values(MSM_LIST_COMMANDS),
+            ...Object.values(MSM_FOLDER_COMMANDS)];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
-        })).toHaveLength(Object.keys(MSM_COMMANDS).length);
+        }).map((entry) => { return entry.command; }).sort())
+            .toEqual(all.sort());
     });
 
     it("is a submenu of the Explorer's folders, beside the REST Service's",
@@ -102,16 +112,79 @@ describe("the MariaDB Schema Management menu", () => {
         expect(shown).toEqual([
             MSM_COMMANDS.info, MSM_COMMANDS.release,
             MSM_COMMANDS.deploymentScript, MSM_COMMANDS.deploy,
+            MSM_LIST_COMMANDS.addToProjects,
         ]);
     });
 
     it("lists every command in the submenu, grouped in order", () => {
+        // Edit MSM Project is on the MSM Projects view's rows: it edits
+        // how the view lists a project, which one in the Explorer may not be.
         expect(menus[SUBMENU].map((entry) => { return entry.command; }).sort())
-            .toEqual(Object.values(MSM_COMMANDS).sort());
+            .toEqual([...Object.values(MSM_COMMANDS).filter((id) => {
+                return id !== MSM_COMMANDS.edit;
+            }), MSM_LIST_COMMANDS.addToProjects].sort());
         expect(menus[SUBMENU].map((entry) => { return entry.group; })).toEqual([
             "1_create@1", "2_project@1", "3_release@1", "3_release@2",
-            "4_deploy@1",
+            "4_deploy@1", "5_list@1",
         ]);
+    });
+});
+
+describe("the MSM Projects view's menus", () => {
+    const VIEW = "view == mariadb.msmProjects";
+    const onRow = (viewItem: string, inline: boolean): Array<string | undefined> => {
+        return menus["view/item/context"].filter((entry) => {
+            const when = entry.when ?? "";
+            if (!when.startsWith(`${VIEW} && viewItem `)) {
+                return false;
+            }
+            const test = when.slice(`${VIEW} && viewItem `.length);
+            const matches = test.startsWith("== ")
+                ? test.slice(3) === viewItem
+                : new RegExp(test.slice(4, -1), "u").test(viewItem);
+
+            return matches && (entry.group ?? "").startsWith("inline")
+                === inline;
+        }).map((entry) => { return entry.command; });
+    };
+
+    it("has New, Open, New Folder and Refresh in its toolbar", () => {
+        expect(menus["view/title"].filter((entry) => {
+            return entry.when === VIEW;
+        }).map((entry) => { return entry.command; })).toEqual([
+            MSM_LIST_COMMANDS.newProject, MSM_LIST_COMMANDS.openProject,
+            MSM_FOLDER_COMMANDS.newFolder, MSM_FOLDER_COMMANDS.refresh,
+        ]);
+    });
+
+    it("offers the Explorer's operations on a project, as icons too", () => {
+        const operations = [MSM_COMMANDS.info, MSM_COMMANDS.release,
+            MSM_COMMANDS.deploymentScript, MSM_COMMANDS.deploy];
+        expect(onRow("mariadbMsmProject", true)).toEqual(operations);
+        expect(onRow("mariadbMsmProject", false)).toEqual([...operations,
+            MSM_COMMANDS.edit, MSM_LIST_COMMANDS.removeFromProjects]);
+        for (const id of operations) {
+            expect(commands.find((entry) => {
+                return entry.command === id;
+            })?.icon, id).toMatch(/^\$\(.+\)$/u);
+        }
+    });
+
+    it("only offers removing a project whose folder is gone", () => {
+        expect(onRow("mariadbMsmProject.missing", true))
+            .toEqual([MSM_LIST_COMMANDS.removeFromProjects]);
+        expect(onRow("mariadbMsmProject.missing", false))
+            .toEqual([MSM_LIST_COMMANDS.removeFromProjects]);
+    });
+
+    it("offers Remove Folder on an empty folder only", () => {
+        const folder = onRow("mariadbMsmFolder", false);
+        expect(folder).toEqual([MSM_LIST_COMMANDS.newProject,
+            MSM_LIST_COMMANDS.openProject, MSM_FOLDER_COMMANDS.newFolder,
+            MSM_FOLDER_COMMANDS.renameFolder,
+            MSM_FOLDER_COMMANDS.setFolderColor]);
+        expect(onRow("mariadbMsmFolder.empty", false))
+            .toEqual([...folder, MSM_FOLDER_COMMANDS.removeFolder]);
     });
 
     it("builds the dialogs' frontend with the other webviews", () => {

@@ -17,12 +17,15 @@
 
 import { useEffect, useState } from "preact/hooks";
 
+import { colorLabel } from "../../src/connections/connectionDetails.js";
+import { CONNECTION_COLORS } from "../../src/mcp/types.js";
 import {
     msmProblem,
     nextPatchVersion,
     projectFolderName,
     type IMsmCreateValues,
     type IMsmDeployValues,
+    type IMsmEditValues,
     type IMsmProblem,
     type IMsmProjectContext,
     type IMsmReleaseValues,
@@ -53,6 +56,7 @@ import { post } from "./vscodeApi.js";
  */
 const ACTIONS: Record<Exclude<MsmDialogKind, "info">, [string, string]> = {
     create: ["Create", "Creating the project..."],
+    edit: ["Update", "Updating the project..."],
     release: ["Prepare Release", "Preparing the release..."],
     deploymentScript: ["Generate", "Generating the deployment script..."],
     deploy: ["Deploy", "Deploying the schema..."],
@@ -63,6 +67,8 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
     create: "Creates a schema project folder: the development script the "
         + "schema is written in, and the folders its releases and "
         + "deployment scripts go to.",
+    edit: "Changes the version development goes on with, and how the MSM "
+        + "Projects view files and shows the project.",
     info: "What the project's files say about it.",
     release: "Writes the development script out as a released version, "
         + "with the update script from the version before, and moves "
@@ -137,6 +143,7 @@ export const MsmDialog = (): preact.JSX.Element => {
     const { kind, title, project } = load;
     const licenses = load.licenses ?? [];
     const connections = load.connections ?? [];
+    const folders = load.folders ?? [];
 
     // What the fields themselves get wrong: only that holds the button
     // back, as what the host said may be gone on a second try.
@@ -277,6 +284,101 @@ export const MsmDialog = (): preact.JSX.Element => {
         );
     };
 
+    /** The MSM Projects list's settings, of New and Edit MSM Project. */
+    const listSettings = (): preact.JSX.Element => {
+        const color = String(field("color") ?? "");
+
+        return (
+            <div class="group wide msm-list">
+                <h2>MSM Projects View</h2>
+                <div class="grid">
+                    <Field caption="Folder" hint={hint("folder",
+                        "The folder of the view it is filed in; / is the top "
+                        + "level.")}>
+                        <input
+                            type="text"
+                            name="folder"
+                            list="msm-folders"
+                            value={String(field("folder") ?? "")}
+                            spellcheck={false}
+                            disabled={busy}
+                            onInput={(event) => {
+                                update("folder",
+                                    (event.target as HTMLInputElement).value);
+                            }}
+                        />
+                        <datalist id="msm-folders">
+                            {folders.map((folder) => {
+                                return <option key={folder} value={folder} />;
+                            })}
+                        </datalist>
+                    </Field>
+                    <Field caption="Caption" hint={hint("caption",
+                        "Shown in place of the schema name; empty for none.")}>
+                        {text("caption")}
+                    </Field>
+                    {/* Not a Field: a <label> hands a click anywhere in it
+                        to its first button. */}
+                    <div class="field">
+                        <span class="field-caption" id="msm-color-caption">
+                            Color
+                        </span>
+                        <div
+                            class="row wrap colors"
+                            role="radiogroup"
+                            aria-labelledby="msm-color-caption"
+                        >
+                            {(["", ...CONNECTION_COLORS] as const)
+                                .map((choice) => {
+                                    const name = colorLabel(choice || undefined);
+
+                                    return (
+                                        <button
+                                            key={choice || "none"}
+                                            type="button"
+                                            role="radio"
+                                            name="color"
+                                            value={choice}
+                                            aria-checked={color === choice}
+                                            aria-label={name}
+                                            data-tooltip={name}
+                                            class={color === choice
+                                                ? "swatch selected" : "swatch"}
+                                            style={choice === "" ? undefined : {
+                                                background: "var(--vscode-"
+                                                    + `charts-${choice})`,
+                                            }}
+                                            disabled={busy}
+                                            onClick={() => {
+                                                update("color", choice);
+                                            }}
+                                        >
+                                            {choice === "" ? (
+                                                <span
+                                                    class={"codicon "
+                                                        + "codicon-circle-slash"}
+                                                    aria-hidden="true"
+                                                />
+                                            ) : null}
+                                        </button>
+                                    );
+                                })}
+                        </div>
+                        <span class="field-hint">
+                            The color the MSM Projects view draws it in.
+                        </span>
+                    </div>
+                    <div class="group flags">
+                        {box("mcpAccess", "Allow MCP Access",
+                            "Let LLMs work on the project through the MariaDB "
+                            + "MCP server, as Copilot does. Off, only this "
+                            + "extension can.")}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const body = (): preact.JSX.Element => {
         switch (kind) {
             case "create": {
@@ -325,6 +427,59 @@ export const MsmDialog = (): preact.JSX.Element => {
                                 "Delete a project folder of the same name "
                                 + "first.")}
                         </div>
+                        {listSettings()}
+                    </section>
+                );
+            }
+
+            case "edit": {
+                const edit = values as IMsmEditValues;
+                const last = project?.lastReleasedVersion;
+                const rows: Array<[string, string]> = project === undefined
+                    ? [] : [
+                        ["Schema", project.schemaName],
+                        ["License", project.license],
+                        ["Copyright",
+                            project.copyrightHolders.join(", ") || "None"],
+                    ];
+
+                return (
+                    <section class="grid">
+                        {summary(project)}
+                        <div class="wide msm-info">
+                            <dl>
+                                {rows.map(([caption, value]) => {
+                                    return (
+                                        <div key={caption}
+                                            class="msm-info-row">
+                                            <dt>{caption}</dt>
+                                            <dd>{value}</dd>
+                                        </div>
+                                    );
+                                })}
+                            </dl>
+                        </div>
+                        <Field caption="Development Version" hint={hint(
+                            "developmentVersion", last === undefined
+                                ? "The version the development script is for."
+                                : `The last release was ${last}.`)}>
+                            <input
+                                type="text"
+                                name="developmentVersion"
+                                class={invalid("developmentVersion")
+                                    ? "invalid" : undefined}
+                                aria-invalid={invalid("developmentVersion")}
+                                value={edit.developmentVersion}
+                                spellcheck={false}
+                                disabled={busy}
+                                onInput={(event) => {
+                                    update("developmentVersion",
+                                        (event.target as HTMLInputElement)
+                                            .value);
+                                }}
+                            />
+                        </Field>
+                        {listSettings()}
                     </section>
                 );
             }

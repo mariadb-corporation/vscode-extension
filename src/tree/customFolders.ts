@@ -203,9 +203,12 @@ export class FolderColors {
     /**
      * @param memento Where the colors persist. Left out, they last as long
      *                as this object does.
+     * @param key The key they are kept under in the memento: the MSM
+     *            Projects view keeps its folders' colors apart.
      */
     public constructor(
         private readonly memento: IFolderMemento = memoryMemento(),
+        private readonly key = FOLDER_COLORS_KEY,
     ) { }
 
     /**
@@ -214,7 +217,7 @@ export class FolderColors {
      */
     public all(): Record<string, ConnectionColor> {
         const stored =
-            this.memento.get<Record<string, unknown>>(FOLDER_COLORS_KEY, {});
+            this.memento.get<Record<string, unknown>>(this.key, {});
         const colors: Record<string, ConnectionColor> = {};
         for (const [path, color] of Object.entries(stored)) {
             const folder = normalizeFolder(path);
@@ -308,7 +311,7 @@ export class FolderColors {
      * @returns Nothing.
      */
     async #save(colors: Record<string, ConnectionColor>): Promise<void> {
-        await this.memento.update(FOLDER_COLORS_KEY, colors);
+        await this.memento.update(this.key, colors);
     }
 }
 

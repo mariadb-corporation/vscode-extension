@@ -102,6 +102,8 @@ describe("New MSM Project", () => {
             schemaName: "", targetPath: "/work", copyrightHolder: "",
             license: "None", allowSpecialChars: false,
             overwriteExisting: false, createTargetPath: false,
+            // At the top of the MSM Projects view, kept from LLMs.
+            folder: "/", caption: "", color: "", mcpAccess: false,
         });
     });
 

@@ -58,3 +58,9 @@
     margin: 0;
     overflow-wrap: anywhere;
 }
+
+/* --- the MSM Projects view's settings of New and Edit MSM Project -------- */
+
+.msm-list .grid {
+    padding: 0;
+}

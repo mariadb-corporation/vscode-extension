@@ -109,6 +109,7 @@ const SUITES: Record<string, string[]> = {
     restd: [SETUP, "07-restd", CLEANUP],
     lsp: [SETUP, "08-lsp", CLEANUP],
     msm: [SETUP, "09-msm", CLEANUP],
+    "msm-projects": [SETUP, "10-msm-projects", CLEANUP],
 };
 
 /**
@@ -117,7 +118,7 @@ const SUITES: Record<string, string[]> = {
  * without. A run of one of them opens it at the start, as opening a folder
  * later reloads the window.
  */
-const WORKSPACE_FILES = ["09-msm"];
+const WORKSPACE_FILES = ["09-msm", "10-msm-projects"];
 
 /**
  * @param testFiles A run's test files, or the glob naming them.

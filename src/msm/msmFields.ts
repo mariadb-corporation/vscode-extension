@@ -15,6 +15,11 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import {
+    captionProblem,
+    isConnectionColor,
+} from "../connections/connectionDetails.js";
+import type { ConnectionColor } from "../mcp/types.js";
 import { compareVersions, newestFirst } from "../versionOrder.js";
 
 /**
@@ -33,6 +38,7 @@ import { compareVersions, newestFirst } from "../versionOrder.js";
 /** The dialogs, by what they do. */
 export type MsmDialogKind =
     | "create"
+    | "edit"
     | "info"
     | "release"
     | "deploymentScript"
@@ -64,8 +70,22 @@ export interface IMsmProjectContext {
     schemaDevelopmentFilePath: string;
 }
 
+/**
+ * How a project is filed and shown in the MSM Projects list: what New MSM
+ * Project and Edit MSM Project both ask for.
+ */
+export interface IMsmListValues {
+    /** The folder of the list: `/` or `/Shop`. */
+    folder: string;
+    caption: string;
+    /** "" for none. */
+    color: ConnectionColor | "";
+    /** Whether LLMs may work on it through an MCP server without --gui. */
+    mcpAccess: boolean;
+}
+
 /** What New MSM Project asks for. */
-export interface IMsmCreateValues {
+export interface IMsmCreateValues extends IMsmListValues {
     schemaName: string;
     /** The folder the project folder is made in. */
     targetPath: string;
@@ -76,6 +96,11 @@ export interface IMsmCreateValues {
     overwriteExisting: boolean;
     /** Make the target folder where it does not exist. */
     createTargetPath: boolean;
+}
+
+/** What Edit MSM Project asks for. */
+export interface IMsmEditValues extends IMsmListValues {
+    developmentVersion: string;
 }
 
 /** What Prepare Release asks for. */
@@ -106,6 +131,7 @@ export interface IMsmDeployValues {
 /** The values of each dialog, by its kind. */
 export interface IMsmValuesOf {
     create: IMsmCreateValues;
+    edit: IMsmEditValues;
     info: Record<string, never>;
     release: IMsmReleaseValues;
     deploymentScript: IMsmDeploymentScriptValues;
@@ -124,6 +150,7 @@ export interface IMsmProblem {
 /** What the dialogs are called, as their tab titles and headers. */
 export const MSM_TITLES: Record<MsmDialogKind, string> = {
     create: "New MSM Project",
+    edit: "Edit MSM Project",
     info: "MSM Project Information",
     release: "Prepare Release",
     deploymentScript: "Generate Deployment Script",
@@ -186,6 +213,19 @@ export const projectFolderName = (schemaName: string): string => {
 };
 
 /**
+ * @param fileName A name typed into New MSM Project's file dialog:
+ *                 `shop` or `shop.msm.project`.
+ *
+ * @returns The schema it names: the name without the suffix.
+ */
+export const schemaNameOfFolder = (fileName: string): string => {
+    const name = fileName.trim();
+
+    return name.endsWith(MSM_PROJECT_SUFFIX)
+        ? name.slice(0, -MSM_PROJECT_SUFFIX.length) : name;
+};
+
+/**
  * @param path A folder's path.
  *
  * @returns Whether it is a schema project folder, by its name.
@@ -220,16 +260,53 @@ const versionProblem = (
     return undefined;
 };
 
+// --- The list's settings -------------------------------------------------
+
+/** What a project not yet listed is filed and shown with. */
+export const LIST_DEFAULTS: IMsmListValues = {
+    folder: "/",
+    caption: "",
+    color: "",
+    mcpAccess: false,
+};
+
+/**
+ * @param values How a project is to be filed and shown.
+ *
+ * @returns The first problem, or undefined where the list takes it.
+ */
+export const listProblem = (
+    values: IMsmListValues,
+): IMsmProblem | undefined => {
+    const caption = captionProblem(values.caption);
+    if (caption !== undefined) {
+        return { field: "caption", message: caption };
+    }
+    if (values.color !== "" && !isConnectionColor(values.color)) {
+        return { field: "color", message: "Choose one of the colors." };
+    }
+
+    return undefined;
+};
+
 // --- New MSM Project ---------------------------------------------------
 
 /**
  * @param folder The folder the project is created in.
+ * @param schemaName The schema, where the file dialog named it.
+ * @param list How the new project is filed in the MSM Projects list.
  *
  * @returns What New MSM Project starts with.
  */
-export const createDefaults = (folder: string): IMsmCreateValues => {
+export const createDefaults = (
+    folder: string,
+    schemaName = "",
+    list: Partial<IMsmListValues> = {},
+): IMsmCreateValues => {
     return {
-        schemaName: "",
+        ...LIST_DEFAULTS,
+        ...list,
+        schemaName,
         targetPath: folder,
         copyrightHolder: "",
         license: "None",
@@ -294,7 +371,53 @@ export const createProblem = (
         };
     }
 
-    return undefined;
+    return listProblem(values);
+};
+
+// --- Edit MSM Project --------------------------------------------------
+
+/**
+ * @param project The project, as read.
+ * @param listed How it is filed and shown in the list.
+ *
+ * @returns What Edit MSM Project starts with.
+ */
+export const editDefaults = (
+    project: IMsmProjectContext,
+    listed: IMsmListValues,
+): IMsmEditValues => {
+    return {
+        ...listed,
+        developmentVersion: project.currentDevelopmentVersion,
+    };
+};
+
+/**
+ * @param project The project.
+ * @param values What Edit MSM Project says.
+ *
+ * @returns The first problem, or undefined where it can be updated.
+ */
+export const editProblem = (
+    project: IMsmProjectContext,
+    values: IMsmEditValues,
+): IMsmProblem | undefined => {
+    const problem = versionProblem(values.developmentVersion,
+        "developmentVersion", "development version");
+    if (problem !== undefined) {
+        return problem;
+    }
+    const last = project.lastReleasedVersion;
+    if (last !== undefined
+        && compareVersions(values.developmentVersion, last) < 0) {
+        return {
+            field: "developmentVersion",
+            message: "The development version cannot be lower than the last "
+                + `released one, ${last}.`,
+        };
+    }
+
+    return listProblem(values);
 };
 
 // --- Prepare Release ---------------------------------------------------
@@ -508,6 +631,10 @@ export const msmProblem = (
     }
 
     switch (kind) {
+        case "edit": {
+            return editProblem(project, values as IMsmEditValues);
+        }
+
         case "release": {
             return releaseProblem(project, values as IMsmReleaseValues);
         }

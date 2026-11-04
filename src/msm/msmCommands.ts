@@ -16,7 +16,7 @@
  */
 
 import { homedir } from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 import * as vscode from "vscode";
 
@@ -34,6 +34,8 @@ import {
     type IMsmCreateOptions,
     type IMsmDeployOptions,
     type IMsmDeploymentScriptOptions,
+    type IMsmListedProject,
+    type IMsmProjectDetails,
     type IMsmProjectInfo,
     type IMsmReleaseOptions,
 } from "../mcp/msmApi.js";
@@ -43,11 +45,15 @@ import {
     createDefaults,
     deployDefaults,
     deploymentScriptDefaults,
+    editDefaults,
     isProjectFolder,
     MSM_TITLES,
     projectFolderName,
     releaseDefaults,
+    schemaNameOfFolder,
     type IMsmCreateValues,
+    type IMsmEditValues,
+    type IMsmListValues,
     type IMsmDeploymentScriptValues,
     type IMsmDeployValues,
     type IMsmProblem,
@@ -86,7 +92,23 @@ export interface IMsmCommandsHost {
     refresh(uri: string): void;
     /** Whether a path exists; the disk's, unless a test says otherwise. */
     exists?(path: string): Promise<boolean>;
+    /** The MSM Projects list changed: the view reads it again. */
+    projectsChanged?(): void;
+    /** The folders of the MSM Projects view, which the dialogs offer. */
+    projectFolders?(): Promise<string[]>;
+    /** Shows a project in the MSM Projects view. */
+    revealProject?(projectPath: string): Promise<void>;
     log(message: string): void;
+}
+
+/**
+ * What a command of the MSM Projects view is handed: a project's row, or
+ * a folder's (for New and Open, the folder they file into).
+ */
+export interface IMsmProjectRow {
+    kind: "project" | "folder";
+    project?: IMsmListedProject;
+    path?: string;
 }
 
 /**
@@ -101,11 +123,97 @@ export const MSM_DEPLOY_SESSION = "MSM Deploy";
 let deploys = 0;
 
 /** The dialogs on a project: all but New MSM Project. */
-type ProjectDialogKind = Exclude<MsmDialogKind, "create">;
+type ProjectDialogKind = Exclude<MsmDialogKind, "create" | "edit">;
+
+/** The MSM Projects list's commands, beside the dialogs'. */
+export const MSM_LIST_COMMANDS = {
+    newProject: "mariadb.msm.newProjectInView",
+    openProject: "mariadb.msm.openProjectInView",
+    addToProjects: "mariadb.msm.addToProjects",
+    removeFromProjects: "mariadb.msm.removeFromProjects",
+} as const;
+
+/**
+ * @param listed A project as the list has it.
+ *
+ * @returns How the dialogs show its filing.
+ */
+const listValuesOf = (listed: IMsmListedProject): IMsmListValues => {
+    return {
+        folder: listed.folder,
+        caption: listed.caption,
+        color: listed.color ?? "",
+        mcpAccess: listed.mcpAccess,
+    };
+};
+
+/**
+ * @param values How a project is to be filed and shown.
+ * @param before How it is, where it is listed.
+ *
+ * @returns What has to be sent: what differs, all of it for a new one.
+ */
+export const changedDetails = (
+    values: IMsmListValues,
+    before?: IMsmListValues,
+): IMsmProjectDetails => {
+    const now: IMsmListValues = {
+        folder: values.folder.trim() === "" ? "/" : values.folder.trim(),
+        caption: values.caption.trim(),
+        color: values.color,
+        mcpAccess: values.mcpAccess,
+    };
+    const details: IMsmProjectDetails = {};
+    if (before === undefined || now.folder !== before.folder) {
+        details.folder = now.folder;
+    }
+    if (before === undefined || now.caption !== before.caption) {
+        details.caption = now.caption;
+    }
+    if (before === undefined || now.color !== before.color) {
+        details.color = now.color;
+    }
+    if (before === undefined || now.mcpAccess !== before.mcpAccess) {
+        details.mcpAccess = now.mcpAccess;
+    }
+
+    return details;
+};
+
+/**
+ * @param arg What a command was handed: the Explorer's folder, a row of
+ *            the MSM Projects view, or nothing from the palette.
+ *
+ * @returns The project folder it names, if it names one.
+ */
+const projectPathOf = (arg: unknown): string | undefined => {
+    if (arg instanceof vscode.Uri) {
+        return arg.fsPath;
+    }
+    const row = arg as IMsmProjectRow | undefined;
+
+    return row?.kind === "project" ? row.project?.projectPath : undefined;
+};
+
+/**
+ * @param arg What a view command was handed.
+ *
+ * @returns The folder of the list it files into: a folder row's, a
+ *          project's folder, else the top level.
+ */
+const listFolderOf = (arg: unknown): string => {
+    const row = arg as IMsmProjectRow | undefined;
+    if (row?.kind === "folder" && row.path !== undefined) {
+        return row.path;
+    }
+
+    return row?.project?.folder ?? "/";
+};
 
 /** The commands, by the dialog each opens. */
 export const MSM_COMMANDS: Record<MsmDialogKind, string> = {
     create: "mariadb.msm.createProject",
+    edit: "mariadb.msm.editProject",
     info: "mariadb.msm.showProjectInformation",
     release: "mariadb.msm.prepareRelease",
     deploymentScript: "mariadb.msm.generateDeploymentScript",
@@ -183,9 +291,9 @@ export class MsmCommands {
             pick: () => Promise<string | undefined>,
         ): vscode.Disposable => {
             return vscode.commands.registerCommand(id,
-                async (folder?: vscode.Uri) => {
+                async (folder?: unknown) => {
                     try {
-                        const path = folder?.fsPath ?? await pick();
+                        const path = projectPathOf(folder) ?? await pick();
                         if (path !== undefined) {
                             await handler(path);
                         }
@@ -199,8 +307,8 @@ export class MsmCommands {
         ];
 
         return [
-            command(MSM_COMMANDS.create, async (folder) => {
-                this.createProject(folder);
+            command(MSM_COMMANDS.create, (folder) => {
+                return this.createProject(folder);
             }, () => { return Promise.resolve(this.host.defaultFolder()); }),
             ...kinds.map((kind) => {
                 return command(MSM_COMMANDS[kind], (folder) => {
@@ -209,20 +317,270 @@ export class MsmCommands {
                     return pickFolder("Choose a Schema Project Folder");
                 });
             }),
+            command(MSM_COMMANDS.edit, (folder) => {
+                return this.edit(folder);
+            }, () => {
+                return pickFolder("Choose a Schema Project Folder");
+            }),
+            command(MSM_LIST_COMMANDS.addToProjects, (folder) => {
+                return this.addToProjects(folder);
+            }, () => {
+                return pickFolder("Choose a Schema Project Folder");
+            }),
+            command(MSM_LIST_COMMANDS.removeFromProjects, (folder) => {
+                return this.removeFromProjects(folder);
+            }, () => { return Promise.resolve(undefined); }),
+            this.#viewCommand(MSM_LIST_COMMANDS.newProject, (folder) => {
+                return this.newProjectInView(folder);
+            }),
+            this.#viewCommand(MSM_LIST_COMMANDS.openProject, (folder) => {
+                return this.openProjectInView(folder);
+            }),
         ];
+    }
+
+    /**
+     * @param id A command of the MSM Projects view's toolbar or folders.
+     * @param handler What it does, in the folder of the list it was used on.
+     *
+     * @returns Its registration.
+     */
+    #viewCommand(
+        id: string,
+        handler: (folder: string) => Promise<void>,
+    ): vscode.Disposable {
+        return vscode.commands.registerCommand(id, async (row?: unknown) => {
+            try {
+                await handler(listFolderOf(row));
+            } catch (error) {
+                reportError(this.host.log, error);
+            }
+        });
+    }
+
+    /**
+     * New MSM Project from the MSM Projects view: a file dialog names the
+     * project folder - where it goes and the schema it is for - and New
+     * MSM Project opens on that, for the rest.
+     *
+     * @param listFolder The folder of the view it is filed in.
+     */
+    public async newProjectInView(listFolder: string): Promise<void> {
+        const chosen = await vscode.window.showSaveDialog({
+            title: "New MSM Project: Name the Project Folder",
+            saveLabel: "Continue",
+            defaultUri: vscode.Uri.file(join(this.host.defaultFolder(),
+                "schema.msm.project")),
+        });
+        if (chosen === undefined) {
+            return;
+        }
+
+        await this.createProject(dirname(chosen.fsPath),
+            schemaNameOfFolder(basename(chosen.fsPath)), { folder: listFolder });
+    }
+
+    /**
+     * Open MSM Project from the MSM Projects view: a file dialog picks a
+     * project folder, or its `msm.project.json`, and it is added.
+     *
+     * @param listFolder The folder of the view it is filed in.
+     */
+    public async openProjectInView(listFolder: string): Promise<void> {
+        const chosen = await vscode.window.showOpenDialog({
+            title: "Open MSM Project",
+            openLabel: "Open MSM Project",
+            canSelectFiles: true,
+            canSelectFolders: true,
+            canSelectMany: false,
+            defaultUri: vscode.Uri.file(this.host.defaultFolder()),
+        });
+        const path = chosen?.[0]?.fsPath;
+        if (path === undefined) {
+            return;
+        }
+
+        await this.addToProjects(basename(path) === "msm.project.json"
+            ? dirname(path) : path, listFolder);
+    }
+
+    /**
+     * Adds a project to the MSM Projects list, as an action, and shows it
+     * in the view.
+     *
+     * @param projectPath The project folder.
+     * @param listFolder The folder of the view to file it in; left out, a
+     *                   listed project stays where it is.
+     */
+    public async addToProjects(
+        projectPath: string,
+        listFolder?: string,
+    ): Promise<void> {
+        const name = basename(projectPath);
+        const words = {
+            doing: `Adding MSM project ${name} to the MSM Projects view`,
+            done: `Added MSM project ${name} to the MSM Projects view`,
+        };
+        const details: IMsmProjectDetails = listFolder === undefined
+            ? {} : { folder: listFolder };
+        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
+        try {
+            await group.run(() => {
+                return group.step(words, msmCall("msm.add_project",
+                    msmToolArgs.addProject(projectPath, details)), async () => {
+                    return (await this.host.msmApi()).addProject(projectPath,
+                        details);
+                }, { detail: (listed) => { return listed.projectPath; } });
+            }, (listed) => { return listed.projectPath; });
+        } catch (error) {
+            this.host.showActions(GENERAL_ACTIONS);
+            throw error;
+        }
+        this.host.projectsChanged?.();
+        this.#afterwards(async () => {
+            await this.host.revealProject?.(projectPath);
+        });
+    }
+
+    /**
+     * Takes a project off the MSM Projects list; its folder stays.
+     *
+     * @param projectPath The project folder, as listed.
+     */
+    public async removeFromProjects(projectPath: string): Promise<void> {
+        const name = basename(projectPath);
+        const words = {
+            doing: `Removing MSM project ${name} from the MSM Projects view`,
+            done: `Removed MSM project ${name} from the MSM Projects view`,
+        };
+        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
+        try {
+            await group.run(() => {
+                return group.step(words, msmCall("msm.remove_project",
+                    msmToolArgs.removeProject(projectPath)), async () => {
+                    return (await this.host.msmApi())
+                        .removeProject(projectPath);
+                }, { detail: (path) => { return path; } });
+            }, (path) => { return path; });
+        } catch (error) {
+            this.host.showActions(GENERAL_ACTIONS);
+            throw error;
+        } finally {
+            this.host.projectsChanged?.();
+        }
+    }
+
+    /**
+     * Opens Edit MSM Project: the project read, and how the list has it.
+     *
+     * @param projectPath The project folder.
+     */
+    public async edit(projectPath: string): Promise<void> {
+        const listed = (await (await this.host.msmApi()).listProjects())
+            .find((project) => { return project.projectPath === projectPath; });
+        if (listed === undefined) {
+            throw new Error(`${basename(projectPath)} is not in the MSM `
+                + "Projects view. Add it there first.");
+        }
+        const project = await this.#read(projectPath);
+        const before = listValuesOf(listed);
+        const title = `${MSM_TITLES.edit} - ${project.schemaName}`;
+        MsmDialogPanel.show(this.host.extensionUri, {
+            kind: "edit",
+            title,
+            project,
+            values: editDefaults(project, before),
+            folders: await this.#folders(),
+        }, {
+            submit: (values) => {
+                return this.#update(project, before, values);
+            },
+            onFailed: () => { this.host.showActions(GENERAL_ACTIONS); },
+            log: this.host.log,
+        });
+    }
+
+    /**
+     * @returns The folders the dialogs offer; none where they cannot be
+     *          listed, which leaves the field to be typed into.
+     */
+    async #folders(): Promise<string[]> {
+        try {
+            return await this.host.projectFolders?.() ?? [];
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * Applies Edit MSM Project: the development version, where it
+     * changed, then how the list files and shows it.
+     *
+     * @param project The project, as read.
+     * @param before How the list had it.
+     * @param values What Edit MSM Project says.
+     */
+    async #update(
+        project: IMsmProjectContext,
+        before: IMsmListValues,
+        values: IMsmEditValues,
+    ): Promise<void> {
+        const version = values.developmentVersion.trim();
+        const details = changedDetails(values, before);
+        const words = {
+            doing: `Updating MSM project ${project.schemaName}`,
+            done: `Updated MSM project ${project.schemaName}`,
+        };
+        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
+        const { projectPath } = project;
+        try {
+            await group.run(async () => {
+                if (version !== project.currentDevelopmentVersion) {
+                    await group.step({
+                        doing: `Setting the development version to ${version}`,
+                        done: `Set the development version to ${version}`,
+                    }, msmCall("msm.set_development_version",
+                        msmToolArgs.setDevelopmentVersion(projectPath,
+                            version)), async () => {
+                        await (await this.host.msmApi())
+                            .setDevelopmentVersion(projectPath, version);
+                    });
+                }
+                if (Object.keys(details).length > 0) {
+                    await group.step({
+                        doing: "Updating the MSM Projects view's entry",
+                        done: "Updated the MSM Projects view's entry",
+                    }, msmCall("msm.update_project",
+                        msmToolArgs.updateProject(projectPath, details)),
+                    async () => {
+                        return (await this.host.msmApi()).updateProject(
+                            projectPath, details);
+                    });
+                }
+            }, () => { return projectPath; });
+        } finally {
+            this.host.projectsChanged?.();
+        }
     }
 
     /**
      * Opens New MSM Project on a folder.
      *
      * @param folder The folder the project is to be made in.
+     * @param schemaName The schema, where it was named already.
+     * @param list How it is to be filed in the MSM Projects view.
      */
-    public createProject(folder: string): void {
+    public async createProject(
+        folder: string,
+        schemaName = "",
+        list: Partial<IMsmListValues> = {},
+    ): Promise<void> {
         MsmDialogPanel.show(this.host.extensionUri, {
             kind: "create",
             title: MSM_TITLES.create,
-            values: createDefaults(folder),
+            values: createDefaults(folder, schemaName, list),
             licenses: MSM_LICENSES,
+            folders: await this.#folders(),
         }, {
             check: (values) => { return this.#checkCreate(values); },
             submit: (values) => { return this.#create(values); },
@@ -457,16 +815,35 @@ export class MsmCommands {
             allowSpecialChars: values.allowSpecialChars,
             overwriteExisting: values.overwriteExisting,
             enforceTargetPath: values.createTargetPath,
+            mcpAccess: values.mcpAccess,
         };
-        const projectPath = await group.run(() => {
-            return group.step({
+        // The server lists a new project at the top level, with no caption
+        // or color: only what differs from that is sent after it.
+        const filing = changedDetails(values, {
+            folder: "/", caption: "", color: "", mcpAccess: values.mcpAccess,
+        });
+        const projectPath = await group.run(async () => {
+            const created = await group.step({
                 doing: "Creating the project folder",
                 done: "Created the project folder",
             }, msmCall("msm.create_project",
                 msmToolArgs.createProject(options)), async () => {
                 return (await this.host.msmApi()).createProject(options);
             }, { detail: (path) => { return path; } });
+            if (Object.keys(filing).length > 0) {
+                await group.step({
+                    doing: "Filing it in the MSM Projects view",
+                    done: "Filed it in the MSM Projects view",
+                }, msmCall("msm.update_project",
+                    msmToolArgs.updateProject(created, filing)), async () => {
+                    return (await this.host.msmApi()).updateProject(created,
+                        filing);
+                });
+            }
+
+            return created;
         }, (path) => { return path; });
+        this.host.projectsChanged?.();
 
         // The project is made once the folder is: reading it back, to open
         // its development script, is not the creation failing - pressing
@@ -475,6 +852,7 @@ export class MsmCommands {
             const info = await this.#readBack(projectPath);
             await this.#showFile(info.schemaDevelopmentFilePath);
             await this.#reveal(projectPath);
+            await this.host.revealProject?.(projectPath);
         });
     }
 

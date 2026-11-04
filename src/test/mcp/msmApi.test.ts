@@ -300,6 +300,94 @@ describe("MsmApi", () => {
             });
         });
 
+    it("lists the MSM Projects list, in the extension's names", async () => {
+        const listed = [
+            {
+                project_path: PROJECT, folder: "/Shop", caption: "Prod",
+                color: "green", mcp_access: false, schema_name: "sakila",
+                exists: true,
+            },
+            {
+                project_path: "/work/gone.msm.project", folder: "/",
+                caption: "", color: "teal", schema_name: null, exists: false,
+            },
+        ];
+        const caller = createCaller({
+            "msm.list_projects": {
+                content: listed.map((entry) => {
+                    return { type: "text", text: JSON.stringify(entry) };
+                }),
+                structuredContent: { result: listed }, isError: false,
+            },
+        });
+
+        expect(await new MsmApi(caller).listProjects()).toEqual([
+            {
+                projectPath: PROJECT, folder: "/Shop", caption: "Prod",
+                color: "green", mcpAccess: false, schemaName: "sakila",
+                exists: true,
+            },
+            // A color it does not know is dropped; a server that predates
+            // mcp_access gave every project access.
+            {
+                projectPath: "/work/gone.msm.project", folder: "/",
+                caption: "", mcpAccess: true, exists: false,
+            },
+        ]);
+        expect(caller.calls).toEqual([{ name: "msm.list_projects", args: {} }]);
+    });
+
+    it("adds, updates and removes a project, sending only what is set",
+        async () => {
+            const entry = {
+                project_path: PROJECT, folder: "/", caption: "", color: "",
+                mcp_access: false, schema_name: "sakila", exists: true,
+            };
+            const answer: IToolResult = {
+                content: [{ type: "text", text: JSON.stringify(entry) }],
+                isError: false,
+            };
+            const caller = createCaller({
+                "msm.add_project": answer,
+                "msm.update_project": answer,
+                "msm.remove_project": scalar(PROJECT),
+            });
+            const api = new MsmApi(caller);
+
+            expect((await api.addProject(PROJECT)).mcpAccess).toBe(false);
+            await api.addProject(PROJECT, { folder: "/Shop" });
+            await api.updateProject(PROJECT, {
+                caption: "", color: "red", mcpAccess: true,
+            });
+            expect(await api.removeProject(PROJECT)).toBe(PROJECT);
+            await api.setDevelopmentVersion(PROJECT, "0.1.0");
+
+            expect(caller.calls.map((call) => {
+                return [call.name, call.args];
+            })).toEqual([
+                ["msm.add_project", { project_path: PROJECT }],
+                ["msm.add_project", { project_path: PROJECT, folder: "/Shop" }],
+                ["msm.update_project", {
+                    project_path: PROJECT, new_caption: "", new_color: "red",
+                    new_mcp_access: true,
+                }],
+                ["msm.remove_project", { project_path: PROJECT }],
+                ["msm.set_development_version", {
+                    schema_project_path: PROJECT, version: "0.1.0",
+                }],
+            ]);
+        });
+
+    it("creates a project open to LLMs only when asked", async () => {
+        const caller = createCaller({ "msm.create_project": scalar(PROJECT) });
+
+        await new MsmApi(caller).createProject({
+            schemaName: "s", targetPath: "/w", mcpAccess: true,
+        });
+
+        expect(caller.calls[0].args).toMatchObject({ mcp_access: true });
+    });
+
     it("names the licenses the plugin ships templates for", () => {
         expect([...MSM_LICENSES].sort()).toEqual(
             ["BSD", "GPL-2.0", "MIT", "None"]);

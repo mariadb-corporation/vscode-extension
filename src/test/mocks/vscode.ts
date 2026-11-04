@@ -152,6 +152,9 @@ export class FileDecoration {
 }
 
 export class ThemeIcon {
+    public static readonly File = new ThemeIcon("file");
+    public static readonly Folder = new ThemeIcon("folder");
+
     public constructor(
         public readonly id: string,
         public readonly color?: ThemeColor,

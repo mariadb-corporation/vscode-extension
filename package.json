@@ -213,7 +213,7 @@
       },
       {
         "view": "mariadb.msmProjects",
-        "contents": "The MariaDB Schema Management projects you work on. None has been added yet."
+        "contents": "The MariaDB Schema Management projects you work on. None has been added yet.\n[New MSM Project...](command:mariadb.msm.newProjectInView)\n[Open MSM Project...](command:mariadb.msm.openProjectInView)"
       },
       {
         "view": "mariadb.sandboxes",
@@ -1162,21 +1162,81 @@
       {
         "command": "mariadb.msm.showProjectInformation",
         "title": "Show MSM Project Information...",
-        "category": "MariaDB"
+        "category": "MariaDB",
+        "icon": "$(info)"
       },
       {
         "command": "mariadb.msm.prepareRelease",
         "title": "Prepare MSM Release...",
-        "category": "MariaDB"
+        "category": "MariaDB",
+        "icon": "$(tag)"
       },
       {
         "command": "mariadb.msm.generateDeploymentScript",
         "title": "Generate MSM Deployment Script...",
-        "category": "MariaDB"
+        "category": "MariaDB",
+        "icon": "$(file-code)"
       },
       {
         "command": "mariadb.msm.deploySchema",
         "title": "Deploy MSM Schema...",
+        "category": "MariaDB",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "mariadb.msm.newProjectInView",
+        "title": "New MSM Project...",
+        "category": "MariaDB",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.openProjectInView",
+        "title": "Open MSM Project...",
+        "category": "MariaDB",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "mariadb.msm.refreshProjects",
+        "title": "Refresh MSM Projects",
+        "category": "MariaDB",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mariadb.msm.addToProjects",
+        "title": "Add to MSM Projects",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.editProject",
+        "title": "Edit MSM Project...",
+        "category": "MariaDB",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "mariadb.msm.removeFromProjects",
+        "title": "Remove from MSM Projects",
+        "category": "MariaDB",
+        "icon": "$(close)"
+      },
+      {
+        "command": "mariadb.msm.newProjectFolder",
+        "title": "New Folder...",
+        "category": "MariaDB",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "mariadb.msm.renameProjectFolder",
+        "title": "Rename Folder...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.setProjectFolderColor",
+        "title": "Set Folder Color...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.removeProjectFolder",
+        "title": "Remove Folder",
         "category": "MariaDB"
       }
     ],
@@ -1241,6 +1301,26 @@
           "command": "mariadb.clearFinishedTasks",
           "when": "view == mariadb.tasks",
           "group": "navigation@2"
+        },
+        {
+          "command": "mariadb.msm.newProjectInView",
+          "when": "view == mariadb.msmProjects",
+          "group": "navigation@0"
+        },
+        {
+          "command": "mariadb.msm.openProjectInView",
+          "when": "view == mariadb.msmProjects",
+          "group": "navigation@1"
+        },
+        {
+          "command": "mariadb.msm.newProjectFolder",
+          "when": "view == mariadb.msmProjects",
+          "group": "navigation@2"
+        },
+        {
+          "command": "mariadb.msm.refreshProjects",
+          "when": "view == mariadb.msmProjects",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -1698,6 +1778,101 @@
           "command": "mariadb.showTaskOutput",
           "when": "view == mariadb.tasks",
           "group": "1_task@3"
+        },
+        {
+          "command": "mariadb.msm.showProjectInformation",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.prepareRelease",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "inline@1"
+        },
+        {
+          "command": "mariadb.msm.generateDeploymentScript",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "inline@2"
+        },
+        {
+          "command": "mariadb.msm.deploySchema",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "inline@3"
+        },
+        {
+          "command": "mariadb.msm.showProjectInformation",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.msm.prepareRelease",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "0_msm@1"
+        },
+        {
+          "command": "mariadb.msm.generateDeploymentScript",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "0_msm@2"
+        },
+        {
+          "command": "mariadb.msm.deploySchema",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "0_msm@3"
+        },
+        {
+          "command": "mariadb.msm.editProject",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "1_edit@0"
+        },
+        {
+          "command": "mariadb.msm.removeFromProjects",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "2_list@0"
+        },
+        {
+          "command": "mariadb.msm.removeFromProjects",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject.missing",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.removeFromProjects",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject.missing",
+          "group": "2_list@0"
+        },
+        {
+          "command": "mariadb.msm.newProjectInView",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmFolder/",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.newProjectInView",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmFolder/",
+          "group": "0_new@0"
+        },
+        {
+          "command": "mariadb.msm.openProjectInView",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmFolder/",
+          "group": "0_new@1"
+        },
+        {
+          "command": "mariadb.msm.newProjectFolder",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmFolder/",
+          "group": "0_new@2"
+        },
+        {
+          "command": "mariadb.msm.renameProjectFolder",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmFolder/",
+          "group": "1_folder@0"
+        },
+        {
+          "command": "mariadb.msm.setProjectFolderColor",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmFolder/",
+          "group": "1_folder@1"
+        },
+        {
+          "command": "mariadb.msm.removeProjectFolder",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmFolder.empty",
+          "group": "1_folder@2"
         }
       ],
       "editor/title": [
@@ -2100,6 +2275,26 @@
         {
           "command": "mariadb.restd.refresh",
           "when": "false"
+        },
+        {
+          "command": "mariadb.msm.newProjectInView",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.removeFromProjects",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.renameProjectFolder",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.setProjectFolderColor",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.removeProjectFolder",
+          "when": "false"
         }
       ],
       "mariadb.mrs.copyToClipboard": [
@@ -2358,6 +2553,11 @@
           "command": "mariadb.msm.deploySchema",
           "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
           "group": "4_deploy@1"
+        },
+        {
+          "command": "mariadb.msm.addToProjects",
+          "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
+          "group": "5_list@1"
         }
       ]
     },
@@ -2830,7 +3030,8 @@
     "ui-test:dump-load": "npm run ui-test -- dump-load",
     "ui-test:restd": "npm run ui-test -- restd",
     "ui-test:lsp": "npm run ui-test -- lsp",
-    "ui-test:msm": "npm run ui-test -- msm"
+    "ui-test:msm": "npm run ui-test -- msm",
+    "ui-test:msm-projects": "npm run ui-test -- msm-projects"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",

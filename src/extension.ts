@@ -149,7 +149,9 @@ import { redrawWhenShown } from "./tree/redrawWhenShown.js";
 import {
     MSM_PROJECTS_VIEW_ID,
     MsmProjectsTreeProvider,
+    type MsmProjectsNode,
 } from "./tree/msmProjectsTreeProvider.js";
+import { registerMsmProjectsCommands } from "./msm/msmProjectsCommands.js";
 import {
     VENDORS_VIEW_ID,
     VendorDecorations,
@@ -796,10 +798,26 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const vendorsView = vscode.window.createTreeView(VENDORS_VIEW_ID, {
         treeDataProvider: new VendorsTreeProvider(),
     });
-    // The schema projects the user added; nothing adds one yet.
-    const msmProjects = new MsmProjectsTreeProvider();
-    const msmProjectsView = vscode.window.createTreeView(
-        MSM_PROJECTS_VIEW_ID, { treeDataProvider: msmProjects });
+    // The MSM Projects list the server keeps, in folders of its own.
+    const msmProjects = new MsmProjectsTreeProvider({
+        msmApi: () => { return serverApi(() => { return session.msmApi; }); },
+        memento: context.globalState,
+        log,
+    });
+    const msmProjectsView = vscode.window.createTreeView<MsmProjectsNode>(
+        MSM_PROJECTS_VIEW_ID, {
+            treeDataProvider: msmProjects,
+            canSelectMany: true,
+            dragAndDropController: msmProjects,
+        });
+    // A folder's icon shows whether it is open, and a closed one stays
+    // closed across a restart, as in the Connections view.
+    msmProjectsView.onDidExpandElement((event) => {
+        void msmProjects.expanded(event.element);
+    });
+    msmProjectsView.onDidCollapseElement((event) => {
+        void msmProjects.collapsed(event.element);
+    });
     const restdCommands = new RestdCommands({
         extensionUri: context.extensionUri,
         connect: (uri) => {
@@ -947,9 +965,18 @@ export const activate = (context: vscode.ExtensionContext): void => {
         },
         // A deployed schema is new to the tree and to completion.
         refresh: refreshServer,
+        projectsChanged: () => { msmProjects.refresh(); },
+        projectFolders: () => { return msmProjects.folders(); },
+        revealProject: async (projectPath) => {
+            const node = await msmProjects.projectAt(projectPath);
+            if (node !== undefined) {
+                await msmProjectsView.reveal(node, { select: true });
+            }
+        },
         log,
     });
-    context.subscriptions.push(...msmCommands.register());
+    context.subscriptions.push(...msmCommands.register(),
+        ...registerMsmProjectsCommands(msmProjects, log));
 
     context.subscriptions.push(
         // Draws a connection's color on its row (see connectionColors.ts).

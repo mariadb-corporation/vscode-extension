@@ -1,0 +1,296 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { beforeEach, describe, expect, it } from "vitest";
+
+import type {
+    IMsmApi,
+    IMsmListedProject,
+    IMsmProjectDetails,
+} from "../../mcp/msmApi.js";
+import {
+    MSM_PROJECTS_DRAG_MIME,
+    MsmProjectsTreeProvider,
+    projectDescription,
+    projectLabel,
+    type IMsmFileNode,
+    type IMsmFolderNode,
+    type IMsmProjectNode,
+    type MsmProjectsNode,
+} from "../../tree/msmProjectsTreeProvider.js";
+import {
+    DataTransfer,
+    DataTransferItem,
+    resetVscodeMock,
+    TreeItemCollapsibleState,
+} from "../mocks/vscode.js";
+
+/** A project folder on disk, with a file and a folder in it. */
+const makeProject = (root: string, name: string): string => {
+    const folder = join(root, `${name}.msm.project`);
+    mkdirSync(join(folder, "development"), { recursive: true });
+    writeFileSync(join(folder, "msm.project.json"), "{}");
+    writeFileSync(join(folder, "development", `${name}_next.sql`), "");
+
+    return folder;
+};
+
+const listed = (
+    projectPath: string,
+    changes: Partial<IMsmListedProject> = {},
+): IMsmListedProject => {
+    return {
+        projectPath, folder: "/", caption: "", mcpAccess: false,
+        schemaName: "shop", exists: true, ...changes,
+    };
+};
+
+interface IFake {
+    tree: MsmProjectsTreeProvider;
+    updates: Array<[string, IMsmProjectDetails]>;
+    projects: IMsmListedProject[];
+}
+
+const setUp = (projects: IMsmListedProject[]): IFake => {
+    const updates: Array<[string, IMsmProjectDetails]> = [];
+    const api = {
+        listProjects: () => { return Promise.resolve(projects); },
+        projectInformation: (path: string) => {
+            return path.includes("broken")
+                ? Promise.reject(new Error("unreadable"))
+                : Promise.resolve({ currentDevelopmentVersion: "0.0.3" });
+        },
+        updateProject: (path: string, details: IMsmProjectDetails) => {
+            updates.push([path, details]);
+            const project = projects.find((entry) => {
+                return entry.projectPath === path;
+            })!;
+            Object.assign(project, details);
+
+            return Promise.resolve(project);
+        },
+    } as unknown as IMsmApi;
+    const tree = new MsmProjectsTreeProvider({
+        msmApi: () => { return Promise.resolve(api); },
+        log: () => { /* not looked at */ },
+    });
+
+    return { tree, updates, projects };
+};
+
+const labels = (fake: IFake, nodes: MsmProjectsNode[]): string[] => {
+    return nodes.map((node) => {
+        return String(fake.tree.getTreeItem(node).label);
+    });
+};
+
+describe("the MSM Projects view", () => {
+    let root: string;
+
+    beforeEach(() => {
+        resetVscodeMock();
+        root = mkdtempSync(join(tmpdir(), "msm-tree-"));
+    });
+
+    it("shows the folders first, then the projects at the top level",
+        async () => {
+            const fake = setUp([
+                listed("/p/b.msm.project", { schemaName: "beta" }),
+                listed("/p/a.msm.project", { caption: "Alpha" }),
+                listed("/p/c.msm.project", { folder: "/Shop/Prod" }),
+            ]);
+            await fake.tree.newFolder("/Archive");
+
+            const roots = await fake.tree.getChildren();
+            expect(labels(fake, roots)).toEqual(
+                ["Archive", "Shop", "Alpha", "beta"]);
+            expect((roots[0] as IMsmFolderNode).empty).toBe(true);
+            expect(fake.tree.getTreeItem(roots[0]).contextValue)
+                .toBe("mariadbMsmFolder.empty");
+            expect(fake.tree.getTreeItem(roots[1]).contextValue)
+                .toBe("mariadbMsmFolder");
+
+            const shop = await fake.tree.getChildren(roots[1]);
+            const [prod] = shop;
+            expect(labels(fake, await fake.tree.getChildren(prod)))
+                .toEqual(["shop"]);
+            expect(await fake.tree.folders())
+                .toEqual(["/Archive", "/Shop", "/Shop/Prod"]);
+        });
+
+    it("describes a project by its development version, and MCP where "
+        + "LLMs may work on it, as a connection's row says MCP", async () => {
+        const fake = setUp([
+            listed("/p/open.msm.project", { mcpAccess: true }),
+            listed("/p/kept.msm.project"),
+            listed("/p/gone.msm.project", { exists: false }),
+            listed("/p/broken.msm.project", { mcpAccess: true }),
+        ]);
+        const nodes = await fake.tree.getChildren() as IMsmProjectNode[];
+        const byPath = (path: string): IMsmProjectNode => {
+            return nodes.find((node) => {
+                return node.project.projectPath === path;
+            })!;
+        };
+
+        expect(projectDescription(byPath("/p/open.msm.project")))
+            .toBe("0.0.3 · MCP");
+        expect(projectDescription(byPath("/p/kept.msm.project")))
+            .toBe("0.0.3");
+        expect(projectDescription(byPath("/p/gone.msm.project")))
+            .toBe("missing");
+        // Its version could not be read: only what is known.
+        expect(projectDescription(byPath("/p/broken.msm.project")))
+            .toBe("MCP");
+
+        const gone = fake.tree.getTreeItem(byPath("/p/gone.msm.project"));
+        expect(gone.contextValue).toBe("mariadbMsmProject.missing");
+        expect(gone.collapsibleState).toBe(TreeItemCollapsibleState.None);
+        const kept = fake.tree.getTreeItem(byPath("/p/kept.msm.project"));
+        expect(kept.contextValue).toBe("mariadbMsmProject");
+        expect(kept.collapsibleState)
+            .toBe(TreeItemCollapsibleState.Collapsed);
+        expect(String(kept.tooltip)).toMatch(/LLMs have no MCP access/u);
+    });
+
+    it("names a project by its caption, schema, else its folder", () => {
+        expect(projectLabel(listed("/p/x.msm.project", { caption: "Shop" })))
+            .toBe("Shop");
+        expect(projectLabel(listed("/p/x.msm.project")))
+            .toBe("shop");
+        const { schemaName: _left, ...unread } = listed("/p/x.msm.project");
+        expect(projectLabel(unread)).toBe("x");
+    });
+
+    it("draws a project's color with the connections' decoration",
+        async () => {
+            const fake = setUp([listed("/p/a.msm.project", { color: "blue" })]);
+            const [node] = await fake.tree.getChildren();
+
+            const uri = fake.tree.getTreeItem(node).resourceUri;
+            expect(uri?.scheme).toBe("mariadb-connection");
+            expect(uri?.path).toBe("/blue/msmProject");
+        });
+
+    it("expands a project into its files, which open on a click",
+        async () => {
+            const project = makeProject(root, "shop");
+            const fake = setUp([listed(project)]);
+            const [node] = await fake.tree.getChildren();
+
+            const files = await fake.tree.getChildren(node) as IMsmFileNode[];
+            expect(labels(fake, files))
+                .toEqual(["development", "msm.project.json"]);
+            const folder = fake.tree.getTreeItem(files[0]);
+            expect(folder.collapsibleState)
+                .toBe(TreeItemCollapsibleState.Collapsed);
+            expect(folder.command).toBeUndefined();
+
+            const file = fake.tree.getTreeItem(files[1]);
+            expect(file.resourceUri?.fsPath)
+                .toBe(join(project, "msm.project.json"));
+            expect(file.command).toMatchObject({ command: "vscode.open" });
+
+            expect(labels(fake, await fake.tree.getChildren(files[0])))
+                .toEqual(["shop_next.sql"]);
+        });
+
+    it("moves a dropped project into the folder dropped on", async () => {
+        const fake = setUp([
+            listed("/p/a.msm.project"),
+            listed("/p/b.msm.project", { folder: "/Shop" }),
+        ]);
+        const roots = await fake.tree.getChildren();
+        const shop = roots[0];
+        const a = roots[1];
+        const transfer = new DataTransfer();
+        fake.tree.handleDrag([a], transfer as never);
+
+        await fake.tree.handleDrop(shop, transfer as never);
+
+        expect(fake.updates).toEqual([["/p/a.msm.project", { folder: "/Shop" }]]);
+    });
+
+    it("moves a folder whole, and ignores what it did not put there",
+        async () => {
+            const fake = setUp([
+                listed("/p/a.msm.project", { folder: "/Shop" }),
+                listed("/p/b.msm.project", { folder: "/Shop/Prod" }),
+                listed("/p/c.msm.project", { folder: "/Archive" }),
+            ]);
+            await fake.tree.folderColors.set("/Shop", "red");
+            const roots = await fake.tree.getChildren();
+            const [archive, shop] = roots;
+
+            const stranger = new DataTransfer();
+            stranger.set(MSM_PROJECTS_DRAG_MIME,
+                new DataTransferItem("not rows"));
+            await fake.tree.handleDrop(archive, stranger as never);
+            expect(fake.updates).toEqual([]);
+
+            const transfer = new DataTransfer();
+            fake.tree.handleDrag([shop], transfer as never);
+            await fake.tree.handleDrop(archive, transfer as never);
+
+            expect(fake.updates).toEqual([
+                ["/p/a.msm.project", { folder: "/Archive/Shop" }],
+                ["/p/b.msm.project", { folder: "/Archive/Shop/Prod" }],
+            ]);
+            expect(fake.tree.folderColors.get("/Archive/Shop")).toBe("red");
+        });
+
+    it("renames a folder by filing its projects anew", async () => {
+        const fake = setUp([listed("/p/a.msm.project", { folder: "/Shop" })]);
+        const [shop] = await fake.tree.getChildren();
+
+        await fake.tree.renameFolder(shop as IMsmFolderNode, "Store");
+
+        expect(fake.updates).toEqual([["/p/a.msm.project", { folder: "/Store" }]]);
+    });
+
+    it("keeps a collapsed folder collapsed", async () => {
+        const fake = setUp([listed("/p/a.msm.project", { folder: "/Shop" })]);
+        const [shop] = await fake.tree.getChildren();
+
+        await fake.tree.collapsed(shop);
+        expect(fake.tree.getTreeItem(shop).collapsibleState)
+            .toBe(TreeItemCollapsibleState.Collapsed);
+        await fake.tree.expanded(shop);
+        expect(fake.tree.getTreeItem(shop).collapsibleState)
+            .toBe(TreeItemCollapsibleState.Expanded);
+    });
+
+    it("walks up from a project to its folders, for reveal", () => {
+        const fake = setUp([]);
+        const node: IMsmProjectNode = {
+            kind: "project",
+            project: listed("/p/a.msm.project", { folder: "/Shop/Prod" }),
+        };
+
+        const parent = fake.tree.getParent(node) as IMsmFolderNode;
+        expect(parent.path).toBe("/Shop/Prod");
+        expect((fake.tree.getParent(parent) as IMsmFolderNode).path)
+            .toBe("/Shop");
+        expect(fake.tree.getParent({
+            kind: "project", project: listed("/p/b.msm.project"),
+        })).toBeUndefined();
+    });
+});
