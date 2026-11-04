@@ -31,10 +31,10 @@ So with no newer shell or ai-plugins release, a bare `/release` only bumps
 the extension's version. If a fourth word is left over, stop and ask what
 it means.
 
-Every version is a bare `MAJOR.MINOR.PATCH` such as `26.10.0`. Strip a
+Every version is a bare `MAJOR.MINOR.PATCH` such as `26.11.0`. Strip a
 leading `v` if one was given and say so. The extension's version and the
 shell floor are bare everywhere in this repository. Only the git tag
-(`v26.10.0`) and the skills pin (`"release": "v26.10.2"`, an ai-plugins tag)
+(`v26.11.0`) and the skills pin (`"release": "v26.11.2"`, an ai-plugins tag)
 carry the `v`.
 
 **The three versions are independent.** The extension's version is the
