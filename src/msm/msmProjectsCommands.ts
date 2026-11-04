@@ -17,14 +17,13 @@
 
 import * as vscode from "vscode";
 
-import { colorLabel } from "../connections/connectionDetails.js";
-import {
-    normalizeFolder,
-    ROOT_FOLDER,
-} from "../connections/connectionFolders.js";
+import { ROOT_FOLDER } from "../connections/connectionFolders.js";
 import { reportError } from "../errorMessages.js";
-import { CONNECTION_COLORS } from "../mcp/types.js";
-import { themeColorOf } from "../tree/connectionColors.js";
+import {
+    askForFolderName,
+    askForNewFolder,
+    pickFolderColor,
+} from "../tree/folderPrompts.js";
 import {
     msmFolderOf,
     type MsmProjectsNode,
@@ -76,21 +75,10 @@ export const registerMsmProjectsCommands = (
         }),
 
         command(MSM_FOLDER_COMMANDS.newFolder, async (node) => {
-            const parent = msmFolderOf(node) ?? ROOT_FOLDER;
-            const name = await vscode.window.showInputBox({
-                title: "New Folder",
-                prompt: parent === ROOT_FOLDER
-                    ? "The name of the new folder. A '/' makes a folder "
-                    + "inside another."
-                    : `The name of the new folder in ${parent}. A '/' makes `
-                    + "a folder inside another.",
-                validateInput: (value) => {
-                    return normalizeFolder(value) === ROOT_FOLDER
-                        ? "Enter a folder name." : undefined;
-                },
-            });
-            if (name !== undefined) {
-                await tree.newFolder(normalizeFolder(`${parent}/${name}`));
+            const path = await askForNewFolder("New Folder",
+                msmFolderOf(node) ?? ROOT_FOLDER);
+            if (path !== undefined) {
+                await tree.newFolder(path);
             }
         }),
 
@@ -98,24 +86,9 @@ export const registerMsmProjectsCommands = (
             if (node?.kind !== "folder") {
                 return;
             }
-            const name = await vscode.window.showInputBox({
-                title: "Rename Folder",
-                prompt: `The new name of ${node.path}. Every project in it `
-                    + "and below it moves along.",
-                value: node.name,
-                validateInput: (value) => {
-                    if (value.trim() === "") {
-                        return "Enter a folder name.";
-                    }
-
-                    return value.includes("/")
-                        ? "A folder name cannot contain '/'. Drag the folder "
-                        + "to move it into another."
-                        : undefined;
-                },
-            });
+            const name = await askForFolderName(node, "project");
             if (name !== undefined) {
-                await tree.renameFolder(node, name.trim());
+                await tree.renameFolder(node, name);
             }
         }),
 
@@ -123,26 +96,9 @@ export const registerMsmProjectsCommands = (
             if (node?.kind !== "folder") {
                 return;
             }
-            const current = tree.folderColors.get(node.path);
-            const picked = await vscode.window.showQuickPick([
-                ...CONNECTION_COLORS.map((color) => {
-                    return {
-                        label: colorLabel(color),
-                        color,
-                        iconPath: new vscode.ThemeIcon("circle-filled",
-                            themeColorOf(color)),
-                        ...(color === current
-                            ? { description: "current" } : {}),
-                    };
-                }),
-                {
-                    label: colorLabel(undefined),
-                    color: undefined,
-                    ...(current === undefined
-                        ? { description: "current" } : {}),
-                },
-            ], { title: `Folder Color of ${node.path}` });
-            if (picked !== undefined && picked.color !== current) {
+            const picked = await pickFolderColor(node.path,
+                tree.folderColors.get(node.path));
+            if (picked !== undefined) {
                 await tree.setFolderColor(node, picked.color);
             }
         }),

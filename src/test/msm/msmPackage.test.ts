@@ -169,16 +169,33 @@ describe("the MSM Projects view's menus", () => {
             ]);
         });
 
-    it("asks for a newer MariaDB Shell where it has no MSM Projects", () => {
+    it("says how the listing goes, as the other views do", () => {
         const welcome = manifest.contributes.viewsWelcome.filter((entry) => {
             return entry.view === "mariadb.msmProjects";
         });
+        const key = "mariadb.msmProjectsView";
         expect(welcome.map((entry) => { return entry.when; })).toEqual([
-            "mariadb.msmProjectsView != unsupported",
-            "mariadb.msmProjectsView == unsupported",
+            [`${key} != installing`, `${key} != failed`, `${key} != listed`,
+                `${key} != unsupported`].join(" && "),
+            `${key} == installing`,
+            `${key} == failed`,
+            `${key} == listed`,
+            `${key} == unsupported`,
         ]);
-        expect(welcome[1].contents)
-            .toMatch(/update to a newer version of the MariaDB Shell/u);
+        expect(welcome[2].contents)
+            .toContain("(command:mariadb.msm.refreshProjects)");
+        expect(welcome[3].contents)
+            .toContain("(command:mariadb.msm.newProjectInView)");
+    });
+
+    it("asks for a newer MariaDB Shell where it has no MSM Projects", () => {
+        const welcome = manifest.contributes.viewsWelcome.find((entry) => {
+            return entry.view === "mariadb.msmProjects"
+                && entry.when === "mariadb.msmProjectsView == unsupported";
+        });
+        expect(welcome?.contents).toBe("This version of the MariaDB Shell "
+            + "does not support MSM Projects. Please update to a newer "
+            + "version of the MariaDB Shell to use this view.");
     });
 
     it("offers the Explorer's operations on a project, as icons too", () => {

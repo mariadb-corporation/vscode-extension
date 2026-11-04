@@ -183,6 +183,10 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         },
         projectsChanged: () => { recorded.projectsChanged += 1; },
         projectFolders: () => { return Promise.resolve(["/Shop"]); },
+        listedProject: (projectPath) => {
+            return Promise.resolve((options.listed ?? [LISTED]).find(
+                (project) => { return project.projectPath === projectPath; }));
+        },
         revealProject: (path) => {
             recorded.revealedProjects.push(path);
 
@@ -1001,12 +1005,18 @@ describe("the MSM Projects list", () => {
             caption: "Shop", mcpAccess: true,
         } });
 
+        // Filed and captioned as it is made, in the one call.
         expect(recorded.calls.map((call) => { return call.name; }))
-            .toEqual(["createProject", "updateProject", "projectInformation"]);
-        expect(recorded.calls[0].args[0]).toMatchObject({ mcpAccess: true });
-        // Filed and captioned after it is made; access went with creating.
-        expect(recorded.calls[1].args).toEqual([PROJECT,
-            { folder: "/Shop", caption: "Shop" }]);
+            .toEqual(["createProject", "projectInformation"]);
+        expect(recorded.calls[0].args[0]).toMatchObject({
+            mcpAccess: true, folder: "/Shop", caption: "Shop",
+        });
+        expect(recorded.calls[0].args[0]).not.toHaveProperty("color");
+        // One step in the Actions tab: no filing after it.
+        const [created] = [...actions(recorded).values()]
+            .filter((put) => { return put.row.role === "run"; });
+        expect(created.row.children?.map((child) => { return child.message; }))
+            .toEqual(["Created the project folder"]);
         expect(recorded.projectsChanged).toBe(1);
         expect(recorded.revealedProjects).toEqual([PROJECT]);
     });
@@ -1083,6 +1093,9 @@ describe("the MSM Projects list", () => {
         await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
         const load = await loaded();
 
+        // The row says how the list has it: not listed again.
+        expect(recorded.calls.map((call) => { return call.name; }))
+            .not.toContain("listProjects");
         expect(load.kind).toBe("edit");
         expect(load.title).toBe("Edit MSM Project - sakila");
         expect(load.values).toEqual({
@@ -1120,6 +1133,18 @@ describe("the MSM Projects list", () => {
             .toMatch(/cannot be lower than the last released one, 1\.0\.0/u);
     });
 
+    it("edits a project from the Explorer as the view listed it",
+        async () => {
+            const recorded = setUp();
+            await run(MSM_COMMANDS.edit, folder(PROJECT));
+
+            expect(recorded.calls.map((call) => { return call.name; }))
+                .not.toContain("listProjects");
+            expect((await loaded()).values).toMatchObject({
+                folder: "/Shop", color: "green",
+            });
+        });
+
     it("refuses to edit a project the list does not have", async () => {
         setUp({ listed: [] });
         await run(MSM_COMMANDS.edit, folder(PROJECT));
@@ -1152,5 +1177,14 @@ describe("the MSM Projects list", () => {
         expect(changedDetails({ ...values, folder: "" }, {
             folder: "/", caption: "Prod", color: "red", mcpAccess: true,
         })).toEqual({});
+        // A folder in another spelling is the same folder.
+        for (const folder of ["Shop/", "/Shop", "Shop", "//Shop//"]) {
+            expect(changedDetails({ ...values, folder }, {
+                folder: "/Shop", caption: "Prod", color: "red",
+                mcpAccess: true,
+            }), folder).toEqual({});
+        }
+        expect(changedDetails({ ...values, folder: "Shop/Prod/" }))
+            .toMatchObject({ folder: "/Shop/Prod" });
     });
 });

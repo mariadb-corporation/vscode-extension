@@ -44,7 +44,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   project says whether LLMs may work on it through the MariaDB MCP server
   (`MCP` beside its version): one added here starts without access, which
   New and Edit MSM Project can give it. Needs a shell whose bundled
-  msm and mcp plugins have the project list.
+  msm and mcp plugins have the project list; with an older one the view
+  says so and asks for a newer MariaDB Shell.
 - **A new Marketplace icon.**
 - **Formatting and completion settings.** `mariadb.lsp.indentClauses` and
   `mariadb.lsp.indentRoutineClauses` (on by default) put the clauses of a

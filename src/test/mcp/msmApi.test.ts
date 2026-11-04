@@ -117,6 +117,23 @@ describe("MsmApi", () => {
             }]);
         });
 
+    it("files a new project in the MSM Projects list as it is made",
+        async () => {
+            const caller = createCaller({
+                "msm.create_project": scalar(PROJECT),
+            });
+
+            await new MsmApi(caller).createProject({
+                schemaName: "sakila", targetPath: "/work",
+                folder: "/Shop", caption: "Prod", color: "green",
+            });
+
+            expect(caller.calls[0].args).toEqual({
+                schema_name: "sakila", target_path: "/work",
+                folder: "/Shop", caption: "Prod", color: "green",
+            });
+        });
+
     it("sends the flags of a create that are ticked", async () => {
         const caller = createCaller({ "msm.create_project": scalar(PROJECT) });
 
@@ -305,11 +322,12 @@ describe("MsmApi", () => {
             {
                 project_path: PROJECT, folder: "/Shop", caption: "Prod",
                 color: "green", mcp_access: false, schema_name: "sakila",
-                exists: true,
+                exists: true, development_version: "1.0.1",
             },
             {
                 project_path: "/work/gone.msm.project", folder: "/",
                 caption: "", color: "teal", schema_name: null, exists: false,
+                development_version: null,
             },
         ];
         const caller = createCaller({
@@ -325,10 +343,11 @@ describe("MsmApi", () => {
             {
                 projectPath: PROJECT, folder: "/Shop", caption: "Prod",
                 color: "green", mcpAccess: false, schemaName: "sakila",
-                exists: true,
+                exists: true, developmentVersion: "1.0.1",
             },
             // A color it does not know is dropped; a server that predates
-            // mcp_access gave every project access.
+            // mcp_access gave every project access; a version that could
+            // not be read is left out.
             {
                 projectPath: "/work/gone.msm.project", folder: "/",
                 caption: "", mcpAccess: true, exists: false,

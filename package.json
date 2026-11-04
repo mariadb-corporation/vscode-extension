@@ -213,8 +213,23 @@
       },
       {
         "view": "mariadb.msmProjects",
+        "contents": "Looking for MSM projects...",
+        "when": "mariadb.msmProjectsView != installing && mariadb.msmProjectsView != failed && mariadb.msmProjectsView != listed && mariadb.msmProjectsView != unsupported"
+      },
+      {
+        "view": "mariadb.msmProjects",
+        "contents": "Waiting for the MariaDB Shell to be installed.\n[Show Log](command:mariadb.showMcpServerLog)",
+        "when": "mariadb.msmProjectsView == installing"
+      },
+      {
+        "view": "mariadb.msmProjects",
+        "contents": "The MSM projects could not be listed. The log says why.\n[Show Log](command:mariadb.showMcpServerLog)\n[Retry](command:mariadb.msm.refreshProjects)",
+        "when": "mariadb.msmProjectsView == failed"
+      },
+      {
+        "view": "mariadb.msmProjects",
         "contents": "The MariaDB Schema Management projects you work on. None has been added yet.\n[New MSM Project...](command:mariadb.msm.newProjectInView)\n[Open MSM Project...](command:mariadb.msm.openProjectInView)",
-        "when": "mariadb.msmProjectsView != unsupported"
+        "when": "mariadb.msmProjectsView == listed"
       },
       {
         "view": "mariadb.msmProjects",
@@ -1832,18 +1847,13 @@
         },
         {
           "command": "mariadb.msm.removeFromProjects",
-          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmProject(\\.missing)?$/",
           "group": "2_list@0"
         },
         {
           "command": "mariadb.msm.removeFromProjects",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject.missing",
           "group": "inline@0"
-        },
-        {
-          "command": "mariadb.msm.removeFromProjects",
-          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject.missing",
-          "group": "2_list@0"
         },
         {
           "command": "mariadb.msm.newProjectInView",

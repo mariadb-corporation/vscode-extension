@@ -27,6 +27,7 @@ import type {
     IMsmProjectDetails,
 } from "../../mcp/msmApi.js";
 import { McpToolError } from "../../mcp/protocol.js";
+import type { IServerStatus } from "../../mcp/serverStarter.js";
 import {
     MSM_PROJECTS_DRAG_MIME,
     MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY,
@@ -77,10 +78,9 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
     const updates: Array<[string, IMsmProjectDetails]> = [];
     const api = {
         listProjects: () => { return Promise.resolve(projects); },
-        projectInformation: (path: string) => {
-            return path.includes("broken")
-                ? Promise.reject(new Error("unreadable"))
-                : Promise.resolve({ currentDevelopmentVersion: "0.0.3" });
+        // The listing carries the versions: no project is read for them.
+        projectInformation: () => {
+            throw new Error("projectInformation is not to be called");
         },
         updateProject: (path: string, details: IMsmProjectDetails) => {
             updates.push([path, details]);
@@ -98,6 +98,22 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
     });
 
     return { tree, updates, projects };
+};
+
+/**
+ * @param error What listing the projects fails with.
+ *
+ * @returns A view whose listing fails so.
+ */
+const treeFailing = (error: Error): MsmProjectsTreeProvider => {
+    return new MsmProjectsTreeProvider({
+        msmApi: () => {
+            return Promise.resolve({
+                listProjects: () => { return Promise.reject(error); },
+            } as unknown as IMsmApi);
+        },
+        log: () => { /* not looked at */ },
+    });
 };
 
 const labels = (fake: IFake, nodes: MsmProjectsNode[]): string[] => {
@@ -143,9 +159,11 @@ describe("the MSM Projects view", () => {
     it("describes a project by its development version, and MCP where "
         + "LLMs may work on it, as a connection's row says MCP", async () => {
         const fake = setUp([
-            listed("/p/open.msm.project", { mcpAccess: true }),
-            listed("/p/kept.msm.project"),
+            listed("/p/open.msm.project",
+                { mcpAccess: true, developmentVersion: "0.0.3" }),
+            listed("/p/kept.msm.project", { developmentVersion: "0.0.3" }),
             listed("/p/gone.msm.project", { exists: false }),
+            // The server could not read its version.
             listed("/p/broken.msm.project", { mcpAccess: true }),
         ]);
         const nodes = await fake.tree.getChildren() as IMsmProjectNode[];
@@ -173,6 +191,10 @@ describe("the MSM Projects view", () => {
         expect(kept.collapsibleState)
             .toBe(TreeItemCollapsibleState.Collapsed);
         expect(String(kept.tooltip)).toMatch(/LLMs have no MCP access/u);
+        expect(String(kept.tooltip)).toMatch(/Development version 0\.0\.3/u);
+        expect(String(fake.tree.getTreeItem(
+            byPath("/p/broken.msm.project")).tooltip))
+            .not.toMatch(/Development version/u);
     });
 
     it("names a project by its caption, schema, else its folder", () => {
@@ -298,27 +320,45 @@ describe("the MSM Projects view", () => {
         })).toBeUndefined();
     });
 
-    it("asks for a newer MariaDB Shell where the list is unknown to it",
-        async () => {
-            const tree = new MsmProjectsTreeProvider({
-                msmApi: () => {
-                    return Promise.resolve({
-                        listProjects: () => {
-                            return Promise.reject(new McpToolError(
-                                "msm_list_projects",
-                                "Unknown tool: msm_list_projects"));
-                        },
-                    } as unknown as IMsmApi);
-                },
-                log: () => { /* not looked at */ },
-            });
+    for (const tool of ["msm.list_projects", "msm_list_projects"]) {
+        it(`asks for a newer MariaDB Shell where ${tool} is unknown to it`,
+            async () => {
+                const tree = treeFailing(new McpToolError(tool,
+                    `Unknown tool: ${tool}`));
 
-            expect(await tree.getChildren()).toEqual([]);
-            expect(contextKeys.get(MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY))
-                .toBe("unsupported");
-            // The welcome content says it; no error message on top.
-            expect(errorMessages).toEqual([]);
+                expect(await tree.getChildren()).toEqual([]);
+                expect(tree.state).toBe("unsupported");
+                expect(contextKeys.get(MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY))
+                    .toBe("unsupported");
+                // The welcome content says it; no error message on top.
+                expect(errorMessages).toEqual([]);
+            });
+    }
+
+    it("says in its welcome content that the listing failed", async () => {
+        const tree = treeFailing(new McpToolError("msm.list_projects",
+            "The list could not be read."));
+
+        expect(await tree.getChildren()).toEqual([]);
+        expect(contextKeys.get(MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY))
+            .toBe("failed");
+        expect(errorMessages).toEqual([]);
+    });
+
+    it("waits for the MariaDB Shell's startup in its welcome content", () => {
+        const tree = new MsmProjectsTreeProvider({
+            msmApi: () => { return new Promise(() => { /* never */ }); },
+            status: {
+                phase: "installing",
+                onDidChangePhase: () => { return () => { /* nothing */ }; },
+            } as unknown as IServerStatus,
+            log: () => { /* not looked at */ },
         });
+
+        expect(tree.state).toBe("installing");
+        expect(contextKeys.get(MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY))
+            .toBe("installing");
+    });
 
     it("notes a listing for the welcome content", async () => {
         const fake = setUp([]);

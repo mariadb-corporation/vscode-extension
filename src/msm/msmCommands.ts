@@ -24,7 +24,12 @@ import {
     callArguments,
     GENERAL_ACTIONS,
 } from "../connections/connectionActivity.js";
+import { normalizeCaption } from "../connections/connectionDetails.js";
 import { connectionLabel } from "../connections/connectionUri.js";
+import {
+    normalizeFolder,
+    ROOT_FOLDER,
+} from "../connections/connectionFolders.js";
 import { reportError } from "../errorMessages.js";
 import { pathExists } from "../shell/nodeRuntime.js";
 import {
@@ -63,6 +68,10 @@ import {
 } from "./msmFields.js";
 import { pickFolder } from "../webview/dialogPanel.js";
 import {
+    msmFolderOf,
+    type MsmProjectsNode,
+} from "../tree/msmProjectsTreeProvider.js";
+import {
     MsmDialogPanel,
     type IMsmDialogHost,
     type IMsmDialogSpec,
@@ -96,19 +105,11 @@ export interface IMsmCommandsHost {
     projectsChanged?(): void;
     /** The folders of the MSM Projects view, which the dialogs offer. */
     projectFolders?(): Promise<string[]>;
+    /** A project as the MSM Projects view last listed it, if it does. */
+    listedProject?(projectPath: string): Promise<IMsmListedProject | undefined>;
     /** Shows a project in the MSM Projects view. */
     revealProject?(projectPath: string): Promise<void>;
     log(message: string): void;
-}
-
-/**
- * What a command of the MSM Projects view is handed: a project's row, or
- * a folder's (for New and Open, the folder they file into).
- */
-export interface IMsmProjectRow {
-    kind: "project" | "folder";
-    project?: IMsmListedProject;
-    path?: string;
 }
 
 /**
@@ -157,27 +158,21 @@ export const changedDetails = (
     values: IMsmListValues,
     before?: IMsmListValues,
 ): IMsmProjectDetails => {
-    const now: IMsmListValues = {
-        folder: values.folder.trim() === "" ? "/" : values.folder.trim(),
-        caption: values.caption.trim(),
-        color: values.color,
-        mcpAccess: values.mcpAccess,
+    // Each in its one spelling, so `Shop/` against `/Shop` is no change.
+    const normalized = (list: IMsmListValues): IMsmListValues => {
+        return {
+            folder: normalizeFolder(list.folder),
+            caption: normalizeCaption(list.caption),
+            color: list.color,
+            mcpAccess: list.mcpAccess,
+        };
     };
-    const details: IMsmProjectDetails = {};
-    if (before === undefined || now.folder !== before.folder) {
-        details.folder = now.folder;
-    }
-    if (before === undefined || now.caption !== before.caption) {
-        details.caption = now.caption;
-    }
-    if (before === undefined || now.color !== before.color) {
-        details.color = now.color;
-    }
-    if (before === undefined || now.mcpAccess !== before.mcpAccess) {
-        details.mcpAccess = now.mcpAccess;
-    }
+    const now = normalized(values);
+    const was = before === undefined ? undefined : normalized(before);
 
-    return details;
+    return Object.fromEntries(Object.entries(now).filter(([key, value]) => {
+        return was?.[key as keyof IMsmListValues] !== value;
+    })) as IMsmProjectDetails;
 };
 
 /**
@@ -190,24 +185,9 @@ const projectPathOf = (arg: unknown): string | undefined => {
     if (arg instanceof vscode.Uri) {
         return arg.fsPath;
     }
-    const row = arg as IMsmProjectRow | undefined;
+    const row = arg as MsmProjectsNode | undefined;
 
-    return row?.kind === "project" ? row.project?.projectPath : undefined;
-};
-
-/**
- * @param arg What a view command was handed.
- *
- * @returns The folder of the list it files into: a folder row's, a
- *          project's folder, else the top level.
- */
-const listFolderOf = (arg: unknown): string => {
-    const row = arg as IMsmProjectRow | undefined;
-    if (row?.kind === "folder" && row.path !== undefined) {
-        return row.path;
-    }
-
-    return row?.project?.folder ?? "/";
+    return row?.kind === "project" ? row.project.projectPath : undefined;
 };
 
 /** The commands, by the dialog each opens. */
@@ -287,15 +267,15 @@ export class MsmCommands {
     public register(): vscode.Disposable[] {
         const command = (
             id: string,
-            handler: (folder: string) => Promise<void>,
-            pick: () => Promise<string | undefined>,
+            handler: (folder: string, arg: unknown) => Promise<void>,
+            pick?: () => Promise<string | undefined>,
         ): vscode.Disposable => {
             return vscode.commands.registerCommand(id,
                 async (folder?: unknown) => {
                     try {
-                        const path = projectPathOf(folder) ?? await pick();
+                        const path = projectPathOf(folder) ?? await pick?.();
                         if (path !== undefined) {
-                            await handler(path);
+                            await handler(path, folder);
                         }
                     } catch (error) {
                         reportError(this.host.log, error);
@@ -317,8 +297,11 @@ export class MsmCommands {
                     return pickFolder("Choose a Schema Project Folder");
                 });
             }),
-            command(MSM_COMMANDS.edit, (folder) => {
-                return this.edit(folder);
+            command(MSM_COMMANDS.edit, (folder, arg) => {
+                const row = arg as MsmProjectsNode | undefined;
+
+                return this.edit(folder,
+                    row?.kind === "project" ? row.project : undefined);
             }, () => {
                 return pickFolder("Choose a Schema Project Folder");
             }),
@@ -327,9 +310,10 @@ export class MsmCommands {
             }, () => {
                 return pickFolder("Choose a Schema Project Folder");
             }),
+            // Only on a listed project's row: nothing to pick it from.
             command(MSM_LIST_COMMANDS.removeFromProjects, (folder) => {
                 return this.removeFromProjects(folder);
-            }, () => { return Promise.resolve(undefined); }),
+            }),
             this.#viewCommand(MSM_LIST_COMMANDS.newProject, (folder) => {
                 return this.newProjectInView(folder);
             }),
@@ -351,7 +335,8 @@ export class MsmCommands {
     ): vscode.Disposable {
         return vscode.commands.registerCommand(id, async (row?: unknown) => {
             try {
-                await handler(listFolderOf(row));
+                await handler(msmFolderOf(row as MsmProjectsNode | undefined)
+                    ?? ROOT_FOLDER);
             } catch (error) {
                 reportError(this.host.log, error);
             }
@@ -423,19 +408,10 @@ export class MsmCommands {
         };
         const details: IMsmProjectDetails = listFolder === undefined
             ? {} : { folder: listFolder };
-        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
-        try {
-            await group.run(() => {
-                return group.step(words, msmCall("msm.add_project",
-                    msmToolArgs.addProject(projectPath, details)), async () => {
-                    return (await this.host.msmApi()).addProject(projectPath,
-                        details);
-                }, { detail: (listed) => { return listed.projectPath; } });
-            }, (listed) => { return listed.projectPath; });
-        } catch (error) {
-            this.host.showActions(GENERAL_ACTIONS);
-            throw error;
-        }
+        await this.#listAction(words, msmCall("msm.add_project",
+            msmToolArgs.addProject(projectPath, details)), async (api) => {
+            return (await api.addProject(projectPath, details)).projectPath;
+        });
         this.host.projectsChanged?.();
         this.#afterwards(async () => {
             await this.host.revealProject?.(projectPath);
@@ -453,20 +429,41 @@ export class MsmCommands {
             doing: `Removing MSM project ${name} from the MSM Projects view`,
             done: `Removed MSM project ${name} from the MSM Projects view`,
         };
+        try {
+            await this.#listAction(words, msmCall("msm.remove_project",
+                msmToolArgs.removeProject(projectPath)), (api) => {
+                return api.removeProject(projectPath);
+            });
+        } finally {
+            this.host.projectsChanged?.();
+        }
+    }
+
+    /**
+     * Changes the MSM Projects list in one call, as an action of its own
+     * with that call as its one step; a failure brings the Actions tab up
+     * on it.
+     *
+     * @param words What the action and its step say.
+     * @param call The call, as its row shows it.
+     * @param run Makes it, answering with the project folder it was on.
+     */
+    async #listAction(
+        words: { doing: string; done: string },
+        call: string,
+        run: (api: IMsmApi) => Promise<string>,
+    ): Promise<void> {
         const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
+        const detail = (path: string): string => { return path; };
         try {
             await group.run(() => {
-                return group.step(words, msmCall("msm.remove_project",
-                    msmToolArgs.removeProject(projectPath)), async () => {
-                    return (await this.host.msmApi())
-                        .removeProject(projectPath);
-                }, { detail: (path) => { return path; } });
-            }, (path) => { return path; });
+                return group.step(words, call, async () => {
+                    return run(await this.host.msmApi());
+                }, { detail });
+            }, detail);
         } catch (error) {
             this.host.showActions(GENERAL_ACTIONS);
             throw error;
-        } finally {
-            this.host.projectsChanged?.();
         }
     }
 
@@ -474,15 +471,21 @@ export class MsmCommands {
      * Opens Edit MSM Project: the project read, and how the list has it.
      *
      * @param projectPath The project folder.
+     * @param row How the list has it, where the command came from its row;
+     *            else as the MSM Projects view last listed it.
      */
-    public async edit(projectPath: string): Promise<void> {
-        const listed = (await (await this.host.msmApi()).listProjects())
-            .find((project) => { return project.projectPath === projectPath; });
+    public async edit(
+        projectPath: string,
+        row?: IMsmListedProject,
+    ): Promise<void> {
+        const listed = row ?? await this.host.listedProject?.(projectPath);
         if (listed === undefined) {
             throw new Error(`${basename(projectPath)} is not in the MSM `
                 + "Projects view. Add it there first.");
         }
-        const project = await this.#read(projectPath);
+        const [project, folders] = await Promise.all([
+            this.#read(projectPath), this.#folders(),
+        ]);
         const before = listValuesOf(listed);
         const title = `${MSM_TITLES.edit} - ${project.schemaName}`;
         MsmDialogPanel.show(this.host.extensionUri, {
@@ -490,7 +493,7 @@ export class MsmCommands {
             title,
             project,
             values: editDefaults(project, before),
-            folders: await this.#folders(),
+            folders,
         }, {
             submit: (values) => {
                 return this.#update(project, before, values);
@@ -809,6 +812,11 @@ export class MsmCommands {
             doing: `Creating MSM project for schema ${schemaName}`,
             done: `Created MSM project for schema ${schemaName}`,
         });
+        // Filed and shown in the MSM Projects list as it is made; only what
+        // differs from a new project's place there - the top level, no
+        // caption or color - is sent.
+        const folder = normalizeFolder(values.folder);
+        const caption = values.caption.trim();
         const options: IMsmCreateOptions = {
             schemaName, targetPath, copyrightHolder,
             license: values.license,
@@ -816,32 +824,18 @@ export class MsmCommands {
             overwriteExisting: values.overwriteExisting,
             enforceTargetPath: values.createTargetPath,
             mcpAccess: values.mcpAccess,
+            ...(folder === ROOT_FOLDER ? {} : { folder }),
+            ...(caption === "" ? {} : { caption }),
+            ...(values.color === "" ? {} : { color: values.color }),
         };
-        // The server lists a new project at the top level, with no caption
-        // or color: only what differs from that is sent after it.
-        const filing = changedDetails(values, {
-            folder: "/", caption: "", color: "", mcpAccess: values.mcpAccess,
-        });
-        const projectPath = await group.run(async () => {
-            const created = await group.step({
+        const projectPath = await group.run(() => {
+            return group.step({
                 doing: "Creating the project folder",
                 done: "Created the project folder",
             }, msmCall("msm.create_project",
                 msmToolArgs.createProject(options)), async () => {
                 return (await this.host.msmApi()).createProject(options);
             }, { detail: (path) => { return path; } });
-            if (Object.keys(filing).length > 0) {
-                await group.step({
-                    doing: "Filing it in the MSM Projects view",
-                    done: "Filed it in the MSM Projects view",
-                }, msmCall("msm.update_project",
-                    msmToolArgs.updateProject(created, filing)), async () => {
-                    return (await this.host.msmApi()).updateProject(created,
-                        filing);
-                });
-            }
-
-            return created;
         }, (path) => { return path; });
         this.host.projectsChanged?.();
 

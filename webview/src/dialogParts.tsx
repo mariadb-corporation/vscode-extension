@@ -23,6 +23,11 @@ import {
     useState,
 } from "preact/hooks";
 
+import { colorLabel } from "../../src/connections/connectionDetails.js";
+import {
+    CONNECTION_COLORS,
+    type ConnectionColor,
+} from "../../src/mcp/types.js";
 import { placeBelowOrAbove } from "./position.js";
 
 /**
@@ -44,6 +49,66 @@ export const Field = (props: {
                 ? null
                 : <span class="field-hint">{props.hint}</span>}
         </label>
+    );
+};
+
+/**
+ * The connections' six colors and None, as round swatches to pick from:
+ * the Color field of the connection editor and of the MSM dialogs.
+ *
+ * Not a `Field`: a <label> hands a click anywhere in it to its first
+ * button.
+ */
+export const ColorSwatches = (props: {
+    /** The caption's id, which names the radio group. */
+    id: string;
+    /** The color picked; "" for none. */
+    value: string;
+    disabled: boolean;
+    hint: string;
+    onPick: (color: ConnectionColor | "") => void;
+}): preact.JSX.Element => {
+    return (
+        <div class="field">
+            <span class="field-caption" id={props.id}>Color</span>
+            <div
+                class="row wrap colors"
+                role="radiogroup"
+                aria-labelledby={props.id}
+            >
+                {(["", ...CONNECTION_COLORS] as const).map((choice) => {
+                    const name = colorLabel(choice || undefined);
+
+                    return (
+                        <button
+                            key={choice || "none"}
+                            type="button"
+                            role="radio"
+                            name="color"
+                            value={choice}
+                            aria-checked={props.value === choice}
+                            aria-label={name}
+                            data-tooltip={name}
+                            class={props.value === choice
+                                ? "swatch selected" : "swatch"}
+                            style={choice === "" ? undefined : {
+                                background: `var(--vscode-charts-${choice})`,
+                            }}
+                            disabled={props.disabled}
+                            onClick={() => { props.onPick(choice); }}
+                        >
+                            {choice === "" ? (
+                                <span
+                                    class="codicon codicon-circle-slash"
+                                    aria-hidden="true"
+                                />
+                            ) : null}
+                        </button>
+                    );
+                })}
+            </div>
+            <span class="field-hint">{props.hint}</span>
+        </div>
     );
 };
 

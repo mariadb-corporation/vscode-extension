@@ -27,12 +27,15 @@ import type { IServerStatus } from "../mcp/serverStarter.js";
  * - `failed`: the last attempt to list the rows failed.
  * - `listed`: the rows were listed - an empty view now means there are
  *   none.
+ * - `unsupported`: the MariaDB Shell is too old to list them; a newer one
+ *   is needed.
  */
 export type ViewState =
     | "looking"
     | "installing"
     | "failed"
-    | "listed";
+    | "listed"
+    | "unsupported";
 
 /**
  * Keeps a view's welcome content in step with the server's startup and
@@ -47,7 +50,7 @@ export type ViewState =
 export class ViewStateTracker implements vscode.Disposable {
     readonly #unsubscribeStatus: () => void;
     /** How the last attempt at listing went, if there was one. */
-    #listing: "unasked" | "listed" | "failed" = "unasked";
+    #listing: "unasked" | "listed" | "failed" | "unsupported" = "unasked";
     /** The state last handed to the context key. */
     #shownState?: ViewState;
 
@@ -63,8 +66,10 @@ export class ViewStateTracker implements vscode.Disposable {
     ) {
         this.#unsubscribeStatus = status?.onDidChangePhase((phase) => {
             // A new attempt is under way, so the last one's failure is no
-            // longer what the view should be saying.
-            if (phase === "locating" && this.#listing === "failed") {
+            // longer what the view should be saying - nor, as the shell
+            // started may be a newer one, that it is too old.
+            if (phase === "locating" && (this.#listing === "failed"
+                || this.#listing === "unsupported")) {
                 this.#listing = "unasked";
             }
             this.#show();
@@ -78,6 +83,9 @@ export class ViewStateTracker implements vscode.Disposable {
     public get state(): ViewState {
         if (this.status?.phase === "installing") {
             return "installing";
+        }
+        if (this.#listing === "unsupported") {
+            return "unsupported";
         }
 
         // A server that did not start is a failure whoever asked for it;
@@ -109,6 +117,17 @@ export class ViewStateTracker implements vscode.Disposable {
      */
     public failed(): void {
         this.#listing = "failed";
+        this.#show();
+    }
+
+    /**
+     * Notes that the MariaDB Shell cannot list the rows: it is too old to
+     * have what lists them.
+     *
+     * @returns Nothing.
+     */
+    public unsupported(): void {
+        this.#listing = "unsupported";
         this.#show();
     }
 

@@ -48,6 +48,7 @@ import {
     COLLAPSED_FOLDERS_KEY,
     FolderColors,
     FolderSet,
+    foldersToMove,
     isWithin,
     rebase,
 } from "./customFolders.js";
@@ -508,21 +509,13 @@ export class ConnectionsTreeProvider
             return;
         }
 
-        // A folder into itself or below itself has nowhere to go, and one
-        // already in the target goes nowhere; a folder inside another that
-        // is dragged too moves with that one.
-        const candidates = rows.filter((node): node is IFolderNode => {
-            return node?.kind === "folder" && !isWithin(into, node.path)
-                && parentFolder(node.path) !== into;
-        });
-        const folders = candidates.filter((folder) => {
-            return !candidates.some((other) => {
-                return other !== folder && isWithin(folder.path, other.path);
-            });
-        });
+        const folders = foldersToMove(rows.filter(
+            (node): node is IFolderNode => { return node?.kind === "folder"; }),
+        into);
+        // A connection dragged along with the folder it is in moves with it.
         const connections = rows.filter((node): node is IConnectionNode => {
-            return node?.kind === "connection" && !folders.some((folder) => {
-                return isWithin(node.path ?? ROOT_FOLDER, folder.path);
+            return node?.kind === "connection" && !folders.some(({ from }) => {
+                return isWithin(node.path ?? ROOT_FOLDER, from);
             });
         });
         if (folders.length === 0 && connections.length === 0) {
@@ -530,9 +523,7 @@ export class ConnectionsTreeProvider
         }
 
         await this.#refile(
-            folders.map((folder) => {
-                return { from: folder.path, to: movedPath(folder, into) };
-            }),
+            folders,
             connections.map((node) => {
                 return { connection: storedOf(node), path: into };
             }),
@@ -706,18 +697,6 @@ export class ConnectionsTreeProvider
  */
 const dropFolder = (target: ConnectionsNode | undefined): string | undefined => {
     return target === undefined ? ROOT_FOLDER : folderOf(target);
-};
-
-/**
- * Where a folder ends up when dropped into another: inside it, same name.
- *
- * @param folder The folder moved.
- * @param into The folder it is dropped into.
- *
- * @returns Its new path.
- */
-const movedPath = (folder: IFolderNode, into: string): string => {
-    return normalizeFolder(`${into}/${folder.name}`);
 };
 
 /**

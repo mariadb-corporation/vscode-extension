@@ -22,6 +22,7 @@ import * as vscode from "vscode";
 
 import {
     allFolders,
+    folderNames,
     normalizeFolder,
     parentFolder,
     ROOT_FOLDER,
@@ -29,39 +30,45 @@ import {
 } from "../connections/connectionFolders.js";
 import { reportError } from "../errorMessages.js";
 import { McpToolError } from "../mcp/protocol.js";
+import type { IServerStatus } from "../mcp/serverStarter.js";
 import type { IMsmApi, IMsmListedProject } from "../mcp/msmApi.js";
 import type { ConnectionColor } from "../mcp/types.js";
+import { schemaNameOfFolder } from "../msm/msmFields.js";
 import { colorUriOf } from "./connectionColors.js";
+import type { IFolderNode } from "./connectionsModel.js";
 import {
     FolderColors,
     FolderSet,
+    foldersToMove,
     isWithin,
     rebase,
     type IFolderMemento,
 } from "./customFolders.js";
+import { FolderTreeItem } from "./treeItems.js";
+import { ViewStateTracker, type ViewState } from "./viewState.js";
+import { errorText } from "../text.js";
 
 /** The id the MSM Projects view is contributed under. */
 export const MSM_PROJECTS_VIEW_ID = "mariadb.msmProjects";
 
 /**
- * The context key the view's welcome content switches on: `unsupported`
- * when the MariaDB Shell has no MSM Projects list yet (one released before
- * `msm_list_projects`), `listed` once it listed the projects.
+ * The context key the view's welcome content switches on, a `ViewState`:
+ * `unsupported` where the MariaDB Shell has no MSM Projects list yet (one
+ * released before `msm.list_projects`).
  */
 export const MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY = "mariadb.msmProjectsView";
-
-/** What the view says while it has no rows. */
-export type MsmProjectsViewState = "listed" | "unsupported";
 
 /**
  * @param error Why listing the projects failed.
  *
  * @returns Whether it failed because the MariaDB Shell is too old to have
- *          the MSM Projects list, which answers `Unknown tool: <name>`.
+ *          the MSM Projects list, which answers `Unknown tool: <name>`: the
+ *          name with the server's tool-name separator, `.` by default
+ *          (`msm.list_projects`), `_` with `--toolNameSeparator=_`.
  */
 export const isUnsupportedShell = (error: unknown): boolean => {
     return error instanceof McpToolError
-        && /Unknown tool: msm_/.test(error.message);
+        && /Unknown tool: msm[._]/u.test(error.message);
 };
 
 /** What a drag in the view carries: the rows dragged. */
@@ -76,23 +83,23 @@ export const MSM_FOLDERS_KEY = "mariadb.msmProjects.folders";
 export const MSM_COLLAPSED_FOLDERS_KEY = "mariadb.msmProjects.collapsedFolders";
 export const MSM_FOLDER_COLORS_KEY = "mariadb.msmProjects.folderColors";
 
-/** A folder of the list. */
-export interface IMsmFolderNode {
-    kind: "folder";
-    /** `/Shop/Production`. */
-    path: string;
-    /** `Production`. */
-    name: string;
-    /** Nothing filed at or below it: only then can it be removed. */
-    empty: boolean;
-}
+/** A folder of the list, as the Connections view's folders are. */
+export type IMsmFolderNode = IFolderNode;
+
+/**
+ * @param path A folder of the list.
+ * @param empty Whether nothing is filed at or below it.
+ *
+ * @returns Its row.
+ */
+const folderNode = (path: string, empty: boolean): IMsmFolderNode => {
+    return { kind: "folder", path, name: folderNames(path).at(-1)!, empty };
+};
 
 /** A project of the list. */
 export interface IMsmProjectNode {
     kind: "project";
     project: IMsmListedProject;
-    /** Its development version; undefined where it could not be read. */
-    version?: string;
 }
 
 /** A file or folder inside a project folder, as the Explorer shows it. */
@@ -107,13 +114,12 @@ export type MsmProjectsNode = IMsmFolderNode | IMsmProjectNode | IMsmFileNode;
 /** What the view needs from the extension. */
 export interface IMsmProjectsHost {
     msmApi(): Promise<IMsmApi>;
+    /** How the server's startup is going, which the welcome content says. */
+    status?: IServerStatus;
     /** Where the folders, collapsed folders and colors persist. */
     memento?: IFolderMemento;
     log(message: string): void;
 }
-
-/** The suffix a project folder's name ends in. */
-const PROJECT_SUFFIX = ".msm.project";
 
 /**
  * @param project A listed project.
@@ -128,10 +134,8 @@ export const projectLabel = (project: IMsmListedProject): string => {
     if (project.schemaName !== undefined) {
         return project.schemaName;
     }
-    const name = basename(project.projectPath);
 
-    return name.endsWith(PROJECT_SUFFIX)
-        ? name.slice(0, -PROJECT_SUFFIX.length) : name;
+    return schemaNameOfFolder(basename(project.projectPath));
 };
 
 /**
@@ -146,7 +150,8 @@ export const projectDescription = (node: IMsmProjectNode): string => {
         return "missing";
     }
 
-    return [node.version, node.project.mcpAccess ? "MCP" : undefined]
+    return [node.project.developmentVersion,
+        node.project.mcpAccess ? "MCP" : undefined]
         .filter((part) => { return part !== undefined; })
         .join(" · ");
 };
@@ -202,8 +207,7 @@ export class MsmProjectsTreeProvider
 
     /** The projects the rows were drawn from, until the next refresh. */
     #listing: Promise<IMsmProjectNode[]> | undefined;
-    /** The state last handed to the welcome content. */
-    #shownState?: MsmProjectsViewState;
+    readonly #viewState: ViewStateTracker;
 
     public readonly customFolders: FolderSet;
     public readonly collapsedFolders: FolderSet;
@@ -215,6 +219,13 @@ export class MsmProjectsTreeProvider
             MSM_COLLAPSED_FOLDERS_KEY);
         this.folderColors = new FolderColors(host.memento,
             MSM_FOLDER_COLORS_KEY);
+        this.#viewState = new ViewStateTracker(
+            MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY, host.status);
+    }
+
+    /** @returns What the view should say while it has no rows. */
+    public get state(): ViewState {
+        return this.#viewState.state;
     }
 
     /**
@@ -264,8 +275,16 @@ export class MsmProjectsTreeProvider
      *          their parents, and those made with New Folder.
      */
     public async folders(): Promise<string[]> {
-        const projects = await this.projects();
+        return this.#foldersOf(await this.projects());
+    }
 
+    /**
+     * @param projects The projects listed.
+     *
+     * @returns The folders they are filed in, with their parents, and
+     *          those made with New Folder.
+     */
+    #foldersOf(projects: IMsmProjectNode[]): string[] {
         return allFolders([
             ...projects.map((node) => { return node.project.folder; }),
             ...this.customFolders.list(),
@@ -293,10 +312,7 @@ export class MsmProjectsTreeProvider
     ): Promise<MsmProjectsNode[]> {
         try {
             if (node === undefined) {
-                const children = await this.#folderChildren(ROOT_FOLDER);
-                this.#showState("listed");
-
-                return children;
+                return await this.#topLevel();
             }
 
             switch (node.kind) {
@@ -314,17 +330,34 @@ export class MsmProjectsTreeProvider
                 }
             }
         } catch (error) {
-            // A shell without the list is not a failure to report again on
-            // every draw: the welcome content asks for a newer one.
-            if (node === undefined && isUnsupportedShell(error)) {
-                this.host.log("The MariaDB Shell has no MSM Projects list; "
-                    + "a newer version is needed.");
-                this.#showState("unsupported");
-
-                return [];
-            }
             // A tree that throws shows nothing and says nothing.
             reportError(this.host.log, error, "list the MSM projects");
+
+            return [];
+        }
+    }
+
+    /**
+     * @returns The top level's rows, telling the welcome content how the
+     *          listing went: a failure is logged and said there, not
+     *          notified on every draw, as in the other views.
+     */
+    async #topLevel(): Promise<MsmProjectsNode[]> {
+        try {
+            const children = await this.#folderChildren(ROOT_FOLDER);
+            this.#viewState.listed();
+
+            return children;
+        } catch (error) {
+            if (isUnsupportedShell(error)) {
+                this.host.log("The MariaDB Shell has no MSM Projects list; "
+                    + "a newer version is needed.");
+                this.#viewState.unsupported();
+            } else {
+                this.host.log("Failed to list the MSM projects: "
+                    + errorText(error));
+                this.#viewState.failed();
+            }
 
             return [];
         }
@@ -343,13 +376,8 @@ export class MsmProjectsTreeProvider
         const folder = node.kind === "folder"
             ? parentFolder(node.path) : node.project.folder;
 
-        return folder === ROOT_FOLDER ? undefined : {
-            kind: "folder",
-            path: folder,
-            name: folder.split("/").pop() ?? folder,
-            // A folder something is in.
-            empty: false,
-        };
+        // A folder something is in.
+        return folder === ROOT_FOLDER ? undefined : folderNode(folder, false);
     }
 
     /**
@@ -391,7 +419,8 @@ export class MsmProjectsTreeProvider
      */
     public async newFolder(path: string): Promise<void> {
         await this.customFolders.add(path);
-        this.refresh();
+        // Kept here alone: the server's list is as it was.
+        this.#onDidChangeTreeData.fire(undefined);
     }
 
     /**
@@ -402,10 +431,12 @@ export class MsmProjectsTreeProvider
      * @returns Nothing.
      */
     public async removeFolder(folder: IMsmFolderNode): Promise<void> {
-        await this.customFolders.remove(folder.path);
-        await this.collapsedFolders.remove(folder.path);
-        await this.folderColors.remove(folder.path);
-        this.refresh();
+        await Promise.all([
+            this.customFolders.remove(folder.path),
+            this.collapsedFolders.remove(folder.path),
+            this.folderColors.remove(folder.path),
+        ]);
+        this.#onDidChangeTreeData.fire(undefined);
     }
 
     /**
@@ -485,30 +516,20 @@ export class MsmProjectsTreeProvider
             return;
         }
 
-        const candidates = rows.filter((node): node is IMsmFolderNode => {
-            return node?.kind === "folder" && !isWithin(into, node.path)
-                && parentFolder(node.path) !== into;
-        });
-        const folders = candidates.filter((folder) => {
-            return !candidates.some((other) => {
-                return other !== folder && isWithin(folder.path, other.path);
-            });
-        });
+        const folders = foldersToMove(rows.filter(
+            (node): node is IMsmFolderNode => { return node?.kind === "folder"; }),
+        into);
+        // A project dragged along with the folder it is in moves with it.
         const projects = rows.filter((node): node is IMsmProjectNode => {
-            return node?.kind === "project" && !folders.some((folder) => {
-                return isWithin(node.project.folder, folder.path);
+            return node?.kind === "project" && !folders.some(({ from }) => {
+                return isWithin(node.project.folder, from);
             });
         });
         if (folders.length === 0 && projects.length === 0) {
             return;
         }
 
-        await this.#refile(folders.map((folder) => {
-            return {
-                from: folder.path,
-                to: normalizeFolder(`${into}/${folder.name}`),
-            };
-        }), projects.map((node) => {
+        await this.#refile(folders, projects.map((node) => {
             return { projectPath: node.project.projectPath, folder: into };
         }));
     }
@@ -543,16 +564,18 @@ export class MsmProjectsTreeProvider
             const listed = new Map(projects.map((node) => {
                 return [node.project.projectPath, node.project.folder];
             }));
-            for (const { projectPath, folder } of all) {
-                if (listed.get(projectPath) !== folder) {
-                    await api.updateProject(projectPath, { folder });
-                    this.host.log(`Moved '${projectPath}' to '${folder}'.`);
-                }
-            }
+            await Promise.all(all.filter(({ projectPath, folder }) => {
+                return listed.get(projectPath) !== folder;
+            }).map(async ({ projectPath, folder }) => {
+                await api.updateProject(projectPath, { folder });
+                this.host.log(`Moved '${projectPath}' to '${folder}'.`);
+            }));
             for (const { from, to } of folders) {
-                await this.customFolders.move(from, to);
-                await this.collapsedFolders.move(from, to);
-                await this.folderColors.move(from, to);
+                await Promise.all([
+                    this.customFolders.move(from, to),
+                    this.collapsedFolders.move(from, to),
+                    this.folderColors.move(from, to),
+                ]);
             }
         } catch (error) {
             reportError(this.host.log, error, "move the MSM projects");
@@ -564,45 +587,15 @@ export class MsmProjectsTreeProvider
     // --- rows -------------------------------------------------------------
 
     /**
-     * Hands the view's state to its welcome content, when it changed.
-     *
-     * @param state What the view says while it has no rows.
-     *
-     * @returns Nothing.
-     */
-    #showState(state: MsmProjectsViewState): void {
-        if (state === this.#shownState) {
-            return;
-        }
-        this.#shownState = state;
-        void vscode.commands.executeCommand("setContext",
-            MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY, state);
-    }
-
-    /**
-     * @returns The projects, each with its development version, read side
-     *          by side.
+     * @returns The projects, each with its development version, as the
+     *          server lists them.
      */
     async #list(): Promise<IMsmProjectNode[]> {
-        const api = await this.host.msmApi();
-        const listed = await api.listProjects();
+        const listed = await (await this.host.msmApi()).listProjects();
 
-        return await Promise.all(listed.map(async (project) => {
-            const node: IMsmProjectNode = { kind: "project", project };
-            if (!project.exists) {
-                return node;
-            }
-            try {
-                const info = await api.projectInformation(project.projectPath);
-
-                return { ...node, version: info.currentDevelopmentVersion };
-            } catch (error) {
-                this.host.log(`Reading the MSM project `
-                    + `${project.projectPath} failed: ${String(error)}`);
-
-                return node;
-            }
-        }));
+        return listed.map((project) => {
+            return { kind: "project", project };
+        });
     }
 
     /**
@@ -612,17 +605,12 @@ export class MsmProjectsTreeProvider
      */
     async #folderChildren(folder: string): Promise<MsmProjectsNode[]> {
         const projects = await this.projects();
-        const folders = await this.folders();
-        const subfolders = subfoldersOf(folders, folder).map((path) => {
-            return {
-                kind: "folder" as const,
-                path,
-                name: path.split("/").pop() ?? path,
-                empty: !projects.some((node) => {
+        const subfolders = subfoldersOf(this.#foldersOf(projects), folder)
+            .map((path) => {
+                return folderNode(path, !projects.some((node) => {
                     return isWithin(node.project.folder, path);
-                }),
-            };
-        });
+                }));
+            });
         const inHere = projects.filter((node) => {
             return node.project.folder === folder;
         }).sort((left, right) => {
@@ -639,25 +627,13 @@ export class MsmProjectsTreeProvider
      * @returns Its row, open unless the user closed it, in its color.
      */
     #folderItem(node: IMsmFolderNode): vscode.TreeItem {
-        const open = !this.collapsedFolders.has(node.path);
-        const item = new vscode.TreeItem(node.name, open
-            ? vscode.TreeItemCollapsibleState.Expanded
-            : vscode.TreeItemCollapsibleState.Collapsed);
-        item.id = `msmFolder:${node.path}`;
-        // `.empty` is what offers Remove Folder.
-        item.contextValue = node.empty
-            ? "mariadbMsmFolder.empty" : "mariadbMsmFolder";
-        item.iconPath = new vscode.ThemeIcon(open ? "folder-opened" : "folder");
-        item.tooltip = node.path;
-        const color = this.folderColors.get(node.path);
-        if (color !== undefined) {
-            item.resourceUri = colorUriOf(color, "folder", node.path);
-        }
-
-        return item;
+        return new FolderTreeItem(node, !this.collapsedFolders.has(node.path),
+            this.folderColors.get(node.path),
+            { id: "msmFolder", contextValue: "mariadbMsmFolder" });
     }
 
     public dispose(): void {
+        this.#viewState.dispose();
         this.#onDidChangeTreeData.dispose();
     }
 }
@@ -682,8 +658,8 @@ const projectItem = (node: IMsmProjectNode): vscode.TreeItem => {
         project.projectPath,
         project.schemaName === undefined
             ? undefined : `Schema ${project.schemaName}`,
-        node.version === undefined
-            ? undefined : `Development version ${node.version}`,
+        project.developmentVersion === undefined
+            ? undefined : `Development version ${project.developmentVersion}`,
         project.exists ? undefined : "The project folder is missing.",
         project.mcpAccess
             ? "LLMs may work on it through the MariaDB MCP server."
@@ -713,8 +689,6 @@ const fileItem = (node: IMsmFileNode): vscode.TreeItem => {
     item.resourceUri = uri;
     item.iconPath = node.directory ? vscode.ThemeIcon.Folder
         : vscode.ThemeIcon.File;
-    item.contextValue = node.directory
-        ? "mariadbMsmDirectory" : "mariadbMsmFile";
     item.tooltip = node.path;
     if (!node.directory) {
         item.command = {

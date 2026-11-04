@@ -72,6 +72,12 @@ export interface IMsmCreateOptions {
      * left out, they may not.
      */
     mcpAccess?: boolean;
+    /** The folder of the MSM Projects list to file it in; `/` if left out. */
+    folder?: string;
+    /** Its caption in the list. */
+    caption?: string;
+    /** Its color in the list. */
+    color?: ConnectionColor;
 }
 
 /**
@@ -93,6 +99,8 @@ export interface IMsmListedProject {
     schemaName?: string;
     /** Whether the folder is still a project: a moved one stays listed. */
     exists: boolean;
+    /** Its development version; undefined where it cannot be read. */
+    developmentVersion?: string;
 }
 
 /**
@@ -200,6 +208,7 @@ interface IListedOnTheWire {
     mcp_access?: boolean;
     schema_name?: string | null;
     exists?: boolean;
+    development_version?: string | null;
 }
 
 /**
@@ -209,7 +218,7 @@ interface IListedOnTheWire {
  *          dropped, and a server that predates `mcp_access` is read as
  *          giving access, as every project had then.
  */
-export const listedProject = (listed: IListedOnTheWire): IMsmListedProject => {
+const listedProject = (listed: IListedOnTheWire): IMsmListedProject => {
     const color = CONNECTION_COLORS.find((known) => {
         return known === listed.color;
     });
@@ -224,6 +233,8 @@ export const listedProject = (listed: IListedOnTheWire): IMsmListedProject => {
         ...(typeof listed.schema_name === "string"
             ? { schemaName: listed.schema_name } : {}),
         exists: listed.exists ?? true,
+        ...(typeof listed.development_version === "string"
+            ? { developmentVersion: listed.development_version } : {}),
     };
 };
 
@@ -237,21 +248,17 @@ const detailArgs = (
     prefix: string,
     details: IMsmProjectDetails,
 ): Record<string, unknown> => {
-    const args: Record<string, unknown> = {};
-    if (details.folder !== undefined) {
-        args[`${prefix}folder`] = details.folder;
-    }
-    if (details.caption !== undefined) {
-        args[`${prefix}caption`] = details.caption;
-    }
-    if (details.color !== undefined) {
-        args[`${prefix}color`] = details.color;
-    }
-    if (details.mcpAccess !== undefined) {
-        args[`${prefix}mcp_access`] = details.mcpAccess;
-    }
+    const args = {
+        folder: details.folder,
+        caption: details.caption,
+        color: details.color,
+        // Not `given`: an access of false has to be sent.
+        mcp_access: details.mcpAccess,
+    };
 
-    return args;
+    return Object.fromEntries(Object.entries(args).filter(([, value]) => {
+        return value !== undefined;
+    }).map(([name, value]) => { return [`${prefix}${name}`, value]; }));
 };
 
 /**
@@ -272,6 +279,9 @@ export const msmToolArgs = {
             allow_special_chars: options.allowSpecialChars,
             enforce_target_path: options.enforceTargetPath,
             mcp_access: options.mcpAccess,
+            folder: options.folder,
+            caption: options.caption,
+            color: options.color,
         });
     },
     addProject: (

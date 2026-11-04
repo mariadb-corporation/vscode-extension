@@ -17,15 +17,12 @@
 
 import { useEffect, useState } from "preact/hooks";
 
-import { colorLabel } from "../../src/connections/connectionDetails.js";
-import { CONNECTION_COLORS } from "../../src/mcp/types.js";
 import {
     msmProblem,
     nextPatchVersion,
     projectFolderName,
     type IMsmCreateValues,
     type IMsmDeployValues,
-    type IMsmEditValues,
     type IMsmProblem,
     type IMsmProjectContext,
     type IMsmReleaseValues,
@@ -39,7 +36,7 @@ import type {
     MsmWebviewMessage,
 } from "../../src/msm/msmProtocol.js";
 import { newestFirst } from "../../src/versionOrder.js";
-import { Field, ProgressBar } from "./dialogParts.js";
+import { ColorSwatches, Field, ProgressBar } from "./dialogParts.js";
 import { post } from "./vscodeApi.js";
 
 /**
@@ -202,11 +199,16 @@ export const MsmDialog = (): preact.JSX.Element => {
         post<MsmWebviewMessage>({ type: "open", what });
     };
 
-    const text = (name: string, placeholder?: string): preact.JSX.Element => {
+    const text = (
+        name: string,
+        placeholder?: string,
+        list?: string,
+    ): preact.JSX.Element => {
         return (
             <input
                 type="text"
                 name={name}
+                list={list}
                 class={invalid(name) ? "invalid" : undefined}
                 aria-invalid={invalid(name)}
                 value={String(field(name) ?? "")}
@@ -286,8 +288,6 @@ export const MsmDialog = (): preact.JSX.Element => {
 
     /** The MSM Projects list's settings, of New and Edit MSM Project. */
     const listSettings = (): preact.JSX.Element => {
-        const color = String(field("color") ?? "");
-
         return (
             <div class="group wide msm-list">
                 <h2>MSM Projects View</h2>
@@ -295,18 +295,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                     <Field caption="Folder" hint={hint("folder",
                         "The folder of the view it is filed in; / is the top "
                         + "level.")}>
-                        <input
-                            type="text"
-                            name="folder"
-                            list="msm-folders"
-                            value={String(field("folder") ?? "")}
-                            spellcheck={false}
-                            disabled={busy}
-                            onInput={(event) => {
-                                update("folder",
-                                    (event.target as HTMLInputElement).value);
-                            }}
-                        />
+                        {text("folder", undefined, "msm-folders")}
                         <datalist id="msm-folders">
                             {folders.map((folder) => {
                                 return <option key={folder} value={folder} />;
@@ -317,57 +306,13 @@ export const MsmDialog = (): preact.JSX.Element => {
                         "Shown in place of the schema name; empty for none.")}>
                         {text("caption")}
                     </Field>
-                    {/* Not a Field: a <label> hands a click anywhere in it
-                        to its first button. */}
-                    <div class="field">
-                        <span class="field-caption" id="msm-color-caption">
-                            Color
-                        </span>
-                        <div
-                            class="row wrap colors"
-                            role="radiogroup"
-                            aria-labelledby="msm-color-caption"
-                        >
-                            {(["", ...CONNECTION_COLORS] as const)
-                                .map((choice) => {
-                                    const name = colorLabel(choice || undefined);
-
-                                    return (
-                                        <button
-                                            key={choice || "none"}
-                                            type="button"
-                                            role="radio"
-                                            name="color"
-                                            value={choice}
-                                            aria-checked={color === choice}
-                                            aria-label={name}
-                                            data-tooltip={name}
-                                            class={color === choice
-                                                ? "swatch selected" : "swatch"}
-                                            style={choice === "" ? undefined : {
-                                                background: "var(--vscode-"
-                                                    + `charts-${choice})`,
-                                            }}
-                                            disabled={busy}
-                                            onClick={() => {
-                                                update("color", choice);
-                                            }}
-                                        >
-                                            {choice === "" ? (
-                                                <span
-                                                    class={"codicon "
-                                                        + "codicon-circle-slash"}
-                                                    aria-hidden="true"
-                                                />
-                                            ) : null}
-                                        </button>
-                                    );
-                                })}
-                        </div>
-                        <span class="field-hint">
-                            The color the MSM Projects view draws it in.
-                        </span>
-                    </div>
+                    <ColorSwatches
+                        id="msm-color-caption"
+                        value={String(field("color") ?? "")}
+                        disabled={busy}
+                        hint="The color the MSM Projects view draws it in."
+                        onPick={(color) => { update("color", color); }}
+                    />
                     <div class="group flags">
                         {box("mcpAccess", "Allow MCP Access",
                             "Let LLMs work on the project through the MariaDB "
@@ -433,7 +378,6 @@ export const MsmDialog = (): preact.JSX.Element => {
             }
 
             case "edit": {
-                const edit = values as IMsmEditValues;
                 const last = project?.lastReleasedVersion;
                 const rows: Array<[string, string]> = project === undefined
                     ? [] : [
@@ -446,38 +390,12 @@ export const MsmDialog = (): preact.JSX.Element => {
                 return (
                     <section class="grid">
                         {summary(project)}
-                        <div class="wide msm-info">
-                            <dl>
-                                {rows.map(([caption, value]) => {
-                                    return (
-                                        <div key={caption}
-                                            class="msm-info-row">
-                                            <dt>{caption}</dt>
-                                            <dd>{value}</dd>
-                                        </div>
-                                    );
-                                })}
-                            </dl>
-                        </div>
+                        <div class="wide msm-info">{infoRows(rows)}</div>
                         <Field caption="Development Version" hint={hint(
                             "developmentVersion", last === undefined
                                 ? "The version the development script is for."
                                 : `The last release was ${last}.`)}>
-                            <input
-                                type="text"
-                                name="developmentVersion"
-                                class={invalid("developmentVersion")
-                                    ? "invalid" : undefined}
-                                aria-invalid={invalid("developmentVersion")}
-                                value={edit.developmentVersion}
-                                spellcheck={false}
-                                disabled={busy}
-                                onInput={(event) => {
-                                    update("developmentVersion",
-                                        (event.target as HTMLInputElement)
-                                            .value);
-                                }}
-                            />
+                            {text("developmentVersion")}
                         </Field>
                         {listSettings()}
                     </section>
@@ -611,16 +529,7 @@ export const MsmDialog = (): preact.JSX.Element => {
 
         return (
             <section class="msm-info">
-                <dl>
-                    {rows.map(([caption, value]) => {
-                        return (
-                            <div key={caption} class="msm-info-row">
-                                <dt>{caption}</dt>
-                                <dd>{value}</dd>
-                            </div>
-                        );
-                    })}
-                </dl>
+                {infoRows(rows)}
                 <div class="row wrap">
                     <button type="button" onClick={() => {
                         open("developmentFile");
@@ -697,6 +606,26 @@ export const MsmDialog = (): preact.JSX.Element => {
                 )}
             </footer>
         </div>
+    );
+};
+
+/**
+ * @param rows Each fact of a project, by its caption.
+ *
+ * @returns Them as a list of captions and values.
+ */
+const infoRows = (rows: Array<[string, string]>): preact.JSX.Element => {
+    return (
+        <dl>
+            {rows.map(([caption, value]) => {
+                return (
+                    <div key={caption} class="msm-info-row">
+                        <dt>{caption}</dt>
+                        <dd>{value}</dd>
+                    </div>
+                );
+            })}
+        </dl>
     );
 };
 

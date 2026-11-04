@@ -32,9 +32,12 @@ MSM Projects (`mariadb.msmProjects`).
   with `msm.list_projects` and changed with `msm.add_project` /
   `update_project` / `remove_project`. Each entry is the project folder's
   path with a list `folder`, `caption`, `color` (the connections' six) and
-  `mcp_access`. The provider lists once per refresh and reads each existing
-  project's information side by side for its development version (a
-  failure leaves the version out and is logged).
+  `mcp_access`; the listing also carries each project's
+  `development_version` (null where the server could not read it, which
+  leaves it out of the row). The provider lists once per refresh - one call,
+  no project read per row - and keeps the listing until the next; New
+  Folder and Remove Folder change only what is kept here, so they redraw
+  without listing again.
 - **Rows.** Folders first (sorted), then projects by label: the caption,
   else the schema, else the folder name without `.msm.project`. A project's
   description is its development version, and ` · MCP` after it where LLMs
@@ -65,25 +68,35 @@ MSM Projects (`mariadb.msmProjects`).
   row). Open takes a folder or its `msm.project.json`
   (`canSelectFiles` and `canSelectFolders`). Both are on a folder row's menu
   too, and the welcome content has them as buttons.
-- **An older shell**: one without the list answers `Unknown tool:
-  msm_list_projects` (`isUnsupportedShell`). The view then sets
-  `mariadb.msmProjectsView` to `unsupported`, logs it without an error
-  message, and its welcome content asks for a newer MariaDB Shell; New,
-  Open and New Folder leave the toolbar, Refresh stays. A listing sets
-  `listed`.
+- **The welcome content** follows `ViewStateTracker` (`viewState.ts`), as
+  the Connections, Sandboxes and Deployments views' does, on the context
+  key `mariadb.msmProjectsView`: `looking` and `installing` while the
+  server starts (the provider is given its `status`), `failed` when the
+  listing failed (logged, not notified; Show Log and Retry), `listed`
+  (New and Open as buttons), and `unsupported`, which the tracker has for
+  this view: a shell without the list answers `Unknown tool:
+  msm.list_projects` (`msm_list_projects` under `--toolNameSeparator=_`;
+  `isUnsupportedShell` matches `msm[._]`). Logged without an error message,
+  the welcome content asks for a newer MariaDB Shell; New, Open and New
+  Folder leave the toolbar, Refresh stays. A server started again clears
+  `unsupported` and `failed`, as it may be a newer shell.
 - **New MSM Project's list settings**: Folder (a `<datalist>` of the view's
   folders), Caption, Color (the swatches of the connection editor) and Allow
-  MCP Access, off by default. `mcp_access` goes with `msm.create_project`
-  (the `--gui` server files the new project at the top level, without
-  access unless told); folder, caption and color follow as one
-  `msm.update_project` step where any is set. The Explorer's New MSM Project
-  has them too.
+  MCP Access, off by default. All of them go with `msm.create_project`, in
+  the one call and the one Actions-tab step (the plugin checks them before
+  the folder is made, mariadb-shell-plugins #80); only what differs from a
+  new project's place - the top level, no caption or color - is sent. The
+  Explorer's New MSM Project has them too.
 - **Edit MSM Project** (a project row's menu; `MSM_COMMANDS.edit`, kind
   `edit`) shows the schema, license and copyright as read, and edits the
   development version (`msm.set_development_version`, not below the last
-  release) and the list settings; Update sends only what changed. It is not
-  in the Explorer submenu: it edits a list entry, which an Explorer folder
-  may not have.
+  release) and the list settings; Update sends only what changed
+  (`changedDetails`, the folder through `normalizeFolder` and the caption
+  through `normalizeCaption` on both sides, so `Shop/` against `/Shop` is
+  no change). The entry comes from the row it was used on, else from the
+  view's last listing (`listedProject`, the host's hook over `projectAt`):
+  no second listing. It is not in the Explorer submenu: it edits a list
+  entry, which an Explorer folder may not have.
 - **MCP access**: the server refuses every path of a project whose entry
   says no to any MCP server without `--gui` (see mcp_plugin's
   `context/siblings.md`), so the `--gui` server of this extension is the

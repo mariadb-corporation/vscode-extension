@@ -151,11 +151,16 @@ export class FolderTreeItem extends vscode.TreeItem {
      * @param node The folder.
      * @param open Whether it is expanded.
      * @param color The color the user gave it, if any.
+     * @param view What the view's folder rows are told apart by: the
+     *             prefix of their ids and their context value. The MSM
+     *             Projects view's folders have menus of their own.
      */
     public constructor(
         public readonly node: IFolderNode,
         open = true,
         color?: ConnectionColor,
+        view: { id: string; contextValue: string } =
+        { id: "folder", contextValue: "mariadbFolder" },
     ) {
         super(node.name, open
             ? vscode.TreeItemCollapsibleState.Expanded
@@ -163,11 +168,12 @@ export class FolderTreeItem extends vscode.TreeItem {
 
         // `.empty` is what offers Remove Folder; the menus match the rest
         // with a prefix, so both forms get New Connection and New Folder.
-        this.contextValue = node.empty ? "mariadbFolder.empty" : "mariadbFolder";
+        this.contextValue = node.empty
+            ? `${view.contextValue}.empty` : view.contextValue;
         // Folder paths are unique, so VS Code can tell folders apart by it
         // across refreshes rather than by label and position. Connection
         // rows get none: two of them can read the same.
-        this.id = `folder:${node.path}`;
+        this.id = `${view.id}:${node.path}`;
         this.iconPath = new vscode.ThemeIcon(open ? "folder-opened" : "folder");
         this.tooltip = node.path;
         // Drawn by `ConnectionColorDecorations`, as a connection's color is.
