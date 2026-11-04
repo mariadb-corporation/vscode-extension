@@ -2,8 +2,10 @@
 
 The Explorer's **MariaDB Schema Management** submenu on folders: creating a
 schema project, and on a `*.msm.project` folder its information, a release,
-its deployment script and deploying it. Each opens a dialog; each thing done
-is an action of the Actions tab.
+its deployment script, deploying it and adding it to the MSM Projects view.
+The MSM Projects view lists the projects the user works on, with the same
+operations on its rows. Each opens a dialog; each thing done is an action of
+the Actions tab.
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md). The server side is the
 MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
@@ -11,17 +13,104 @@ MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
 
 | File | Purpose |
 | --- | --- |
-| `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the seven `msm.*` tools used, typed; `msmToolArgs`, each tool's arguments by the server's names, which the Actions tab shows the call with (all but `connection_id`). `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
+| `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the twelve `msm.*` tools used, typed (the list's four, read with `listedProject`: an unknown color dropped, a missing `mcp_access` read as true, as the server reads an old entry); `msmToolArgs`, each tool's arguments by the server's names, which the Actions tab shows the call with (all but `connection_id`). `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
 | `src/msm/msmFields.ts` | Pure, shared with the webview: per dialog its values, defaults and `*Problem` checks, version parsing / comparing (numbers, so 1.10 > 1.9), `projectFolderName` as the plugin names it. |
 | `src/msm/msmProtocol.ts`, `msmDialogPanel.ts` | The dialog's messages and panel, a `DialogPanel` typed by the dialog's kind: one at a time, checks the values again (and `host.check`, the disk) before `host.submit`; a failure stays in the dialog, or is notified once it was closed. |
-| `src/msm/msmCommands.ts` | `MsmCommands`: the five commands, reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`). |
+| `src/msm/msmCommands.ts` | `MsmCommands`: the dialogs' six commands and the list's four (`MSM_LIST_COMMANDS`), reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`); `changedDetails`, what an add or update sends. |
+| `src/msm/msmProjectsCommands.ts` | The MSM Projects view's refresh and folder commands (`MSM_FOLDER_COMMANDS`): New / Rename Folder, Set Folder Color, Remove Folder. |
 | `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds; its own bundle, on `dialogStyles.css` as Dump and Load's and New Sandbox's. |
+| `src/tree/msmProjectsTreeProvider.ts` | The MSM Projects view: folders, projects and each project's files; drag and drop; the folders, collapsed folders and folder colors it keeps itself. |
+
+## The MSM Projects view
+
+Its own activity bar container, `mariadb-msm`, titled "MariaDB Schema
+Management", with the icon `images/activityBar-msm.svg`; its one view is
+MSM Projects (`mariadb.msmProjects`).
+
+- **The list is the server's**: msm_plugin keeps it in
+  `plugin_data/msm_plugin/projects.json` (mariadb-shell-plugins #80), read
+  with `msm.list_projects` and changed with `msm.add_project` /
+  `update_project` / `remove_project`. Each entry is the project folder's
+  path with a list `folder`, `caption`, `color` (the connections' six) and
+  `mcp_access`; the listing also carries each project's
+  `development_version` (null where the server could not read it, which
+  leaves it out of the row). The provider lists once per refresh - one call,
+  no project read per row - and keeps the listing until the next; New
+  Folder and Remove Folder change only what is kept here, so they redraw
+  without listing again.
+- **Rows.** Folders first (sorted), then projects by label: the caption,
+  else the schema, else the folder name without `.msm.project`. A project's
+  description is its development version, and ` · MCP` after it where LLMs
+  may work on it (the user's call: like a connection row's `· MCP`);
+  `missing` for a folder that is gone, which then only offers Remove (inline
+  and in the menu, `contextValue` `mariadbMsmProject.missing`). A colored
+  project carries `colorUriOf(color, "msmProject", path)`, drawn by
+  `ConnectionColorDecorations`. A project expands into its folder's files
+  (folders first, `node:fs` `readdir`), each with its own `resourceUri` so
+  the theme's file icons show, a file opening with `vscode.open` on a click;
+  rows have `id`s (`msmFolder:`, `msmProject:`, `msmFile:` + path), and
+  `getParent` serves `reveal`, which shows a project once it is added, or
+  created from the view. `TreeView.reveal` opens the view's container, so a
+  project created from the Explorer is revealed in the Explorer only
+  (`createProject`'s `from`), keeping its side bar; Add to MSM Projects
+  does switch to the view.
+- **Folders work as the Connections view's** (see connection-folders.md):
+  the server knows a folder only as where a project is filed, so New Folder,
+  the collapsed folders and the folders' colors are `FolderSet` /
+  `FolderColors` in `globalState` under `mariadb.msmProjects.*` keys of their
+  own (`FolderColors` took a key argument for it). Drag and drop on a MIME of
+  its own (`application/vnd.mariadb.msmprojects`) moves projects and whole
+  folders with one `msm.update_project(new_folder=)` per project that moves;
+  Rename Folder goes through the same `#refile`. Remove Folder is on an
+  empty folder only. No New Folder with Selection.
+- **The toolbar**: New MSM Project... (`+`), Open MSM Project..., New
+  Folder..., Refresh. New asks with `showSaveDialog` for the project
+  folder - its folder is where it is created, its name (`.msm.project` taken
+  off, `schemaNameOfFolder`) the schema - then opens New MSM Project on that,
+  filed in the selected row's folder (a toolbar command gets the focused
+  row). Open takes a folder, or on macOS its `msm.project.json` too: only
+  macOS has a dialog that picks files and folders, so elsewhere
+  `canSelectFiles` is off. Both are on a folder row's menu
+  too, and the welcome content has them as buttons.
+- **The welcome content** follows `ViewStateTracker` (`viewState.ts`), as
+  the Connections, Sandboxes and Deployments views' does, on the context
+  key `mariadb.msmProjectsView`: `looking` and `installing` while the
+  server starts (the provider is given its `status`), `failed` when the
+  listing failed (logged, not notified; Show Log and Retry), `listed`
+  (New and Open as buttons), and `unsupported`, which the tracker has for
+  this view: a shell without the list answers `Unknown tool:
+  msm.list_projects` (`msm_list_projects` under `--toolNameSeparator=_`;
+  `isUnsupportedShell` matches `msm[._]`). Logged without an error message,
+  the welcome content asks for a newer MariaDB Shell; New, Open and New
+  Folder leave the toolbar, Refresh stays. A server started again clears
+  `unsupported` and `failed`, as it may be a newer shell.
+- **New MSM Project's list settings**: Folder (a `<datalist>` of the view's
+  folders), Caption, Color (the swatches of the connection editor) and Allow
+  MCP Access, off by default. All of them go with `msm.create_project`, in
+  the one call and the one Actions-tab step (the plugin checks them before
+  the folder is made, mariadb-shell-plugins #80); only what differs from a
+  new project's place - the top level, no caption or color - is sent. The
+  Explorer's New MSM Project has them too.
+- **Edit MSM Project** (a project row's menu; `MSM_COMMANDS.edit`, kind
+  `edit`) shows the schema, license and copyright as read, and edits the
+  development version (`msm.set_development_version`, not below the last
+  release) and the list settings; Update sends only what changed
+  (`changedDetails`, the folder through `normalizeFolder` and the caption
+  through `normalizeCaption` on both sides, so `Shop/` against `/Shop` is
+  no change). The entry comes from the row it was used on, else from the
+  view's last listing (`listedProject`, the host's hook over `projectAt`):
+  no second listing. It is not in the Explorer submenu: it edits a list
+  entry, which an Explorer folder may not have.
+- **MCP access**: the server refuses every path of a project whose entry
+  says no to any MCP server without `--gui` (see mcp_plugin's
+  `context/siblings.md`), so the `--gui` server of this extension is the
+  only one that reaches it; only that server offers the argument.
 
 ## The commands
 
 | Command | Shown on | Does |
 | --- | --- | --- |
-| `mariadb.msm.createProject` | A folder NOT named `*.msm.project` | New MSM Project: schema name, license, copyright holder, the folder (Browse), Create the Folder / Allow Special Characters / Replace Existing Project. Opens `development/<schema>_next.sql` and reveals the project folder. |
+| `mariadb.msm.createProject` | A folder NOT named `*.msm.project` | New MSM Project: schema name, license, copyright holder, the folder (Browse), Create the Folder / Allow Special Characters / Replace Existing Project. Opens `development/<schema>_next.sql` and reveals the project folder in the Explorer. |
 | `mariadb.msm.showProjectInformation` | `*.msm.project` | The project's information, with buttons to open the development script and to go on to the three dialogs below (in its place). Replaces the old extension's JSON document. |
 | `mariadb.msm.prepareRelease` | `*.msm.project` | Release version (the development version) and next version (its patch + 1, following the first until typed into), Stay on the Same Version, Replace Existing Files. Opens the files written. |
 | `mariadb.msm.generateDeploymentScript` | `*.msm.project` | A released version (newest first, marked where it has a script), Replace Existing File. Opens the script. |
@@ -100,11 +189,18 @@ first four with input boxes one after another; Deploy is new.
 ## Tests
 
 - `src/test/mcp/msmApi.test.ts` (the answers of a real `--gui` server,
-  word for word), `src/test/mcp/protocol.test.ts` (`decodeList` with a structured result).
+  word for word; the list tools' arguments and decoding), `src/test/mcp/protocol.test.ts` (`decodeList` with a structured result).
+- `src/test/tree/msmProjectsTreeProvider.test.ts`: rows and their order,
+  descriptions, colors, files, drag and drop, rename, collapsed folders,
+  `getParent`.
 - `src/test/msm/msmFields.test.ts`, `msmCommands.test.ts` (through the
-  dialog panel: calls, every action row, failures, Browse, the palette),
-  `msmPackage.test.ts` (the submenu's `when` clauses judged per folder).
+  dialog panel: calls, every action row, failures, Browse, the palette; the
+  list's commands, the file dialogs, Edit), `msmPackage.test.ts` (the
+  submenu's `when` clauses judged per folder, the view's toolbar and row
+  menus).
 - `webview/test/MsmDialog.test.tsx`.
+- UI: `ui-test/tests/10-msm-projects.test.ts`, in suite `msm` before
+  `09-msm`, whose create lists its project, see testing-and-debugging.md.
 - UI: `ui-test/tests/09-msm.test.ts`, suite `msm` (`npm run ui-test:msm`):
   create, the duplicate refused, the information, a release, a second one
   refused, the deployment script, the deploy onto the suite's sandbox (its

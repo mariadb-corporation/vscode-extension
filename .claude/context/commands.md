@@ -56,6 +56,18 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.msm.prepareRelease` | Prepare MSM Release... | As above |
 | `mariadb.msm.generateDeploymentScript` | Generate MSM Deployment Script... | As above |
 | `mariadb.msm.deploySchema` | Deploy MSM Schema... | As above; onto a configured connection |
+| `mariadb.msm.addToProjects` | Add to MSM Projects | MariaDB Schema Management submenu of a `*.msm.project` folder; the palette asks for the folder. Adds it to the MSM Projects view where it is listed, or keeps its place |
+| `mariadb.msm.newProjectInView` | New MSM Project... (`$(add)`) | MSM Projects toolbar, a folder row (inline and menu), the welcome content. A save dialog names the project folder, then New MSM Project opens on it, filed in the row's folder |
+| `mariadb.msm.openProjectInView` | Open MSM Project... (`$(folder-opened)`) | MSM Projects toolbar, a folder row's menu, the welcome content. An open dialog picks a project folder or its `msm.project.json` |
+| `mariadb.msm.editProject` | Edit MSM Project... (`$(edit)`) | A project row's menu; the palette asks for the folder. The development version and the view's folder, caption, color and MCP access, applied with Update |
+| `mariadb.msm.removeFromProjects` | Remove from MSM Projects (`$(close)`) | A project row's menu; a missing project's inline button too. The folder stays on disk |
+| `mariadb.msm.newProjectFolder` | New Folder... (`$(new-folder)`) | MSM Projects toolbar, a folder row's menu |
+| `mariadb.msm.renameProjectFolder` | Rename Folder... | A folder row of MSM Projects |
+| `mariadb.msm.setProjectFolderColor` | Set Folder Color... | As above |
+| `mariadb.msm.removeProjectFolder` | Remove Folder | An empty folder row of MSM Projects |
+| `mariadb.msm.refreshProjects` | Refresh MSM Projects (`$(refresh)`) | MSM Projects toolbar |
+
+The four Explorer operations (information, release, deployment script, deploy) are on a project row of MSM Projects too, as inline icons (`$(info)`, `$(tag)`, `$(file-code)`, `$(cloud-upload)`) and in its menu; their handlers take a `vscode.Uri` from the Explorer or a row (`projectPathOf`).
 | `mariadb.clearResultView` | Clear Actions | Result view toolbar |
 | `mariadb.selectEditorConnection` | Select Connection for this SQL File | SQL editor toolbar, status bar |
 | `mariadb.runSqlFile` | Run SQL Script | SQL editor toolbar, `Ctrl`/`Cmd`+`Enter` (not in a notebook cell, which runs itself) |

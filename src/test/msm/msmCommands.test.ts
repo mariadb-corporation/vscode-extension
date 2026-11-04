@@ -22,9 +22,15 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { GENERAL_ACTIONS } from "../../connections/connectionActivity.js";
-import type { IMsmApi, IMsmProjectInfo } from "../../mcp/msmApi.js";
+import type {
+    IMsmApi,
+    IMsmListedProject,
+    IMsmProjectInfo,
+} from "../../mcp/msmApi.js";
 import {
+    changedDetails,
     MSM_COMMANDS,
+    MSM_LIST_COMMANDS,
     MsmCommands,
     msmCall,
     projectContext,
@@ -33,6 +39,7 @@ import { MSM_DIALOG_VIEW_TYPE } from "../../msm/msmDialogPanel.js";
 import type {
     IMsmCreateValues,
     IMsmDeployValues,
+    IMsmEditValues,
     IMsmReleaseValues,
 } from "../../msm/msmFields.js";
 import type {
@@ -56,6 +63,12 @@ import {
 
 const PROJECT = "/work/sakila.msm.project";
 const SERVER = "mariadb://root@127.0.0.1:3310";
+
+/** The project as msm.list_projects reports it. */
+const LISTED: IMsmListedProject = {
+    projectPath: PROJECT, folder: "/Shop", caption: "", color: "green",
+    mcpAccess: false, schemaName: "sakila", exists: true,
+};
 
 const info = (changes: Partial<IMsmProjectInfo> = {}): IMsmProjectInfo => {
     return {
@@ -81,6 +94,10 @@ interface IRecorded {
     refreshed: string[];
     logs: string[];
     revealed: string[];
+    /** How often the MSM Projects view was told to read the list again. */
+    projectsChanged: number;
+    /** The projects shown in the MSM Projects view. */
+    revealedProjects: string[];
 }
 
 interface ISetUp {
@@ -92,13 +109,15 @@ interface ISetUp {
     existing?: string[];
     connections?: string[];
     defaultConnection?: string;
+    /** What msm.list_projects answers. */
+    listed?: IMsmListedProject[];
 }
 
 const setUp = (options: ISetUp = {}): IRecorded => {
     const recorded: IRecorded = {
         calls: [], rows: [], connected: [], sessions: [], disconnected: [],
         shownActions: [], refreshed: [],
-        logs: [], revealed: [],
+        logs: [], revealed: [], projectsChanged: 0, revealedProjects: [],
     };
     const answer = <T>(name: keyof IMsmApi, value: T) => {
         return (...args: unknown[]): Promise<T> => {
@@ -125,6 +144,11 @@ const setUp = (options: ISetUp = {}): IRecorded => {
             `${PROJECT}/releases/deployment/sakila_deployment_1.0.0.sql`),
         deploySchema: answer("deploySchema",
             "Schema sakila deployed in version 1.0.0."),
+        listProjects: answer("listProjects", options.listed ?? [LISTED]),
+        addProject: answer("addProject", LISTED),
+        updateProject: answer("updateProject", LISTED),
+        removeProject: answer("removeProject", PROJECT),
+        setDevelopmentVersion: answer("setDevelopmentVersion", undefined),
     };
     setWorkspaceFolders([{ name: "work", uri: Uri.file("/work") }]);
     registeredCommands.set("revealInExplorer", (uri: unknown) => {
@@ -156,6 +180,17 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         exists: (path) => {
             return Promise.resolve((options.existing ?? ["/work"])
                 .includes(path));
+        },
+        projectsChanged: () => { recorded.projectsChanged += 1; },
+        projectFolders: () => { return Promise.resolve(["/Shop"]); },
+        listedProject: (projectPath) => {
+            return Promise.resolve((options.listed ?? [LISTED]).find(
+                (project) => { return project.projectPath === projectPath; }));
+        },
+        revealProject: (path) => {
+            recorded.revealedProjects.push(path);
+
+            return Promise.resolve();
         },
         log: (message) => { recorded.logs.push(message); },
     }).register();
@@ -307,13 +342,16 @@ describe("New MSM Project", () => {
                 schemaName: "sakila", targetPath: "/work",
                 copyrightHolder: "Ada", license: "MIT",
                 allowSpecialChars: false, overwriteExisting: false,
-                enforceTargetPath: false,
+                enforceTargetPath: false, mcpAccess: false,
             }]);
             expect(panel().disposed).toBe(true);
             expect(shownDocuments.map((document) => {
                 return document.uri.fsPath;
             })).toEqual([`${PROJECT}/development/sakila_next.sql`]);
+            // In the Explorer only: the view's reveal would switch the
+            // side bar away from it.
             expect(recorded.revealed).toEqual([PROJECT]);
+            expect(recorded.revealedProjects).toEqual([]);
         });
 
     it("leaves the Explorer alone for a project outside the workspace",
@@ -941,5 +979,244 @@ describe("Deploy Schema", () => {
             type: "error", field: "connection",
         }));
         expect(recorded.connected).toEqual([]);
+    });
+});
+
+
+describe("the MSM Projects list", () => {
+    beforeEach(() => {
+        resetVscodeMock();
+    });
+
+    it("names a new project with a file dialog, then opens New MSM Project "
+        + "on it", async () => {
+        const recorded = setUp();
+        fileDialogs.saveAnswer = Uri.file("/work/shop.msm.project");
+        await run(MSM_LIST_COMMANDS.newProject,
+            { kind: "folder", path: "/Shop" });
+        const load = await loaded();
+
+        expect(load.kind).toBe("create");
+        expect(load.values).toMatchObject({
+            schemaName: "shop", targetPath: "/work", folder: "/Shop",
+            mcpAccess: false,
+        });
+        expect(load.folders).toEqual(["/Shop"]);
+
+        await receive({ type: "submit", values: {
+            ...(load.values as IMsmCreateValues), copyrightHolder: "Ada",
+            caption: "Shop", mcpAccess: true,
+        } });
+
+        // Filed and captioned as it is made, in the one call.
+        expect(recorded.calls.map((call) => { return call.name; }))
+            .toEqual(["createProject", "projectInformation"]);
+        expect(recorded.calls[0].args[0]).toMatchObject({
+            mcpAccess: true, folder: "/Shop", caption: "Shop",
+        });
+        expect(recorded.calls[0].args[0]).not.toHaveProperty("color");
+        // One step in the Actions tab: no filing after it.
+        const [created] = [...actions(recorded).values()]
+            .filter((put) => { return put.row.role === "run"; });
+        expect(created.row.children?.map((child) => { return child.message; }))
+            .toEqual(["Created the project folder"]);
+        expect(recorded.projectsChanged).toBe(1);
+        // In the view only, where it was asked for.
+        expect(recorded.revealedProjects).toEqual([PROJECT]);
+        expect(recorded.revealed).toEqual([]);
+    });
+
+    it("takes a name with or without the suffix, and stops on Cancel",
+        async () => {
+            setUp();
+            fileDialogs.saveAnswer = undefined;
+            await run(MSM_LIST_COMMANDS.newProject);
+            expect(webviewPanels).toHaveLength(0);
+
+            fileDialogs.saveAnswer = Uri.file("/work/notes");
+            await run(MSM_LIST_COMMANDS.newProject);
+            expect((await loaded()).values).toMatchObject({
+                schemaName: "notes", folder: "/",
+            });
+        });
+
+    it("opens an existing project, by its folder or its settings file",
+        async () => {
+            const recorded = setUp();
+            fileDialogs.openAnswer = [Uri.file(`${PROJECT}/msm.project.json`)];
+            await run(MSM_LIST_COMMANDS.openProject,
+                { kind: "folder", path: "/Shop" });
+            fileDialogs.openAnswer = [Uri.file(PROJECT)];
+            await run(MSM_LIST_COMMANDS.openProject);
+
+            expect(recorded.calls).toEqual([
+                { name: "addProject", args: [PROJECT, { folder: "/Shop" }] },
+                { name: "addProject", args: [PROJECT, { folder: "/" }] },
+            ]);
+            expect(fileDialogs.openCalls[0]).toMatchObject({
+                canSelectFolders: true,
+                canSelectFiles: process.platform === "darwin",
+            });
+            expect(recorded.projectsChanged).toBe(2);
+            expect(recorded.rows.some(({ row }) => {
+                return /^Added MSM project sakila\.msm\.project/u
+                    .test(row.message);
+            })).toBe(true);
+        });
+
+    it("picks a folder only where no dialog picks files and folders",
+        async () => {
+            const platform = Object.getOwnPropertyDescriptor(process,
+                "platform")!;
+            try {
+                for (const name of ["linux", "win32"]) {
+                    Object.defineProperty(process, "platform", { value: name });
+                    const recorded = setUp();
+                    fileDialogs.openAnswer = [Uri.file(PROJECT)];
+                    await run(MSM_LIST_COMMANDS.openProject);
+
+                    expect(fileDialogs.openCalls.at(-1), name).toMatchObject({
+                        canSelectFiles: false, canSelectFolders: true,
+                    });
+                    expect(recorded.calls, name).toEqual([
+                        { name: "addProject", args: [PROJECT, { folder: "/" }] },
+                    ]);
+                }
+            } finally {
+                Object.defineProperty(process, "platform", platform);
+            }
+        });
+
+    it("adds a project from the Explorer, where it is", async () => {
+        const recorded = setUp();
+        await run(MSM_LIST_COMMANDS.addToProjects, folder(PROJECT));
+
+        expect(recorded.calls).toEqual([
+            { name: "addProject", args: [PROJECT, {}] },
+        ]);
+        expect(recorded.revealedProjects).toEqual([PROJECT]);
+    });
+
+    it("says why a project cannot be added, in the Actions tab too",
+        async () => {
+            const recorded = setUp({ fail: ["addProject",
+                "The path /work/x does not contain a MSM project folder."] });
+            await run(MSM_LIST_COMMANDS.addToProjects, folder("/work/x"));
+
+            expect(errorMessages.join("\n")).toMatch(/does not contain/u);
+            expect(recorded.shownActions).toEqual([GENERAL_ACTIONS]);
+            expect(recorded.projectsChanged).toBe(0);
+        });
+
+    it("removes a project from the list, from its row", async () => {
+        const recorded = setUp();
+        await run(MSM_LIST_COMMANDS.removeFromProjects,
+            { kind: "project", project: LISTED });
+
+        expect(recorded.calls).toEqual([
+            { name: "removeProject", args: [PROJECT] },
+        ]);
+        expect(recorded.projectsChanged).toBe(1);
+    });
+
+    it("edits the development version and the list's settings, sending "
+        + "only what changed", async () => {
+        const recorded = setUp();
+        await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
+        const load = await loaded();
+
+        // The row says how the list has it: not listed again.
+        expect(recorded.calls.map((call) => { return call.name; }))
+            .not.toContain("listProjects");
+        expect(load.kind).toBe("edit");
+        expect(load.title).toBe("Edit MSM Project - sakila");
+        expect(load.values).toEqual({
+            developmentVersion: "1.0.1", folder: "/Shop", caption: "",
+            color: "green", mcpAccess: false,
+        });
+
+        recorded.calls.length = 0;
+        await receive({ type: "submit", values: {
+            ...(load.values as IMsmEditValues), developmentVersion: "1.1.0",
+            mcpAccess: true, color: "",
+        } });
+
+        expect(recorded.calls).toEqual([
+            { name: "setDevelopmentVersion", args: [PROJECT, "1.1.0"] },
+            { name: "updateProject", args: [PROJECT,
+                { color: "", mcpAccess: true }] },
+        ]);
+        expect(panel().disposed).toBe(true);
+        expect(recorded.projectsChanged).toBe(1);
+    });
+
+    it("refuses a development version below the last release", async () => {
+        const recorded = setUp();
+        await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
+        const load = await loaded();
+        recorded.calls.length = 0;
+
+        await receive({ type: "submit", values: {
+            ...(load.values as IMsmEditValues), developmentVersion: "0.9.0",
+        } });
+
+        expect(recorded.calls).toEqual([]);
+        expect(errorsPosted().join("\n"))
+            .toMatch(/cannot be lower than the last released one, 1\.0\.0/u);
+    });
+
+    it("edits a project from the Explorer as the view listed it",
+        async () => {
+            const recorded = setUp();
+            await run(MSM_COMMANDS.edit, folder(PROJECT));
+
+            expect(recorded.calls.map((call) => { return call.name; }))
+                .not.toContain("listProjects");
+            expect((await loaded()).values).toMatchObject({
+                folder: "/Shop", color: "green",
+            });
+        });
+
+    it("refuses to edit a project the list does not have", async () => {
+        setUp({ listed: [] });
+        await run(MSM_COMMANDS.edit, folder(PROJECT));
+
+        expect(errorMessages.join("\n")).toMatch(/not in the MSM Projects/u);
+        expect(webviewPanels).toHaveLength(0);
+    });
+
+    it("runs the Explorer's dialogs on a row of the view", async () => {
+        const recorded = setUp();
+        await run(MSM_COMMANDS.info, { kind: "project", project: LISTED });
+
+        expect(recorded.calls[0]).toEqual({
+            name: "projectInformation", args: [PROJECT],
+        });
+        expect((await loaded()).kind).toBe("info");
+    });
+
+    it("sends what changed, all of it for a project not yet listed", () => {
+        const values = {
+            folder: " /Shop ", caption: " Prod ", color: "red" as const,
+            mcpAccess: true,
+        };
+        expect(changedDetails(values)).toEqual({
+            folder: "/Shop", caption: "Prod", color: "red", mcpAccess: true,
+        });
+        expect(changedDetails(values, {
+            folder: "/Shop", caption: "Prod", color: "", mcpAccess: true,
+        })).toEqual({ color: "red" });
+        expect(changedDetails({ ...values, folder: "" }, {
+            folder: "/", caption: "Prod", color: "red", mcpAccess: true,
+        })).toEqual({});
+        // A folder in another spelling is the same folder.
+        for (const folder of ["Shop/", "/Shop", "Shop", "//Shop//"]) {
+            expect(changedDetails({ ...values, folder }, {
+                folder: "/Shop", caption: "Prod", color: "red",
+                mcpAccess: true,
+            }), folder).toEqual({});
+        }
+        expect(changedDetails({ ...values, folder: "Shop/Prod/" }))
+            .toMatchObject({ folder: "/Shop/Prod" });
     });
 });

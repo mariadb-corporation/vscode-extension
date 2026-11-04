@@ -36,7 +36,7 @@ import type {
     MsmWebviewMessage,
 } from "../../src/msm/msmProtocol.js";
 import { newestFirst } from "../../src/versionOrder.js";
-import { Field, ProgressBar } from "./dialogParts.js";
+import { ColorSwatches, Field, ProgressBar } from "./dialogParts.js";
 import { post } from "./vscodeApi.js";
 
 /**
@@ -53,6 +53,7 @@ import { post } from "./vscodeApi.js";
  */
 const ACTIONS: Record<Exclude<MsmDialogKind, "info">, [string, string]> = {
     create: ["Create", "Creating the project..."],
+    edit: ["Update", "Updating the project..."],
     release: ["Prepare Release", "Preparing the release..."],
     deploymentScript: ["Generate", "Generating the deployment script..."],
     deploy: ["Deploy", "Deploying the schema..."],
@@ -63,6 +64,8 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
     create: "Creates a schema project folder: the development script the "
         + "schema is written in, and the folders its releases and "
         + "deployment scripts go to.",
+    edit: "Changes the version development goes on with, and how the MSM "
+        + "Projects view files and shows the project.",
     info: "What the project's files say about it.",
     release: "Writes the development script out as a released version, "
         + "with the update script from the version before, and moves "
@@ -137,6 +140,7 @@ export const MsmDialog = (): preact.JSX.Element => {
     const { kind, title, project } = load;
     const licenses = load.licenses ?? [];
     const connections = load.connections ?? [];
+    const folders = load.folders ?? [];
 
     // What the fields themselves get wrong: only that holds the button
     // back, as what the host said may be gone on a second try.
@@ -195,11 +199,16 @@ export const MsmDialog = (): preact.JSX.Element => {
         post<MsmWebviewMessage>({ type: "open", what });
     };
 
-    const text = (name: string, placeholder?: string): preact.JSX.Element => {
+    const text = (
+        name: string,
+        placeholder?: string,
+        list?: string,
+    ): preact.JSX.Element => {
         return (
             <input
                 type="text"
                 name={name}
+                list={list}
                 class={invalid(name) ? "invalid" : undefined}
                 aria-invalid={invalid(name)}
                 value={String(field(name) ?? "")}
@@ -277,6 +286,44 @@ export const MsmDialog = (): preact.JSX.Element => {
         );
     };
 
+    /** The MSM Projects list's settings, of New and Edit MSM Project. */
+    const listSettings = (): preact.JSX.Element => {
+        return (
+            <div class="group wide msm-list">
+                <h2>MSM Projects View</h2>
+                <div class="grid">
+                    <Field caption="Folder" hint={hint("folder",
+                        "The folder of the view it is filed in; / is the top "
+                        + "level.")}>
+                        {text("folder", undefined, "msm-folders")}
+                        <datalist id="msm-folders">
+                            {folders.map((folder) => {
+                                return <option key={folder} value={folder} />;
+                            })}
+                        </datalist>
+                    </Field>
+                    <Field caption="Caption" hint={hint("caption",
+                        "Shown in place of the schema name; empty for none.")}>
+                        {text("caption")}
+                    </Field>
+                    <ColorSwatches
+                        id="msm-color-caption"
+                        value={String(field("color") ?? "")}
+                        disabled={busy}
+                        hint="The color the MSM Projects view draws it in."
+                        onPick={(color) => { update("color", color); }}
+                    />
+                    <div class="group flags">
+                        {box("mcpAccess", "Allow MCP Access",
+                            "Let LLMs work on the project through the MariaDB "
+                            + "MCP server, as Copilot does. Off, only this "
+                            + "extension can.")}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const body = (): preact.JSX.Element => {
         switch (kind) {
             case "create": {
@@ -325,6 +372,32 @@ export const MsmDialog = (): preact.JSX.Element => {
                                 "Delete a project folder of the same name "
                                 + "first.")}
                         </div>
+                        {listSettings()}
+                    </section>
+                );
+            }
+
+            case "edit": {
+                const last = project?.lastReleasedVersion;
+                const rows: Array<[string, string]> = project === undefined
+                    ? [] : [
+                        ["Schema", project.schemaName],
+                        ["License", project.license],
+                        ["Copyright",
+                            project.copyrightHolders.join(", ") || "None"],
+                    ];
+
+                return (
+                    <section class="grid">
+                        {summary(project)}
+                        <div class="wide msm-info">{infoRows(rows)}</div>
+                        <Field caption="Development Version" hint={hint(
+                            "developmentVersion", last === undefined
+                                ? "The version the development script is for."
+                                : `The last release was ${last}.`)}>
+                            {text("developmentVersion")}
+                        </Field>
+                        {listSettings()}
                     </section>
                 );
             }
@@ -456,16 +529,7 @@ export const MsmDialog = (): preact.JSX.Element => {
 
         return (
             <section class="msm-info">
-                <dl>
-                    {rows.map(([caption, value]) => {
-                        return (
-                            <div key={caption} class="msm-info-row">
-                                <dt>{caption}</dt>
-                                <dd>{value}</dd>
-                            </div>
-                        );
-                    })}
-                </dl>
+                {infoRows(rows)}
                 <div class="row wrap">
                     <button type="button" onClick={() => {
                         open("developmentFile");
@@ -542,6 +606,26 @@ export const MsmDialog = (): preact.JSX.Element => {
                 )}
             </footer>
         </div>
+    );
+};
+
+/**
+ * @param rows Each fact of a project, by its caption.
+ *
+ * @returns Them as a list of captions and values.
+ */
+const infoRows = (rows: Array<[string, string]>): preact.JSX.Element => {
+    return (
+        <dl>
+            {rows.map(([caption, value]) => {
+                return (
+                    <div key={caption} class="msm-info-row">
+                        <dt>{caption}</dt>
+                        <dd>{value}</dd>
+                    </div>
+                );
+            })}
+        </dl>
     );
 };
 

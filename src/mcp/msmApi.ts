@@ -16,7 +16,13 @@
  */
 
 import type { IToolCaller } from "./mariaDbApi.js";
-import { decodeList, decodeObject, decodeScalar } from "./protocol.js";
+import {
+    decodeList,
+    decodeObject,
+    decodeScalar,
+    decodeVoid,
+} from "./protocol.js";
+import { CONNECTION_COLORS, type ConnectionColor } from "./types.js";
 
 /** One copyright notice of a schema project. */
 export interface IMsmCopyright {
@@ -61,6 +67,51 @@ export interface IMsmCreateOptions {
     allowSpecialChars?: boolean;
     /** Make `targetPath` where it does not exist yet. */
     enforceTargetPath?: boolean;
+    /**
+     * Whether LLMs may work on it through an MCP server without `--gui`;
+     * left out, they may not.
+     */
+    mcpAccess?: boolean;
+    /** The folder of the MSM Projects list to file it in; `/` if left out. */
+    folder?: string;
+    /** Its caption in the list. */
+    caption?: string;
+    /** Its color in the list. */
+    color?: ConnectionColor;
+}
+
+/**
+ * A project of the MSM Projects list, as `msm.list_projects` reports it.
+ * The list is the server's, kept in the msm plugin's data folder.
+ */
+export interface IMsmListedProject {
+    /** The `<schema>.msm.project` folder, absolute. */
+    projectPath: string;
+    /** The folder of the list it is filed in: `/` or `/Shop/Production`. */
+    folder: string;
+    /** "" for none. */
+    caption: string;
+    /** Undefined for none, or one the extension does not know. */
+    color?: ConnectionColor;
+    /** Whether LLMs may work on it through a server without `--gui`. */
+    mcpAccess: boolean;
+    /** What its `msm.project.json` says; undefined where it cannot be read. */
+    schemaName?: string;
+    /** Whether the folder is still a project: a moved one stays listed. */
+    exists: boolean;
+    /** Its development version; undefined where it cannot be read. */
+    developmentVersion?: string;
+}
+
+/**
+ * How a project is filed and shown in the list. Each field is sent only
+ * when set; "" clears a caption or a color.
+ */
+export interface IMsmProjectDetails {
+    folder?: string;
+    caption?: string;
+    color?: ConnectionColor | "";
+    mcpAccess?: boolean;
 }
 
 /** What `msm.prepare_release` is asked to do. */
@@ -109,6 +160,13 @@ export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 /** The `msm.*` tools, as typed calls. */
 export interface IMsmApi {
     createProject(options: IMsmCreateOptions): Promise<string>;
+    listProjects(): Promise<IMsmListedProject[]>;
+    addProject(projectPath: string,
+        details?: IMsmProjectDetails): Promise<IMsmListedProject>;
+    updateProject(projectPath: string,
+        details: IMsmProjectDetails): Promise<IMsmListedProject>;
+    removeProject(projectPath: string): Promise<string>;
+    setDevelopmentVersion(projectPath: string, version: string): Promise<void>;
     projectInformation(projectPath: string): Promise<IMsmProjectInfo>;
     releasedVersions(projectPath: string): Promise<string[]>;
     deploymentScriptVersions(projectPath: string): Promise<string[]>;
@@ -141,6 +199,68 @@ const given = (pairs: Record<string, unknown>): Record<string, unknown> => {
     }));
 };
 
+/** A project as the server lists it, by its own names. */
+interface IListedOnTheWire {
+    project_path: string;
+    folder?: string;
+    caption?: string;
+    color?: string;
+    mcp_access?: boolean;
+    schema_name?: string | null;
+    exists?: boolean;
+    development_version?: string | null;
+}
+
+/**
+ * @param listed A project as the server lists it.
+ *
+ * @returns It as the extension reads it: a color it does not know is
+ *          dropped, and a server that predates `mcp_access` is read as
+ *          giving access, as every project had then.
+ */
+const listedProject = (listed: IListedOnTheWire): IMsmListedProject => {
+    const color = CONNECTION_COLORS.find((known) => {
+        return known === listed.color;
+    });
+
+    return {
+        projectPath: listed.project_path,
+        folder: listed.folder === undefined || listed.folder === ""
+            ? "/" : listed.folder,
+        caption: listed.caption ?? "",
+        ...(color === undefined ? {} : { color }),
+        mcpAccess: listed.mcp_access ?? true,
+        ...(typeof listed.schema_name === "string"
+            ? { schemaName: listed.schema_name } : {}),
+        exists: listed.exists ?? true,
+        ...(typeof listed.development_version === "string"
+            ? { developmentVersion: listed.development_version } : {}),
+    };
+};
+
+/**
+ * @param prefix "" for msm.add_project, "new_" for msm.update_project.
+ * @param details What to set.
+ *
+ * @returns The arguments, only those set.
+ */
+const detailArgs = (
+    prefix: string,
+    details: IMsmProjectDetails,
+): Record<string, unknown> => {
+    const args = {
+        folder: details.folder,
+        caption: details.caption,
+        color: details.color,
+        // Not `given`: an access of false has to be sent.
+        mcp_access: details.mcpAccess,
+    };
+
+    return Object.fromEntries(Object.entries(args).filter(([, value]) => {
+        return value !== undefined;
+    }).map(([name, value]) => { return [`${prefix}${name}`, value]; }));
+};
+
 /**
  * The arguments each `msm.*` tool is called with, by the server's names:
  * what `MsmApi` sends, and what the Actions tab shows a call with.
@@ -158,7 +278,32 @@ export const msmToolArgs = {
             overwrite_existing: options.overwriteExisting,
             allow_special_chars: options.allowSpecialChars,
             enforce_target_path: options.enforceTargetPath,
+            mcp_access: options.mcpAccess,
+            folder: options.folder,
+            caption: options.caption,
+            color: options.color,
         });
+    },
+    addProject: (
+        projectPath: string,
+        details: IMsmProjectDetails = {},
+    ): Record<string, unknown> => {
+        return { project_path: projectPath, ...detailArgs("", details) };
+    },
+    updateProject: (
+        projectPath: string,
+        details: IMsmProjectDetails,
+    ): Record<string, unknown> => {
+        return { project_path: projectPath, ...detailArgs("new_", details) };
+    },
+    removeProject: (projectPath: string): Record<string, unknown> => {
+        return { project_path: projectPath };
+    },
+    setDevelopmentVersion: (
+        projectPath: string,
+        version: string,
+    ): Record<string, unknown> => {
+        return { schema_project_path: projectPath, version };
     },
     prepareRelease: (options: IMsmReleaseOptions): Record<string, unknown> => {
         return given({
@@ -205,6 +350,82 @@ export class MsmApi implements IMsmApi {
 
         return decodeScalar(name, await this.caller.callTool(name,
             msmToolArgs.createProject(options)));
+    }
+
+    /**
+     * @returns The MSM Projects list, sorted by path.
+     */
+    public async listProjects(): Promise<IMsmListedProject[]> {
+        const name = "msm.list_projects";
+
+        return decodeList<IListedOnTheWire>(name,
+            await this.caller.callTool(name, {})).map(listedProject);
+    }
+
+    /**
+     * Adds a project to the list; a listed one gets the details given.
+     *
+     * @param projectPath The project folder.
+     * @param details How to file and show it.
+     *
+     * @returns It as listed.
+     */
+    public async addProject(
+        projectPath: string,
+        details: IMsmProjectDetails = {},
+    ): Promise<IMsmListedProject> {
+        const name = "msm.add_project";
+
+        return listedProject(decodeObject<IListedOnTheWire>(name,
+            await this.caller.callTool(name,
+                msmToolArgs.addProject(projectPath, details))));
+    }
+
+    /**
+     * Changes how a listed project is filed and shown.
+     *
+     * @param projectPath The project folder, as listed.
+     * @param details What to change.
+     *
+     * @returns It as listed.
+     */
+    public async updateProject(
+        projectPath: string,
+        details: IMsmProjectDetails,
+    ): Promise<IMsmListedProject> {
+        const name = "msm.update_project";
+
+        return listedProject(decodeObject<IListedOnTheWire>(name,
+            await this.caller.callTool(name,
+                msmToolArgs.updateProject(projectPath, details))));
+    }
+
+    /**
+     * Takes a project off the list; its folder stays as it is.
+     *
+     * @param projectPath The project folder, as listed.
+     *
+     * @returns The path as it was listed.
+     */
+    public async removeProject(projectPath: string): Promise<string> {
+        const name = "msm.remove_project";
+
+        return decodeScalar(name, await this.caller.callTool(name,
+            msmToolArgs.removeProject(projectPath)));
+    }
+
+    /**
+     * @param projectPath The project folder.
+     * @param version The version development goes on with.
+     */
+    public async setDevelopmentVersion(
+        projectPath: string,
+        version: string,
+    ): Promise<void> {
+        const name = "msm.set_development_version";
+
+        decodeVoid(name, await this.caller.callTool(name,
+            msmToolArgs.setDevelopmentVersion(projectPath, version)));
     }
 
     /**

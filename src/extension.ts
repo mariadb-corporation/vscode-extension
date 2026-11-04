@@ -54,7 +54,7 @@ import {
     type ServerStepPhase,
 } from "./mcp/serverStarter.js";
 import { McpSession } from "./mcp/session.js";
-import { CONNECTION_COLORS, type IMariaDbApi } from "./mcp/types.js";
+import type { IMariaDbApi } from "./mcp/types.js";
 import { registerCopilotMcpServer } from "./copilot/mcpServerProvider.js";
 import { answerDbCall, DbCallError } from "./lsp/dbCall.js";
 import { LanguageServer } from "./lsp/languageServer.js";
@@ -85,11 +85,9 @@ import {
 import {
     ROOT_FOLDER,
     commonFolder,
-    normalizeFolder,
 } from "./connections/connectionFolders.js";
 import { ConnectionEditorPanel } from "./connections/connectionEditorPanel.js";
 import { withDefaultScheme } from "./connections/connectionUri.js";
-import { colorLabel } from "./connections/connectionDetails.js";
 import type {
     ISandboxApi,
     ISandboxChange,
@@ -147,16 +145,24 @@ import {
 import type { IOverviewConnectionRef } from "./overview/overviewProtocol.js";
 import { redrawWhenShown } from "./tree/redrawWhenShown.js";
 import {
+    askForFolderName,
+    askForNewFolder,
+    pickFolderColor,
+} from "./tree/folderPrompts.js";
+import {
+    MSM_PROJECTS_VIEW_ID,
+    MsmProjectsTreeProvider,
+    type MsmProjectsNode,
+} from "./tree/msmProjectsTreeProvider.js";
+import { registerMsmProjectsCommands } from "./msm/msmProjectsCommands.js";
+import {
     VENDORS_VIEW_ID,
     VendorDecorations,
     VendorsTreeProvider,
 } from "./tree/vendorsTreeProvider.js";
 import { deleteConnection } from "./connections/connectionStore.js";
 import { SqlModes } from "./connections/sqlModes.js";
-import {
-    ConnectionColorDecorations,
-    themeColorOf,
-} from "./tree/connectionColors.js";
+import { ConnectionColorDecorations } from "./tree/connectionColors.js";
 import {
     connectionNodeOf,
     folderOf,
@@ -792,6 +798,27 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const vendorsView = vscode.window.createTreeView(VENDORS_VIEW_ID, {
         treeDataProvider: new VendorsTreeProvider(),
     });
+    // The MSM Projects list the server keeps, in folders of its own.
+    const msmProjects = new MsmProjectsTreeProvider({
+        msmApi: () => { return serverApi(() => { return session.msmApi; }); },
+        status: starter,
+        memento: context.globalState,
+        log,
+    });
+    const msmProjectsView = vscode.window.createTreeView<MsmProjectsNode>(
+        MSM_PROJECTS_VIEW_ID, {
+            treeDataProvider: msmProjects,
+            canSelectMany: true,
+            dragAndDropController: msmProjects,
+        });
+    // A folder's icon shows whether it is open, and a closed one stays
+    // closed across a restart, as in the Connections view.
+    msmProjectsView.onDidExpandElement((event) => {
+        void msmProjects.expanded(event.element);
+    });
+    msmProjectsView.onDidCollapseElement((event) => {
+        void msmProjects.collapsed(event.element);
+    });
     const restdCommands = new RestdCommands({
         extensionUri: context.extensionUri,
         connect: (uri) => {
@@ -815,7 +842,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
         // The two containers' views follow each other while one is hidden.
         redrawWhenShown(sandboxesView, sandboxes),
         redrawWhenShown(restdView, restdTree),
-        redrawWhenShown(deploymentsView, deployments));
+        redrawWhenShown(deploymentsView, deployments),
+        // Changed from the Explorer's MSM submenu while its container is
+        // closed.
+        redrawWhenShown(msmProjectsView, msmProjects));
 
     context.subscriptions.push(...mrsCommands.register());
     // Dumps, loads, copies, exports and imports run as tasks in the server;
@@ -939,9 +969,21 @@ export const activate = (context: vscode.ExtensionContext): void => {
         },
         // A deployed schema is new to the tree and to completion.
         refresh: refreshServer,
+        projectsChanged: () => { msmProjects.refresh(); },
+        projectFolders: () => { return msmProjects.folders(); },
+        listedProject: async (projectPath) => {
+            return (await msmProjects.projectAt(projectPath))?.project;
+        },
+        revealProject: async (projectPath) => {
+            const node = await msmProjects.projectAt(projectPath);
+            if (node !== undefined) {
+                await msmProjectsView.reveal(node, { select: true });
+            }
+        },
         log,
     });
-    context.subscriptions.push(...msmCommands.register());
+    context.subscriptions.push(...msmCommands.register(),
+        ...registerMsmProjectsCommands(msmProjects, log));
 
     context.subscriptions.push(
         // Draws a connection's color on its row (see connectionColors.ts).
@@ -950,6 +992,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
         // Grays out the vendors not configured (see vendorsTreeProvider.ts).
         vscode.window.registerFileDecorationProvider(new VendorDecorations()),
         vendorsView,
+        msmProjects,
+        msmProjectsView,
         tree,
         sandboxes,
         sandboxesView,
@@ -1257,7 +1301,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
      * @returns Nothing.
      */
     const newFolderIn = async (parent: string): Promise<void> => {
-        const path = await askForNewFolder("New Folder", parent);
+        const path = await askForNewFolder("New Folder", parent, "Sandboxes");
         if (path === undefined) {
             return;
         }
@@ -1342,6 +1386,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     commonFolder(picked.map((row) => {
                         return folderOf(row) ?? ROOT_FOLDER;
                     })),
+                    "Sandboxes",
                 );
                 if (path === undefined) {
                     return;
@@ -1361,28 +1406,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return;
                 }
 
-                const name = await vscode.window.showInputBox({
-                    title: "Rename Folder",
-                    prompt: `The new name of ${node.path}. Every connection `
-                        + "in it and below it moves along.",
-                    value: node.name,
-                    validateInput: (value) => {
-                        if (value.trim() === "") {
-                            return "Enter a folder name.";
-                        }
-
-                        // A rename stays where it is; moving is a drag.
-                        return value.includes("/")
-                            ? "A folder name cannot contain '/'. Drag the "
-                            + "folder to move it into another."
-                            : undefined;
-                    },
-                });
+                const name = await askForFolderName(node, "connection");
                 if (name === undefined) {
                     return;
                 }
 
-                await tree.renameFolder(node, name.trim());
+                await tree.renameFolder(node, name);
             },
         ),
 
@@ -1393,26 +1422,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return;
                 }
 
-                const current = folderColors.get(node.path);
-                const picked = await vscode.window.showQuickPick([
-                    ...CONNECTION_COLORS.map((color) => {
-                        return {
-                            label: colorLabel(color),
-                            color,
-                            iconPath: new vscode.ThemeIcon("circle-filled",
-                                themeColorOf(color)),
-                            ...(color === current
-                                ? { description: "current" } : {}),
-                        };
-                    }),
-                    {
-                        label: colorLabel(undefined),
-                        color: undefined,
-                        ...(current === undefined
-                            ? { description: "current" } : {}),
-                    },
-                ], { title: `Folder Color of ${node.path}` });
-                if (picked === undefined || picked.color === current) {
+                const picked = await pickFolderColor(node.path,
+                    folderColors.get(node.path));
+                if (picked === undefined) {
                     return;
                 }
 
@@ -1956,34 +1968,3 @@ export const deactivate = async (): Promise<void> => {
     await current.session.stop();
 };
 
-/**
- * Asks for the name of a new folder inside another.
- *
- * @param title What the prompt is for.
- * @param parent The folder it goes in; `/` for the top level.
- *
- * @returns The new folder's path, or undefined when the user cancelled.
- */
-const askForNewFolder = async (
-    title: string,
-    parent: string,
-): Promise<string | undefined> => {
-    const name = await vscode.window.showInputBox({
-        title,
-        prompt: parent === ROOT_FOLDER
-            ? "The name of the new folder. A '/' makes a folder inside "
-            + "another."
-            : `The name of the new folder in ${parent}. A '/' makes a folder `
-            + "inside another.",
-        placeHolder: "Sandboxes",
-        validateInput: (value) => {
-            return normalizeFolder(value) === ROOT_FOLDER
-                ? "Enter a folder name."
-                : undefined;
-        },
-    });
-
-    return name === undefined
-        ? undefined
-        : normalizeFolder(`${parent}/${name}`);
-};

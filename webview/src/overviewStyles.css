@@ -82,7 +82,7 @@ body.vscode-light .overview {
 }
 
 .overview-logo {
-    mask-image: url("../../images/mariadb-shell-ext.svg");
+    mask-image: url("../../images/activityBar-shell.svg");
 }
 
 /* A connection's: the Connections view's icon for it (`connectionIconFor`). */
@@ -193,13 +193,13 @@ body.vscode-high-contrast:not(.vscode-high-contrast-light) .overview-title-produ
 .overview-title-workbench {
     font-size: 36px;
     color: transparent;
-    background: linear-gradient(90deg, rgb(81, 217, 247) 0%, 25%, rgb(140, 231, 134) 50%, 75%, rgb(205, 247, 10) 100%);
+    background: linear-gradient(90deg, #3DD3EE 25%, #8CE783 50%, 75%, #FFD401);
     background-clip: text;
     -webkit-background-clip: text;
 }
 
 body.vscode-light .overview-title-workbench {
-    background-image: linear-gradient(90deg, #0093c4, 25%, #00a37a 50%, 75%, #8de90f);
+    background-image: linear-gradient(90deg, #8F3BFC 25%, #3DD3EE 50%, 75%, #26D044);
 }
 
 .overview-description {

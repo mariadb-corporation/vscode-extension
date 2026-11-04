@@ -25,6 +25,8 @@ import {
     createDefaults,
     deployDefaults,
     deploymentScriptDefaults,
+    editDefaults,
+    LIST_DEFAULTS,
     releaseDefaults,
     type IMsmConnectionChoice,
     type IMsmProjectContext,
@@ -461,5 +463,95 @@ describe("Deploy Schema", () => {
         await openDeploy([]);
 
         expect(host.textContent).toContain("There is no connection.");
+    });
+});
+
+
+describe("the MSM Projects view's settings", () => {
+    it("files a new project, captions and colors it, and asks about MCP "
+        + "access", async () => {
+        await open({
+            kind: "create", title: "New MSM Project",
+            values: createDefaults("/work", "shop", { folder: "/Shop" }),
+            licenses: ["None"], folders: ["/Archive", "/Shop"],
+        });
+
+        expect(input("schemaName").value).toBe("shop");
+        expect(input("folder").value).toBe("/Shop");
+        expect([...host.querySelectorAll("#msm-folders option")]
+            .map((option) => { return (option as HTMLOptionElement).value; }))
+            .toEqual(["/Archive", "/Shop"]);
+        expect(input("mcpAccess").checked).toBe(false);
+
+        await change("copyrightHolder", "Ada");
+        await change("caption", "Shop (prod)");
+        await change("mcpAccess", true);
+        await act(async () => {
+            host.querySelector<HTMLButtonElement>(
+                "button[role='radio'][value='green']")!.click();
+            await Promise.resolve();
+        });
+        await click("Create");
+
+        expect(submitted()).toEqual([{
+            type: "submit",
+            values: {
+                ...createDefaults("/work", "shop", { folder: "/Shop" }),
+                copyrightHolder: "Ada", caption: "Shop (prod)",
+                color: "green", mcpAccess: true,
+            },
+        }]);
+    });
+
+    it("refuses a caption longer than the server keeps", async () => {
+        await openCreate();
+        await change("schemaName", "shop");
+        await change("copyrightHolder", "Ada");
+        await change("caption", "x".repeat(101));
+        await click("Create");
+
+        expect(submitted()).toEqual([]);
+        expect(host.textContent).toContain("at most 100 characters");
+    });
+});
+
+describe("Edit MSM Project", () => {
+    const openEdit = (): Promise<void> => {
+        return open({
+            kind: "edit", title: "Edit MSM Project - sakila", project: PROJECT,
+            values: editDefaults(PROJECT, { ...LIST_DEFAULTS, color: "red" }),
+            folders: [],
+        });
+    };
+
+    it("shows what cannot change, and updates what can", async () => {
+        await openEdit();
+
+        expect(host.textContent).toContain("Copyright");
+        expect(host.textContent).toContain("Ada, Bob");
+        expect(input("schemaName")).toBeNull();
+        expect(input("developmentVersion").value).toBe("1.0.1");
+
+        await change("developmentVersion", "1.1.0");
+        await change("mcpAccess", true);
+        await click("Update");
+
+        expect(submitted()).toEqual([{
+            type: "submit",
+            values: {
+                developmentVersion: "1.1.0", folder: "/", caption: "",
+                color: "red", mcpAccess: true,
+            },
+        }]);
+    });
+
+    it("refuses a development version below the last release", async () => {
+        await openEdit();
+        await change("developmentVersion", "0.9.9");
+        await click("Update");
+
+        expect(submitted()).toEqual([]);
+        expect(host.textContent).toContain("cannot be lower than the last "
+            + "released one, 1.0.0");
     });
 });

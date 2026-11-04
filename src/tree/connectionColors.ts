@@ -50,7 +50,8 @@ export const themeColorOf = (color: ConnectionColor): vscode.ThemeColor => {
  * The URI a colored connection's or folder's row carries.
  *
  * @param color Its color.
- * @param kind The list a connection is in, or `folder`.
+ * @param kind The list a connection is in, `folder`, or `msmProject` for
+ *             a row of the MSM Projects view.
  * @param key The connection URI or the folder's path - with the kind, what
  *            keeps two rows' URIs apart, though only the color is ever read
  *            back.
@@ -59,7 +60,7 @@ export const themeColorOf = (color: ConnectionColor): vscode.ThemeColor => {
  */
 export const colorUriOf = (
     color: ConnectionColor,
-    kind: ConnectionKind | "folder",
+    kind: ConnectionKind | "folder" | "msmProject",
     key: string,
 ): vscode.Uri => {
     return vscode.Uri.from({

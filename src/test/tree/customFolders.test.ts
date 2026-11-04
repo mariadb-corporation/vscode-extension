@@ -23,6 +23,7 @@ import {
     FOLDER_COLORS_KEY,
     FolderColors,
     FolderSet,
+    foldersToMove,
     isWithin,
     rebase,
     type IFolderMemento,
@@ -187,4 +188,44 @@ describe("FolderColors", () => {
 
             expect(colors.all()).toEqual({ "/Archive": "green" });
         });
+});
+
+describe("foldersToMove", () => {
+    /**
+     * @param path A folder.
+     *
+     * @returns It as a dragged folder row.
+     */
+    const dragged = (path: string): { path: string; name: string } => {
+        return { path, name: path.split("/").at(-1)! };
+    };
+
+    it("moves a folder into another, keeping its name", () => {
+        expect(foldersToMove([dragged("/A/B")], "/X")).toEqual([
+            { from: "/A/B", to: "/X/B" },
+        ]);
+        expect(foldersToMove([dragged("/A/B")], "/")).toEqual([
+            { from: "/A/B", to: "/B" },
+        ]);
+    });
+
+    it("leaves a folder dropped into itself or below itself", () => {
+        expect(foldersToMove([dragged("/A")], "/A")).toEqual([]);
+        expect(foldersToMove([dragged("/A")], "/A/B")).toEqual([]);
+    });
+
+    it("leaves a folder dropped into the folder it is in", () => {
+        expect(foldersToMove([dragged("/A/B")], "/A")).toEqual([]);
+        expect(foldersToMove([dragged("/A")], "/")).toEqual([]);
+    });
+
+    it("moves a folder dragged with one inside it as one", () => {
+        expect(foldersToMove([dragged("/A/B"), dragged("/A")], "/X"))
+            .toEqual([{ from: "/A", to: "/X/A" }]);
+        expect(foldersToMove([dragged("/A"), dragged("/C")], "/X"))
+            .toEqual([
+                { from: "/A", to: "/X/A" },
+                { from: "/C", to: "/X/C" },
+            ]);
+    });
 });

@@ -34,18 +34,20 @@ import {
 import {
     MAX_CAPTION_LENGTH,
     captionProblem,
-    colorLabel,
     connectionKeyProblem,
 } from "../../src/connections/connectionDetails.js";
 import type {
     EditorHostMessage,
     EditorWebviewMessage,
 } from "../../src/connections/editorProtocol.js";
+import type { ConnectionColor } from "../../src/mcp/types.js";
 import {
-    CONNECTION_COLORS,
-    type ConnectionColor,
-} from "../../src/mcp/types.js";
-import { Field, TabBody, TabStrip, Tooltips } from "./dialogParts.js";
+    ColorSwatches,
+    Field,
+    TabBody,
+    TabStrip,
+    Tooltips,
+} from "./dialogParts.js";
 import { COPIED_FOR_MS } from "./overflowPopup.js";
 import { post } from "./vscodeApi.js";
 
@@ -735,61 +737,16 @@ export const ConnectionEditor = (): preact.JSX.Element => {
                         <Field caption="Default Schema">
                             {text("schema")}
                         </Field>
-                        {/* Not a Field: a <label> hands a click anywhere
-                            in it to its first button. */}
-                        <div class="field">
-                            <span class="field-caption" id="color-caption">
-                                Color
-                            </span>
-                            <div
-                                class="row wrap colors"
-                                role="radiogroup"
-                                aria-labelledby="color-caption"
-                            >
-                                {(["", ...CONNECTION_COLORS] as const)
-                                    .map((choice) => {
-                                        const name = colorLabel(
-                                            choice || undefined);
-
-                                        return (
-                                            <button
-                                                key={choice || "none"}
-                                                type="button"
-                                                role="radio"
-                                                aria-checked={color === choice}
-                                                aria-label={name}
-                                                data-tooltip={name}
-                                                class={color === choice
-                                                    ? "swatch selected"
-                                                    : "swatch"}
-                                                style={choice === ""
-                                                    ? undefined
-                                                    : {
-                                                        background: "var("
-                                                            + "--vscode-charts-"
-                                                            + `${choice})`,
-                                                    }}
-                                                disabled={busy}
-                                                onClick={() => {
-                                                    setColor(choice);
-                                                    setSaveError(undefined);
-                                                }}
-                                            >
-                                                {choice === "" ? (
-                                                    <span
-                                                        class={"codicon "
-                                                            + "codicon-circle-slash"}
-                                                        aria-hidden="true"
-                                                    />
-                                                ) : null}
-                                            </button>
-                                        );
-                                    })}
-                            </div>
-                            <span class="field-hint">
-                                The color the Connections view draws it in.
-                            </span>
-                        </div>
+                        <ColorSwatches
+                            id="color-caption"
+                            value={color}
+                            disabled={busy}
+                            hint="The color the Connections view draws it in."
+                            onPick={(choice) => {
+                                setColor(choice);
+                                setSaveError(undefined);
+                            }}
+                        />
 
                         <div class="group">
                             <h2>Model Context Protocol</h2>

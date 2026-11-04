@@ -96,7 +96,9 @@ everything still goes by URI and kind.
   name: every stored connection in or below it (listed fresh, so a closed
   folder's too) is re-filed with `rebase(path, from, to)`, then
   `FolderSet.move` carries the empty folders made inside it. Ignored: a
-  folder dropped into itself, below itself or into its own parent; a folder
+  folder dropped into itself, below itself or into its own parent (both
+  rules in `foldersToMove`, `customFolders.ts`, which the MSM Projects
+  view's drop uses too); a folder
   inside another dragged folder, and a connection inside a dragged folder,
   both move with that folder rather than being flattened. Same-named folders
   at the target simply merge. `handleDrop` files into the folder dropped
@@ -116,6 +118,10 @@ everything still goes by URI and kind.
   every FOLDER row (`0_new`), in the toolbar, and - for a view with no rows
   at all - as buttons in the `listed` welcome content, which is exactly when
   a tree shows it. Connection rows do NOT carry them.
+- **The prompts are shared** with the MSM Projects view's folders:
+  `src/tree/folderPrompts.ts` has `askForNewFolder`, `askForFolderName`
+  (Rename Folder, no `/`) and `pickFolderColor`; `FolderTreeItem` draws
+  that view's folder rows too, under its own id and context value prefix.
 - **New Folder with Selection…** (connection rows) is handed the clicked row
   and the whole selection, as a menu on a `canSelectMany` tree is; it keeps
   the connections, asks for a name (`askForNewFolder`, shared with New

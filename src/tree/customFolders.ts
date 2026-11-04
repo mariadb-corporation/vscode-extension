@@ -19,6 +19,7 @@ import {
     ROOT_FOLDER,
     folderNames,
     normalizeFolder,
+    parentFolder,
 } from "../connections/connectionFolders.js";
 import { isConnectionColor } from "../connections/connectionDetails.js";
 import type { ConnectionColor } from "../mcp/types.js";
@@ -203,9 +204,11 @@ export class FolderColors {
     /**
      * @param memento Where the colors persist. Left out, they last as long
      *                as this object does.
+     * @param key The key they are kept under in the memento.
      */
     public constructor(
         private readonly memento: IFolderMemento = memoryMemento(),
+        private readonly key = FOLDER_COLORS_KEY,
     ) { }
 
     /**
@@ -214,7 +217,7 @@ export class FolderColors {
      */
     public all(): Record<string, ConnectionColor> {
         const stored =
-            this.memento.get<Record<string, unknown>>(FOLDER_COLORS_KEY, {});
+            this.memento.get<Record<string, unknown>>(this.key, {});
         const colors: Record<string, ConnectionColor> = {};
         for (const [path, color] of Object.entries(stored)) {
             const folder = normalizeFolder(path);
@@ -308,7 +311,7 @@ export class FolderColors {
      * @returns Nothing.
      */
     async #save(colors: Record<string, ConnectionColor>): Promise<void> {
-        await this.memento.update(FOLDER_COLORS_KEY, colors);
+        await this.memento.update(this.key, colors);
     }
 }
 
@@ -341,4 +344,42 @@ export const rebase = (path: string, from: string, to: string): string => {
     const rest = folderNames(path).slice(folderNames(from).length);
 
     return normalizeFolder([...folderNames(to), ...rest].join("/"));
+};
+
+/** A folder row dragged in a view: where it is, and what it is called. */
+export interface IDraggedFolder {
+    path: string;
+    name: string;
+}
+
+/**
+ * Which of the folders dragged move when dropped in a folder. A folder
+ * into itself or below itself has nowhere to go, and one already in the
+ * target goes nowhere; a folder inside another that is dragged too moves
+ * with that one. A folder keeps its name where it goes.
+ *
+ * @param dragged The folders dragged.
+ * @param into The folder they were dropped in.
+ *
+ * @returns Each folder that moves, from its path to its new one.
+ */
+export const foldersToMove = (
+    dragged: IDraggedFolder[],
+    into: string,
+): Array<{ from: string; to: string }> => {
+    const candidates = dragged.filter((folder) => {
+        return !isWithin(into, folder.path)
+            && parentFolder(folder.path) !== into;
+    });
+
+    return candidates.filter((folder) => {
+        return !candidates.some((other) => {
+            return other !== folder && isWithin(folder.path, other.path);
+        });
+    }).map((folder) => {
+        return {
+            from: folder.path,
+            to: normalizeFolder(`${into}/${folder.name}`),
+        };
+    });
 };
