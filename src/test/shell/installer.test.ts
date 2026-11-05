@@ -185,6 +185,106 @@ describe("installShell", () => {
                 + "be installed: the installer exited with code 2.");
         });
 
+    // mariadb-shell #123: installs into one prefix take turns, and one that
+    // finds the same build already there keeps it.
+    describe("with another install into the same prefix", () => {
+        const prefix = "/Users/x/.local/share/mariadb-shell";
+        const keeping = [
+            "==> Detected: macos 26, arm-64bit",
+            "==> Fetching package list from the v26.11.0 release",
+            "==> Selected mariadb-shell-26.11.0-macos26-arm-64bit.tar.gz",
+            "==> Downloading",
+            "==> Verifying checksum",
+            `==> Unpacking into ${prefix}`,
+            `==> Keeping ${prefix}/26.11.0, already installed from this build`,
+            `==> Installed ${prefix}/26.11.0/bin/mariadb-shell   Ver 26.11.0`,
+        ];
+        const waiting = "install.sh: waiting for another install into "
+            + `${prefix} to finish (pid 4242)`;
+
+        it("shows Keeping as progress and succeeds", async () => {
+            const progress = createRecordingProgress();
+
+            await installShell(deps({
+                runner: createFakeRunner(keeping), progress,
+            }), "26.11.0");
+
+            expect(progress.messages.slice(-3)).toEqual([
+                `Unpacking into ${prefix}`,
+                `Keeping ${prefix}/26.11.0, already installed from this build`,
+                `Installed ${prefix}/26.11.0/bin/mariadb-shell   Ver 26.11.0`,
+            ]);
+        });
+
+        it("succeeds after waiting, the stderr lines only logged",
+            async () => {
+                const progress = createRecordingProgress();
+                const log = createRecordingLog();
+                const output = [
+                    ...keeping.slice(0, 6),
+                    waiting,
+                    "install.sh: clearing the lock of an install that is "
+                        + `gone: ${prefix}/.install.lock`,
+                    ...keeping.slice(6),
+                ];
+
+                await installShell(deps({
+                    runner: createFakeRunner(output), progress, log,
+                }), "26.11.0");
+
+                expect(progress.messages).not.toContain(waiting);
+                expect(log.lines).toContain(`  installer: ${waiting}`);
+            });
+
+        it("succeeds despite install.ps1's in-use warning", async () => {
+            await expect(installShell(deps({
+                platform: "win32",
+                runner: createFakeRunner([
+                    "==> Removing superseded version 26.10.3",
+                    "install.ps1: warning: could not remove C:\\x\\26.10.3, "
+                        + "a program is running from it; a later install "
+                        + "removes it",
+                ]),
+            }), "26.11.0")).resolves.toBeUndefined();
+        });
+
+        it("gives the reason a wait that ran out, not the waiting line",
+            async () => {
+                await expect(installShell(deps({
+                    runner: createFakeRunner([
+                        ...keeping.slice(0, 6),
+                        waiting,
+                        "install.sh: gave up after 300s waiting for another "
+                            + `install into ${prefix}.`,
+                        "  If no other install is running, remove the lock "
+                            + "and try again:",
+                        `      rm -rf '${prefix}/.install.lock'`,
+                    ], 1),
+                }), "26.11.0")).rejects.toThrow(
+                    "MariaDB Shell 26.11.0 could not be installed: gave up "
+                    + `after 300s waiting for another install into ${prefix}. `
+                    + "(the installer exited with code 1).",
+                );
+            });
+
+        it("gives install.ps1's reason when the build in use differs",
+            async () => {
+                await expect(installShell(deps({
+                    platform: "win32",
+                    runner: createFakeRunner([
+                        "install.ps1: could not replace C:\\x\\26.11.0: a "
+                            + "program is running from it.",
+                        "  Close every MariaDB Shell started from it, then "
+                            + "run the install again.",
+                    ], 1),
+                }), "26.11.0")).rejects.toThrow(
+                    "could not be installed: could not replace "
+                    + "C:\\x\\26.11.0: a program is running from it. "
+                    + "(the installer exited with code 1).",
+                );
+            });
+    });
+
     it("says the script could not be downloaded, running nothing", async () => {
         const runner = createFakeRunner();
         const log = createRecordingLog();
