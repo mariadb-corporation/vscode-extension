@@ -148,6 +148,13 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         addProject: answer("addProject", LISTED),
         updateProject: answer("updateProject", LISTED),
         removeProject: answer("removeProject", PROJECT),
+        listSchemaDiagrams: answer("listSchemaDiagrams", { diagrams: [] }),
+        getSchemaDiagrams: answer("getSchemaDiagrams", []),
+        getSchemaDiagramImage: answer("getSchemaDiagramImage", ""),
+        setSchemaDiagram: answer("setSchemaDiagram", []),
+        editSchema: answer("editSchema", {
+            rows: [], files: [], migration: [], notes: [],
+        }),
         setDevelopmentVersion: answer("setDevelopmentVersion", undefined),
     };
     setWorkspaceFolders([{ name: "work", uri: Uri.file("/work") }]);

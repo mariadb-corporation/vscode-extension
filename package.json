@@ -22,7 +22,8 @@
   "activationEvents": [
     "onStartupFinished",
     "onLanguage:sql",
-    "onLanguage:mariadb-sql"
+    "onLanguage:mariadb-sql",
+    "onWebviewPanel:mariadb.modelViewer"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -1187,6 +1188,12 @@
         "icon": "$(info)"
       },
       {
+        "command": "mariadb.msm.openSchemaDiagram",
+        "title": "Open Schema Diagram...",
+        "category": "MariaDB",
+        "icon": "$(open-preview)"
+      },
+      {
         "command": "mariadb.msm.prepareRelease",
         "title": "Prepare MSM Release...",
         "category": "MariaDB",
@@ -1839,6 +1846,21 @@
           "command": "mariadb.msm.deploySchema",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
           "group": "0_msm@3"
+        },
+        {
+          "command": "mariadb.msm.openSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "0_msm@4"
+        },
+        {
+          "command": "mariadb.msm.openSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagrams?$/",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.openSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagrams?$/",
+          "group": "0_msm@0"
         },
         {
           "command": "mariadb.msm.editProject",
@@ -2554,6 +2576,11 @@
           "command": "mariadb.msm.showProjectInformation",
           "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
           "group": "2_project@1"
+        },
+        {
+          "command": "mariadb.msm.openSchemaDiagram",
+          "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
+          "group": "2_project@2"
         },
         {
           "command": "mariadb.msm.prepareRelease",

@@ -23,6 +23,7 @@ import { describe, expect, it } from "vitest";
 
 import { MSM_COMMANDS, MSM_LIST_COMMANDS } from "../../msm/msmCommands.js";
 import { MSM_FOLDER_COMMANDS } from "../../msm/msmProjectsCommands.js";
+import { MSM_DIAGRAM_COMMANDS } from "../../tree/msmProjectsTreeProvider.js";
 
 const EXTENSION_ROOT = join(
     dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -79,7 +80,8 @@ describe("the MariaDB Schema Management menu", () => {
         }
         const all = [...Object.values(MSM_COMMANDS),
             ...Object.values(MSM_LIST_COMMANDS),
-            ...Object.values(MSM_FOLDER_COMMANDS)];
+            ...Object.values(MSM_FOLDER_COMMANDS),
+            ...Object.values(MSM_DIAGRAM_COMMANDS)];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
         }).map((entry) => { return entry.command; }).sort())
@@ -111,7 +113,7 @@ describe("the MariaDB Schema Management menu", () => {
         }).map((entry) => { return entry.command; });
 
         expect(shown).toEqual([
-            MSM_COMMANDS.info, MSM_COMMANDS.release,
+            MSM_COMMANDS.info, MSM_DIAGRAM_COMMANDS.open, MSM_COMMANDS.release,
             MSM_COMMANDS.deploymentScript, MSM_COMMANDS.deploy,
             MSM_LIST_COMMANDS.addToProjects,
         ]);
@@ -123,10 +125,11 @@ describe("the MariaDB Schema Management menu", () => {
         expect(menus[SUBMENU].map((entry) => { return entry.command; }).sort())
             .toEqual([...Object.values(MSM_COMMANDS).filter((id) => {
                 return id !== MSM_COMMANDS.edit;
-            }), MSM_LIST_COMMANDS.addToProjects].sort());
+            }), MSM_LIST_COMMANDS.addToProjects,
+            MSM_DIAGRAM_COMMANDS.open].sort());
         expect(menus[SUBMENU].map((entry) => { return entry.group; })).toEqual([
-            "1_create@1", "2_project@1", "3_release@1", "3_release@2",
-            "4_deploy@1", "5_list@1",
+            "1_create@1", "2_project@1", "2_project@2", "3_release@1",
+            "3_release@2", "4_deploy@1", "5_list@1",
         ]);
     });
 });
@@ -203,11 +206,19 @@ describe("the MSM Projects view's menus", () => {
             MSM_COMMANDS.deploymentScript, MSM_COMMANDS.deploy];
         expect(onRow("mariadbMsmProject", true)).toEqual(operations);
         expect(onRow("mariadbMsmProject", false)).toEqual([...operations,
-            MSM_COMMANDS.edit, MSM_LIST_COMMANDS.removeFromProjects]);
+            MSM_DIAGRAM_COMMANDS.open, MSM_COMMANDS.edit,
+            MSM_LIST_COMMANDS.removeFromProjects]);
         for (const id of operations) {
             expect(commands.find((entry) => {
                 return entry.command === id;
             })?.icon, id).toMatch(/^\$\(.+\)$/u);
+        }
+    });
+
+    it("opens a project's diagrams from their folder and their rows", () => {
+        for (const row of ["mariadbMsmDiagrams", "mariadbMsmDiagram"]) {
+            expect(onRow(row, true), row).toEqual([MSM_DIAGRAM_COMMANDS.open]);
+            expect(onRow(row, false), row).toEqual([MSM_DIAGRAM_COMMANDS.open]);
         }
     });
 

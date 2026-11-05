@@ -19,36 +19,50 @@ import { describe, expect, it } from "vitest";
 
 import type {
     IModelFigure,
-    IModelTable,
+    IOutlineTable,
     ISchemaModel,
 } from "../../../src/modeler/modelFormat.js";
-import { catalogFromModel } from "../../src/modeler/catalog.js";
+import {
+    catalogFromModel,
+    foreignKeyOf,
+    primaryKeyColumns,
+} from "../../src/modeler/catalog.js";
 import {
     CARD,
     cardItemAt,
+    cardWidth,
     contrastingText,
     editRect,
+    estimateText,
+    layoutCard,
     layoutTableCard,
+    MAX_AUTO_WIDTH,
+    MIN_AUTO_WIDTH,
+    routineCardContent,
+    tableCardContent,
     TITLE_RESERVE,
+    viewCardContent,
 } from "../../src/modeler/tableCard.js";
 
-const table: IModelTable = {
+/** A table as msm's snapshot has it: the outline's shape. */
+const table: IOutlineTable = {
     name: "actor",
     columns: [
-        { name: "actor_id", type: "INT", notNull: true, primaryKey: true,
-            foreignKey: false },
-        { name: "first_name", type: "VARCHAR(45)", notNull: true,
-            primaryKey: false, foreignKey: false },
-        { name: "note", type: "TEXT", notNull: false, primaryKey: false,
-            foreignKey: false },
+        { name: "actor_id", type: "INT", nullable: false },
+        { name: "first_name", type: "VARCHAR(45)", nullable: false },
+        { name: "note", type: "TEXT", nullable: true },
+        { name: "film_id", type: "INT", nullable: false },
     ],
-    foreignKeys: [{
-        name: "fk_actor_film", columns: ["film_id"], referencedTable: "film",
-        referencedColumns: ["film_id"], many: true, mandatory: true,
-        referencedMandatory: true, deleteRule: "NO ACTION",
-        updateRule: "NO ACTION", modelOnly: false,
+    foreign_keys: [{
+        name: "fk_actor_film", columns: ["film_id"],
+        references: { schema: null, table: "film", columns: ["film_id"] },
+        many: true, mandatory: true, referenced_mandatory: true,
     }],
-    indices: [{ name: "PRIMARY", type: "PRIMARY", columns: ["actor_id"] }],
+    indexes: [
+        { name: null, kind: "primary", columns: ["actor_id"] },
+        { name: null, kind: "unique", columns: ["first_name", "note"] },
+        { name: "idx_film", kind: "index", columns: ["film_id"] },
+    ],
 };
 
 const figure: IModelFigure = {
@@ -59,7 +73,7 @@ const figure: IModelFigure = {
 
 describe("layoutTableCard", () => {
     it("puts the title in the header and a row per column", () => {
-        const layout = layoutTableCard(table, figure);
+        const layout = layoutTableCard(table, figure, true);
 
         expect(layout.width).toBe(180);
         expect(layout.items[0]).toMatchObject({
@@ -70,16 +84,14 @@ describe("layoutTableCard", () => {
             return item.kind === "column";
         });
         expect(columns.map((item) => { return item.text; }))
-            .toEqual(["actor_id", "first_name", "note"]);
+            .toEqual(["actor_id", "first_name", "note", "film_id"]);
         expect(columns.map((item) => { return item.icon; }))
-            .toEqual(["primaryKey", "notNull", "nullable"]);
-        expect(columns.map((item) => { return item.columnIndex; }))
-            .toEqual([0, 1, 2]);
+            .toEqual(["primaryKey", "notNull", "nullable", "notNull"]);
         expect(columns.every((item) => { return item.editable; })).toBe(true);
         expect(columns[0].detail).toBe("INT");
         // The height follows the content.
         expect(layout.height).toBe(CARD.headerHeight + CARD.padding
-            + CARD.headingHeight + 3 * CARD.rowHeight + CARD.padding);
+            + CARD.headingHeight + 4 * CARD.rowHeight + CARD.padding);
     });
 
     it("adds the indices and foreign keys where expanded", () => {
@@ -93,8 +105,18 @@ describe("layoutTableCard", () => {
         expect(layout.items.filter((item) => { return item.kind === "heading"; })
             .map((item) => { return item.text; }))
             .toEqual(["Columns", "Indexes", "Foreign Keys"]);
+        expect(layout.items.filter((item) => { return item.kind === "index"; })
+            .map((item) => { return item.text; }))
+            .toEqual(["PRIMARY", "first_name, note", "idx_film"]);
         expect(layout.items.find((item) => { return item.kind === "index"; })
             ?.editable).toBe(false);
+    });
+
+    it("edits no names where the schema is not a project's", () => {
+        const layout = layoutTableCard(table, figure);
+
+        expect(layout.items.some((item) => { return item.editable; }))
+            .toBe(false);
     });
 
     it("grows with the content unless sized by hand", () => {
@@ -140,7 +162,7 @@ describe("layoutTableCard", () => {
     });
 
     it("shows a figure whose table is unknown by name, not editable", () => {
-        const layout = layoutTableCard(undefined, figure);
+        const layout = layoutTableCard(undefined, figure, true);
 
         expect(layout.items[0].editable).toBe(false);
         expect(layout.items).toHaveLength(1);
@@ -161,7 +183,7 @@ describe("layoutTableCard", () => {
 
 describe("editRect", () => {
     it("leaves out the icons and the title's triangle", () => {
-        const layout = layoutTableCard(table, figure);
+        const layout = layoutTableCard(table, figure, true);
         const title = editRect(layout.items[0]);
 
         // Past the table icon: inset 10, icon 15, gap 5; clear of the
@@ -191,23 +213,119 @@ describe("contrastingText", () => {
     });
 });
 
+describe("the other cards", () => {
+    it("shows a view's declared columns", () => {
+        const view = { ...figure, type: "ViewFigure", view: "totals",
+            table: undefined, name: "Totals" };
+        const content = viewCardContent({ name: "totals", columns: ["a", "b"] },
+            view);
+        const layout = layoutCard(content, view);
+
+        expect(layout.items[0]).toMatchObject({ text: "totals", icon: "view",
+            editable: false });
+        expect(layout.items.slice(1).map((item) => { return item.text; }))
+            .toEqual(["Columns", "a", "b"]);
+        // A view without a column list is its header.
+        expect(layoutCard(viewCardContent({ name: "totals", columns: [] }, view),
+            view).items).toHaveLength(1);
+        // One the snapshot lacks shows its figure's name.
+        expect(viewCardContent(undefined, view).title).toBe("totals");
+    });
+
+    it("lists a group's routines on one card", () => {
+        const group = { ...figure, type: "RoutineGroupFigure",
+            name: "Routines", routines: ["f", "p"] };
+        const layout = layoutCard(routineCardContent([
+            { name: "f", parameters: [{ name: "a", type: "INT" }],
+                returns: "INT" },
+            { name: "p", parameters: [], returns: null },
+        ], group), group);
+
+        expect(layout.items[0]).toMatchObject({ text: "Routines",
+            icon: "routine" });
+        expect(layout.items.slice(2).map((item) => { return item.text; }))
+            .toEqual(["f(INT): INT", "p()"]);
+        expect(layout.items[2].icon).toBe("routine");
+    });
+
+    it("sizes a figure without a width to its content, as msm does", () => {
+        const content = tableCardContent(table, figure);
+        const width = cardWidth(content);
+
+        // The longest row: padding, icon, gap, "first_name", gap, its type.
+        const row = 2 * CARD.padding + CARD.iconSize + CARD.gap
+            + estimateText("first_name", "row") + CARD.gap
+            + estimateText("VARCHAR(45)", "detail");
+        expect(width).toBe(Math.max(MIN_AUTO_WIDTH, Math.ceil(row / 10) * 10));
+        expect(layoutCard(content, { ...figure, width: undefined }).width)
+            .toBe(width);
+        expect(cardWidth({ ...content, title: "x".repeat(200) }))
+            .toBe(MAX_AUTO_WIDTH);
+        expect(cardWidth({ title: "t", icon: "table", titleEditable: false,
+            sections: [] })).toBe(MIN_AUTO_WIDTH);
+    });
+});
+
 describe("catalogFromModel", () => {
-    it("finds tables by name and follows a rename", () => {
-        const model: ISchemaModel = {
+    const model = (): ISchemaModel => {
+        return {
             schema: "s",
             tables: [structuredClone(table), {
-                name: "film", columns: [], foreignKeys: [], indices: [],
+                name: "film", columns: [{ name: "film_id", type: "INT" }],
+                foreign_keys: [],
             }],
+            views: [{ name: "Totals" }],
+            routines: [{ name: "f" }],
             diagrams: [],
         };
-        const catalog = catalogFromModel(model);
+    };
 
-        expect(catalog.table("actor")?.columns).toHaveLength(3);
+    it("finds objects by name, whatever the case", () => {
+        const catalog = catalogFromModel(model());
+
+        expect(catalog.table("ACTOR")?.columns).toHaveLength(4);
+        expect(catalog.view("totals")?.name).toBe("Totals");
+        expect(catalog.routine("F")?.name).toBe("f");
+        expect(primaryKeyColumns(catalog.table("actor")!))
+            .toEqual(new Set(["actor_id"]));
+        expect(foreignKeyOf(catalog.table("actor"), "FK_ACTOR_FILM")?.name)
+            .toBe("fk_actor_film");
+    });
+
+    it("follows a table's rename", () => {
+        const catalog = catalogFromModel(model());
+
         catalog.renameTable("film", "movie");
         expect(catalog.table("film")).toBeUndefined();
         expect(catalog.table("movie")?.name).toBe("movie");
         // The foreign key that pointed at it points at the new name.
-        expect(catalog.table("actor")?.foreignKeys[0].referencedTable)
+        expect(catalog.table("actor")?.foreign_keys?.[0].references.table)
             .toBe("movie");
+    });
+
+    it("follows a column's rename, in the keys too", () => {
+        const catalog = catalogFromModel(model());
+
+        catalog.renameColumn("film", "FILM_ID", "id");
+        catalog.renameColumn("actor", "film_id", "movie_id");
+        expect(catalog.table("film")?.columns[0].name).toBe("id");
+        const foreignKey = catalog.table("actor")?.foreign_keys?.[0];
+        expect(foreignKey?.columns).toEqual(["movie_id"]);
+        expect(foreignKey?.references.columns).toEqual(["id"]);
+        expect(catalog.table("actor")?.indexes?.[2].columns)
+            .toEqual(["movie_id"]);
+    });
+
+    it("takes the snapshot msm made after a schema edit", () => {
+        const shown = model();
+        const catalog = catalogFromModel(shown);
+
+        catalog.replace({ sourceHash: "sha256:new",
+            tables: [{ name: "client", columns: [] }], views: [], routines: [] });
+        expect(catalog.table("actor")).toBeUndefined();
+        expect(catalog.table("client")?.name).toBe("client");
+        expect(shown.sourceHash).toBe("sha256:new");
+        expect(shown.tables.map((entry) => { return entry.name; }))
+            .toEqual(["client"]);
     });
 });

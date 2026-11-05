@@ -24,10 +24,19 @@ import columnNotNullIcon from "../assets/modeler/schemaTableColumnNN.svg?raw";
 import columnPrimaryKeyIcon from "../assets/modeler/schemaTableColumnPK.svg?raw";
 import foreignKeyIcon from "../assets/modeler/schemaTableForeignKey.svg?raw";
 import indexIcon from "../assets/modeler/schemaTableIndex.svg?raw";
+import viewIcon from "../assets/modeler/schemaView.svg?raw";
+import routineIcon from "../assets/modeler/schemaRoutine.svg?raw";
 
-import type { ISchemaModel } from "../../../src/modeler/modelFormat.js";
-import type { ModelerHostMessage }
-    from "../../../src/modeler/modelerProtocol.js";
+import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
+import {
+    diagramDocument,
+    type ISchemaModel,
+} from "../../../src/modeler/modelFormat.js";
+import type {
+    ModelerHostMessage,
+    ModelerTarget,
+    SaveState,
+} from "../../../src/modeler/modelerProtocol.js";
 import type { IPageSettings } from "../../../src/modeler/pageSettings.js";
 import { Canvas, ZOOM_RANGE } from "../canvas/Canvas.js";
 import {
@@ -72,17 +81,20 @@ import { svgImage, type CardIcons } from "./tableCard.js";
  * @returns The icons.
  */
 const loadIcons = async (color: string): Promise<CardIcons> => {
-    const [table, primaryKey, notNull, nullable, index, foreignKey] =
-        await Promise.all([
-            svgImage(tableIcon, color),
-            svgImage(columnPrimaryKeyIcon, color),
-            svgImage(columnNotNullIcon, color),
-            svgImage(columnIcon, color),
-            svgImage(indexIcon, color),
-            svgImage(foreignKeyIcon, color),
-        ]);
+    const [table, primaryKey, notNull, nullable, index, foreignKey, view,
+        routine] = await Promise.all([
+        svgImage(tableIcon, color),
+        svgImage(columnPrimaryKeyIcon, color),
+        svgImage(columnNotNullIcon, color),
+        svgImage(columnIcon, color),
+        svgImage(indexIcon, color),
+        svgImage(foreignKeyIcon, color),
+        svgImage(viewIcon, color),
+        svgImage(routineIcon, color),
+    ]);
 
-    return { table, primaryKey, notNull, nullable, index, foreignKey };
+    return { table, primaryKey, notNull, nullable, index, foreignKey, view,
+        routine };
 };
 
 /** What the viewer keeps across a reload of the webview. */
@@ -95,6 +107,11 @@ interface IViewerState {
     navigator?: boolean;
     /** Whether the printable areas are marked; they are not unless asked. */
     margins?: boolean;
+    /**
+     * What the panel shows, which VS Code hands back to the extension to
+     * restore the panel after a restart.
+     */
+    target?: ModelerTarget;
 }
 
 /**
@@ -122,7 +139,52 @@ interface ILoaded {
     set: EerFigureSet;
     source: string;
     pageSettings: IPageSettings;
+    /** Whether diagrams are saved and schema objects renamed (a project). */
+    editable: boolean;
+    /** Each diagram's document as last sent to be saved, by name. */
+    sent: Map<string, string>;
 }
+
+/**
+ * @param save Where a project's saves stand.
+ *
+ * @returns What the status line says of it.
+ */
+const saveText = (save: SaveState | undefined): string => {
+    switch (save?.state) {
+        case "pending": {
+            return " · Changed";
+        }
+
+        case "saving": {
+            return " · Saving…";
+        }
+
+        case "saved": {
+            return " · Saved";
+        }
+
+        case "failed": {
+            return ` · Not saved: ${save.message}`;
+        }
+
+        default: {
+            return "";
+        }
+    }
+};
+
+/**
+ * @param loaded The model shown.
+ *
+ * @returns Its diagrams' documents as they are saved, by name.
+ */
+const documentsOf = (loaded: Pick<ILoaded, "model">): Map<string, string> => {
+    return new Map(loaded.model.diagrams.map((diagram) => {
+        return [diagram.name,
+            JSON.stringify(diagramDocument(diagram, loaded.model))];
+    }));
+};
 
 /** Whose a menu is: an item's, the Navigator's or the toolbar's. */
 type MenuOwner = { kind: "item"; id: string } | { kind: "navigator" }
@@ -187,6 +249,10 @@ export const ModelViewer = (): JSX.Element => {
     const [editText, setEditText] = useState("");
     const [overlays, setOverlays] = useState<ICanvasOverlay[]>([]);
     const [menu, setMenu] = useState<IOpenMenu>();
+    const [save, setSave] = useState<SaveState>();
+    /** The model shown, for the canvas's events, which outlive renders. */
+    const loadedRef = useRef<ILoaded>();
+    loadedRef.current = loaded;
     const closeMenu = useCallback(() => { setMenu(undefined); }, []);
     const diagramIndex = Math.max(0, loaded?.model.diagrams.findIndex(
         (diagram) => { return diagram.name === diagramName; }) ?? 0);
@@ -277,6 +343,24 @@ export const ModelViewer = (): JSX.Element => {
                 }
             },
             onNavigator: setNavigator,
+            // Every change of a project's diagram is kept and saved: those
+            // whose document differs from what was sent last go.
+            onHistory: () => {
+                const shown = loadedRef.current;
+                if (shown === undefined || !shown.editable) {
+                    return;
+                }
+                for (const [name, text] of documentsOf(shown)) {
+                    if (shown.sent.get(name) !== text) {
+                        shown.sent.set(name, text);
+                        post({
+                            type: "diagramChanged",
+                            document: JSON.parse(text) as ReturnType<
+                                typeof diagramDocument>,
+                        });
+                    }
+                }
+            },
         });
         canvas.setIsoAngles(presetFor(isoPresetId));
         canvas.marginsVisible = marginsVisible;
@@ -296,16 +380,50 @@ export const ModelViewer = (): JSX.Element => {
                     setError(undefined);
                     // The diagram opened in the tree, else the first.
                     setDiagramName(message.diagram);
+                    keepState({ target: message.target });
+                    let edits = 0;
+                    const set = new EerFigureSet({
+                        catalog: catalogFromModel(message.model),
+                        diagrams: message.model.diagrams,
+                        loadIcons,
+                        editable: message.editable,
+                        onSchemaEdit: (schemaEdits: IMsmSchemaEdit[]) => {
+                            edits += 1;
+                            post({ type: "schemaEdit", id: edits,
+                                edits: schemaEdits });
+                        },
+                        requestImage: (diagram, figureId) => {
+                            post({ type: "imageWanted", diagram, figureId });
+                        },
+                    });
                     setLoaded({
                         model: message.model,
-                        set: new EerFigureSet({
-                            catalog: catalogFromModel(message.model),
-                            diagrams: message.model.diagrams,
-                            loadIcons,
-                        }),
+                        set,
                         source: message.source,
                         pageSettings: message.pageSettings,
+                        editable: message.editable,
+                        sent: documentsOf(message),
                     });
+                    break;
+                }
+
+                case "image": {
+                    loadedRef.current?.set.pictureArrived(message.figureId,
+                        message.image, message.error);
+                    break;
+                }
+
+                case "schemaEdited": {
+                    // A failed edit reloads the model, from what the SQL
+                    // still says; a done one brings the snapshot of it.
+                    if (message.objects !== undefined) {
+                        loadedRef.current?.set.replaceObjects(message.objects);
+                    }
+                    break;
+                }
+
+                case "saveState": {
+                    setSave(message.save);
                     break;
                 }
 
@@ -347,8 +465,13 @@ export const ModelViewer = (): JSX.Element => {
         if (diagram === undefined) {
             return;
         }
-        // For the tab's title, however it was picked.
+        // For the tab's title, however it was picked, and for the panel
+        // restored after a restart.
         post({ type: "diagramShown", name: diagram.name });
+        const target = viewerState().target;
+        if (target !== undefined) {
+            keepState({ target: { ...target, diagram: diagram.name } });
+        }
         canvas.cancelEdit();
         setEdit(undefined);
         setMenu(undefined);
@@ -555,7 +678,8 @@ export const ModelViewer = (): JSX.Element => {
         </div>}
         {loaded !== undefined && error === undefined && <div
             className="modelStatus">
-            {`${loaded.model.schema} · ${loaded.source}`}
+            {`${loaded.model.schema} · ${loaded.source}`
+                + (loaded.editable ? saveText(save) : "")}
         </div>}
     </div>;
 };

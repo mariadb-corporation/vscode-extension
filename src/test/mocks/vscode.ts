@@ -364,6 +364,11 @@ export const setTreeViewsShown = (shown: boolean): void => {
     treeViewsShown = shown;
 };
 export const webviewPanels: MockWebviewPanel[] = [];
+
+/** The webview panel serializers registered, by view type. */
+export const webviewPanelSerializers = new Map<string, {
+    deserializeWebviewPanel(panel: unknown, state: unknown): Promise<void>;
+}>();
 export const webviewViewProviders = new Map<string, {
     provider: { resolveWebviewView(view: MockWebviewView): void };
     options: unknown;
@@ -1014,6 +1019,19 @@ export const window = {
             dispose: () => {
                 webviewViewProviders.delete(viewType);
             },
+        };
+    },
+
+    registerWebviewPanelSerializer: (
+        viewType: string,
+        serializer: {
+            deserializeWebviewPanel(panel: unknown, state: unknown): Promise<void>;
+        },
+    ): Disposable => {
+        webviewPanelSerializers.set(viewType, serializer);
+
+        return {
+            dispose: () => { webviewPanelSerializers.delete(viewType); },
         };
     },
 
@@ -1936,6 +1954,7 @@ export const resetVscodeMock = (): void => {
         panel.dispose();
     }
     webviewPanels.length = 0;
+    webviewPanelSerializers.clear();
     webviewViewProviders.clear();
     webviewViews.length = 0;
     openedDocuments.length = 0;

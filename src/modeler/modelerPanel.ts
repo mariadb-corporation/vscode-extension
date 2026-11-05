@@ -17,9 +17,10 @@
 
 import * as vscode from "vscode";
 
+import { reportError } from "../errorMessages.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { errorText } from "../text.js";
-import type { ISchemaModel } from "./modelFormat.js";
+import type { IModelSource } from "./modelSources.js";
 import type {
     ModelerHostMessage,
     ModelerWebviewMessage,
@@ -28,50 +29,21 @@ import { DEFAULT_PAGE_SETTINGS } from "./pageSettings.js";
 
 /**
  * The webview panels of the schema diagram viewer: one per schema of a
- * connection, opened on one of its diagrams. Opening another diagram of
- * the same schema shows it in the panel that is up.
+ * connection, or per MSM project, opened on one of its diagrams. Opening
+ * another diagram of the same schema shows it in the panel that is up.
+ * Where the model comes from, and where changes go, is its source's
+ * business (`modelSources.ts`).
  *
  * What is drawn, and how, lives in the webview (`webview/src/modeler/`).
  */
 
 /** What a panel needs from the outside, so a test can supply its own. */
 export interface IModelerHost {
-    /**
-     * Reads the schema's model. Called once the page is up, and again on a
-     * reload of the webview.
-     */
-    readModel(): Promise<{ model: ISchemaModel; source: string }>;
     log(message: string): void;
-}
-
-/** What a panel shows: a schema of a connection. */
-export interface IModelerTarget {
-    /** The connection's URI, which tells the panels apart. */
-    connection: string;
-    schema: string;
-    /** The diagram to show. */
-    diagram: string;
 }
 
 /** The view type the panels are registered under. */
 export const MODELER_VIEW_TYPE = "mariadb.modelViewer";
-
-/**
- * Builds the HTML shell the viewer loads.
- *
- * @param webview The webview to build the HTML for.
- * @param extensionUri The root of the installed extension.
- * @param title The document title.
- *
- * @returns The HTML document.
- */
-const buildModelerHtml = (
-    webview: vscode.Webview,
-    extensionUri: vscode.Uri,
-    title = "Schema Diagram",
-): string => {
-    return buildWebviewHtml(webview, extensionUri, "modeler", title);
-};
 
 /**
  * @param schema The schema.
@@ -92,51 +64,47 @@ export class ModelerPanel {
     /** The diagram to show once the model is there. */
     #diagram: string;
     /** The model being read for the page's first `ready`. */
-    #reading?: Promise<{ model: ISchemaModel; source: string }>;
+    #reading?: ReturnType<IModelSource["read"]>;
+    /** The snapshot's hash schema edits are made against. */
+    #sourceHash?: string;
+    #schema: string;
 
     private constructor(
         panel: vscode.WebviewPanel,
-        private readonly key: string,
-        private readonly target: IModelerTarget,
+        private readonly source: IModelSource,
+        diagram: string,
         private readonly host: IModelerHost,
     ) {
         this.#panel = panel;
-        this.#diagram = target.diagram;
+        this.#diagram = diagram;
+        this.#schema = source.schemaTitle;
     }
 
     /**
-     * @param target A schema of a connection.
-     *
-     * @returns The key its panel is kept under.
-     */
-    static #keyOf(target: IModelerTarget): string {
-        return JSON.stringify([target.connection, target.schema]);
-    }
-
-    /**
-     * Shows a diagram: in the schema's panel that is up, else in a new one.
+     * Shows a diagram: in the source's panel that is up, else in a new one.
      *
      * @param extensionUri The root of the installed extension.
-     * @param target The schema and the diagram.
+     * @param source Where the model comes from.
+     * @param diagram The diagram to show.
      * @param host What the panel needs from the extension.
      *
      * @returns Nothing.
      */
     public static show(
         extensionUri: vscode.Uri,
-        target: IModelerTarget,
+        source: IModelSource,
+        diagram: string,
         host: IModelerHost,
     ): void {
-        const key = ModelerPanel.#keyOf(target);
-        const open = ModelerPanel.#open.get(key);
+        const open = ModelerPanel.#open.get(source.key);
         if (open !== undefined) {
-            open.#showDiagram(target.diagram);
+            open.#showDiagram(diagram);
             open.#panel.reveal(vscode.ViewColumn.Active);
 
             return;
         }
 
-        const title = modelerTitle(target.schema, target.diagram);
+        const title = modelerTitle(source.schemaTitle, diagram);
         const panel = vscode.window.createWebviewPanel(
             MODELER_VIEW_TYPE,
             title,
@@ -148,15 +116,60 @@ export class ModelerPanel {
                 retainContextWhenHidden: true,
             },
         );
-        panel.webview.html = buildModelerHtml(panel.webview, extensionUri,
-            title);
+        ModelerPanel.#attach(extensionUri, panel, source, diagram, host);
+    }
 
-        const current = new ModelerPanel(panel, key, target, host);
+    /**
+     * Takes a panel VS Code restored after a restart, which the webview's
+     * state says the source of.
+     *
+     * @param extensionUri The root of the installed extension.
+     * @param panel The panel.
+     * @param source Where its model comes from.
+     * @param diagram The diagram it showed.
+     * @param host What the panel needs from the extension.
+     *
+     * @returns Nothing.
+     */
+    public static revive(
+        extensionUri: vscode.Uri,
+        panel: vscode.WebviewPanel,
+        source: IModelSource,
+        diagram: string,
+        host: IModelerHost,
+    ): void {
+        const open = ModelerPanel.#open.get(source.key);
+        if (open !== undefined) {
+            // Restored twice: one panel per source.
+            panel.dispose();
+
+            return;
+        }
+        panel.webview.options = webviewOptions(extensionUri);
+        ModelerPanel.#attach(extensionUri, panel, source, diagram, host);
+    }
+
+    static #attach(
+        extensionUri: vscode.Uri,
+        panel: vscode.WebviewPanel,
+        source: IModelSource,
+        diagram: string,
+        host: IModelerHost,
+    ): void {
+        const title = modelerTitle(source.schemaTitle, diagram);
+        panel.title = title;
+        panel.webview.html = buildWebviewHtml(panel.webview, extensionUri,
+            "modeler", title);
+
+        const current = new ModelerPanel(panel, source, diagram, host);
         // Read while the page starts, not after.
-        current.#reading = host.readModel();
+        current.#reading = source.read();
         // A read the page never asks for (closed first) fails quietly.
         current.#reading.catch(() => { /* reported on ready */ });
-        ModelerPanel.#open.set(key, current);
+        ModelerPanel.#open.set(source.key, current);
+        source.onSaveState = (save) => {
+            current.#post({ type: "saveState", save });
+        };
         current.#disposables.push(
             panel.webview.onDidReceiveMessage((message: unknown) => {
                 void current.#handle(message as ModelerWebviewMessage);
@@ -172,7 +185,7 @@ export class ModelerPanel {
     /** The diagram shown, and the tab's title with it. */
     #setDiagram(name: string): void {
         this.#diagram = name;
-        this.#panel.title = modelerTitle(this.target.schema, name);
+        this.#panel.title = modelerTitle(this.#schema, name);
     }
 
     #showDiagram(name: string): void {
@@ -183,27 +196,7 @@ export class ModelerPanel {
     async #handle(message: ModelerWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
-                try {
-                    // Started as the panel opened, alongside the page's own
-                    // start; a reload of the page reads again.
-                    const reading = this.#reading ?? this.host.readModel();
-                    this.#reading = undefined;
-                    const { model, source } = await reading;
-                    this.host.log(`Showing the diagrams of ${model.schema} `
-                        + `from ${source}`);
-                    this.#post({
-                        type: "load",
-                        model,
-                        source,
-                        pageSettings: DEFAULT_PAGE_SETTINGS,
-                        diagram: this.#diagram,
-                    });
-                } catch (error) {
-                    const text = errorText(error);
-                    this.host.log(`Could not read the diagrams of `
-                        + `${this.target.schema}: ${text}`);
-                    this.#post({ type: "error", message: text });
-                }
+                await this.#load();
                 break;
             }
 
@@ -212,19 +205,122 @@ export class ModelerPanel {
                 break;
             }
 
+            case "diagramChanged": {
+                this.source.changed?.(message.document);
+                break;
+            }
+
+            case "imageWanted": {
+                await this.#sendImage(message.diagram, message.figureId);
+                break;
+            }
+
+            case "schemaEdit": {
+                await this.#editSchema(message.id, message.edits);
+                break;
+            }
+
             default:
         }
     }
 
+    /** Reads the model, and sends it to the page. */
+    async #load(): Promise<void> {
+        try {
+            // Started as the panel opened, alongside the page's own start;
+            // a reload of the page reads again.
+            const reading = this.#reading ?? this.source.read();
+            this.#reading = undefined;
+            const { model, source } = await reading;
+            this.#schema = model.schema;
+            this.#sourceHash = model.sourceHash;
+            this.#setDiagram(this.#diagram);
+            this.host.log(`Showing the diagrams of ${model.schema} `
+                + `from ${source}`);
+            this.#post({
+                type: "load",
+                model,
+                source,
+                pageSettings: DEFAULT_PAGE_SETTINGS,
+                diagram: this.#diagram,
+                editable: this.source.editable,
+                target: this.source.target(this.#diagram),
+            });
+        } catch (error) {
+            const text = errorText(error);
+            this.host.log(`Could not read the diagrams of `
+                + `${this.#schema}: ${text}`);
+            this.#post({ type: "error", message: text });
+        }
+    }
+
+    async #sendImage(diagram: string, figureId: string): Promise<void> {
+        if (this.source.image === undefined) {
+            return;
+        }
+        try {
+            const image = await this.source.image(diagram, figureId);
+            this.#post({ type: "image", diagram, figureId, image });
+        } catch (error) {
+            this.#post({ type: "image", diagram, figureId,
+                error: errorText(error) });
+        }
+    }
+
+    async #editSchema(
+        id: number,
+        edits: Parameters<NonNullable<IModelSource["edit"]>>[0],
+    ): Promise<void> {
+        if (this.source.edit === undefined || this.#sourceHash === undefined) {
+            this.#post({ type: "schemaEdited", id,
+                error: "The schema of this diagram cannot be edited." });
+
+            return;
+        }
+        try {
+            const { model, notes } = await this.source.edit(edits,
+                this.#sourceHash);
+            this.#sourceHash = model.sourceHash;
+            this.#post({
+                type: "schemaEdited",
+                id,
+                objects: {
+                    ...(model.sourceHash === undefined
+                        ? {} : { sourceHash: model.sourceHash }),
+                    tables: model.tables,
+                    views: model.views,
+                    routines: model.routines,
+                },
+            });
+            if (notes.length > 0) {
+                void vscode.window.showWarningMessage(
+                    `The change to ${this.#schema} needs a look: `
+                    + notes.join(" "));
+            }
+        } catch (error) {
+            const text = reportError(this.host.log, error,
+                `change the schema ${this.#schema}`);
+            this.#post({ type: "schemaEdited", id, error: text });
+            // The viewer showed the change already: it goes back to what
+            // the project says.
+            await this.#load();
+        }
+    }
+
     /**
-     * Tears the panel down.
+     * Tears the panel down; what is waiting to be saved is saved.
      *
      * @returns Nothing.
      */
     public dispose(): void {
-        if (ModelerPanel.#open.get(this.key) === this) {
-            ModelerPanel.#open.delete(this.key);
+        if (ModelerPanel.#open.get(this.source.key) === this) {
+            ModelerPanel.#open.delete(this.source.key);
         }
+        this.source.onSaveState = undefined;
+        void this.source.flush?.().catch((error: unknown) => {
+            this.host.log(`Could not save the diagrams of ${this.#schema}: `
+                + errorText(error));
+        });
         for (const disposable of this.#disposables) {
             disposable.dispose();
         }

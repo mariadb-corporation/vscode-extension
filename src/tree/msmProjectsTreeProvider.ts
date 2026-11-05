@@ -46,7 +46,7 @@ import {
 } from "./customFolders.js";
 import { FolderTreeItem } from "./treeItems.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
-import { errorText } from "../text.js";
+import { counted, errorText } from "../text.js";
 
 /** The id the MSM Projects view is contributed under. */
 export const MSM_PROJECTS_VIEW_ID = "mariadb.msmProjects";
@@ -109,7 +109,37 @@ export interface IMsmFileNode {
     directory: boolean;
 }
 
-export type MsmProjectsNode = IMsmFolderNode | IMsmProjectNode | IMsmFileNode;
+/** The folder of a project's schema diagrams, first among its rows. */
+export interface IMsmDiagramsNode {
+    kind: "diagrams";
+    projectPath: string;
+}
+
+/** A schema diagram of a project. */
+export interface IMsmDiagramNode {
+    kind: "diagram";
+    projectPath: string;
+    name: string;
+    figures: number;
+}
+
+export type MsmProjectsNode = IMsmFolderNode | IMsmProjectNode | IMsmFileNode
+    | IMsmDiagramsNode | IMsmDiagramNode;
+
+/**
+ * The command a click on a project's diagram runs: VS Code has no
+ * double-click on tree rows, so the second click within a moment opens it.
+ */
+export const MSM_DIAGRAM_CLICK_COMMAND = "mariadb.msm.diagramClicked";
+
+/** The commands on a project's diagrams. */
+export const MSM_DIAGRAM_COMMANDS = {
+    /**
+     * Opens a diagram: the row's, else one of a project's (the row's, the
+     * Explorer folder's, or one picked), asking which where it has several.
+     */
+    open: "mariadb.msm.openSchemaDiagram",
+} as const;
 
 /** What the view needs from the extension. */
 export interface IMsmProjectsHost {
@@ -305,6 +335,14 @@ export class MsmProjectsTreeProvider
                 return projectItem(node);
             }
 
+            case "diagrams": {
+                return diagramsItem(node);
+            }
+
+            case "diagram": {
+                return diagramItem(node);
+            }
+
             default: {
                 return fileItem(node);
             }
@@ -326,7 +364,20 @@ export class MsmProjectsTreeProvider
 
                 case "project": {
                     return node.project.exists
-                        ? await filesIn(node.project.projectPath) : [];
+                        ? [
+                            { kind: "diagrams",
+                                projectPath: node.project.projectPath },
+                            ...await filesIn(node.project.projectPath),
+                        ]
+                        : [];
+                }
+
+                case "diagrams": {
+                    return await this.#diagramsOf(node.projectPath);
+                }
+
+                case "diagram": {
+                    return [];
                 }
 
                 default: {
@@ -338,6 +389,37 @@ export class MsmProjectsTreeProvider
             reportError(this.host.log, error, whatFailed(node));
 
             return [];
+        }
+    }
+
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns Its schema diagrams, as msm lists them; none from a MariaDB
+     *          Shell too old to have them, which is logged, not notified
+     *          on every expand.
+     */
+    async #diagramsOf(projectPath: string): Promise<IMsmDiagramNode[]> {
+        try {
+            const listing = await (await this.host.msmApi())
+                .listSchemaDiagrams(projectPath);
+
+            return listing.diagrams.map((diagram) => {
+                return {
+                    kind: "diagram",
+                    projectPath,
+                    name: diagram.name,
+                    figures: diagram.figures,
+                };
+            });
+        } catch (error) {
+            if (isUnsupportedShell(error)) {
+                this.host.log("The MariaDB Shell has no schema diagrams "
+                    + "for MSM projects; a newer version is needed.");
+
+                return [];
+            }
+            throw error;
         }
     }
 
@@ -374,7 +456,7 @@ export class MsmProjectsTreeProvider
      *          undefined at the top level and for files, never revealed.
      */
     public getParent(node: MsmProjectsNode): MsmProjectsNode | undefined {
-        if (node.kind === "file") {
+        if (node.kind !== "folder" && node.kind !== "project") {
             return undefined;
         }
         const folder = node.kind === "folder"
@@ -687,6 +769,46 @@ const projectItem = (node: IMsmProjectNode): vscode.TreeItem => {
 };
 
 /**
+ * @param node A project's Diagrams folder.
+ *
+ * @returns Its row, first among the project's.
+ */
+const diagramsItem = (node: IMsmDiagramsNode): vscode.TreeItem => {
+    const item = new vscode.TreeItem("Diagrams",
+        vscode.TreeItemCollapsibleState.Collapsed);
+    item.id = `msmDiagrams:${node.projectPath}`;
+    item.contextValue = "mariadbMsmDiagrams";
+    item.iconPath = new vscode.ThemeIcon("type-hierarchy-sub");
+    item.tooltip = "The schema diagrams of the project, kept in MSM "
+        + "Section 160 of its development script";
+
+    return item;
+};
+
+/**
+ * @param node A project's diagram.
+ *
+ * @returns Its row: opened by its inline button, its menu, or a
+ *          double-click.
+ */
+const diagramItem = (node: IMsmDiagramNode): vscode.TreeItem => {
+    const item = new vscode.TreeItem(node.name,
+        vscode.TreeItemCollapsibleState.None);
+    item.id = `msmDiagram:${node.projectPath}:${node.name}`;
+    item.contextValue = "mariadbMsmDiagram";
+    // The Diagrams folder's icon, as the Connections view's diagrams have.
+    item.iconPath = new vscode.ThemeIcon("type-hierarchy-sub");
+    item.description = counted(node.figures, "figure");
+    item.command = {
+        command: MSM_DIAGRAM_CLICK_COMMAND,
+        title: "Open Diagram",
+        arguments: [node],
+    };
+
+    return item;
+};
+
+/**
  * @param node A file or folder in a project.
  *
  * @returns Its row, as the Explorer draws it: the theme's file icon, and
@@ -726,6 +848,9 @@ const whatFailed = (node: MsmProjectsNode | undefined): string => {
     }
     if (node?.kind === "file") {
         return `read ${node.path}`;
+    }
+    if (node?.kind === "diagrams") {
+        return `list the diagrams of ${node.projectPath}`;
     }
 
     return "list the MSM projects";

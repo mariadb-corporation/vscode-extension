@@ -407,6 +407,85 @@ describe("MsmApi", () => {
         expect(caller.calls[0].args).toMatchObject({ mcp_access: true });
     });
 
+    it("lists, reads and saves a project's schema diagrams", async () => {
+        const structured = (result: unknown): IToolResult => {
+            return {
+                content: [{ type: "text", text: JSON.stringify(result) }],
+                structuredContent: { result }, isError: false,
+            };
+        };
+        const rows = [{ name: "Main", format: "msm-diagram/1",
+            document: { name: "Main" } }];
+        const caller = createCaller({
+            "msm.list_schema_diagrams": structured({
+                schema_definition: { tables: 2, current: false },
+                diagrams: [{ name: "Main", figures: 2, connections: 1 }],
+            }),
+            "msm.get_schema_diagrams": structured(rows),
+            "msm.get_schema_diagram_image": scalar("data:image/png;base64,AA"),
+            "msm.set_schema_diagram": structured(["/p/a.sql"]),
+        });
+        const api = new MsmApi(caller);
+
+        expect(await api.listSchemaDiagrams(PROJECT)).toEqual({
+            schemaDefinition: { tables: 2, current: false },
+            diagrams: [{ name: "Main", figures: 2, connections: 1 }],
+        });
+        expect(await api.getSchemaDiagrams(PROJECT)).toEqual(rows);
+        await api.getSchemaDiagrams(PROJECT, "Main");
+        expect(await api.getSchemaDiagramImage(PROJECT, "Main", "logo"))
+            .toBe("data:image/png;base64,AA");
+        const document = { format: "msm-diagram/1" as const, name: "Main",
+            width: 1, height: 1, layers: [], figures: [], connections: [] };
+        expect(await api.setSchemaDiagram(PROJECT, document))
+            .toEqual(["/p/a.sql"]);
+        expect(caller.calls.map((call) => { return [call.name, call.args]; }))
+            .toEqual([
+                ["msm.list_schema_diagrams", { schema_project_path: PROJECT }],
+                ["msm.get_schema_diagrams", { schema_project_path: PROJECT }],
+                ["msm.get_schema_diagrams", { schema_project_path: PROJECT,
+                    diagram: "Main" }],
+                ["msm.get_schema_diagram_image", { diagram: "Main",
+                    figure_id: "logo", schema_project_path: PROJECT }],
+                ["msm.set_schema_diagram", { document,
+                    schema_project_path: PROJECT }],
+            ]);
+    });
+
+    it("reads a project without diagrams, and a schema edit's result",
+        async () => {
+            const structured = (result: unknown): IToolResult => {
+                return {
+                    content: [{ type: "text", text: JSON.stringify(result) }],
+                    structuredContent: { result }, isError: false,
+                };
+            };
+            const caller = createCaller({
+                "msm.list_schema_diagrams": structured({
+                    schema_definition: null, diagrams: [],
+                }),
+                "msm.edit_schema": structured({
+                    rows: [], files: ["/p/a.sql"],
+                    migration: ["RENAME TABLE `a` TO `b`"],
+                    migration_file: null,
+                    notes: [{ kind: "string-reference", message: "Look." }],
+                }),
+            });
+            const api = new MsmApi(caller);
+            const edits = [{ op: "rename_table", table: "a", new_name: "b" }];
+
+            expect(await api.listSchemaDiagrams(PROJECT))
+                .toEqual({ diagrams: [] });
+            expect(await api.editSchema(PROJECT, edits, "sha256:x")).toEqual({
+                rows: [], files: ["/p/a.sql"],
+                migration: ["RENAME TABLE `a` TO `b`"],
+                notes: [{ kind: "string-reference", message: "Look." }],
+            });
+            expect(caller.calls[1]).toEqual({ name: "msm.edit_schema",
+                args: { edits, base_hash: "sha256:x",
+                    schema_project_path: PROJECT } });
+        });
+
     it("names the licenses the plugin ships templates for", () => {
         expect([...MSM_LICENSES].sort()).toEqual(
             ["BSD", "GPL-2.0", "MIT", "None"]);

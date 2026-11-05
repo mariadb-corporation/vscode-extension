@@ -17,33 +17,86 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { ISchemaModel } from "../../modeler/modelFormat.js";
+import type { IMsmSchemaEdit } from "../../mcp/msmApi.js";
+import type {
+    IDiagramDocument,
+    ISchemaModel,
+} from "../../modeler/modelFormat.js";
 import {
     MODELER_VIEW_TYPE,
     ModelerPanel,
     type IModelerHost,
-    type IModelerTarget,
 } from "../../modeler/modelerPanel.js";
-import type { ModelerHostMessage } from "../../modeler/modelerProtocol.js";
+import type {
+    ModelerHostMessage,
+    ModelerTarget,
+} from "../../modeler/modelerProtocol.js";
+import type {
+    IModelSource,
+    ISchemaEditOutcome,
+} from "../../modeler/modelSources.js";
 import { DEFAULT_PAGE_SETTINGS } from "../../modeler/pageSettings.js";
 import {
+    errorMessages,
     MockWebview,
+    MockWebviewPanel,
     resetVscodeMock,
     Uri,
+    ViewColumn,
     webviewPanels,
-    type MockWebviewPanel,
 } from "../mocks/vscode.js";
 
 const extensionUri = Uri.file("/ext");
 
 const model: ISchemaModel = {
     schema: "world",
+    sourceHash: "sha256:one",
     tables: [],
+    views: [],
+    routines: [],
     diagrams: [],
 };
 
-const target = (diagram: string, schema = "world"): IModelerTarget => {
-    return { connection: "dba@localhost:3310", schema, diagram };
+/** A source as a test makes it: what it was asked, and its answers. */
+interface IFakeSource extends IModelSource {
+    changes: IDiagramDocument[];
+    edits: Array<[IMsmSchemaEdit[], string]>;
+    flushes: number;
+    reads: number;
+}
+
+const source = (
+    schema = "world",
+    overrides: Partial<IModelSource> = {},
+): IFakeSource => {
+    const fake: IFakeSource = {
+        key: `connection:${schema}`,
+        schemaTitle: schema,
+        editable: false,
+        changes: [],
+        edits: [],
+        flushes: 0,
+        reads: 0,
+        target: (diagram): ModelerTarget => {
+            return { kind: "connection", connection: "dba@localhost:3310",
+                schema, diagram };
+        },
+        read: () => {
+            fake.reads += 1;
+
+            return Promise.resolve({ model: { ...model, schema },
+                source: `${schema}.msm_schema_diagrams` });
+        },
+        changed: (document) => { fake.changes.push(document); },
+        flush: () => {
+            fake.flushes += 1;
+
+            return Promise.resolve();
+        },
+        ...overrides,
+    };
+
+    return fake;
 };
 
 const flush = async (): Promise<void> => {
@@ -59,12 +112,18 @@ const posted = (panel = lastPanel()): ModelerHostMessage[] => {
 };
 
 const host = (logs: string[] = []): IModelerHost => {
-    return {
-        readModel: () => {
-            return Promise.resolve({ model, source: "world.msm_schema_diagrams" });
-        },
-        log: (message) => { logs.push(message); },
-    };
+    return { log: (message) => { logs.push(message); } };
+};
+
+const show = (diagram: string, from = source()): MockWebviewPanel => {
+    ModelerPanel.show(extensionUri as never, from, diagram, host());
+
+    return lastPanel();
+};
+
+const ready = async (panel: MockWebviewPanel): Promise<void> => {
+    (panel.webview as MockWebview).receive({ type: "ready" });
+    await flush();
 };
 
 describe("ModelerPanel", () => {
@@ -75,7 +134,8 @@ describe("ModelerPanel", () => {
     it("opens on a diagram and sends the model once the page is ready",
         async () => {
             const logs: string[] = [];
-            ModelerPanel.show(extensionUri as never, target("MRS"), host(logs));
+            ModelerPanel.show(extensionUri as never, source(), "MRS",
+                host(logs));
 
             const panel = lastPanel();
             expect(panel.viewType).toBe(MODELER_VIEW_TYPE);
@@ -83,8 +143,7 @@ describe("ModelerPanel", () => {
             expect(panel.webview.html).toContain("modeler.js");
             expect(posted()).toEqual([]);
 
-            (panel.webview as MockWebview).receive({ type: "ready" });
-            await flush();
+            await ready(panel);
 
             expect(posted()).toEqual([{
                 type: "load",
@@ -92,6 +151,9 @@ describe("ModelerPanel", () => {
                 source: "world.msm_schema_diagrams",
                 pageSettings: DEFAULT_PAGE_SETTINGS,
                 diagram: "MRS",
+                editable: false,
+                target: { kind: "connection", connection: "dba@localhost:3310",
+                    schema: "world", diagram: "MRS" },
             }]);
             expect(logs[0]).toContain("Showing the diagrams of world");
 
@@ -99,13 +161,10 @@ describe("ModelerPanel", () => {
         });
 
     it("tells the page when the model cannot be read", async () => {
-        ModelerPanel.show(extensionUri as never, target("MRS"), {
-            readModel: () => { return Promise.reject(new Error("gone")); },
-            log: () => { /* nothing */ },
-        });
-        const panel = lastPanel();
-        (panel.webview as MockWebview).receive({ type: "ready" });
-        await flush();
+        const panel = show("MRS", source("world", {
+            read: () => { return Promise.reject(new Error("gone")); },
+        }));
+        await ready(panel);
 
         expect(posted()).toEqual([{ type: "error", message: "gone" }]);
 
@@ -114,12 +173,10 @@ describe("ModelerPanel", () => {
 
     it("shows another diagram of the schema in the panel that is up",
         () => {
-            ModelerPanel.show(extensionUri as never, target("MRS"), host());
+            const panel = show("MRS");
             const count = webviewPanels.length;
-            const panel = lastPanel();
 
-            ModelerPanel.show(extensionUri as never, target("MRS Status"),
-                host());
+            show("MRS Status");
 
             expect(webviewPanels).toHaveLength(count);
             expect(panel.revealed).toBe(1);
@@ -133,16 +190,12 @@ describe("ModelerPanel", () => {
 
     it("opens a panel of its own for another schema, and again once closed",
         () => {
-            ModelerPanel.show(extensionUri as never, target("MRS"), host());
-            const first = lastPanel();
-            ModelerPanel.show(extensionUri as never, target("Main", "shop"),
-                host());
-            const second = lastPanel();
+            const first = show("MRS");
+            const second = show("Main", source("shop"));
 
             expect(second).not.toBe(first);
             first.dispose();
-            ModelerPanel.show(extensionUri as never, target("MRS"), host());
-            expect(lastPanel()).not.toBe(first);
+            expect(show("MRS")).not.toBe(first);
 
             second.dispose();
             lastPanel().dispose();
@@ -150,9 +203,7 @@ describe("ModelerPanel", () => {
 
     it("escapes a diagram's name in the page, where the database put markup",
         () => {
-            ModelerPanel.show(extensionUri as never,
-                target("x</title><meta http-equiv=\"refresh\">"), host());
-            const panel = lastPanel();
+            const panel = show("x</title><meta http-equiv=\"refresh\">");
 
             expect(panel.webview.html).not.toContain(
                 "<meta http-equiv=\"refresh\"");
@@ -163,8 +214,7 @@ describe("ModelerPanel", () => {
         });
 
     it("titles itself by the diagram the page shows", () => {
-        ModelerPanel.show(extensionUri as never, target("MRS"), host());
-        const panel = lastPanel();
+        const panel = show("MRS");
 
         (panel.webview as MockWebview).receive({
             type: "diagramShown", name: "MRS Status",
@@ -172,5 +222,142 @@ describe("ModelerPanel", () => {
 
         expect(panel.title).toBe("MRS Status (world)");
         panel.dispose();
+    });
+
+    it("hands a changed diagram to its source, and saves on close",
+        async () => {
+            const from = source();
+            const panel = show("MRS", from);
+            const document = { format: "msm-diagram/1", name: "MRS",
+                width: 1, height: 1, layers: [], figures: [],
+                connections: [] } as IDiagramDocument;
+
+            (panel.webview as MockWebview).receive({
+                type: "diagramChanged", document,
+            });
+            from.onSaveState?.({ state: "saving" });
+            panel.dispose();
+            await flush();
+
+            expect(from.changes).toEqual([document]);
+            expect(posted(panel)).toContainEqual({ type: "saveState",
+                save: { state: "saving" } });
+            expect(from.flushes).toBe(1);
+            expect(from.onSaveState).toBeUndefined();
+        });
+
+    it("sends a picture msm left out, or why there is none", async () => {
+        const panel = show("MRS", source("world", {
+            image: (diagram, figureId) => {
+                return figureId === "logo"
+                    ? Promise.resolve(`data:image/png;base64,${diagram}`)
+                    : Promise.reject(new Error("no picture"));
+            },
+        }));
+
+        (panel.webview as MockWebview).receive({ type: "imageWanted",
+            diagram: "MRS", figureId: "logo" });
+        (panel.webview as MockWebview).receive({ type: "imageWanted",
+            diagram: "MRS", figureId: "gone" });
+        await flush();
+
+        expect(posted(panel)).toEqual([
+            { type: "image", diagram: "MRS", figureId: "logo",
+                image: "data:image/png;base64,MRS" },
+            { type: "image", diagram: "MRS", figureId: "gone",
+                error: "no picture" },
+        ]);
+        panel.dispose();
+    });
+
+    it("makes schema edits against the snapshot shown, and the next against "
+        + "the new one", async () => {
+        const from = source("world", {
+            editable: true,
+            edit: (edits, baseHash): Promise<ISchemaEditOutcome> => {
+                from.edits.push([edits, baseHash]);
+
+                return Promise.resolve({
+                    model: { ...model, sourceHash: `${baseHash}+` },
+                    notes: [],
+                });
+            },
+        });
+        const panel = show("MRS", from);
+        await ready(panel);
+        const rename = { op: "rename_table", table: "a", new_name: "b" };
+
+        (panel.webview as MockWebview).receive({ type: "schemaEdit", id: 1,
+            edits: [rename] });
+        await flush();
+        (panel.webview as MockWebview).receive({ type: "schemaEdit", id: 2,
+            edits: [rename] });
+        await flush();
+
+        expect(from.edits.map(([, base]) => { return base; }))
+            .toEqual(["sha256:one", "sha256:one+"]);
+        expect(posted(panel).at(-1)).toEqual({
+            type: "schemaEdited",
+            id: 2,
+            objects: { sourceHash: "sha256:one++", tables: [], views: [],
+                routines: [] },
+        });
+        panel.dispose();
+    });
+
+    it("says why a schema edit failed, and shows the project again",
+        async () => {
+            const from = source("world", {
+                editable: true,
+                edit: () => { return Promise.reject(new Error("stale")); },
+            });
+            const panel = show("MRS", from);
+            await ready(panel);
+
+            (panel.webview as MockWebview).receive({ type: "schemaEdit",
+                id: 1, edits: [{ op: "rename_table" }] });
+            await flush();
+
+            expect(posted(panel).slice(1).map((message) => {
+                return message.type;
+            })).toEqual(["schemaEdited", "load"]);
+            expect(posted(panel)[1]).toEqual({ type: "schemaEdited", id: 1,
+                error: "stale" });
+            expect(from.reads).toBe(2);
+            expect(errorMessages.at(-1)).toContain("stale");
+            panel.dispose();
+        });
+
+    it("refuses schema edits a source cannot make", async () => {
+        const panel = show("MRS");
+        await ready(panel);
+
+        (panel.webview as MockWebview).receive({ type: "schemaEdit", id: 3,
+            edits: [] });
+        await flush();
+
+        expect(posted(panel).at(-1)).toMatchObject({ type: "schemaEdited",
+            id: 3 });
+        panel.dispose();
+    });
+
+    it("takes a panel restored after a restart, once per source", async () => {
+        const restored = new MockWebviewPanel(MODELER_VIEW_TYPE, "old",
+            ViewColumn.One, {});
+        ModelerPanel.revive(extensionUri as never, restored as never, source(),
+            "MRS Status", host());
+
+        expect(restored.title).toBe("MRS Status (world)");
+        expect(restored.webview.html).toContain("modeler.js");
+        await ready(restored);
+        expect(posted(restored)[0]).toMatchObject({ type: "load",
+            diagram: "MRS Status" });
+
+        const again = new MockWebviewPanel(MODELER_VIEW_TYPE, "old",
+            ViewColumn.One, {});
+        ModelerPanel.revive(extensionUri as never, again as never, source(),
+            "MRS", host());
+        expect(again.disposed).toBe(true);
+        restored.dispose();
     });
 });
