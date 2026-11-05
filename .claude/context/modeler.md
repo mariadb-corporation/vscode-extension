@@ -202,52 +202,15 @@ figure sets, so the canvas knows nothing of tables or layers:
   returns (what the binary could not rewrite) are a warning. Renames are
   offered in projects only (`editable`): a live schema's VIEW is msm's.
   msm keeps each edit's migration for the next release's update script
-  (mariadb-shell-plugins #86); the binary's `mariadb-lsp edit` is being
-  written in lsp-server, and until a shell has it a rename fails with
-  msm's "Update the MariaDB Shell".
+  (mariadb-shell-plugins #86). msm has the binary's `mariadb-lsp edit`
+  (lsp-server) work the edits out; a shell whose binary lacks it refuses
+  the edit ("Update the MariaDB Shell"), which the viewer reports and
+  then reloads.
 
 ## Figure kinds
 
-`kindOf` in `EerFigureSet.ts`; the cards' layout is `tableCard.ts`
-(`tableCardContent`, `viewCardContent`, `routineCardContent`, then one
-`layoutCard`), notes and pictures `noteCard.ts`. Workbench's colours by
-type (`FIGURE_COLORS`) where a figure has none.
-
-- **TableFigure** (the default type): header, Columns (primary key from
-  the index of kind `primary`, not null from `nullable`), Indexes (an
-  unnamed one as `PRIMARY` or its columns) and Foreign Keys where
-  expanded.
-- **ViewFigure**: the view icon (`schemaView.svg`, the MySQL Shell's msm
-  set) and its declared columns, the only ones the outline has; Collapse /
-  Expand and Auto-Size Height.
-- **RoutineGroupFigure**: ONE card for the group (its `name`), a row per
-  routine the snapshot has, `name(param types): returns` (`routineLabel`,
-  msm's `routine_label`), the routine icon (`schemaRoutine.svg`, the MySQL
-  Shell's `schemaProcedure.svg`); Auto-Size Height.
-- **NoteFigure**: a sheet in its colour, `text` wrapped at blanks
-  (keeping line breaks) in `font` as Workbench writes it
-  (`parseWorkbenchFont`: family, Bold / Italic, size in px; a PostScript
-  `Arial-BoldMT` too) and `textColor`, cut off at the figure's size.
-- **ImageFigure**: the picture, a data URL, filling the figure or fitted
-  and centred with `keepAspectRatio`; no slab or shadow (a card under a
-  transparent picture would show). From a project the picture is asked
-  for (`imageWanted`, once per figure, kept on the figure so another
-  diagram's mount has it; a save leaves it out). An SVG without a
-  `viewBox` or a width and height draws at nothing, so `sizedPicture`
-  gives its root the figure's size; an SVG drawn as an image loads
-  nothing it refers to, and the CSP (`img-src data:`) refuses it anyway.
-  Until it is there, a dashed frame says why.
-- Any other type is a frame saying the viewer does not show it.
-- **Connections** are drawn between table figures only (views and
-  routines have none, as Workbench); the foreign key is found by name,
-  case-insensitive; a key that is not `many` gets a bar at its start
-  instead of a crow's foot.
-- **A figure without a width** gets its content's (`cardWidth`: msm's
-  rule, the longest row or the title rounded up to 10, 120..360, measured
-  in the card fonts on a canvas, `estimateText` = msm's per-character
-  estimate where none can measure), a note its text's, a picture
-  Workbench's 160 x 60, written back to the figure so a save keeps it.
-  Notes and pictures have no menu band and no menu.
+What each kind of figure is drawn as, its menu, connections between them
+and figures sized to their content: see [modeler-figures.md](modeler-figures.md).
 
 ## Tables and layers
 
@@ -378,11 +341,18 @@ are dropped when Cmd goes up, on blur and when hidden.
 
 ## Known gaps / next steps
 
-- The figure kinds and the MRS project's diagrams were rendered in
-  headless Chrome from the built bundle with a stand-in for the webview
-  API (the page inlined, as `file://` refuses module scripts); a
-  running VS Code has not shown a project's diagrams yet.
-- Not yet tried in a running VS Code (the rendering was: cards, menu
+- **Rendering the viewer without VS Code**: headless Chrome
+  (`--headless=new --enable-unsafe-swiftshader --use-angle=swiftshader
+  --screenshot`) on a page with `dist/webview/modeler.{js,css}` inlined
+  (`file://` refuses module scripts; serve nothing) and a stand-in
+  `acquireVsCodeApi` that answers `ready` with a `load` (and
+  `imageWanted` with an `image`), the CSS variables of a theme on the
+  body. Build the bundle with `vite build --config
+  vite.modeler.config.ts` first.
+- Not yet tried in a running VS Code: a project's diagrams opened from
+  MSM Projects or the Explorer, the saves and drafts, the restore after a
+  restart, a rename through `msm.edit_schema`. Nor (the rendering was:
+  cards, menu
   buttons, grid, paper, Navigator and the 3D view, on the MRS model):
   the Connections view's Diagrams folder against a live schema with the
   view, the double-click, the pre-selected diagram, the Actions rows on
