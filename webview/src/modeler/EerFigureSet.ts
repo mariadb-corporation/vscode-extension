@@ -56,7 +56,9 @@ import {
     DRAW_ORDER,
     planeCenter,
     polylineSegments,
+    rectSegments,
     roundedRect,
+    segmentsGeometry,
     setDrawOrder,
     Z,
 } from "../canvas/threeHelpers.js";
@@ -493,8 +495,7 @@ export class EerFigureSet implements IFigureSet {
     /** What a relationship tool marks, and the marks drawn for it. */
     #toolHighlight?: IToolHighlight;
     #highlightMarks: THREE.Object3D[] = [];
-    /** The area a layer is dragged out over, and its marks. */
-    #toolBand?: IRect;
+    /** The marks of the area a layer is dragged out over. */
     #bandMarks: THREE.Object3D[] = [];
 
     public constructor(options: IEerFigureSetOptions) {
@@ -1829,25 +1830,19 @@ export class EerFigureSet implements IFigureSet {
                 // Another table has that name; two would be one.
                 return;
             }
-            const send = (from: string, to: string,
+            const rename = (from: string, to: string,
                 failed?: (message: string) => void): void => {
+                this.#renameTable(from, to);
                 this.#options.onSchemaEdit?.([{
                     op: "rename_table", table: from, new_name: to,
                 }], undefined, failed);
             };
             const action = {
                 label: `Rename Table ${tableName} to ${name}`,
-                undo: () => {
-                    this.#renameTable(name, tableName);
-                    send(name, tableName);
-                },
-                redo: () => {
-                    this.#renameTable(tableName, name);
-                    send(tableName, name);
-                },
+                undo: () => { rename(name, tableName); },
+                redo: () => { rename(tableName, name); },
             };
-            this.#renameTable(tableName, name);
-            send(tableName, name, (message) => {
+            rename(tableName, name, (message) => {
                 // Refused: the old name again, and the input over it with
                 // the name typed, to fix.
                 host.history.discard(action);
@@ -2034,10 +2029,7 @@ export class EerFigureSet implements IFigureSet {
                 this.#toolHighlight = highlight;
                 this.#drawHighlight();
             },
-            band: (rect) => {
-                this.#toolBand = rect;
-                this.#drawBand();
-            },
+            band: (rect) => { this.#drawBand(rect); },
             select: (ids) => { this.#host?.select(ids); },
             hint: (text) => { this.#host?.hint(text); },
             done: () => { this.#host?.toolDone(); },
@@ -2244,12 +2236,21 @@ export class EerFigureSet implements IFigureSet {
         });
     }
 
-    /** Draws what a relationship tool marks: tables, and column rows. */
-    #drawHighlight(): void {
-        for (const mark of this.#highlightMarks) {
+    /**
+     * Takes marks a tool drew off the scene, and frees them.
+     *
+     * @param marks The marks.
+     */
+    #clearMarks(marks: readonly THREE.Object3D[]): void {
+        for (const mark of marks) {
             mark.removeFromParent();
             disposeGroup(mark);
         }
+    }
+
+    /** Draws what a relationship tool marks: tables, and column rows. */
+    #drawHighlight(): void {
+        this.#clearMarks(this.#highlightMarks);
         this.#highlightMarks = [];
         const highlight = this.#toolHighlight;
         const host = this.#host;
@@ -2303,14 +2304,14 @@ export class EerFigureSet implements IFigureSet {
         host.invalidate();
     }
 
-    /** Draws the area a layer is dragged out over. */
-    #drawBand(): void {
-        for (const mark of this.#bandMarks) {
-            mark.removeFromParent();
-            disposeGroup(mark);
-        }
+    /**
+     * Draws the area a layer is dragged out over.
+     *
+     * @param rect The area; none takes the marks away.
+     */
+    #drawBand(rect?: IRect): void {
+        this.#clearMarks(this.#bandMarks);
         this.#bandMarks = [];
-        const rect = this.#toolBand;
         const host = this.#host;
         if (rect === undefined || host === undefined) {
             host?.invalidate();
@@ -2325,16 +2326,9 @@ export class EerFigureSet implements IFigureSet {
             new THREE.MeshBasicMaterial({ color, transparent: true,
                 opacity: 0.12, depthWrite: false }));
         fill.position.set(center.x, center.y, Z.baseDecoration);
-        const border = new THREE.LineLoop(new THREE.BufferGeometry()
-            .setFromPoints([
-                new THREE.Vector3(rect.left, -rect.top, 0),
-                new THREE.Vector3(rect.left + rect.width, -rect.top, 0),
-                new THREE.Vector3(rect.left + rect.width,
-                    -(rect.top + rect.height), 0),
-                new THREE.Vector3(rect.left, -(rect.top + rect.height), 0),
-            ]),
-        new THREE.LineBasicMaterial({ color }));
-        border.position.z = Z.baseDecoration;
+        const border = new THREE.LineSegments(
+            segmentsGeometry(rectSegments(rect), Z.baseDecoration),
+            new THREE.LineBasicMaterial({ color }));
         for (const mark of [fill, border]) {
             setDrawOrder(mark, DRAW_ORDER.decorations);
             this.#base.add(mark);

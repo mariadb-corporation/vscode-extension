@@ -337,6 +337,25 @@ const guard = async (
 };
 
 /**
+ * @param arg What a command was invoked on: an MSM project's node, or
+ *            nothing.
+ * @param title The title of the folder picker.
+ *
+ * @returns The MSM project's folder: the one invoked on, or one picked;
+ *          none where the picker was closed.
+ */
+const projectPathOrPick = async (
+    arg: unknown,
+    title: string,
+): Promise<string | undefined> => {
+    return projectPathOf(arg) ?? (await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        title,
+    }))?.[0]?.fsPath;
+};
+
+/**
  * Activates the extension.
  *
  * @param context The extension context.
@@ -1073,12 +1092,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
                         return;
                     }
-                    const projectPath = projectPathOf(arg)
-                        ?? (await vscode.window.showOpenDialog({
-                            canSelectFolders: true,
-                            canSelectFiles: false,
-                            title: "Open Schema Diagram of an MSM Project",
-                        }))?.[0]?.fsPath;
+                    const projectPath = await projectPathOrPick(arg,
+                        "Open Schema Diagram of an MSM Project");
                     if (projectPath !== undefined) {
                         await pickProjectDiagram(projectPath);
                     }
@@ -1089,12 +1104,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
         vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.create,
             async (arg?: unknown) => {
                 try {
-                    const projectPath = projectPathOf(arg)
-                        ?? (await vscode.window.showOpenDialog({
-                            canSelectFolders: true,
-                            canSelectFiles: false,
-                            title: "New Schema Diagram in an MSM Project",
-                        }))?.[0]?.fsPath;
+                    const projectPath = await projectPathOrPick(arg,
+                        "New Schema Diagram in an MSM Project");
                     if (projectPath === undefined) {
                         return;
                     }

@@ -56,6 +56,7 @@ import { CanvasToolbar, ToolbarSection } from "../canvas/CanvasToolbar.js";
 import type {
     EditCommit,
     ICanvasOverlay,
+    IEditChoice,
     IEditRequest,
     IMenuEntry,
     INavigatorState,
@@ -654,6 +655,22 @@ export const ModelViewer = (): JSX.Element => {
         setChoicesOpen(true);
     };
 
+    /**
+     * Puts a picked choice after the column's name: commits a complete
+     * type, or leaves one whose values are typed next (`ENUM(`) open.
+     *
+     * @param entry The choice picked.
+     */
+    const pickChoice = (entry: IEditChoice): void => {
+        const text = `${editText.slice(0, space)} ${entry.insert}`;
+        if (entry.complete) {
+            commitEdit("enter", text);
+        } else {
+            setEditText(text);
+            setChoicesOpen(false);
+        }
+    };
+
     /** Keys of an edit with choices; true where the key was taken. */
     const choiceKey = (event: KeyboardEvent): boolean => {
         if (choices === undefined) {
@@ -675,15 +692,7 @@ export const ModelViewer = (): JSX.Element => {
                 // Enter after the name asks for the type, as Space does.
                 openChoices(`${editText.trim()} `);
             } else if (choicesOpen && matches[choiceAt] !== undefined) {
-                const picked = matches[choiceAt];
-                const text = `${editText.slice(0, space)} ${picked.insert}`;
-                if (picked.complete) {
-                    commitEdit("enter", text);
-                } else {
-                    // Its values are typed next: `ENUM(`.
-                    setEditText(text);
-                    setChoicesOpen(false);
-                }
+                pickChoice(matches[choiceAt]);
             } else {
                 commitEdit("enter");
             }
@@ -715,8 +724,12 @@ export const ModelViewer = (): JSX.Element => {
         }
         const box = input.getBoundingClientRect();
         const origin = host.getBoundingClientRect();
-        setChoicesBox({ left: box.left - origin.left,
-            top: box.bottom - origin.top + 2 });
+        const left = box.left - origin.left;
+        const top = box.bottom - origin.top + 2;
+        // The same box as the view pans: no second render follows.
+        setChoicesBox((old) => {
+            return old?.left === left && old.top === top ? old : { left, top };
+        });
     }, [choicesOpen, edit]);
 
     // The choice picked shows: UUID, halfway down the list, at once.
@@ -1003,14 +1016,7 @@ export const ModelViewer = (): JSX.Element => {
                         // Before the input loses the focus.
                         onMouseDown={(event) => {
                             event.preventDefault();
-                            const text = `${editText.slice(0, space)} `
-                                + entry.insert;
-                            if (entry.complete) {
-                                commitEdit("enter", text);
-                            } else {
-                                setEditText(text);
-                                setChoicesOpen(false);
-                            }
+                            pickChoice(entry);
                         }}
                         onMouseEnter={() => { setChoiceAt(index); }}
                     >{entry.label}</li>;

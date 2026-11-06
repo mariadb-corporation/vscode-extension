@@ -115,10 +115,30 @@ const constraintNames = (tables: readonly IOutlineTable[]): string[] => {
  *
  * @returns Its primary key's columns, in the key's order.
  */
-const primaryKeyOf = (table: IOutlineTable): string[] => {
+export const primaryKeyOf = (table: IOutlineTable): string[] => {
     return (table.indexes ?? []).find((index) => {
         return index.kind === "primary";
     })?.columns ?? [];
+};
+
+/**
+ * @param table A table a relationship needs a primary key of.
+ *
+ * @returns Why it cannot have one, as Workbench says it.
+ */
+export const noPrimaryKey = (table: IOutlineTable): string => {
+    return `'${table.name}' has no Primary Key. Please add a PK or select `
+        + "another Table.";
+};
+
+/**
+ * @param from The table the relationship starts at.
+ * @param to The other table.
+ *
+ * @returns The label of the action creating a relationship between them.
+ */
+const relationshipLabel = (from: string, to: string): string => {
+    return `Create Relationship between ${from} and ${to}`;
 };
 
 /**
@@ -130,6 +150,37 @@ const primaryKeyOf = (table: IOutlineTable): string[] => {
  */
 const referencingType = (type: string): string => {
     return type.trim().toUpperCase() === "SERIAL" ? "BIGINT UNSIGNED" : type;
+};
+
+/**
+ * The columns a foreign key to a table's primary key is made over: one
+ * copying each of the key's columns, named after the table and it.
+ *
+ * @param parent The table referenced.
+ * @param key Its primary key's columns.
+ * @param taken The names the new table or columns must not have; the new
+ *              names are added to it.
+ *
+ * @returns The new columns, in the key's order.
+ */
+const referencingColumns = (
+    parent: IOutlineTable,
+    key: readonly string[],
+    taken: string[],
+): IOutlineColumn[] => {
+    return key.map((name) => {
+        const referenced = parent.columns.find((column) => {
+            return sameName(column.name, name);
+        });
+        const column: IOutlineColumn = {
+            name: freeName(`${parent.name}_${name}`, taken),
+            type: referencingType(referenced?.type ?? "INT"),
+            nullable: false,
+        };
+        taken.push(column.name);
+
+        return column;
+    });
 };
 
 /**
@@ -285,23 +336,10 @@ export const relationshipChange = (
 ): RelationshipResult => {
     const parentKey = primaryKeyOf(parent);
     if (parentKey.length === 0) {
-        return { error: `'${parent.name}' has no Primary Key. Please add a PK `
-            + "or select another Table." };
+        return { error: noPrimaryKey(parent) };
     }
-    const taken = child.columns.map((column) => { return column.name; });
-    const columns: IOutlineColumn[] = parentKey.map((name) => {
-        const referenced = parent.columns.find((column) => {
-            return sameName(column.name, name);
-        });
-        const column: IOutlineColumn = {
-            name: freeName(`${parent.name}_${name}`, taken),
-            type: referencingType(referenced?.type ?? "INT"),
-            nullable: false,
-        };
-        taken.push(column.name);
-
-        return column;
-    });
+    const columns = referencingColumns(parent, parentKey,
+        child.columns.map((column) => { return column.name; }));
     const constraints = constraintNames(tables);
     const foreignKey: IOutlineForeignKey = {
         name: freeName(`fk_${child.name}_${parent.name}`, constraints),
@@ -341,8 +379,7 @@ export const relationshipChange = (
 
     return {
         change: {
-            label: `Create Relationship between ${child.name} and `
-                + `${parent.name}`,
+            label: relationshipLabel(child.name, parent.name),
             edits,
             inverse,
         },
@@ -373,8 +410,7 @@ export const associativeTableChange = (
 ): AssociativeResult => {
     for (const table of [first, second]) {
         if (primaryKeyOf(table).length === 0) {
-            return { error: `'${table.name}' has no Primary Key. Please add a `
-                + "PK or select another Table." };
+            return { error: noPrimaryKey(table) };
         }
     }
     const name = freeName(`${first.name}_has_${second.name}`,
@@ -384,18 +420,8 @@ export const associativeTableChange = (
     const constraints = constraintNames(tables);
     for (const parent of [first, second]) {
         const key = primaryKeyOf(parent);
-        const columns = key.map((column) => {
-            const referenced = parent.columns.find((candidate) => {
-                return sameName(candidate.name, column);
-            });
-
-            return {
-                name: freeName(`${parent.name}_${column}`,
-                    table.columns.map((entry) => { return entry.name; })),
-                type: referencingType(referenced?.type ?? "INT"),
-                nullable: false,
-            };
-        });
+        const columns = referencingColumns(parent, key,
+            table.columns.map((column) => { return column.name; }));
         table.columns.push(...columns);
         const foreignKey: IOutlineForeignKey = {
             name: freeName(`fk_${name}_${parent.name}`, constraints),
@@ -410,8 +436,7 @@ export const associativeTableChange = (
 
     return {
         change: {
-            label: `Create Relationship between ${first.name} and `
-                + `${second.name}`,
+            label: relationshipLabel(first.name, second.name),
             edits: [{ op: "add_table", table: tableEditMembers(table) }],
             inverse: [{ op: "drop_table", table: name }],
         },
@@ -448,8 +473,7 @@ export const existingColumnsChange = (
 
     return {
         change: {
-            label: `Create Relationship between ${child.name} and `
-                + `${parent.name}`,
+            label: relationshipLabel(child.name, parent.name),
             edits: [{ op: "add_foreign_key", table: child.name,
                 foreign_key: foreignKeyEditMembers(foreignKey) }],
             inverse: [{ op: "drop_foreign_key", table: child.name,

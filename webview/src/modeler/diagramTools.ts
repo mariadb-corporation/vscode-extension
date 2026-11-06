@@ -52,6 +52,7 @@ import {
     newRoutineChange,
     newTableChange,
     newViewChange,
+    noPrimaryKey,
     numberedName,
     relationshipChange,
     type IRelationshipKind,
@@ -449,10 +450,7 @@ export class DiagramTools {
     }
 
     #placeNote(point: IPoint): void {
-        const diagram = this.#target.diagram();
-        const name = numberedName("text", diagram.figures.map((figure) => {
-            return figure.name;
-        }));
+        const name = this.#figureName("text");
         this.#placeFigure({
             id: newId(),
             type: NOTE_FIGURE,
@@ -476,12 +474,9 @@ export class DiagramTools {
 
                 return;
             }
-            const diagram = this.#target.diagram();
             const scale = Math.min(1,
                 MAX_PICTURE_SIDE / Math.max(picked.width, picked.height, 1));
-            const name = numberedName("image", diagram.figures.map((figure) => {
-                return figure.name;
-            }));
+            const name = this.#figureName("image");
             this.#placeFigure({
                 id: newId(),
                 type: IMAGE_FIGURE,
@@ -666,6 +661,17 @@ export class DiagramTools {
         const { tables, views } = this.#target.catalog.objects();
 
         return [...tables, ...views].map((object) => { return object.name; });
+    }
+
+    /**
+     * @param base The name a new figure is numbered from.
+     *
+     * @returns The first numbered name no figure of the diagram has.
+     */
+    #figureName(base: string): string {
+        return numberedName(base, this.#target.diagram().figures.map((figure) => {
+            return figure.name;
+        }));
     }
 
     #placeTable(point: IPoint): void {
@@ -970,10 +976,7 @@ export class DiagramTools {
 
     #placeRoutineGroup(point: IPoint): void {
         const target = this.#target;
-        const diagram = target.diagram();
-        const name = numberedName("routines", diagram.figures.map((figure) => {
-            return figure.name;
-        }));
+        const name = this.#figureName("routines");
         const figure: IModelFigure = {
             id: newId(),
             type: ROUTINE_GROUP_FIGURE,
@@ -1023,7 +1026,9 @@ export class DiagramTools {
             figure.routines = [...routines, routine];
         };
         const hide = (): void => { figure.routines = routines; };
-        target.catalog.edit(newRoutineChange(name).edits);
+        // Stands in the catalog while its name is entered.
+        const placeholder = newRoutineChange(name);
+        target.catalog.edit(placeholder.edits);
         show(name);
         target.refresh();
         target.editItem(figureId, (item) => {
@@ -1033,7 +1038,7 @@ export class DiagramTools {
             label: "Routine name",
             commit: (text) => {
                 const entered = text.trim();
-                target.catalog.edit(newRoutineChange(name).inverse);
+                target.catalog.edit(placeholder.inverse);
                 if (entered === "" || (!sameName(entered, name)
                     && taken.some((other) => { return sameName(other, entered); }))) {
                     hide();
@@ -1059,7 +1064,7 @@ export class DiagramTools {
                     + "be written in the SQL.");
             },
             cancel: () => {
-                target.catalog.edit(newRoutineChange(name).inverse);
+                target.catalog.edit(placeholder.inverse);
                 hide();
                 target.refresh();
             },
@@ -1168,8 +1173,7 @@ export class DiagramTools {
             if (tool === "relnm" && !(table.indexes ?? []).some((index) => {
                 return index.kind === "primary";
             })) {
-                target.hint(`'${table.name}' has no Primary Key. Please add a `
-                    + "PK or select another Table.");
+                target.hint(noPrimaryKey(table));
 
                 return;
             }
