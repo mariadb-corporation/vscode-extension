@@ -121,19 +121,18 @@ key relies on, error 1553).
 
 ## The edit ops it needs (`mariadb-lsp edit`)
 
-Agreed with the lsp-server session and merged on 2026-11-06:
-lsp-server #26 (`add_table`, `drop_table`, `add_column`, `modify_column`,
-`drop_column`, `set_table_options`, `add_view`, `drop_view`, `add_routine`,
-`drop_routine`), #27 (`add_index`, `drop_index`, `add_foreign_key`,
-`drop_foreign_key`, `set_primary_key`) and #28 (a procedure and a function
-may share a name; the format is unchanged). A binary without them answers
-`unsupported`, which the viewer takes back like any refusal.
-Every tool's change, as `schemaEdits.ts` makes it from a real snapshot,
-was run through msm's `edit_schema` with the merged binary: done, undone
-(the snapshot came back as it was) and redone, for a table, a view, a
-routine, the four 1:1 / 1:n kinds, n:m, existing columns and a table
-referencing itself. An identifying relationship on an AUTO_INCREMENT key
-is accepted: the key column stays first in the primary key.
+The ops come from lsp-server #26 (`add_table`, `drop_table`,
+`add_column`, `modify_column`, `drop_column`, `set_table_options`,
+`add_view`, `drop_view`, `add_routine`, `drop_routine`) and #27
+(`add_index`, `drop_index`, `add_foreign_key`, `drop_foreign_key`,
+`set_primary_key`); since #28 a procedure and a function may share a
+name, with the format unchanged. A binary without them answers
+`unsupported`, which the viewer takes back like any refusal. Every tool's
+change goes through msm whole and its inverse brings the snapshot back
+exactly (checked for a table, a view, a routine, the four 1:1 / 1:n
+kinds, n:m, existing columns and a table referencing itself). An
+identifying relationship on an AUTO_INCREMENT key is accepted: the key
+column stays first in the primary key.
 Shapes are the outline's structs: `add_table {table}`, `add_column
 {table, column, after?, first?}`, `add_foreign_key {table, foreign_key}`,
 `add_index {table, index}`, `set_primary_key {table, columns}`, `add_view
@@ -143,6 +142,20 @@ Shapes are the outline's structs: `add_table {table}`, `add_column
 `drop_view {view}`, `drop_routine {routine, kind?}`. A binary lists the
 ops it has on an `edit ops:` line of `--help`. The viewer does not read
 it yet: msm does not pass it on, so every tool is offered in a project.
+
+## Running the tools' edits through msm without VS Code
+
+msm's code imports `mysqlsh`, so it runs only inside the shell:
+`mariadb-shell --py --file script.py`, the script putting a
+mariadb-shell-plugins checkout first on `sys.path` and passing `lsp_path`
+to the binary to test. Bundle a small TS script importing
+`webview/src/modeler/schemaEdits.ts` with `node_modules/.bin/esbuild
+--bundle --platform=node --format=esm` to make the changes exactly as the
+viewer does from the project's snapshot (`read_diagram_rows(path)[0]`),
+then run `editing.edit_schema` with the edits, the inverse and the edits
+again, comparing the snapshot after the inverse with the one before.
+msm's own tests (`msm_plugin/tests/unit/test_editing.py`, `real_project`)
+show how to make a project.
 
 ## Rendering it without VS Code
 

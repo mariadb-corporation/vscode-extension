@@ -367,9 +367,11 @@ are dropped when Cmd goes up, on blur and when hidden.
 - A project's diagrams are saved; a live schema's never are (their
   changes last the panel). The history is not shown anywhere yet. Tables
   and columns are renamed; new tables, views, procedures and foreign keys
-  come from the palette (`modeler-tools.md`), through the edit ops of
-  lsp-server #26 to #28 (merged 2026-11-06). Adding a column to an existing table, editing a column's
-  type and editing notes in place are for later.
+  come from the palette (`modeler-tools.md`), through `mariadb-lsp
+  edit`'s ops; an empty diagram to start from comes from the `+` on a
+  project's Diagrams folder in the MSM Projects view (`msm.md`). Adding a
+  column to an existing table, editing a column's type and editing notes
+  in place are for later.
 - No rubber-band selection, no connection captions, no mark on a card
   that cuts content off.
 - PDF export / printing per page: the page model is there, nothing
