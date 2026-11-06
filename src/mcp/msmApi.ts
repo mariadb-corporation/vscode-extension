@@ -22,6 +22,10 @@ import {
     decodeScalar,
     decodeVoid,
 } from "./protocol.js";
+import type {
+    IDiagramDocument,
+    IDiagramRow,
+} from "../modeler/modelFormat.js";
 import { CONNECTION_COLORS, type ConnectionColor } from "./types.js";
 
 /** One copyright notice of a schema project. */
@@ -157,6 +161,46 @@ export const MSM_LICENSES = ["None", "BSD", "GPL-2.0", "MIT"] as const;
  */
 export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 
+/** A diagram of a project, as `msm.list_schema_diagrams` counts it. */
+export interface IMsmDiagramSummary {
+    name: string;
+    figures: number;
+    connections: number;
+}
+
+/** What `msm.list_schema_diagrams` says of a project's diagrams. */
+export interface IMsmDiagramListing {
+    /**
+     * The snapshot's table count, and whether it was made from the
+     * development script as it is now; undefined without a snapshot.
+     */
+    schemaDefinition?: { tables: number; current: boolean };
+    diagrams: IMsmDiagramSummary[];
+}
+
+/**
+ * One schema edit of `msm.edit_schema`: an `op` and its members, as the
+ * language server's edit format has them (lsp-server
+ * `docs/edit-format.md`): `rename_table` (table, new_name),
+ * `rename_column` (table, column, new_name), ...
+ */
+export interface IMsmSchemaEdit {
+    op: string;
+    [member: string]: unknown;
+}
+
+/** What `msm.edit_schema` answers with. */
+export interface IMsmSchemaEditResult {
+    /** The diagrams view afterwards, the new snapshot first. */
+    rows: IDiagramRow[];
+    files: string[];
+    /** The statements kept for the next release's update script. */
+    migration: string[];
+    migrationFile?: string;
+    /** What the edits could not change themselves, for a person. */
+    notes: Array<{ kind?: string; message: string }>;
+}
+
 /** The `msm.*` tools, as typed calls. */
 export interface IMsmApi {
     createProject(options: IMsmCreateOptions): Promise<string>;
@@ -174,6 +218,16 @@ export interface IMsmApi {
     generateDeploymentScript(
         options: IMsmDeploymentScriptOptions): Promise<string>;
     deploySchema(options: IMsmDeployOptions): Promise<string>;
+    listSchemaDiagrams(projectPath: string): Promise<IMsmDiagramListing>;
+    getSchemaDiagrams(projectPath: string,
+        diagram?: string): Promise<IDiagramRow[]>;
+    getSchemaDiagramImage(projectPath: string, diagram: string,
+        figureId: string): Promise<string>;
+    setSchemaDiagram(projectPath: string,
+        document: IDiagramDocument): Promise<string[]>;
+    createEmptySchemaDiagram(projectPath: string, name: string): Promise<void>;
+    editSchema(projectPath: string, edits: IMsmSchemaEdit[],
+        baseHash: string): Promise<IMsmSchemaEditResult>;
 }
 
 /**
@@ -322,6 +376,47 @@ export const msmToolArgs = {
             version: options.version,
             overwrite_existing: options.overwriteExisting,
         });
+    },
+    getSchemaDiagrams: (
+        projectPath: string,
+        diagram?: string,
+    ): Record<string, unknown> => {
+        return given({ schema_project_path: projectPath, diagram });
+    },
+    getSchemaDiagramImage: (
+        projectPath: string,
+        diagram: string,
+        figureId: string,
+    ): Record<string, unknown> => {
+        return {
+            diagram,
+            figure_id: figureId,
+            schema_project_path: projectPath,
+        };
+    },
+    setSchemaDiagram: (
+        projectPath: string,
+        document: IDiagramDocument,
+    ): Record<string, unknown> => {
+        return { document, schema_project_path: projectPath };
+    },
+    createEmptySchemaDiagram: (
+        projectPath: string,
+        name: string,
+    ): Record<string, unknown> => {
+        // No tables: msm's default is every one of the schema's.
+        return { name, tables: [], schema_project_path: projectPath };
+    },
+    editSchema: (
+        projectPath: string,
+        edits: IMsmSchemaEdit[],
+        baseHash: string,
+    ): Record<string, unknown> => {
+        return {
+            edits,
+            base_hash: baseHash,
+            schema_project_path: projectPath,
+        };
     },
     deploySchema: (options: IMsmDeployOptions): Record<string, unknown> => {
         return given({
@@ -518,5 +613,138 @@ export class MsmApi implements IMsmApi {
 
         return decodeScalar(name, await this.caller.callTool(name,
             msmToolArgs.deploySchema(options), MSM_DEPLOY_TIMEOUT_MS));
+    }
+
+    /**
+     * @param projectPath The project folder.
+     *
+     * @returns Its diagrams' names and counts, and its snapshot's state.
+     */
+    public async listSchemaDiagrams(
+        projectPath: string,
+    ): Promise<IMsmDiagramListing> {
+        const name = "msm.list_schema_diagrams";
+        const listing = decodeObject<{
+            schema_definition?: { tables: number; current: boolean } | null;
+            diagrams?: IMsmDiagramSummary[];
+        }>(name, await this.caller.callTool(name,
+            msmToolArgs.project(projectPath)));
+
+        return {
+            ...(listing.schema_definition
+                ? { schemaDefinition: listing.schema_definition } : {}),
+            diagrams: listing.diagrams ?? [],
+        };
+    }
+
+    /**
+     * @param projectPath The project folder.
+     * @param diagram Only this diagram, with the snapshot; every row where
+     *                left out.
+     *
+     * @returns The rows of its diagrams view; image figures carry
+     *          `image_size` in place of their pictures.
+     */
+    public async getSchemaDiagrams(
+        projectPath: string,
+        diagram?: string,
+    ): Promise<IDiagramRow[]> {
+        const name = "msm.get_schema_diagrams";
+
+        return decodeList<IDiagramRow>(name, await this.caller.callTool(name,
+            msmToolArgs.getSchemaDiagrams(projectPath, diagram)));
+    }
+
+    /**
+     * @param projectPath The project folder.
+     * @param diagram The diagram.
+     * @param figureId The image figure.
+     *
+     * @returns Its picture, a data URL.
+     */
+    public async getSchemaDiagramImage(
+        projectPath: string,
+        diagram: string,
+        figureId: string,
+    ): Promise<string> {
+        const name = "msm.get_schema_diagram_image";
+
+        return decodeScalar(name, await this.caller.callTool(name,
+            msmToolArgs.getSchemaDiagramImage(projectPath, diagram,
+                figureId)));
+    }
+
+    /**
+     * Adds a diagram to a project, or replaces the one of its name. An
+     * image figure sent without its picture keeps the stored one.
+     *
+     * @param projectPath The project folder.
+     * @param document The diagram.
+     *
+     * @returns The files written.
+     */
+    public async setSchemaDiagram(
+        projectPath: string,
+        document: IDiagramDocument,
+    ): Promise<string[]> {
+        const name = "msm.set_schema_diagram";
+
+        return decodeList<string>(name, await this.caller.callTool(name,
+            msmToolArgs.setSchemaDiagram(projectPath, document)));
+    }
+
+    /**
+     * Adds an empty diagram to a project, to model on. msm makes the
+     * schema snapshot again first where the script changed since, so the
+     * diagram's tools edit against the current one.
+     *
+     * @param projectPath The project folder.
+     * @param name The new diagram's name; msm refuses one that is taken.
+     *
+     * @returns Nothing.
+     */
+    public async createEmptySchemaDiagram(
+        projectPath: string,
+        name: string,
+    ): Promise<void> {
+        const tool = "msm.create_schema_diagram";
+        decodeObject<object>(tool, await this.caller.callTool(tool,
+            msmToolArgs.createEmptySchemaDiagram(projectPath, name)));
+    }
+
+    /**
+     * Changes schema objects in the project's SQL: the CREATE statements
+     * are the source of truth, so a rename in a diagram is made there.
+     *
+     * @param projectPath The project folder.
+     * @param edits The edits, in order.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     *
+     * @returns The diagrams view afterwards, the files written, the
+     *          migration kept for the next release and the notes.
+     */
+    public async editSchema(
+        projectPath: string,
+        edits: IMsmSchemaEdit[],
+        baseHash: string,
+    ): Promise<IMsmSchemaEditResult> {
+        const name = "msm.edit_schema";
+        const result = decodeObject<{
+            rows?: IDiagramRow[];
+            files?: string[];
+            migration?: string[];
+            migration_file?: string | null;
+            notes?: Array<{ kind?: string; message: string }>;
+        }>(name, await this.caller.callTool(name,
+            msmToolArgs.editSchema(projectPath, edits, baseHash)));
+
+        return {
+            rows: result.rows ?? [],
+            files: result.files ?? [],
+            migration: result.migration ?? [],
+            ...(typeof result.migration_file === "string"
+                ? { migrationFile: result.migration_file } : {}),
+            notes: result.notes ?? [],
+        };
     }
 }

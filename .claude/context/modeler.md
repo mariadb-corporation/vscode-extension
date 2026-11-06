@@ -1,21 +1,42 @@
 # The schema model viewer
 
 An EER diagram canvas on three.js that switches between a 2D and a 3D
-view, showing a live schema's diagrams. It began from a saved design
-discussion of an EER modeler on three.js, kept outside the repository.
+view, showing the diagrams of an MSM project (saved, and its tables and
+columns renamed in the SQL, through msm) or of a live schema (shown only).
+It began from a saved design discussion of an EER modeler on three.js,
+kept outside the repository.
 
 ## Where the diagrams come from
 
-- **A schema's `msm_schema_diagrams` view** (`name`, `format`,
-  `document`), as MSM projects carry it (the MRS metadata schema's is
-  section `185_schema_diagrams.sql` in the mariadb-shell repo): one row
-  `schema_definition` in format `mwb-schema/1` (the tables), and one row
-  per EER diagram in format `mwb-diagram/1` (id, name, size, layers,
-  figures, connections, notations). `assembleSchemaModel`
+- **MSM Section 160, the `msm_schema_diagrams` VIEW** (`name`, `format`,
+  `document`), which msm writes (mariadb-shell-plugins
+  `msm_plugin/lib/diagrams.py` is the format; its PROJECT_CONTEXT "Schema
+  diagrams (Section 160)" the rules): one row `schema_definition` in
+  `msm-schema/1`, the snapshot of the objects the CREATE statements define
+  in the language server's outline shape (snake_case: a table's `columns`
+  with `nullable`, `indexes` with `kind`, `foreign_keys` with
+  `references: {table, columns}`, `many`, `mandatory`,
+  `referenced_mandatory`; `views` with their declared `columns`;
+  `routines` with `parameters` and `returns`; `source_hash`), and one row
+  per EER diagram in `msm-diagram/1` (layers, figures, connections,
+  Workbench's camelCase keys). `assembleSchemaModel`
   (`src/modeler/modelFormat.ts`) puts them together into the viewer's
-  `ISchemaModel`; a diagram is named by its row, other formats are
-  skipped. The old single-document `mwb-diagrams/1` file, its SQL parser
-  and the temporary toolbar button are gone.
+  `ISchemaModel` (`tables`, `views`, `routines`, `sourceHash`); a diagram
+  is named by its row, other formats are skipped, a figure without `left`
+  / `top` (not placed by `msm.layout_schema_diagram` yet) sits at the
+  corner. The `mwb-*` formats never shipped and are gone: no
+  compatibility. The MRS metadata schema's project in the mariadb-shell
+  repo (`mysqlshdk/libs/mrs/db_schema/mariadb_rest_service.msm.project`,
+  section `development/sections/160_schema_diagrams.sql`, made from its
+  Workbench model with msm's import, mariadb-shell #125) is the test
+  project: two diagrams, MRS (30 tables, 36 connections, 8 layers) and
+  MRS Status, tables only. Releases do not carry `development/`, so the
+  deployed metadata schema has no such VIEW.
+- **Where a viewer reads from and writes to** is its `IModelSource`
+  (`src/modeler/modelSources.ts`): `ConnectionModelSource`, a live
+  schema's VIEW on the Diagram session, read only (msm writes the VIEW);
+  `ProjectModelSource`, an MSM project through the msm tools (below). A
+  panel is one per source (`key`), titled "diagram (schema)".
 - **The Connections view.** Expanding a schema looks for the view
   (`hasDiagramsSql`: one `information_schema.TABLES` lookup, on the UI
   Backend session; a failure just means no folder) and, where it is there,
@@ -32,14 +53,54 @@ discussion of an EER modeler on three.js, kept outside the repository.
   connection's Actions: the spinner while it runs, then what it read or
   its error, the statement beside it, "Diagram" in the Conn column (the
   user's wish: "log the queries in the Action tab, as Diagram").
-- **The viewer** is one panel per schema of a connection
-  (`ModelerPanel.show(extensionUri, {connection, schema, diagram}, host)`),
-  titled "diagram (schema)" (escaped in the page's `<title>` by
-  `buildWebviewHtml`: a diagram's name is the database's). It reads every row of the view when its page
-  is ready and opens on the diagram asked for (`load.diagram`); opening
-  another diagram of that schema reuses it (`showDiagram`), and the
-  viewer's own Diagram list retitles it (`diagramShown`). A spinner shows
-  in the middle of the canvas where loading takes longer than 0.3 s.
+- **The viewer** is one panel per source
+  (`ModelerPanel.show(extensionUri, source, diagram, host)`), titled
+  "diagram (schema)" (escaped in the page's `<title>` by
+  `buildWebviewHtml`: a diagram's name is the database's). It reads the
+  model when its page is ready and opens on the diagram asked for
+  (`load.diagram`, with `editable` and the `target` it is restored from);
+  opening another diagram of that schema reuses it (`showDiagram`), and
+  the viewer's own Diagram list retitles it (`diagramShown`). A spinner
+  shows in the middle of the canvas where loading takes longer than 0.3 s.
+- **An MSM project's diagrams** open from the MSM Projects view (a
+  **Diagrams** folder first under each project, listed with
+  `msm.list_schema_diagrams`, a row per diagram with its figure count,
+  opened by its inline button, its menu or a double-click,
+  `MSM_DIAGRAM_CLICK_COMMAND`) and from the Explorer's MariaDB Schema
+  Management submenu on a `*.msm.project` folder: **Open Schema
+  Diagram...** (`mariadb.msm.openSchemaDiagram`, also on a project row and
+  the palette, where it asks for the folder) quick-picks where the project
+  has several. `ProjectModelSource` reads with `msm.get_schema_diagrams`
+  (pictures elided to `image_size`), asks `msm.get_schema_diagram_image`
+  for each picture an image figure shows, saves with
+  `msm.set_schema_diagram` and edits the schema with `msm.edit_schema`;
+  every call is an action of the Actions tab under General Actions
+  (`ActionGroup`, the call as its row shows it, a document by its name),
+  and they run one at a time per project (msm reads and writes the
+  project's files, the connector does not serialize). One source per
+  project (`projectSources` in `extension.ts`).
+- **The auto-store (the user's decision: "auto-store to a temporary
+  location after each major change, so when VS Code is closed and
+  re-opened, the edited diagrams can be restored").** After every history
+  change (the canvas's `onHistory`: a move, resize, raise, menu command,
+  rename, undo) the viewer posts `diagramChanged` for each diagram whose
+  saved document (`diagramDocument`: no pictures, the notations) differs
+  from what it sent last. The source writes a draft at once
+  (`DiagramDrafts`, `globalStorage/diagramDrafts/<hash(project)>-<hash(diagram)>.json`,
+  written to a temp file and renamed, with the hash of the project's
+  diagram it was made from, `diagramHash`: canonical JSON without pictures
+  and notations), then saves to the project once changes settle
+  (`SAVE_DELAY_MS`, 1 s) and drops the draft; a failed save keeps it. The
+  status line says Changed / Saving… / Saved / Not saved: why
+  (`saveState`). A panel closed saves what waits (`flush`). Reading a
+  project takes its drafts up: kept and saved where the project's diagram
+  is still the one they were made from, else a modal asks (Keep My
+  Changes / Use the Project's); a draft of a diagram the project no longer
+  has is dropped. A `WebviewPanelSerializer` (activation event
+  `onWebviewPanel:mariadb.modelViewer`) restores open viewers after a
+  restart from the `target` the page keeps in its state (kept current as
+  the diagram shown changes); a connection's viewer reads its schema
+  again.
 
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
@@ -101,8 +162,10 @@ figure sets, so the canvas knows nothing of tables or layers:
   (`mysql-shell-plugins/gui/frontend/src/modules/db-editor/DiagramDesigner`):
   header strip in the figure's colour with the table icon and name,
   columns with key / not-null / nullable icons and italic dimmed types,
-  Indexes and Foreign Keys where expanded; Tools (pointer, hand, zoom) and
-  View (reset, grid, rulers = pages, lock, Navigator) with the same icons.
+  Indexes and Foreign Keys where expanded; View (reset, grid, rulers =
+  pages, lock, the Tools and Navigator switches) with the same icons. The
+  tools (pointer, hand, zoom and Workbench's EER tools) are on a floating
+  palette at the top left (see [`modeler-tools.md`](modeler-tools.md)).
 - **Names are edited in place on a double-click** (table, column, layer).
   The input is sized as the text is in 2D at the zoom and laid onto its
   plane by one CSS `matrix()` (`affineTransform`; the camera is
@@ -121,9 +184,37 @@ figure sets, so the canvas knows nothing of tables or layers:
 - **100% is life size** on the user's Apple Studio Display (`screen.ts`:
   218 ppi constant, divided by `devicePixelRatio`; 297 mm = 1274.5 CSS px
   at 2x).
-- **The table list in the JSON is a stopgap**: the objects will come from
-  the CREATE statements through a language server the user will write.
-  The set reads tables through `ITableCatalog` only.
+- **The objects come from the CREATE statements**: msm's snapshot is made
+  by the language server's `mariadb-lsp outline`. The set reads them
+  through `ISchemaCatalog` only (`catalog.ts`: tables, views and routines
+  by lower-cased name, `primaryKeyColumns`, `foreignKeyOf`).
+- **Object changes go to msm, which changes the SQL** (the user: "we need
+  a proper pipeline to communicate object changes back to the msm plugin,
+  so it can update the SQL in sync"). A rename of a table or a column (in
+  place, or Rename Table) is one history action: the viewer shows it at
+  once (catalog, and every figure and connection of every diagram, as
+  msm's `rename_in_diagram` does) and posts `schemaEdit`
+  (`rename_table` / `rename_column`, the language server's edit format);
+  the panel calls `msm.edit_schema` against the snapshot's `sourceHash`
+  (after saving what waits, as msm renames the stored diagrams), and
+  sends the new snapshot back (`schemaEdited.objects`, `replaceObjects`:
+  the catalog replaced, every card laid out again). Undo sends the
+  reverse rename. A failed edit is notified and taken back where it
+  stands, its name opened again as typed (see
+  [`modeler-tools.md`](modeler-tools.md)); a stale snapshot, or a refused
+  undo or redo, has the panel read the project again. Notes msm
+  returns (what the binary could not rewrite) are a warning. Renames are
+  offered in projects only (`editable`): a live schema's VIEW is msm's.
+  msm keeps each edit's migration for the next release's update script
+  (mariadb-shell-plugins #86). msm has the binary's `mariadb-lsp edit`
+  (lsp-server) work the edits out; a shell whose binary lacks it refuses
+  the edit ("Update the MariaDB Shell"), which the viewer reports and
+  takes back like any refusal.
+
+## Figure kinds
+
+What each kind of figure is drawn as, its menu, connections between them
+and figures sized to their content: see [modeler-figures.md](modeler-figures.md).
 
 ## Tables and layers
 
@@ -254,7 +345,18 @@ are dropped when Cmd goes up, on blur and when hidden.
 
 ## Known gaps / next steps
 
-- Not yet tried in a running VS Code (the rendering was: cards, menu
+- **Rendering the viewer without VS Code**: headless Chrome
+  (`--headless=new --enable-unsafe-swiftshader --use-angle=swiftshader
+  --screenshot`) on a page with `dist/webview/modeler.{js,css}` inlined
+  (`file://` refuses module scripts; serve nothing) and a stand-in
+  `acquireVsCodeApi` that answers `ready` with a `load` (and
+  `imageWanted` with an `image`), the CSS variables of a theme on the
+  body. Build the bundle with `vite build --config
+  vite.modeler.config.ts` first.
+- Not yet tried in a running VS Code: a project's diagrams opened from
+  MSM Projects or the Explorer, the saves and drafts, the restore after a
+  restart, a rename through `msm.edit_schema`. Nor (the rendering was:
+  cards, menu
   buttons, grid, paper, Navigator and the 3D view, on the MRS model):
   the Connections view's Diagrams folder against a live schema with the
   view, the double-click, the pre-selected diagram, the Actions rows on
@@ -262,7 +364,14 @@ are dropped when Cmd goes up, on blur and when hidden.
   their tables and Option + drag.
 - A diagram row has the Diagrams folder's icon (`type-hierarchy-sub`)
   until the user designs one of its own.
-- Nothing writes the model back; the history is not shown anywhere yet.
+- A project's diagrams are saved; a live schema's never are (their
+  changes last the panel). The history is not shown anywhere yet. Tables
+  and columns are renamed; new tables, views, procedures and foreign keys
+  come from the palette (`modeler-tools.md`), through `mariadb-lsp
+  edit`'s ops; an empty diagram to start from comes from the `+` on a
+  project's Diagrams folder in the MSM Projects view (`msm.md`). Adding a
+  column to an existing table, editing a column's type and editing notes
+  in place are for later.
 - No rubber-band selection, no connection captions, no mark on a card
   that cuts content off.
 - PDF export / printing per page: the page model is there, nothing

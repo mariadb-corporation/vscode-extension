@@ -16,56 +16,83 @@
  */
 
 /**
- * A schema's diagrams: a Workbench model exported as JSON, one document per
- * row of the schema's `msm_schema_diagrams` view - the schema definition
- * (`mwb-schema/1`: the tables with their columns, foreign keys and indices)
- * and one document per EER diagram (`mwb-diagram/1`: layers, figures and
- * connections).
+ * A schema's diagrams, as msm keeps them in MSM Section 160 of a schema
+ * project: one document per row of the `msm_schema_diagrams` view - the
+ * schema snapshot (`msm-schema/1`: the objects the CREATE statements
+ * define, as the MariaDB SQL language server's outline writes them) and one
+ * document per EER diagram (`msm-diagram/1`: layers, figures and
+ * connections, with MySQL Workbench's camelCase keys). The format is msm's
+ * (mariadb-shell-plugins `msm_plugin/lib/diagrams.py`), the snapshot's
+ * objects the outline's (lsp-server `docs/outline-format.md`).
  *
- * Shared by the extension (which reads it) and the model viewer webview
- * (which draws it), so this file is free of `vscode`.
+ * Shared by the extension (which reads and saves it) and the model viewer
+ * webview (which draws it), so this file is free of `vscode`.
  */
 
-/** A column of a table. */
-export interface IModelColumn {
+/** A column of a table, as the outline writes it. */
+export interface IOutlineColumn {
     name: string;
+    /** As written: `VARCHAR(45)`, `INT UNSIGNED`. */
     type: string;
-    notNull: boolean;
-    primaryKey: boolean;
-    foreignKey: boolean;
-    default?: string;
-    comment?: string;
-    flags?: string[];
+    nullable?: boolean;
+    default?: string | null;
+    auto_increment?: boolean;
+    comment?: string | null;
 }
 
-/** A foreign key of a table. */
-export interface IModelForeignKey {
-    name: string;
-    columns: string[];
-    referencedTable: string;
-    referencedColumns: string[];
-    many: boolean;
-    mandatory: boolean;
-    referencedMandatory: boolean;
-    deleteRule: string;
-    updateRule: string;
-    modelOnly: boolean;
-}
-
-/** An index of a table. */
-export interface IModelIndex {
-    name: string;
-    type: string;
+/** An index of a table, as the outline writes it. */
+export interface IOutlineIndex {
+    /** Null where unnamed. */
+    name: string | null;
+    /** `primary`, `unique`, `index`, `fulltext`, `spatial`, `vector`. */
+    kind: string;
     columns: string[];
 }
 
-/** A table of the schema. */
-export interface IModelTable {
+/** A foreign key of a table, as msm's snapshot has it. */
+export interface IOutlineForeignKey {
+    /** Every foreign key has one: msm names unnamed ones as MariaDB does. */
     name: string;
-    comment?: string;
-    columns: IModelColumn[];
-    foreignKeys: IModelForeignKey[];
-    indices: IModelIndex[];
+    columns: string[];
+    references: {
+        schema: string | null;
+        table: string;
+        columns: string[];
+    };
+    on_delete?: string | null;
+    on_update?: string | null;
+    /** Whether rows may share a parent: no unique key covers the columns. */
+    many?: boolean;
+    /** Whether a parent needs a child (always true: SQL cannot say). */
+    mandatory?: boolean;
+    /** Whether every row needs a parent: no column is nullable. */
+    referenced_mandatory?: boolean;
+}
+
+/** A table of the snapshot. */
+export interface IOutlineTable {
+    name: string;
+    columns: IOutlineColumn[];
+    indexes?: IOutlineIndex[];
+    foreign_keys?: IOutlineForeignKey[];
+    options?: { comment?: string; [key: string]: unknown };
+}
+
+/** A view of the snapshot. */
+export interface IOutlineView {
+    name: string;
+    /** The declared column list only; empty where the SQL has none. */
+    columns?: string[];
+    definition?: string;
+}
+
+/** A procedure or function of the snapshot. */
+export interface IOutlineRoutine {
+    name: string;
+    kind?: "procedure" | "function";
+    parameters?: Array<{ mode?: string | null; name: string; type?: string }>;
+    /** What a function returns; null for a procedure. */
+    returns?: string | null;
 }
 
 /** A layer of a diagram: a coloured area grouping figures. */
@@ -82,27 +109,63 @@ export interface IModelLayer {
     figures: string[];
     /**
      * How far the layer stands above the page in the 3D view, with the
-     * tables on it. The viewer's own; Workbench has no such thing.
+     * figures on it. The viewer's own; Workbench has no such thing.
      */
     elevation?: number;
 }
 
+/** The kinds of figure msm keeps. */
+export const TABLE_FIGURE = "TableFigure";
+export const VIEW_FIGURE = "ViewFigure";
+export const ROUTINE_GROUP_FIGURE = "RoutineGroupFigure";
+export const NOTE_FIGURE = "NoteFigure";
+export const IMAGE_FIGURE = "ImageFigure";
+
+/** The colours of new figures by kind, Workbench's. */
+export const FIGURE_COLORS: Record<string, string> = {
+    [TABLE_FIGURE]: "#98BFDA",
+    [VIEW_FIGURE]: "#FEDE58",
+    [ROUTINE_GROUP_FIGURE]: "#98D8A5",
+    [NOTE_FIGURE]: "#FEFDED",
+    [IMAGE_FIGURE]: "#FFFFFF",
+};
+
 /**
- * A figure of a diagram. Only tables so far; `left` and `top` are relative
- * to the layer where the figure has one, else to the diagram.
+ * A figure of a diagram; `left` and `top` are relative to the layer where
+ * the figure has one, else to the diagram. What it shows depends on its
+ * `type` (a table where it has none).
  */
 export interface IModelFigure {
     id: string;
-    type: string;
+    type?: string;
     name: string;
     left: number;
     top: number;
-    width: number;
-    height: number;
-    color: string;
+    /** Left out, the viewer sizes the figure to what it shows. */
+    width?: number;
+    height?: number;
+    color?: string;
     /** The id of the layer the figure lies on, if any. */
     layer?: string;
+    /** A TableFigure's table. */
     table?: string;
+    /** A ViewFigure's view. */
+    view?: string;
+    /** A RoutineGroupFigure's routines, by name. */
+    routines?: string[];
+    /** A NoteFigure's text, its font (`Helvetica Bold 12`) and colour. */
+    text?: string;
+    font?: string;
+    textColor?: string;
+    /** An ImageFigure's picture, a data URL. */
+    image?: string;
+    /**
+     * An ImageFigure's picture's length, where msm left the picture out
+     * (`msm.get_schema_diagrams`); the viewer asks for it by the figure's
+     * id.
+     */
+    image_size?: number;
+    keepAspectRatio?: boolean;
     expanded?: boolean;
     columnsExpanded?: boolean;
     indicesExpanded?: boolean;
@@ -127,7 +190,7 @@ export interface IModelConnection {
 
 /** An EER diagram. */
 export interface IModelDiagram {
-    id: string;
+    id?: string;
     name: string;
     description?: string;
     width: number;
@@ -139,29 +202,39 @@ export interface IModelDiagram {
 }
 
 /**
- * A schema model as the viewer shows it: the schema definition's tables
- * and the schema's diagrams, put together from the rows of its
+ * A schema model as the viewer shows it: the snapshot's objects and the
+ * schema's diagrams, put together from the rows of its
  * `msm_schema_diagrams` view (see `assembleSchemaModel`).
  */
 export interface ISchemaModel {
     schema: string;
+    /**
+     * The snapshot's `source_hash`: what schema edits are made against,
+     * so msm can refuse them where the snapshot was made again since.
+     */
+    sourceHash?: string;
     figureNotation?: string;
     connectionNotation?: string;
-    tables: IModelTable[];
+    tables: IOutlineTable[];
+    views: IOutlineView[];
+    routines: IOutlineRoutine[];
     diagrams: IModelDiagram[];
 }
 
-/** The format of the schema definition's document. */
-export const SCHEMA_DEFINITION_FORMAT = "mwb-schema/1";
+/** The format of the schema snapshot's document. */
+export const SCHEMA_DEFINITION_FORMAT = "msm-schema/1";
 
 /** The format of a diagram's document. */
-export const DIAGRAM_FORMAT = "mwb-diagram/1";
+export const DIAGRAM_FORMAT = "msm-diagram/1";
 
-/** The schema definition: the tables the diagrams draw. */
+/** The schema snapshot: the objects the diagrams draw. */
 export interface ISchemaDefinition {
     format: typeof SCHEMA_DEFINITION_FORMAT;
     schema: string;
-    tables: IModelTable[];
+    source_hash?: string;
+    tables: IOutlineTable[];
+    views?: IOutlineView[];
+    routines?: IOutlineRoutine[];
 }
 
 /** A diagram's document: one EER diagram, in a notation. */
@@ -183,6 +256,56 @@ export interface IDiagramRow {
 export const DIAGRAMS_VIEW = "msm_schema_diagrams";
 
 /**
+ * @param figure A figure.
+ *
+ * @returns Its type: a table where it names none.
+ */
+export const figureType = (figure: IModelFigure): string => {
+    return figure.type ?? TABLE_FIGURE;
+};
+
+/**
+ * @param figure A figure.
+ *
+ * @returns Its colour: its own, else its kind's, else a table's.
+ */
+export const figureColor = (figure: IModelFigure): string => {
+    return figure.color || FIGURE_COLORS[figureType(figure)]
+        || FIGURE_COLORS[TABLE_FIGURE];
+};
+
+/**
+ * @param figures A diagram's figures.
+ *
+ * @returns The figures without their pictures, which msm keeps apart.
+ */
+export const withoutPictures = (
+    figures: IModelFigure[],
+): IModelFigure[] => {
+    return figures.map((figure) => {
+        const { image: _image, image_size: _size, ...kept } = figure;
+
+        return kept;
+    });
+};
+
+/**
+ * @param routine A routine of the snapshot.
+ *
+ * @returns The row a routine group figure shows for it, as msm's
+ *          `routine_label`: its name with the parameters' types, and what
+ *          a function returns.
+ */
+export const routineLabel = (routine: IOutlineRoutine): string => {
+    const parameters = (routine.parameters ?? []).map((parameter) => {
+        return parameter.type ?? "";
+    }).join(", ");
+    const returns = routine.returns ? `: ${routine.returns}` : "";
+
+    return `${routine.name}(${parameters})${returns}`;
+};
+
+/**
  * Parses a row's document.
  *
  * @param row The row.
@@ -190,7 +313,7 @@ export const DIAGRAMS_VIEW = "msm_schema_diagrams";
  * @returns The document as an object.
  * @throws If it is not a JSON object.
  */
-const documentOf = (row: IDiagramRow): Record<string, unknown> => {
+export const documentOf = (row: IDiagramRow): Record<string, unknown> => {
     const value: unknown = typeof row.document === "string"
         ? JSON.parse(row.document)
         : row.document;
@@ -203,15 +326,17 @@ const documentOf = (row: IDiagramRow): Record<string, unknown> => {
 
 /**
  * Puts a schema model together out of the rows of its `msm_schema_diagrams`
- * view: the one schema definition (`mwb-schema/1`), and every diagram
- * (`mwb-diagram/1`) in the order the view has them. Rows of another format
- * are skipped, so the view can grow.
+ * view: the one snapshot (`msm-schema/1`), and every diagram
+ * (`msm-diagram/1`) in the order the view has them. Rows of another format
+ * are skipped, so the view can grow. A figure msm has not placed yet (no
+ * `left` / `top`, which `msm.layout_schema_diagram` fills) is shown at the
+ * corner of its layer or the diagram.
  *
  * @param rows The view's rows.
  *
  * @returns The model.
- * @throws If there is no schema definition, no diagram, or a document of
- *         the formats read is not what they say.
+ * @throws If there is no snapshot, no diagram, or a document of the
+ *         formats read is not what they say.
  */
 export const assembleSchemaModel = (rows: readonly IDiagramRow[]): ISchemaModel => {
     let definition: ISchemaDefinition | undefined;
@@ -220,7 +345,7 @@ export const assembleSchemaModel = (rows: readonly IDiagramRow[]): ISchemaModel 
         if (row.format === SCHEMA_DEFINITION_FORMAT) {
             const document = documentOf(row);
             if (!Array.isArray(document.tables)) {
-                throw new Error("The schema definition has no tables.");
+                throw new Error("The schema snapshot has no tables.");
             }
             definition = document as unknown as ISchemaDefinition;
         } else if (row.format === DIAGRAM_FORMAT) {
@@ -230,15 +355,20 @@ export const assembleSchemaModel = (rows: readonly IDiagramRow[]): ISchemaModel 
                     throw new Error(`The diagram ${row.name} has no ${key}.`);
                 }
             }
+            const diagram = document as unknown as IDiagramDocument;
+            for (const figure of diagram.figures) {
+                figure.left = typeof figure.left === "number" ? figure.left : 0;
+                figure.top = typeof figure.top === "number" ? figure.top : 0;
+            }
             diagrams.push({
-                ...(document as unknown as IDiagramDocument),
+                ...diagram,
                 // The row's name is what the tree lists and opens.
                 name: row.name,
             });
         }
     }
     if (definition === undefined) {
-        throw new Error(`The ${DIAGRAMS_VIEW} view has no schema definition `
+        throw new Error(`The ${DIAGRAMS_VIEW} view has no schema snapshot `
             + `(${SCHEMA_DEFINITION_FORMAT}).`);
     }
     if (diagrams.length === 0) {
@@ -248,9 +378,38 @@ export const assembleSchemaModel = (rows: readonly IDiagramRow[]): ISchemaModel 
 
     return {
         schema: definition.schema,
+        ...(definition.source_hash === undefined
+            ? {} : { sourceHash: definition.source_hash }),
         figureNotation: diagrams[0].figureNotation,
         connectionNotation: diagrams[0].connectionNotation,
         tables: definition.tables,
+        views: definition.views ?? [],
+        routines: definition.routines ?? [],
         diagrams,
+    };
+};
+
+/**
+ * The document a diagram is saved as (`msm.set_schema_diagram`). The
+ * pictures stay out: msm keeps the stored picture of an image figure sent
+ * without one, by its id, so megabytes do not travel with every move.
+ *
+ * @param diagram The diagram.
+ * @param model The model, for the notations.
+ *
+ * @returns The `msm-diagram/1` document.
+ */
+export const diagramDocument = (
+    diagram: IModelDiagram,
+    model: Pick<ISchemaModel, "figureNotation" | "connectionNotation">,
+): IDiagramDocument => {
+    return {
+        ...diagram,
+        format: DIAGRAM_FORMAT,
+        ...(model.figureNotation === undefined
+            ? {} : { figureNotation: model.figureNotation }),
+        ...(model.connectionNotation === undefined
+            ? {} : { connectionNotation: model.connectionNotation }),
+        figures: withoutPictures(diagram.figures),
     };
 };

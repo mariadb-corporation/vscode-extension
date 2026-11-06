@@ -21,12 +21,22 @@ import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry }
     from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 
-import type {
-    IModelConnection,
-    IModelDiagram,
-    IModelFigure,
-    IModelLayer,
+import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
+import {
+    figureColor,
+    figureType,
+    IMAGE_FIGURE,
+    NOTE_FIGURE,
+    ROUTINE_GROUP_FIGURE,
+    TABLE_FIGURE,
+    VIEW_FIGURE,
+    type IModelConnection,
+    type IModelDiagram,
+    type IModelFigure,
+    type IModelLayer,
+    type IOutlineRoutine,
 } from "../../../src/modeler/modelFormat.js";
+import type { ISchemaObjects } from "../../../src/modeler/modelerProtocol.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
 import type {
     ICanvasHost,
@@ -38,6 +48,7 @@ import type {
     IMoveSession,
     IProbe,
     IResizeSession,
+    IToolSession,
 } from "../canvas/canvasTypes.js";
 import type { IPoint, Segment } from "../canvas/geometry.js";
 import {
@@ -45,11 +56,22 @@ import {
     DRAW_ORDER,
     planeCenter,
     polylineSegments,
+    rectSegments,
     roundedRect,
+    segmentsGeometry,
     setDrawOrder,
     Z,
 } from "../canvas/threeHelpers.js";
-import type { ITableCatalog } from "./catalog.js";
+import { foreignKeyOf, sameName, type ISchemaCatalog } from "./catalog.js";
+import {
+    DiagramTools,
+    type IPickedImage,
+    type IToolEdit,
+    type IToolHighlight,
+    type IToolHit,
+    type IToolPanel,
+    type IToolTarget,
+} from "./diagramTools.js";
 import {
     crowsFoot,
     oneMarker,
@@ -67,18 +89,33 @@ import {
     MIN_LAYER_WIDTH,
 } from "./layerRules.js";
 import {
+    drawImageFigure,
+    drawNote,
+    plainFigureSize,
+    sizedPicture,
+    cssFont,
+    parseWorkbenchFont,
+} from "./noteCard.js";
+import {
     CARD,
     cardItemAt,
+    cardWidth,
     contrastingText,
     drawLabel,
     drawTableCard,
     editRect,
-    layoutTableCard,
+    layoutCard,
     MIN_FIGURE_WIDTH,
+    routineCardContent,
+    tableCardContent,
     tableOf,
+    viewCardContent,
+    viewOf,
     type CardIcons,
+    type ICardContent,
     type ICardItem,
     type ICardLayout,
+    type MeasureText,
 } from "./tableCard.js";
 
 /**
@@ -123,9 +160,6 @@ const MAX_LAYER_ELEVATION = 240;
 
 /** The texture scales a card is drawn at: device pixels per unit. */
 const RASTER_STEPS = [0.25, 0.5, 1, 2, 3, 4];
-
-/** The colour of a figure that has none. */
-const DEFAULT_FIGURE_COLOR = "#98BFDA";
 
 /**
  * Where the light comes from that shades the slabs' sides, in the plane's
@@ -289,8 +323,16 @@ const sameState = <T extends object>(a: T, b: T): boolean => {
     });
 };
 
-/** A table on the canvas. */
-interface ITableNode {
+/**
+ * What a figure is drawn as: a card (a table, a view, a routine group),
+ * a note, or a picture (an image; a figure of a type the viewer does not
+ * know is a frame saying so).
+ */
+type FigureKind = "table" | "view" | "routines" | "note" | "picture";
+
+/** A figure on the canvas. */
+interface IFigureNode {
+    kind: FigureKind;
     figure: IModelFigure;
     /** The layer the table is filed under, if any. */
     layer?: IModelLayer;
@@ -320,22 +362,98 @@ interface ILayerNode {
 /** A foreign key on the canvas. */
 interface IConnectionNode {
     connection: IModelConnection;
-    start: ITableNode;
-    end: ITableNode;
+    start: IFigureNode;
+    end: IFigureNode;
     line: LineSegments2;
+    /** Whether rows may share a parent: a crow's foot, else a bar. */
+    many: boolean;
     mandatory: boolean;
     referencedMandatory: boolean;
 }
 
 /** What the set needs to be made. */
 export interface IEerFigureSetOptions {
-    /** Where the tables' columns, keys and indices come from. */
-    catalog: ITableCatalog;
+    /** Where the figures' tables, views and routines come from. */
+    catalog: ISchemaCatalog;
     /** Every diagram of the model: a renamed table is renamed on all. */
     diagrams: IModelDiagram[];
     /** Loads the card icons in a colour. */
     loadIcons: (color: string) => Promise<CardIcons>;
+    /**
+     * Whether schema objects can be renamed: an MSM project's, which msm
+     * changes in the SQL. A live schema's view is msm's to write.
+     */
+    editable?: boolean;
+    /**
+     * Sends schema edits on, once the viewer shows them; with the diagrams
+     * the change changed too (a figure placed for a new table), which are
+     * saved only once the edit is made.
+     */
+    onSchemaEdit?: (edits: IMsmSchemaEdit[], diagrams?: IModelDiagram[],
+        failed?: (message: string) => void) => void;
+    /** Asks for a picture to place: the image tool's file dialog. */
+    pickImage?: () => Promise<IPickedImage | undefined>;
+    /** Shows the existing-columns relationship's panel, or no more. */
+    onToolPanel?: (panel?: IToolPanel) => void;
+    /** Asks for the picture msm left out of an image figure. */
+    requestImage?: (diagram: string, figureId: string) => void;
 }
+
+/** A picture of an image figure, or why there is none yet. */
+interface IPicture {
+    image?: HTMLImageElement;
+    status: string;
+}
+
+/**
+ * @param figure A figure.
+ *
+ * @returns What it is drawn as.
+ */
+const kindOf = (figure: IModelFigure): FigureKind => {
+    switch (figureType(figure)) {
+        case TABLE_FIGURE: {
+            return "table";
+        }
+
+        case VIEW_FIGURE: {
+            return "view";
+        }
+
+        case ROUTINE_GROUP_FIGURE: {
+            return "routines";
+        }
+
+        case NOTE_FIGURE: {
+            return "note";
+        }
+
+        default: {
+            return "picture";
+        }
+    }
+};
+
+/**
+ * @param diagram A diagram's name.
+ * @param figureId A figure of it.
+ *
+ * @returns The key its picture is kept under: figure ids are a diagram's
+ *          own, so the same id can stand for another picture elsewhere.
+ */
+const pictureKey = (diagram: string, figureId: string): string => {
+    return `${diagram}\u0000${figureId}`;
+};
+
+/**
+ * @param kind What a figure is drawn as.
+ *
+ * @returns Whether it is a card: a schema object's, with a header and a
+ *          menu, laid out from its content.
+ */
+const isCard = (kind: FigureKind): boolean => {
+    return kind !== "note" && kind !== "picture";
+};
 
 export class EerFigureSet implements IFigureSet {
     readonly #options: IEerFigureSetOptions;
@@ -352,20 +470,38 @@ export class EerFigureSet implements IFigureSet {
     /** The layers' stacking, by id: see `#restack`. */
     #stackRanks = new Map<string, number>();
     /** The tables whose cards are to be drawn again, on the next frame. */
-    #rasterQueue = new Set<ITableNode>();
+    #rasterQueue = new Set<IFigureNode>();
     #rasterFrame?: number;
     /** The cards, for hit-testing: kept, since the pointer asks often. */
     #cardMeshes: THREE.Object3D[] = [];
-    #tables = new Map<string, ITableNode>();
+    /**
+     * The image figures' pictures, by `pictureKey`, kept across diagrams:
+     * a picture can be placed on several diagrams, each figure sized and
+     * placed as that diagram has it.
+     */
+    readonly #pictures = new Map<string, IPicture>();
+    /** The pictures asked of the extension, so each is asked once. */
+    readonly #picturesAsked = new Set<string>();
+    /** Measures texts for the figures sized to their content. */
+    #measureContext?: CanvasRenderingContext2D | null;
+    #figures = new Map<string, IFigureNode>();
     #layers = new Map<string, ILayerNode>();
     #connections: IConnectionNode[] = [];
     /** What this set drew into the canvas's groups, to remove it. */
     #base = new THREE.Group();
     #lifted = new THREE.Group();
+    /** The palette's tools, which place and connect figures. */
+    readonly #tools: DiagramTools;
+    /** What a relationship tool marks, and the marks drawn for it. */
+    #toolHighlight?: IToolHighlight;
+    #highlightMarks: THREE.Object3D[] = [];
+    /** The marks of the area a layer is dragged out over. */
+    #bandMarks: THREE.Object3D[] = [];
 
     public constructor(options: IEerFigureSetOptions) {
         this.#options = options;
         this.#diagram = options.diagrams[0];
+        this.#tools = new DiagramTools(this.#toolTarget());
     }
 
     /** The diagram shown. */
@@ -401,7 +537,7 @@ export class EerFigureSet implements IFigureSet {
             this.#buildLayer(layer);
         }
         for (const figure of this.#diagram.figures) {
-            this.#buildTable(figure);
+            this.#buildFigure(figure);
         }
         for (const connection of this.#diagram.connections) {
             this.#buildConnection(connection);
@@ -422,10 +558,13 @@ export class EerFigureSet implements IFigureSet {
         disposeGroup(this.#lifted);
         this.#base.removeFromParent();
         this.#lifted.removeFromParent();
-        this.#tables.clear();
+        this.#figures.clear();
         this.#cardMeshes = [];
         this.#layers.clear();
         this.#connections = [];
+        // Disposed with the groups.
+        this.#highlightMarks = [];
+        this.#bandMarks = [];
         this.#host = undefined;
     }
 
@@ -436,11 +575,11 @@ export class EerFigureSet implements IFigureSet {
     // --- Items ----------------------------------------------------------------
 
     public item(id: string): ICanvasItem | undefined {
-        return this.#tables.get(id)?.item ?? this.#layers.get(id)?.item;
+        return this.#figures.get(id)?.item ?? this.#layers.get(id)?.item;
     }
 
     public itemAt(probe: IProbe): ICanvasItem | undefined {
-        const table = this.#tableHit(probe);
+        const table = this.#figureHit(probe);
         if (table !== undefined) {
             return table.node.item;
         }
@@ -449,14 +588,14 @@ export class EerFigureSet implements IFigureSet {
     }
 
     /** The table card under the pointer, and the point on it. */
-    #tableHit(
+    #figureHit(
         probe: IProbe,
-    ): { node: ITableNode; uv: THREE.Vector2 } | undefined {
+    ): { node: IFigureNode; uv: THREE.Vector2 } | undefined {
         const hit = probe.raycaster.intersectObjects(this.#cardMeshes, false)[0];
         if (hit === undefined || hit.uv === undefined) {
             return undefined;
         }
-        const node = this.#tables.get(
+        const node = this.#figures.get(
             (hit.object.userData as { figureId: string }).figureId);
 
         return node === undefined ? undefined : { node, uv: hit.uv };
@@ -485,7 +624,7 @@ export class EerFigureSet implements IFigureSet {
     }
 
     /** @returns Where a table is on the page. */
-    #tableRect(node: ITableNode): IRect {
+    #figureRect(node: IFigureNode): IRect {
         return {
             left: node.figure.left + (node.layer?.left ?? 0),
             top: node.figure.top + (node.layer?.top ?? 0),
@@ -628,8 +767,8 @@ export class EerFigureSet implements IFigureSet {
      *
      * @param node The table.
      */
-    #fileUnderLayer(node: ITableNode): void {
-        const rect = this.#tableRect(node);
+    #fileUnderLayer(node: IFigureNode): void {
+        const rect = this.#figureRect(node);
         const target = layerUnder(rect, this.#diagram.layers);
         if (target?.id === node.figure.layer) {
             return;
@@ -638,7 +777,7 @@ export class EerFigureSet implements IFigureSet {
         node.figure.top = rect.top - (target?.top ?? 0);
         node.figure.layer = target?.id;
         node.layer = target;
-        this.#placeTable(node);
+        this.#placeFigure(node);
     }
 
     /**
@@ -646,21 +785,20 @@ export class EerFigureSet implements IFigureSet {
      *
      * @returns The tables lying fully on it, whatever they are filed under.
      */
-    #tablesOn(layer: IModelLayer): ITableNode[] {
+    #tablesOn(layer: IModelLayer): IFigureNode[] {
         const rect = layerRect(layer);
 
-        return [...this.#tables.values()].filter((node) => {
-            return containsRect(rect, this.#tableRect(node));
+        return [...this.#figures.values()].filter((node) => {
+            return containsRect(rect, this.#figureRect(node));
         });
     }
 
     // --- Tables -----------------------------------------------------------
 
-    #buildTable(figure: IModelFigure): void {
+    #buildFigure(figure: IModelFigure): void {
         const host = this.#host!;
-        const table = this.#options.catalog.table(tableOf(figure));
-        const layout = layoutTableCard(table, figure);
-        keepAutoHeight(figure, layout);
+        const kind = kindOf(figure);
+        const layout = this.#layoutOf(kind, figure);
         const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
             new THREE.MeshBasicMaterial({ transparent: true }));
         mesh.userData = { figureId: figure.id };
@@ -681,9 +819,13 @@ export class EerFigureSet implements IFigureSet {
             }));
         setDrawOrder(shadow, DRAW_ORDER.shadows);
         this.#base.add(shadow);
+        // A picture lies on its layer as it is: no card under it, which
+        // would show through a transparent one.
+        slab.visible = shadow.visible = kind !== "picture";
 
-        const color = figure.color || DEFAULT_FIGURE_COLOR;
-        const node: ITableNode = {
+        const card = isCard(kind);
+        const node: IFigureNode = {
+            kind,
             figure,
             layer: this.#layerById(figure.layer),
             layout,
@@ -694,27 +836,226 @@ export class EerFigureSet implements IFigureSet {
             item: {
                 id: figure.id,
                 plane: "lifted",
-                rect: () => { return this.#tableRect(node); },
+                rect: () => { return this.#figureRect(node); },
                 resizable: true,
                 minWidth: MIN_FIGURE_WIDTH,
-                minHeight: CARD.headerHeight,
+                minHeight: card ? CARD.headerHeight : 20,
                 elevation: () => { return this.#elevation(node.layer); },
-                menuBand: {
-                    top: 0,
-                    height: CARD.headerHeight,
-                    color: contrastingText(color),
-                },
+                // Notes and pictures have no header, and no menu.
+                ...(card ? {
+                    menuBand: {
+                        top: 0,
+                        height: CARD.headerHeight,
+                        color: contrastingText(figureColor(figure)),
+                    },
+                } : {}),
             },
         };
-        this.#tables.set(figure.id, node);
+        this.#figures.set(figure.id, node);
         this.#cardMeshes.push(mesh);
-        this.#placeTable(node);
+        if (kind === "picture") {
+            this.#preparePicture(figure);
+        }
+        this.#placeFigure(node);
         void this.#raster(node);
     }
 
+    /**
+     * Lays a figure out for what it shows. A figure without a width gets
+     * the one its content needs, and keeps it; a card's height follows its
+     * content unless sized by hand.
+     *
+     * @param kind What the figure is drawn as.
+     * @param figure The figure.
+     *
+     * @returns The layout; a note's and a picture's have no items.
+     */
+    #layoutOf(kind: FigureKind, figure: IModelFigure): ICardLayout {
+        if (!isCard(kind)) {
+            const font = cssFont(parseWorkbenchFont(figure.font),
+                this.#host?.theme.fontFamily ?? "sans-serif");
+            const size = plainFigureSize(figure, (line) => {
+                return this.#measureIn(font, line);
+            });
+            figure.width = size.width;
+            figure.height = size.height;
+
+            return { ...size, contentHeight: size.height, items: [] };
+        }
+        const content = this.#contentOf(kind, figure);
+        figure.width ??= cardWidth(content, this.#measure);
+        const layout = layoutCard(content, figure);
+        keepAutoHeight(figure, layout);
+
+        return layout;
+    }
+
+    /**
+     * @param kind A card's kind.
+     * @param figure The figure.
+     *
+     * @returns What its card shows, from the catalog.
+     */
+    #contentOf(kind: FigureKind, figure: IModelFigure): ICardContent {
+        const catalog = this.#options.catalog;
+        switch (kind) {
+            case "view": {
+                return viewCardContent(catalog.view(viewOf(figure)), figure);
+            }
+
+            case "routines": {
+                const routines = (figure.routines ?? []).map((name) => {
+                    return catalog.routine(name);
+                }).filter((routine): routine is IOutlineRoutine => {
+                    return routine !== undefined;
+                });
+
+                return routineCardContent(routines, figure);
+            }
+
+            default: {
+                return tableCardContent(catalog.table(tableOf(figure)), figure,
+                    this.#options.editable === true);
+            }
+        }
+    }
+
+    /** Measures a text in a card's fonts, in diagram units. */
+    readonly #measure: MeasureText = (text, font) => {
+        const family = this.#host?.theme.fontFamily ?? "sans-serif";
+        const css = font === "title"
+            ? `bold ${String(CARD.titleFontSize)}px ${family}`
+            : `${font === "detail" ? "italic " : ""}`
+                + `${String(CARD.rowFontSize)}px ${family}`;
+
+        return this.#measureIn(css, text);
+    };
+
+    /**
+     * @param font A CSS font.
+     * @param text A text.
+     *
+     * @returns Its width; an estimate where the page cannot measure.
+     */
+    #measureIn(font: string, text: string): number {
+        if (this.#measureContext === undefined) {
+            this.#measureContext = document.createElement("canvas")
+                .getContext("2d");
+        }
+        const context = this.#measureContext;
+        if (context === null) {
+            return text.length * 6.2;
+        }
+        context.font = font;
+
+        return context.measureText(text).width;
+    }
+
+    /**
+     * Loads an image figure's picture, or asks the extension for it where
+     * msm left it out; the figure is drawn again once it is there.
+     */
+    #preparePicture(figure: IModelFigure): void {
+        const key = pictureKey(this.#diagram.name, figure.id);
+        if (this.#pictures.has(key)) {
+            return;
+        }
+        if (figureType(figure) !== IMAGE_FIGURE) {
+            this.#pictures.set(key, {
+                status: `A figure of the type ${figureType(figure)}, `
+                    + "which the viewer does not show",
+            });
+
+            return;
+        }
+        if (figure.image !== undefined) {
+            this.#loadPicture(figure, figure.image);
+
+            return;
+        }
+        if (figure.image_size !== undefined && this.#options.requestImage) {
+            this.#pictures.set(key, { status: "Loading the picture…" });
+            if (!this.#picturesAsked.has(key)) {
+                this.#picturesAsked.add(key);
+                this.#options.requestImage(this.#diagram.name, figure.id);
+            }
+
+            return;
+        }
+        this.#pictures.set(key, { status: "No picture" });
+    }
+
+    /** Loads a picture from its data URL, then draws its figure again. */
+    #loadPicture(figure: IModelFigure, dataUrl: string): void {
+        const diagram = this.#diagram.name;
+        const key = pictureKey(diagram, figure.id);
+        this.#pictures.set(key, { status: "Loading the picture…" });
+        const image = new Image();
+        image.onload = () => {
+            this.#pictures.set(key, { image, status: "" });
+            this.#redrawFigure(diagram, figure.id);
+        };
+        image.onerror = () => {
+            this.#pictures.set(key, {
+                status: "The picture cannot be shown",
+            });
+            this.#redrawFigure(diagram, figure.id);
+        };
+        image.src = sizedPicture(dataUrl, figure.width ?? 160,
+            figure.height ?? 60);
+    }
+
+    /** Draws a figure of a diagram again, where that diagram is shown. */
+    #redrawFigure(diagram: string, id: string): void {
+        if (diagram !== this.#diagram.name) {
+            return;
+        }
+        const node = this.#figures.get(id);
+        if (node !== undefined) {
+            node.rasterScale = 0;
+            this.#requestRaster(node);
+        }
+    }
+
+    /**
+     * Takes the picture of an image figure the extension was asked for.
+     *
+     * @param diagram The figure's diagram.
+     * @param figureId The figure.
+     * @param image The picture, a data URL; none where it could not be
+     *              had.
+     * @param error Why not.
+     */
+    public pictureArrived(diagram: string, figureId: string, image?: string,
+        error?: string): void {
+        const figure = this.#options.diagrams.find((candidate) => {
+            return candidate.name === diagram;
+        })?.figures.find((candidate) => { return candidate.id === figureId; });
+        if (figure === undefined) {
+            return;
+        }
+        const key = pictureKey(diagram, figureId);
+        if (image === undefined) {
+            this.#pictures.set(key, {
+                status: `The picture could not be read: ${error ?? ""}`,
+            });
+            this.#redrawFigure(diagram, figureId);
+
+            return;
+        }
+        // Kept with the figure, so another diagram's mount has it; a save
+        // leaves it out (`diagramDocument`).
+        figure.image = image;
+        // Loaded now where its diagram is shown, else when it is.
+        this.#pictures.delete(key);
+        if (diagram === this.#diagram.name) {
+            this.#preparePicture(figure);
+        }
+    }
+
     /** Puts a table's card, slab and shadow where its rectangle is. */
-    #placeTable(node: ITableNode): void {
-        const rect = this.#tableRect(node);
+    #placeFigure(node: IFigureNode): void {
+        const rect = this.#figureRect(node);
         const center = planeCenter(rect);
 
         // The shapes depend on the size alone; a move only moves them.
@@ -726,7 +1067,7 @@ export class EerFigureSet implements IFigureSet {
                 rect.height);
             node.slab.geometry.dispose();
             node.slab.geometry = slabGeometry(rect.width, rect.height,
-                new THREE.Color(node.figure.color || DEFAULT_FIGURE_COLOR));
+                new THREE.Color(figureColor(node.figure)));
             node.shadow.geometry.dispose();
             node.shadow.geometry = shadowGeometry(rect.width, rect.height);
         }
@@ -747,11 +1088,9 @@ export class EerFigureSet implements IFigureSet {
      * drawn again on the next frame; its connections are the caller's to
      * route, once for everything it changed.
      */
-    #relayout(node: ITableNode): void {
-        node.layout = layoutTableCard(this.#options.catalog.table(
-            tableOf(node.figure)), node.figure);
-        keepAutoHeight(node.figure, node.layout);
-        this.#placeTable(node);
+    #relayout(node: IFigureNode): void {
+        node.layout = this.#layoutOf(node.kind, node.figure);
+        this.#placeFigure(node);
         node.rasterScale = 0;
         this.#requestRaster(node);
     }
@@ -760,7 +1099,7 @@ export class EerFigureSet implements IFigureSet {
      * Draws a table's card again on the next frame, once however often it
      * is asked for until then: a resize drag asks on every pointer move.
      */
-    #requestRaster(node: ITableNode): void {
+    #requestRaster(node: IFigureNode): void {
         this.#rasterQueue.add(node);
         this.#rasterFrame ??= requestAnimationFrame(() => {
             this.#rasterFrame = undefined;
@@ -798,7 +1137,7 @@ export class EerFigureSet implements IFigureSet {
     }
 
     /** Draws a table's card at the zoom's scale, where it is not yet. */
-    async #raster(node: ITableNode): Promise<void> {
+    async #raster(node: IFigureNode): Promise<void> {
         const host = this.#host;
         const scale = this.#wantedRasterScale();
         if (host === undefined || node.rasterScale === scale
@@ -808,13 +1147,24 @@ export class EerFigureSet implements IFigureSet {
         // In the header's TEXT colour: the figure's own colour is the
         // header's background, on which the icon would not show.
         const headerIcons = await this.#iconsIn(
-            contrastingText(node.figure.color || DEFAULT_FIGURE_COLOR));
-        if (this.#tables.get(node.figure.id) !== node) {
+            contrastingText(figureColor(node.figure)));
+        if (this.#figures.get(node.figure.id) !== node) {
             return;
         }
         node.rasterScale = scale;
-        const canvas = drawTableCard(node.layout, node.figure, host.theme,
-            this.#icons, headerIcons, scale);
+        const { width, height } = node.layout;
+        let canvas: HTMLCanvasElement;
+        if (node.kind === "note") {
+            canvas = drawNote(node.figure, width, height, host.theme, scale);
+        } else if (node.kind === "picture") {
+            const picture = this.#pictures.get(
+                pictureKey(this.#diagram.name, node.figure.id));
+            canvas = drawImageFigure(node.figure, width, height,
+                picture?.image, picture?.status ?? "", host.theme, scale);
+        } else {
+            canvas = drawTableCard(node.layout, node.figure, host.theme,
+                this.#icons, headerIcons, scale);
+        }
         const texture = new THREE.CanvasTexture(canvas);
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.anisotropy = host.maxAnisotropy;
@@ -827,15 +1177,15 @@ export class EerFigureSet implements IFigureSet {
     // --- Connections ----------------------------------------------------------
 
     #buildConnection(connection: IModelConnection): void {
-        const start = this.#tables.get(connection.startFigure);
-        const end = this.#tables.get(connection.endFigure);
-        if (start === undefined || end === undefined) {
+        const start = this.#figures.get(connection.startFigure);
+        const end = this.#figures.get(connection.endFigure);
+        // Foreign keys join tables; views and routines have none.
+        if (start?.kind !== "table" || end?.kind !== "table") {
             return;
         }
-        const foreignKey = this.#options.catalog.table(connection.table)
-            ?.foreignKeys.find((candidate) => {
-                return candidate.name === connection.foreignKey;
-            });
+        const foreignKey = foreignKeyOf(
+            this.#options.catalog.table(connection.table),
+            connection.foreignKey);
         const line = new LineSegments2(new LineSegmentsGeometry(),
             new LineMaterial({
                 color: new THREE.Color(this.#host!.theme.connection),
@@ -846,8 +1196,9 @@ export class EerFigureSet implements IFigureSet {
         this.#lifted.add(line);
         const node: IConnectionNode = {
             connection, start, end, line,
+            many: foreignKey?.many ?? true,
             mandatory: foreignKey?.mandatory ?? true,
-            referencedMandatory: foreignKey?.referencedMandatory ?? true,
+            referencedMandatory: foreignKey?.referenced_mandatory ?? true,
         };
         this.#connections.push(node);
         this.#route(node);
@@ -858,8 +1209,8 @@ export class EerFigureSet implements IFigureSet {
      * table it starts at to that of the one it ends at.
      */
     #route(node: IConnectionNode): void {
-        const route = routeConnection(this.#tableRect(node.start),
-            this.#tableRect(node.end));
+        const route = routeConnection(this.#figureRect(node.start),
+            this.#figureRect(node.end));
         const lift = this.#host?.lift() ?? 0;
         const startZ = this.#elevation(node.start.layer) * lift + Z.connection;
         const endZ = this.#elevation(node.end.layer) * lift + Z.connection;
@@ -888,8 +1239,8 @@ export class EerFigureSet implements IFigureSet {
             };
         };
         segments.push(
-            ...crowsFoot(route.points[0], route.startSide, node.mandatory)
-                .map(at(startZ)),
+            ...(node.many ? crowsFoot : oneMarker)(route.points[0],
+                route.startSide, node.mandatory).map(at(startZ)),
             ...oneMarker(route.points[route.points.length - 1], route.endSide,
                 node.referencedMandatory).map(at(endZ)),
         );
@@ -909,7 +1260,7 @@ export class EerFigureSet implements IFigureSet {
      *
      * @param tables The tables that moved or changed.
      */
-    #routeOf(tables: ReadonlySet<ITableNode>): void {
+    #routeOf(tables: ReadonlySet<IFigureNode>): void {
         for (const node of this.#connections) {
             if (tables.has(node.start) || tables.has(node.end)) {
                 this.#route(node);
@@ -922,8 +1273,8 @@ export class EerFigureSet implements IFigureSet {
      *
      * @returns The tables filed under it.
      */
-    #filedUnder(layer: IModelLayer): ITableNode[] {
-        return [...this.#tables.values()].filter((node) => {
+    #filedUnder(layer: IModelLayer): IFigureNode[] {
+        return [...this.#figures.values()].filter((node) => {
             return node.figure.layer === layer.id;
         });
     }
@@ -943,14 +1294,15 @@ export class EerFigureSet implements IFigureSet {
         for (const node of this.#layers.values()) {
             this.#placeLayer(node);
         }
-        for (const node of this.#tables.values()) {
-            this.#placeTable(node);
+        for (const node of this.#figures.values()) {
+            this.#placeFigure(node);
         }
         this.#routeAll();
+        this.#drawHighlight();
     }
 
     public zoomSettled(): void {
-        for (const node of this.#tables.values()) {
+        for (const node of this.#figures.values()) {
             void this.#raster(node);
         }
     }
@@ -960,8 +1312,8 @@ export class EerFigureSet implements IFigureSet {
     public beginMove(ids: readonly string[]): IMoveSession {
         const layers = ids.map((id) => { return this.#layers.get(id); })
             .filter((node): node is ILayerNode => { return node !== undefined; });
-        const tables = ids.map((id) => { return this.#tables.get(id); })
-            .filter((node): node is ITableNode => { return node !== undefined; });
+        const tables = ids.map((id) => { return this.#figures.get(id); })
+            .filter((node): node is IFigureNode => { return node !== undefined; });
         // What moves: the selected tables, and every table lying fully on
         // a selected layer.
         const carried = new Set(tables);
@@ -979,8 +1331,8 @@ export class EerFigureSet implements IFigureSet {
                     node.layer.top += dy;
                     this.#placeLayer(node);
                 }
-                const placed = new Set<ITableNode>();
-                for (const node of this.#tables.values()) {
+                const placed = new Set<IFigureNode>();
+                for (const node of this.#figures.values()) {
                     // A table's position is its layer's plus its own: one
                     // carried along keeps its layer's share, one whose
                     // layer moves without it gives that share back.
@@ -993,7 +1345,7 @@ export class EerFigureSet implements IFigureSet {
                         node.figure.top += share * dy;
                     }
                     if (isCarried || layerMoves) {
-                        this.#placeTable(node);
+                        this.#placeFigure(node);
                         placed.add(node);
                     }
                 }
@@ -1024,7 +1376,7 @@ export class EerFigureSet implements IFigureSet {
         if (layer !== undefined) {
             return this.#resizeLayer(layer);
         }
-        const node = this.#tables.get(id)!;
+        const node = this.#figures.get(id)!;
 
         return {
             resizeTo: (rect, handle) => {
@@ -1072,7 +1424,7 @@ export class EerFigureSet implements IFigureSet {
                 for (const table of filed) {
                     table.figure.left -= dx;
                     table.figure.top -= dy;
-                    this.#placeTable(table);
+                    this.#placeFigure(table);
                 }
                 // A new size can change the stacking of every layer.
                 this.#restack();
@@ -1083,9 +1435,9 @@ export class EerFigureSet implements IFigureSet {
             },
             finish: () => {
                 const rect = layerRect(layer);
-                for (const table of this.#tables.values()) {
+                for (const table of this.#figures.values()) {
                     if (table.figure.layer === layer.id
-                        || containsRect(rect, this.#tableRect(table))) {
+                        || containsRect(rect, this.#figureRect(table))) {
                         this.#fileUnderLayer(table);
                     }
                 }
@@ -1112,7 +1464,7 @@ export class EerFigureSet implements IFigureSet {
                 this.#placeLayer(node);
                 const filed = new Set(this.#filedUnder(node.layer));
                 for (const table of filed) {
-                    this.#placeTable(table);
+                    this.#placeFigure(table);
                 }
                 this.#routeOf(filed);
             },
@@ -1172,12 +1524,12 @@ export class EerFigureSet implements IFigureSet {
         for (const node of this.#layers.values()) {
             this.#placeLayer(node);
         }
-        for (const node of this.#tables.values()) {
+        for (const node of this.#figures.values()) {
             node.layer = this.#layerById(node.figure.layer);
             if (changed.has(node.figure)) {
                 this.#relayout(node);
             } else {
-                this.#placeTable(node);
+                this.#placeFigure(node);
             }
         }
         this.#routeAll();
@@ -1198,12 +1550,39 @@ export class EerFigureSet implements IFigureSet {
                     disabled: empty },
             ];
         }
-        const node = this.#tables.get(id);
-        if (node === undefined) {
+        const node = this.#figures.get(id);
+        if (node === undefined || !isCard(node.kind)) {
             return [];
         }
         const figure = node.figure;
         const expanded = figure.expanded !== false;
+        const autoSize: IMenuEntry = {
+            id: "autoSize",
+            caption: "Auto-Size Height",
+            disabled: figure.manualSizing !== true,
+        };
+        if (node.kind === "routines") {
+            return this.#options.editable === true
+                ? [{ id: "addRoutine", caption: "Add Routine" },
+                    { id: "separator1" }, autoSize]
+                : [autoSize];
+        }
+        if (node.kind === "view") {
+            return [
+                { id: "toggleExpanded",
+                    caption: expanded ? "Collapse" : "Expand" },
+                { id: "separator1" },
+                autoSize,
+            ];
+        }
+        // Names are changed in the SQL, through msm: a project's only.
+        const rename: IMenuEntry[] = this.#options.editable === true
+            ? [{
+                id: "rename",
+                caption: "Rename Table",
+                disabled: node.layout.items[0]?.editable !== true,
+            }]
+            : [];
 
         return [
             { id: "toggleExpanded", caption: expanded ? "Collapse" : "Expand" },
@@ -1221,16 +1600,8 @@ export class EerFigureSet implements IFigureSet {
                 disabled: !expanded,
             },
             { id: "separator2" },
-            {
-                id: "autoSize",
-                caption: "Auto-Size Height",
-                disabled: figure.manualSizing !== true,
-            },
-            {
-                id: "rename",
-                caption: "Rename Table",
-                disabled: node.layout.items[0]?.editable !== true,
-            },
+            autoSize,
+            ...rename,
         ];
     }
 
@@ -1245,7 +1616,7 @@ export class EerFigureSet implements IFigureSet {
 
             return;
         }
-        const node = this.#tables.get(id);
+        const node = this.#figures.get(id);
         if (node === undefined) {
             return;
         }
@@ -1285,6 +1656,11 @@ export class EerFigureSet implements IFigureSet {
                 break;
             }
 
+            case "addRoutine": {
+                this.#tools.addRoutine(node.figure.id);
+                break;
+            }
+
             case "rename": {
                 const title = node.layout.items[0];
                 if (title?.editable === true) {
@@ -1314,7 +1690,7 @@ export class EerFigureSet implements IFigureSet {
             case "fitToTables": {
                 const tables = this.#tablesOn(node.layer);
                 const rect = fitAround(tables.map((table) => {
-                    return this.#tableRect(table);
+                    return this.#figureRect(table);
                 }));
                 if (rect === undefined) {
                     return;
@@ -1334,9 +1710,9 @@ export class EerFigureSet implements IFigureSet {
     // --- Editing names ------------------------------------------------------
 
     public doubleClick(id: string, probe: IProbe): void {
-        const hit = this.#tableHit(probe);
+        const hit = this.#figureHit(probe);
         if (hit !== undefined && hit.node.figure.id === id) {
-            const rect = this.#tableRect(hit.node);
+            const rect = this.#figureRect(hit.node);
             // The plane's UV runs from its bottom left; the card's items
             // are measured from its top left.
             const item = cardItemAt(hit.node.layout, hit.uv.x * rect.width,
@@ -1360,21 +1736,27 @@ export class EerFigureSet implements IFigureSet {
         }
     }
 
-    /** Opens the input over a table's or column's name. */
-    #editCardItem(node: ITableNode, item: ICardItem): void {
+    /**
+     * Opens the input over a table's or column's name.
+     *
+     * @param node The table's figure.
+     * @param item The name's item.
+     * @param text What the input holds: the name, or one msm refused.
+     */
+    #editCardItem(node: IFigureNode, item: ICardItem, text = item.text): void {
         const title = item.kind === "title";
         const spec: IEditSpec = {
-            text: item.text,
+            text,
             label: title ? "Table name" : "Column name",
             bold: title,
             fontSize: title ? CARD.titleFontSize : CARD.rowFontSize,
             plane: "lifted",
             elevation: () => { return this.#elevation(node.layer); },
             area: () => {
-                if (this.#tables.get(node.figure.id) !== node) {
+                if (this.#figures.get(node.figure.id) !== node) {
                     return undefined;
                 }
-                const rect = this.#tableRect(node);
+                const rect = this.#figureRect(node);
                 const area = editRect(item);
 
                 return { ...area, left: rect.left + area.left,
@@ -1423,57 +1805,130 @@ export class EerFigureSet implements IFigureSet {
         });
     }
 
-    /** Renames a table or a column, as one action of the history. */
-    #renameCardItem(node: ITableNode, item: ICardItem, text: string): void {
+    /**
+     * Renames a table or a column, as one action of the history: shown at
+     * once, and sent to msm, which makes the change in the SQL (and, once
+     * done, sends the snapshot that says so: `replaceObjects`). Undone, the
+     * name goes back the same way.
+     */
+    #renameCardItem(node: IFigureNode, item: ICardItem, text: string): void {
         const host = this.#host;
         const catalog = this.#options.catalog;
         const name = text.trim();
         if (host === undefined || name === "" || name === item.text) {
             return;
         }
-        const tableName = tableOf(node.figure);
-        if (catalog.table(tableName) === undefined) {
+        const table = catalog.table(tableOf(node.figure));
+        if (table === undefined) {
             return;
         }
+        const tableName = table.name;
         if (item.kind === "title") {
-            if (catalog.table(name) !== undefined) {
+            const other = catalog.table(name);
+            if (other !== undefined && other !== table) {
                 // Another table has that name; two would be one.
                 return;
             }
-            host.history.execute({
+            const rename = (from: string, to: string,
+                failed?: (message: string) => void): void => {
+                this.#renameTable(from, to);
+                this.#options.onSchemaEdit?.([{
+                    op: "rename_table", table: from, new_name: to,
+                }], undefined, failed);
+            };
+            const action = {
                 label: `Rename Table ${tableName} to ${name}`,
-                undo: () => { this.#renameTable(name, tableName); },
-                redo: () => { this.#renameTable(tableName, name); },
+                undo: () => { rename(name, tableName); },
+                redo: () => { rename(tableName, name); },
+            };
+            rename(tableName, name, (message) => {
+                // Refused: the old name again, and the input over it with
+                // the name typed, to fix.
+                host.history.discard(action);
+                this.#renameTable(name, tableName);
+                host.hint(message);
+                this.#reopenRename(node.figure.id, (entry) => {
+                    return entry.kind === "title";
+                }, name);
             });
-        } else if (item.kind === "column" && item.columnIndex !== undefined) {
-            const index = item.columnIndex;
+            host.history.record(action);
+        } else if (item.kind === "column") {
             const old = item.text;
+            if (table.columns.some((column) => {
+                return sameName(column.name, name) && !sameName(name, old);
+            })) {
+                return;
+            }
             const figure = node.figure;
-            host.history.execute({
+            // The table may have been renamed since; it is found through
+            // the figure, which follows the table.
+            const rename = (from: string, to: string,
+                failed?: (message: string) => void): void => {
+                const current = tableOf(figure);
+                this.#options.catalog.renameColumn(current, from, to);
+                this.#relayoutTable(current);
+                this.#options.onSchemaEdit?.([{
+                    op: "rename_column", table: current, column: from,
+                    new_name: to,
+                }], undefined, failed);
+            };
+            const action = {
                 label: `Rename Column ${tableName}.${old} to ${name}`,
-                // The table may have been renamed since; the column is
-                // found through the figure, which follows the table.
-                undo: () => { this.#renameColumn(figure, index, old); },
-                redo: () => { this.#renameColumn(figure, index, name); },
+                undo: () => { rename(name, old); },
+                redo: () => { rename(old, name); },
+            };
+            rename(old, name, (message) => {
+                host.history.discard(action);
+                const current = tableOf(figure);
+                this.#options.catalog.renameColumn(current, name, old);
+                this.#relayoutTable(current);
+                host.hint(message);
+                this.#reopenRename(figure.id, (entry) => {
+                    return entry.kind === "column" && entry.text === old;
+                }, name);
             });
+            host.history.record(action);
+        }
+    }
+
+    /**
+     * Opens a name's input again over its item, with a name msm refused.
+     *
+     * @param figureId The figure.
+     * @param find Finds the item.
+     * @param text The name refused.
+     */
+    #reopenRename(
+        figureId: string,
+        find: (item: ICardItem) => boolean,
+        text: string,
+    ): void {
+        const node = this.#figures.get(figureId);
+        const item = node?.layout.items.find(find);
+        if (node !== undefined && item !== undefined) {
+            this.#editCardItem(node, item, text);
         }
     }
 
     /**
      * Renames a table: in the catalog, and on every figure and connection
-     * of every diagram that names it.
+     * of every diagram that names it, as msm does with the stored
+     * diagrams.
      */
     #renameTable(from: string, to: string): void {
         this.#options.catalog.renameTable(from, to);
         for (const diagram of this.#options.diagrams) {
             for (const figure of diagram.figures) {
-                if (tableOf(figure) === from) {
+                if (kindOf(figure) === "table"
+                    && sameName(tableOf(figure), from)) {
+                    if (sameName(figure.name, from)) {
+                        figure.name = to;
+                    }
                     figure.table = to;
-                    figure.name = to;
                 }
             }
             for (const connection of diagram.connections) {
-                if (connection.table === from) {
+                if (sameName(connection.table, from)) {
                     connection.table = to;
                 }
             }
@@ -1481,27 +1936,404 @@ export class EerFigureSet implements IFigureSet {
         this.#relayoutTable(to);
     }
 
-    /** Renames a column of the table a figure shows. */
-    #renameColumn(figure: IModelFigure, index: number, name: string): void {
-        const tableName = tableOf(figure);
-        const column = this.#options.catalog.table(tableName)?.columns[index];
-        if (column !== undefined) {
-            column.name = name;
-            this.#relayoutTable(tableName);
-        }
-    }
-
     /** Draws every shown figure of a table again. */
     #relayoutTable(tableName: string): void {
-        const changed = new Set<ITableNode>();
-        for (const node of this.#tables.values()) {
-            if (tableOf(node.figure) === tableName) {
+        const changed = new Set<IFigureNode>();
+        for (const node of this.#figures.values()) {
+            if (node.kind === "table" && sameName(tableOf(node.figure), tableName)) {
                 this.#relayout(node);
                 changed.add(node);
             }
         }
         this.#routeOf(changed);
         this.#host?.invalidate();
+    }
+
+    /**
+     * Takes the snapshot msm made after a schema edit - what the SQL now
+     * says - and draws every figure from it.
+     *
+     * @param objects The snapshot's objects.
+     */
+    public replaceObjects(objects: ISchemaObjects): void {
+        this.#options.catalog.replace(objects);
+        this.#refresh();
+    }
+
+    /** Lays every card out again from the catalog, and routes again. */
+    #refresh(): void {
+        if (this.#host === undefined) {
+            return;
+        }
+        for (const node of this.#figures.values()) {
+            if (isCard(node.kind)) {
+                this.#relayout(node);
+            }
+        }
+        this.#routeAll();
+        this.#host.invalidate();
+    }
+
+    // --- The palette's tools ------------------------------------------------
+
+    public toolDown(tool: string, probe: IProbe): IToolSession | undefined {
+        return this.#tools.down(tool, probe);
+    }
+
+    public toolHover(tool: string, probe: IProbe): void {
+        this.#tools.hover(tool, probe);
+    }
+
+    public toolCancel(): void {
+        this.#tools.cancel();
+    }
+
+    /**
+     * Moves an existing-columns relationship on to its referenced columns:
+     * the button of its panel.
+     */
+    public pickReferenced(): void {
+        this.#tools.pickReferenced();
+    }
+
+    /** @returns The set as the tools see it. */
+    #toolTarget(): IToolTarget {
+        const set = this;
+
+        return {
+            catalog: this.#options.catalog,
+            get history() { return set.#host!.history; },
+            diagram: () => { return this.#diagram; },
+            hit: (probe) => { return this.#toolHit(probe); },
+            pointOf: (probe) => { return probe.pointOn("base", 0); },
+            figureRect: (id) => {
+                const node = this.#figures.get(id);
+
+                return node === undefined ? undefined : this.#figureRect(node);
+            },
+            figure: (id) => {
+                return this.#diagram.figures.find((figure) => {
+                    return figure.id === id;
+                });
+            },
+            addFigure: (figure) => { this.#addFigure(figure); },
+            removeFigure: (id) => { return this.#removeFigure(id); },
+            addLayer: (layer) => { this.#addLayer(layer); },
+            removeLayer: (id) => { this.#removeLayer(id); },
+            addConnection: (connection) => { this.#addConnection(connection); },
+            removeConnection: (id) => { this.#removeConnection(id); },
+            refresh: () => { this.#refresh(); },
+            editItem: (id, find, edit) => { this.#editItem(id, find, edit); },
+            highlight: (highlight) => {
+                this.#toolHighlight = highlight;
+                this.#drawHighlight();
+            },
+            band: (rect) => { this.#drawBand(rect); },
+            select: (ids) => { this.#host?.select(ids); },
+            hint: (text) => { this.#host?.hint(text); },
+            done: () => { this.#host?.toolDone(); },
+            schemaEdit: (edits, failed) => {
+                this.#options.onSchemaEdit?.(edits, [this.#diagram], failed);
+            },
+            pickImage: () => {
+                return this.#options.pickImage?.() ?? Promise.resolve(undefined);
+            },
+            panel: (panel) => { this.#options.onToolPanel?.(panel); },
+        };
+    }
+
+    /** What is under the pointer for a tool: a figure and its row, or a layer. */
+    #toolHit(probe: IProbe): IToolHit | undefined {
+        const hit = this.#figureHit(probe);
+        if (hit === undefined) {
+            const layer = this.#layerAt(probe);
+
+            return layer === undefined ? undefined
+                : { figureId: layer.layer.id, layer: true };
+        }
+        const { node } = hit;
+        if (node.kind !== "table") {
+            return { figureId: node.figure.id };
+        }
+        const rect = this.#figureRect(node);
+        const item = cardItemAt(node.layout, hit.uv.x * rect.width,
+            (1 - hit.uv.y) * rect.height);
+
+        return {
+            figureId: node.figure.id,
+            table: tableOf(node.figure),
+            column: item?.kind === "column" ? item.text : undefined,
+        };
+    }
+
+    #addFigure(figure: IModelFigure): void {
+        if (!this.#diagram.figures.includes(figure)) {
+            this.#diagram.figures.push(figure);
+        }
+        if (this.#host === undefined || this.#figures.has(figure.id)) {
+            return;
+        }
+        this.#buildFigure(figure);
+        const node = this.#figures.get(figure.id);
+        if (node !== undefined && figure.layer === undefined) {
+            this.#fileUnderLayer(node);
+        }
+        this.#host.invalidate();
+    }
+
+    /** Removes a figure, and the connections to it, which it returns. */
+    #removeFigure(id: string): IModelConnection[] {
+        const diagram = this.#diagram;
+        const connections = diagram.connections.filter((connection) => {
+            return connection.startFigure === id || connection.endFigure === id;
+        });
+        for (const connection of connections) {
+            this.#removeConnection(connection.id);
+        }
+        diagram.figures = diagram.figures.filter((figure) => {
+            return figure.id !== id;
+        });
+        const node = this.#figures.get(id);
+        if (node !== undefined) {
+            for (const object of [node.mesh, node.slab, node.shadow]) {
+                object.removeFromParent();
+                disposeGroup(object);
+            }
+            this.#figures.delete(id);
+            this.#rasterQueue.delete(node);
+            this.#cardMeshes = this.#cardMeshes.filter((mesh) => {
+                return mesh !== node.mesh;
+            });
+            this.#host?.select([]);
+            this.#host?.invalidate();
+        }
+
+        return connections;
+    }
+
+    /** Adds a layer, and files the figures lying on it under it. */
+    #addLayer(layer: IModelLayer): void {
+        if (!this.#diagram.layers.includes(layer)) {
+            this.#diagram.layers.push(layer);
+        }
+        if (this.#host === undefined) {
+            return;
+        }
+        this.#buildLayer(layer);
+        this.#restack();
+        this.#refile();
+    }
+
+    /** Removes a layer; its figures keep their places on the page. */
+    #removeLayer(id: string): void {
+        const layer = this.#diagram.layers.find((entry) => {
+            return entry.id === id;
+        });
+        this.#diagram.layers = this.#diagram.layers.filter((entry) => {
+            return entry.id !== id;
+        });
+        for (const figure of this.#diagram.figures) {
+            if (layer !== undefined && figure.layer === id) {
+                figure.left += layer.left;
+                figure.top += layer.top;
+                figure.layer = undefined;
+            }
+        }
+        const node = this.#layers.get(id);
+        if (node !== undefined) {
+            for (const object of [node.plate, node.border, node.label]) {
+                object.removeFromParent();
+                disposeGroup(object);
+            }
+            this.#layers.delete(id);
+            this.#host?.select([]);
+        }
+        if (this.#host !== undefined) {
+            for (const figure of this.#figures.values()) {
+                figure.layer = this.#layerById(figure.figure.layer);
+            }
+            this.#restack();
+            this.#refile();
+        }
+    }
+
+    /** Files every figure under the layer it lies on, and draws them. */
+    #refile(): void {
+        for (const node of this.#layers.values()) {
+            this.#placeLayer(node);
+        }
+        for (const node of this.#figures.values()) {
+            this.#fileUnderLayer(node);
+            this.#placeFigure(node);
+        }
+        this.#routeAll();
+        this.#host?.invalidate();
+    }
+
+    #addConnection(connection: IModelConnection): void {
+        if (!this.#diagram.connections.includes(connection)) {
+            this.#diagram.connections.push(connection);
+        }
+        if (this.#host !== undefined && !this.#connections.some((node) => {
+            return node.connection === connection;
+        })) {
+            this.#buildConnection(connection);
+            this.viewChanged();
+            this.#host.invalidate();
+        }
+    }
+
+    #removeConnection(id: string): void {
+        this.#diagram.connections = this.#diagram.connections.filter(
+            (connection) => { return connection.id !== id; });
+        this.#connections = this.#connections.filter((node) => {
+            if (node.connection.id !== id) {
+                return true;
+            }
+            node.line.removeFromParent();
+            node.line.geometry.dispose();
+            node.line.material.dispose();
+
+            return false;
+        });
+        this.#host?.invalidate();
+    }
+
+    /** Opens an input over an item of a figure's card, for a tool. */
+    #editItem(
+        figureId: string,
+        find: (item: ICardItem) => boolean,
+        edit: IToolEdit,
+    ): void {
+        const node = this.#figures.get(figureId);
+        const item = node?.layout.items.find(find);
+        if (node === undefined || item === undefined) {
+            edit.cancel?.();
+
+            return;
+        }
+        const title = item.kind === "title";
+        this.#host?.startEdit({
+            ...edit,
+            bold: title,
+            fontSize: title ? CARD.titleFontSize : CARD.rowFontSize,
+            plane: "lifted",
+            elevation: () => { return this.#elevation(node.layer); },
+            area: () => {
+                // Found again: the card may be laid out anew meanwhile.
+                const current = this.#figures.get(figureId);
+                const found = current?.layout.items.find(find);
+                if (current === undefined || found === undefined) {
+                    return undefined;
+                }
+                const rect = this.#figureRect(current);
+                const area = editRect(found);
+
+                return { ...area, left: rect.left + area.left,
+                    top: rect.top + area.top };
+            },
+        });
+    }
+
+    /**
+     * Takes marks a tool drew off the scene, and frees them.
+     *
+     * @param marks The marks.
+     */
+    #clearMarks(marks: readonly THREE.Object3D[]): void {
+        for (const mark of marks) {
+            mark.removeFromParent();
+            disposeGroup(mark);
+        }
+    }
+
+    /** Draws what a relationship tool marks: tables, and column rows. */
+    #drawHighlight(): void {
+        this.#clearMarks(this.#highlightMarks);
+        this.#highlightMarks = [];
+        const highlight = this.#toolHighlight;
+        const host = this.#host;
+        if (highlight === undefined || host === undefined) {
+            host?.invalidate();
+
+            return;
+        }
+        const color = new THREE.Color(host.theme.selection);
+        const lift = host.lift();
+        for (const id of new Set(highlight.figures)) {
+            const node = this.#figures.get(id);
+            if (node === undefined) {
+                continue;
+            }
+            const rect = this.#figureRect(node);
+            const outline = new THREE.LineLoop(new THREE.BufferGeometry()
+                .setFromPoints(roundedRect(rect.left - 2, -(rect.top - 2)
+                    - (rect.height + 4), rect.width + 4, rect.height + 4,
+                CARD.radius + 2).getPoints(6)),
+            new THREE.LineBasicMaterial({ color }));
+            outline.position.z = this.#elevation(node.layer) * lift
+                + Z.liftedDecoration;
+            setDrawOrder(outline, DRAW_ORDER.decorations);
+            this.#lifted.add(outline);
+            this.#highlightMarks.push(outline);
+        }
+        for (const row of highlight.rows) {
+            const node = this.#figures.get(row.figureId);
+            const item = node?.layout.items.find((entry) => {
+                return entry.kind === "column" && sameName(entry.text, row.column);
+            });
+            if (node === undefined || item === undefined) {
+                continue;
+            }
+            const card = this.#figureRect(node);
+            const rect = { left: card.left + item.rect.left,
+                top: card.top + item.rect.top, width: item.rect.width,
+                height: item.rect.height };
+            const center = planeCenter(rect);
+            const fill = new THREE.Mesh(
+                new THREE.PlaneGeometry(rect.width, rect.height),
+                new THREE.MeshBasicMaterial({ color, transparent: true,
+                    opacity: 0.3, depthWrite: false }));
+            fill.position.set(center.x, center.y,
+                this.#elevation(node.layer) * lift + Z.liftedDecoration);
+            setDrawOrder(fill, DRAW_ORDER.decorations);
+            this.#lifted.add(fill);
+            this.#highlightMarks.push(fill);
+        }
+        host.invalidate();
+    }
+
+    /**
+     * Draws the area a layer is dragged out over.
+     *
+     * @param rect The area; none takes the marks away.
+     */
+    #drawBand(rect?: IRect): void {
+        this.#clearMarks(this.#bandMarks);
+        this.#bandMarks = [];
+        const host = this.#host;
+        if (rect === undefined || host === undefined) {
+            host?.invalidate();
+
+            return;
+        }
+        const color = new THREE.Color(host.theme.selection);
+        const center = planeCenter(rect);
+        const fill = new THREE.Mesh(
+            new THREE.PlaneGeometry(Math.max(1, rect.width),
+                Math.max(1, rect.height)),
+            new THREE.MeshBasicMaterial({ color, transparent: true,
+                opacity: 0.12, depthWrite: false }));
+        fill.position.set(center.x, center.y, Z.baseDecoration);
+        const border = new THREE.LineSegments(
+            segmentsGeometry(rectSegments(rect), Z.baseDecoration),
+            new THREE.LineBasicMaterial({ color }));
+        for (const mark of [fill, border]) {
+            setDrawOrder(mark, DRAW_ORDER.decorations);
+            this.#base.add(mark);
+            this.#bandMarks.push(mark);
+        }
+        host.invalidate();
     }
 }
 

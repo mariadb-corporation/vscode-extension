@@ -17,17 +17,27 @@
 
 import type {
     IModelFigure,
-    IModelTable,
+    IOutlineRoutine,
+    IOutlineTable,
+    IOutlineView,
+} from "../../../src/modeler/modelFormat.js";
+import {
+    figureColor,
+    routineLabel,
 } from "../../../src/modeler/modelFormat.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
 import type { IDiagramTheme } from "../canvas/theme.js";
+import { primaryKeyColumns } from "./catalog.js";
 
 /**
- * A table figure's card: the Workbench default notation as the MySQL
- * Shell's Pixi designer drew it - a header strip in the figure's colour
- * with the table icon and name, then the columns with their key /
- * not-null / nullable icons and types, and the indices and foreign keys
- * where the figure has them expanded.
+ * The figures' cards: the Workbench default notation as the MySQL Shell's
+ * Pixi designer drew it - a header strip in the figure's colour with the
+ * object's icon and name, then its rows. A table card has its columns
+ * with their key / not-null / nullable icons and types, and the indexes
+ * and foreign keys where the figure has them expanded; a view card its
+ * declared columns; a routine group card one row per routine,
+ * `name(param types): returns`. Notes and images are drawn on cards of
+ * their own (`drawNote`, `drawImageFigure`).
  *
  * The layout is pure and in diagram units: every item records its
  * rectangle, so a double-click can be mapped to the name under it. The
@@ -52,11 +62,11 @@ export const CARD = {
 
 /** What an item of a card shows. */
 export type CardItemKind = "title" | "heading" | "column" | "index"
-    | "foreignKey";
+    | "foreignKey" | "routine";
 
 /** The icon an item carries. */
-export type CardIcon = "table" | "primaryKey" | "notNull" | "nullable"
-    | "index" | "foreignKey";
+export type CardIcon = "table" | "view" | "routine" | "primaryKey"
+    | "notNull" | "nullable" | "index" | "foreignKey";
 
 /** One line of a card. */
 export interface ICardItem {
@@ -70,8 +80,6 @@ export interface ICardItem {
     icon?: CardIcon;
     /** Whether the name can be edited in place. */
     editable: boolean;
-    /** For a column: its index in the table's columns. */
-    columnIndex?: number;
 }
 
 /** A card's layout. */
@@ -84,14 +92,36 @@ export interface ICardLayout {
     items: ICardItem[];
 }
 
+/** A section of a card: a heading and its rows; an empty one is left out. */
+export interface ICardSection {
+    heading: string;
+    lines: Array<Omit<ICardItem, "rect">>;
+}
+
+/** What a card shows, before it is laid out. */
+export interface ICardContent {
+    title: string;
+    icon: CardIcon;
+    titleEditable: boolean;
+    sections: ICardSection[];
+}
+
 /** The narrowest a figure can be sized to. */
 export const MIN_FIGURE_WIDTH = 60;
+
+/** The width a figure sized to its content gets at least, and at most. */
+export const MIN_AUTO_WIDTH = 120;
+export const MAX_AUTO_WIDTH = 360;
 
 /**
  * Room kept free at the right of the header: the menu button of a
  * selected figure goes there.
  */
 export const TITLE_RESERVE = 26;
+
+/** The title's icon size and its left inset, in diagram units. */
+const TITLE_ICON = 15;
+const TITLE_INSET = 10;
 
 /**
  * @param figure A table figure.
@@ -103,68 +133,226 @@ export const tableOf = (figure: IModelFigure): string => {
 };
 
 /**
- * Lays a table's card out at the figure's width.
+ * @param figure A view figure.
+ *
+ * @returns The view it shows: its own name where it names none.
+ */
+export const viewOf = (figure: IModelFigure): string => {
+    return figure.view ?? figure.name;
+};
+
+/**
+ * @param table The table; undefined where the snapshot has none of the
+ *              figure's name, which leaves the card its header.
+ * @param figure The figure, for what is expanded and its name.
+ * @param editable Whether names can be edited (in an MSM project).
+ *
+ * @returns What the table's card shows.
+ */
+export const tableCardContent = (
+    table: IOutlineTable | undefined,
+    figure: IModelFigure,
+    editable = false,
+): ICardContent => {
+    const content: ICardContent = {
+        title: table?.name ?? tableOf(figure),
+        icon: "table",
+        titleEditable: editable && table !== undefined,
+        sections: [],
+    };
+    if (table === undefined) {
+        return content;
+    }
+    if (figure.columnsExpanded !== false) {
+        const primary = primaryKeyColumns(table);
+        content.sections.push({
+            heading: "Columns",
+            lines: table.columns.map((column) => {
+                return {
+                    kind: "column" as const,
+                    text: column.name,
+                    detail: column.type,
+                    icon: primary.has(column.name.toLowerCase())
+                        ? "primaryKey" as const
+                        : column.nullable === false ? "notNull" as const
+                            : "nullable" as const,
+                    editable,
+                };
+            }),
+        });
+    }
+    if (figure.indicesExpanded === true) {
+        content.sections.push({
+            heading: "Indexes",
+            lines: (table.indexes ?? []).map((index) => {
+                return {
+                    kind: "index" as const,
+                    text: index.name ?? (index.kind === "primary"
+                        ? "PRIMARY" : index.columns.join(", ")),
+                    icon: "index" as const,
+                    editable: false,
+                };
+            }),
+        });
+    }
+    if (figure.foreignKeysExpanded === true) {
+        content.sections.push({
+            heading: "Foreign Keys",
+            lines: (table.foreign_keys ?? []).map((foreignKey) => {
+                return {
+                    kind: "foreignKey" as const,
+                    text: foreignKey.name,
+                    icon: "foreignKey" as const,
+                    editable: false,
+                };
+            }),
+        });
+    }
+
+    return content;
+};
+
+/**
+ * @param view The view; undefined where the snapshot has none.
+ * @param figure The figure.
+ *
+ * @returns What the view's card shows: its declared columns (the outline
+ *          lists no others).
+ */
+export const viewCardContent = (
+    view: IOutlineView | undefined,
+    figure: IModelFigure,
+): ICardContent => {
+    const content: ICardContent = {
+        title: view?.name ?? viewOf(figure),
+        icon: "view",
+        titleEditable: false,
+        sections: [],
+    };
+    if (view !== undefined && figure.columnsExpanded !== false) {
+        content.sections.push({
+            heading: "Columns",
+            lines: (view.columns ?? []).map((column) => {
+                return {
+                    kind: "column" as const,
+                    text: column,
+                    icon: "nullable" as const,
+                    editable: false,
+                };
+            }),
+        });
+    }
+
+    return content;
+};
+
+/**
+ * @param routines The routines the figure lists that the snapshot has.
+ * @param figure The routine group figure, for its name.
+ *
+ * @returns What the group's one card shows.
+ */
+export const routineCardContent = (
+    routines: readonly IOutlineRoutine[],
+    figure: IModelFigure,
+): ICardContent => {
+    return {
+        title: figure.name,
+        icon: "routine",
+        titleEditable: false,
+        sections: [{
+            heading: "Routines",
+            lines: routines.map((routine) => {
+                return {
+                    kind: "routine" as const,
+                    text: routineLabel(routine),
+                    icon: "routine" as const,
+                    editable: false,
+                };
+            }),
+        }],
+    };
+};
+
+/** Measures a text in one of the card's fonts, in diagram units. */
+export type MeasureText = (text: string, font: "title" | "row" | "detail")
+    => number;
+
+/**
+ * Measures as msm's layout estimates (`lib/layout.py`): an average
+ * character width per font. Where no canvas can measure.
+ *
+ * @param text The text.
+ * @param font The font.
+ *
+ * @returns Its width.
+ */
+export const estimateText: MeasureText = (text, font) => {
+    return text.length * (font === "title" ? 8.4 : 6.2);
+};
+
+/**
+ * The width a card needs for its title and its rows, as msm sizes the
+ * figures it lays out: rounded up to 10, between `MIN_AUTO_WIDTH` and
+ * `MAX_AUTO_WIDTH`; the card cuts off what is longer.
+ *
+ * @param content What the card shows.
+ * @param measure Measures a text.
+ *
+ * @returns The width.
+ */
+export const cardWidth = (
+    content: ICardContent,
+    measure: MeasureText = estimateText,
+): number => {
+    let widest = TITLE_INSET + TITLE_ICON + CARD.gap
+        + measure(content.title, "title") + TITLE_RESERVE;
+    for (const section of content.sections) {
+        for (const line of section.lines) {
+            const icon = line.icon === undefined ? 0 : CARD.iconSize + CARD.gap;
+            const detail = line.detail === undefined
+                ? 0 : CARD.gap + measure(line.detail, "detail");
+            widest = Math.max(widest, 2 * CARD.padding + icon
+                + measure(line.text, "row") + detail);
+        }
+    }
+
+    return Math.min(MAX_AUTO_WIDTH,
+        Math.max(MIN_AUTO_WIDTH, Math.ceil(widest / 10) * 10));
+};
+
+/**
+ * Lays a card out at the figure's width (the content's, where the figure
+ * has none).
  *
  * The height grows with the content - unless the user sized the figure
  * (`manualSizing`, as Workbench calls it), in which case it stays the
  * figure's own and what does not fit is cut off. A collapsed figure is
  * its header.
  *
- * @param table The table.
- * @param figure The figure showing it, for its width, its height where
- *               sized by hand, and what is expanded.
+ * @param content What the card shows.
+ * @param figure The figure, for its width, its height where sized by
+ *               hand, and whether it is collapsed.
  *
  * @returns The layout.
  */
-export const layoutTableCard = (
-    table: IModelTable | undefined,
+export const layoutCard = (
+    content: ICardContent,
     figure: IModelFigure,
 ): ICardLayout => {
-    const content = layoutContent(table, figure);
-    const sized = figure.manualSizing === true && figure.expanded !== false;
-
-    return {
-        ...content,
-        height: sized
-            ? Math.max(CARD.headerHeight, figure.height)
-            : content.contentHeight,
-    };
-};
-
-/**
- * Lays the content of a card out.
- *
- * @param table The table.
- * @param figure The figure showing it.
- *
- * @returns The layout at the content's height.
- */
-const layoutContent = (
-    table: IModelTable | undefined,
-    figure: IModelFigure,
-): Omit<ICardLayout, "height"> => {
-    const width = figure.width;
+    const width = figure.width ?? cardWidth(content);
     const items: ICardItem[] = [{
         kind: "title",
         rect: { left: 0, top: 0, width, height: CARD.headerHeight },
-        text: tableOf(figure),
-        icon: "table",
-        editable: table !== undefined,
+        text: content.title,
+        icon: content.icon,
+        editable: content.titleEditable,
     }];
-
-    if (table === undefined || figure.expanded === false) {
-        return { width, contentHeight: CARD.headerHeight, items };
-    }
-
     let top = CARD.headerHeight + CARD.padding;
+    const sections = figure.expanded === false ? [] : content.sections.filter(
+        (section) => { return section.lines.length > 0; });
     const inner = width - 2 * CARD.padding;
-    const section = (
-        heading: string,
-        lines: Array<Omit<ICardItem, "rect">>,
-    ): void => {
-        if (lines.length === 0) {
-            return;
-        }
+    for (const section of sections) {
         if (top > CARD.headerHeight + CARD.padding) {
             top += CARD.sectionGap;
         }
@@ -172,11 +360,11 @@ const layoutContent = (
             kind: "heading",
             rect: { left: CARD.padding, top, width: inner,
                 height: CARD.headingHeight },
-            text: heading,
+            text: section.heading,
             editable: false,
         });
         top += CARD.headingHeight;
-        for (const line of lines) {
+        for (const line of section.lines) {
             items.push({
                 ...line,
                 rect: { left: CARD.padding, top, width: inner,
@@ -184,44 +372,37 @@ const layoutContent = (
             });
             top += CARD.rowHeight;
         }
+    }
+    const contentHeight = sections.length === 0
+        ? CARD.headerHeight : top + CARD.padding;
+    const sized = figure.manualSizing === true && figure.expanded !== false
+        && figure.height !== undefined;
+
+    return {
+        width,
+        height: sized
+            ? Math.max(CARD.headerHeight, figure.height!)
+            : contentHeight,
+        contentHeight,
+        items,
     };
+};
 
-    if (figure.columnsExpanded !== false) {
-        section("Columns", table.columns.map((column, columnIndex) => {
-            return {
-                kind: "column" as const,
-                text: column.name,
-                detail: column.type,
-                icon: column.primaryKey ? "primaryKey" as const
-                    : column.notNull ? "notNull" as const
-                        : "nullable" as const,
-                editable: true,
-                columnIndex,
-            };
-        }));
-    }
-    if (figure.indicesExpanded === true) {
-        section("Indexes", table.indices.map((index) => {
-            return {
-                kind: "index" as const,
-                text: index.name,
-                icon: "index" as const,
-                editable: false,
-            };
-        }));
-    }
-    if (figure.foreignKeysExpanded === true) {
-        section("Foreign Keys", table.foreignKeys.map((foreignKey) => {
-            return {
-                kind: "foreignKey" as const,
-                text: foreignKey.name,
-                icon: "foreignKey" as const,
-                editable: false,
-            };
-        }));
-    }
-
-    return { width, contentHeight: top + CARD.padding, items };
+/**
+ * Lays a table's card out, see `layoutCard`.
+ *
+ * @param table The table.
+ * @param figure The figure showing it.
+ * @param editable Whether its names can be edited.
+ *
+ * @returns The layout.
+ */
+export const layoutTableCard = (
+    table: IOutlineTable | undefined,
+    figure: IModelFigure,
+    editable = false,
+): ICardLayout => {
+    return layoutCard(tableCardContent(table, figure, editable), figure);
 };
 
 /**
@@ -248,10 +429,6 @@ export const cardItemAt = (
 
 /** The primary key icon's square, in diagram units. */
 const PRIMARY_KEY_ICON = 12;
-
-/** The title's icon size and its left inset, in diagram units. */
-const TITLE_ICON = 15;
-const TITLE_INSET = 10;
 
 /**
  * Where an item's name is edited in place: the text alone, without the
@@ -338,6 +515,30 @@ export const svgImage = (
 };
 
 /**
+ * Starts a figure's canvas at a scale.
+ *
+ * @param width The figure's width, in diagram units.
+ * @param height Its height.
+ * @param scale Device pixels per diagram unit.
+ *
+ * @returns The canvas and its context, or no context in a page that
+ *          cannot draw.
+ */
+export const startCanvas = (
+    width: number,
+    height: number,
+    scale: number,
+): { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D | null } => {
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.ceil(width * scale));
+    canvas.height = Math.max(1, Math.ceil(height * scale));
+    const context = canvas.getContext("2d");
+    context?.scale(scale, scale);
+
+    return { canvas, context };
+};
+
+/**
  * Draws a card into a canvas.
  *
  * @param layout The card's layout.
@@ -357,17 +558,12 @@ export const drawTableCard = (
     headerIcons: CardIcons,
     scale: number,
 ): HTMLCanvasElement => {
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.ceil(layout.width * scale));
-    canvas.height = Math.max(1, Math.ceil(layout.height * scale));
-    const context = canvas.getContext("2d");
+    const { width, height } = layout;
+    const { canvas, context } = startCanvas(width, height, scale);
     if (context === null) {
         return canvas;
     }
-    context.scale(scale, scale);
-
-    const { width, height } = layout;
-    const headerColor = figure.color || "#98BFDA";
+    const headerColor = figureColor(figure);
     const headerText = contrastingText(headerColor);
 
     const outline = new Path2D();
@@ -385,7 +581,7 @@ export const drawTableCard = (
         const middle = rect.top + rect.height / 2;
         switch (item.kind) {
             case "title": {
-                context.drawImage(headerIcons.table, TITLE_INSET,
+                context.drawImage(headerIcons[item.icon ?? "table"], TITLE_INSET,
                     middle - TITLE_ICON / 2, TITLE_ICON, TITLE_ICON);
                 context.font = `bold ${CARD.titleFontSize}px ${theme.fontFamily}`;
                 context.fillStyle = headerText;

@@ -16,7 +16,13 @@
  */
 
 import type { JSX } from "preact";
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import {
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "preact/hooks";
 
 import tableIcon from "../assets/modeler/schemaTable.svg?raw";
 import columnIcon from "../assets/modeler/schemaTableColumn.svg?raw";
@@ -24,10 +30,21 @@ import columnNotNullIcon from "../assets/modeler/schemaTableColumnNN.svg?raw";
 import columnPrimaryKeyIcon from "../assets/modeler/schemaTableColumnPK.svg?raw";
 import foreignKeyIcon from "../assets/modeler/schemaTableForeignKey.svg?raw";
 import indexIcon from "../assets/modeler/schemaTableIndex.svg?raw";
+import viewIcon from "../assets/modeler/schemaView.svg?raw";
+import routineIcon from "../assets/modeler/schemaRoutine.svg?raw";
 
-import type { ISchemaModel } from "../../../src/modeler/modelFormat.js";
-import type { ModelerHostMessage }
-    from "../../../src/modeler/modelerProtocol.js";
+import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
+import {
+    diagramDocument,
+    type IModelDiagram,
+    type ISchemaModel,
+} from "../../../src/modeler/modelFormat.js";
+import { matchingTypes } from "../../../src/sql/columnTypes.js";
+import type {
+    ModelerHostMessage,
+    ModelerTarget,
+    SaveState,
+} from "../../../src/modeler/modelerProtocol.js";
 import type { IPageSettings } from "../../../src/modeler/pageSettings.js";
 import { Canvas, ZOOM_RANGE } from "../canvas/Canvas.js";
 import {
@@ -37,7 +54,9 @@ import {
 } from "../canvas/CanvasMenu.js";
 import { CanvasToolbar, ToolbarSection } from "../canvas/CanvasToolbar.js";
 import type {
+    EditCommit,
     ICanvasOverlay,
+    IEditChoice,
     IEditRequest,
     IMenuEntry,
     INavigatorState,
@@ -55,6 +74,13 @@ import { Navigator } from "../canvas/Navigator.js";
 import { readTheme } from "../canvas/theme.js";
 import { loadState, post, saveState } from "../vscodeApi.js";
 import { catalogFromModel } from "./catalog.js";
+import {
+    DIAGRAM_TOOLS,
+    MAX_PICTURE_BYTES,
+    type IPickedImage,
+    type IToolPanel,
+} from "./diagramTools.js";
+import { DiagramToolbar, ToolPanel } from "./DiagramToolbar.js";
 import { EerFigureSet } from "./EerFigureSet.js";
 import { svgImage, type CardIcons } from "./tableCard.js";
 
@@ -72,17 +98,20 @@ import { svgImage, type CardIcons } from "./tableCard.js";
  * @returns The icons.
  */
 const loadIcons = async (color: string): Promise<CardIcons> => {
-    const [table, primaryKey, notNull, nullable, index, foreignKey] =
-        await Promise.all([
-            svgImage(tableIcon, color),
-            svgImage(columnPrimaryKeyIcon, color),
-            svgImage(columnNotNullIcon, color),
-            svgImage(columnIcon, color),
-            svgImage(indexIcon, color),
-            svgImage(foreignKeyIcon, color),
-        ]);
+    const [table, primaryKey, notNull, nullable, index, foreignKey, view,
+        routine] = await Promise.all([
+        svgImage(tableIcon, color),
+        svgImage(columnPrimaryKeyIcon, color),
+        svgImage(columnNotNullIcon, color),
+        svgImage(columnIcon, color),
+        svgImage(indexIcon, color),
+        svgImage(foreignKeyIcon, color),
+        svgImage(viewIcon, color),
+        svgImage(routineIcon, color),
+    ]);
 
-    return { table, primaryKey, notNull, nullable, index, foreignKey };
+    return { table, primaryKey, notNull, nullable, index, foreignKey, view,
+        routine };
 };
 
 /** What the viewer keeps across a reload of the webview. */
@@ -93,8 +122,15 @@ interface IViewerState {
     custom?: { tilt: number; turn: number };
     /** Whether the Navigator is shown; it is unless hidden. */
     navigator?: boolean;
+    /** Whether the tool palette is shown; it is unless hidden. */
+    tools?: boolean;
     /** Whether the printable areas are marked; they are not unless asked. */
     margins?: boolean;
+    /**
+     * What the panel shows, which VS Code hands back to the extension to
+     * restore the panel after a restart.
+     */
+    target?: ModelerTarget;
 }
 
 /**
@@ -122,7 +158,52 @@ interface ILoaded {
     set: EerFigureSet;
     source: string;
     pageSettings: IPageSettings;
+    /** Whether diagrams are saved and schema objects renamed (a project). */
+    editable: boolean;
+    /** Each diagram's document as last sent to be saved, by name. */
+    sent: Map<string, string>;
 }
+
+/**
+ * @param save Where a project's saves stand.
+ *
+ * @returns What the status line says of it.
+ */
+const saveText = (save: SaveState | undefined): string => {
+    switch (save?.state) {
+        case "pending": {
+            return " · Changed";
+        }
+
+        case "saving": {
+            return " · Saving…";
+        }
+
+        case "saved": {
+            return " · Saved";
+        }
+
+        case "failed": {
+            return ` · Not saved: ${save.message}`;
+        }
+
+        default: {
+            return "";
+        }
+    }
+};
+
+/**
+ * @param loaded The model shown.
+ *
+ * @returns Its diagrams' documents as they are saved, by name.
+ */
+const documentsOf = (loaded: Pick<ILoaded, "model">): Map<string, string> => {
+    return new Map(loaded.model.diagrams.map((diagram) => {
+        return [diagram.name,
+            JSON.stringify(diagramDocument(diagram, loaded.model))];
+    }));
+};
 
 /** Whose a menu is: an item's, the Navigator's or the toolbar's. */
 type MenuOwner = { kind: "item"; id: string } | { kind: "navigator" }
@@ -151,10 +232,59 @@ interface IOpenMenu {
 /** How long loading may take before a spinner shows. */
 const SPINNER_DELAY_MS = 300;
 
+/** The size a picture without one of its own (an SVG) is placed at. */
+const DEFAULT_PICTURE = { width: 160, height: 120 };
+
+/**
+ * Reads a picture file picked for the image tool.
+ *
+ * @param file The file.
+ *
+ * @returns Its data URL and its size.
+ */
+const readPicture = async (file: File): Promise<IPickedImage> => {
+    if (file.size > MAX_PICTURE_BYTES) {
+        throw new Error(`${file.name} is larger than `
+            + `${String(MAX_PICTURE_BYTES / 1024)} KB.`);
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => { resolve(String(reader.result)); };
+        reader.onerror = () => {
+            reject(new Error(`${file.name} cannot be read.`));
+        };
+        reader.readAsDataURL(file);
+    });
+    const size = await new Promise<{ width: number; height: number }>(
+        (resolve, reject) => {
+            const image = new Image();
+            image.onload = () => {
+                resolve(image.naturalWidth > 0 && image.naturalHeight > 0
+                    ? { width: image.naturalWidth, height: image.naturalHeight }
+                    : DEFAULT_PICTURE);
+            };
+            image.onerror = () => {
+                reject(new Error(`${file.name} is not a picture that can be `
+                    + "shown."));
+            };
+            image.src = dataUrl;
+        });
+
+    return { dataUrl, ...size };
+};
+
 export const ModelViewer = (): JSX.Element => {
     const hostRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<Canvas>();
     const inputRef = useRef<HTMLInputElement>(null);
+    const fileRef = useRef<HTMLInputElement>(null);
+    /**
+     * What takes back each schema edit sent, in order (msm answers them
+     * one at a time): nothing for one the project is read again for.
+     */
+    const editsSentRef = useRef<Array<((message: string) => void) | undefined>>([]);
+    /** Settles the image tool's request once a file is picked, or none. */
+    const pickRef = useRef<(picked: Promise<IPickedImage | undefined>) => void>();
 
     const [loaded, setLoaded] = useState<ILoaded>();
     const [error, setError] = useState<string>();
@@ -180,6 +310,14 @@ export const ModelViewer = (): JSX.Element => {
     const [locked, setLocked] = useState(false);
     const [navigatorVisible, setNavigatorVisible] = useState(
         kept.navigator !== false);
+    const [toolsVisible, setToolsVisible] = useState(kept.tools !== false);
+    /** What the tool expects next, as the status line says it. */
+    const [hint, setHint] = useState("");
+    const [toolPanel, setToolPanel] = useState<IToolPanel>();
+    /** Whether the edit's list of choices is open, and where it is. */
+    const [choicesOpen, setChoicesOpen] = useState(false);
+    const [choiceAt, setChoiceAt] = useState(0);
+    const [choicesBox, setChoicesBox] = useState<{ left: number; top: number }>();
     const [navigator, setNavigator] = useState<INavigatorState>();
     const [marginsVisible, setMarginsVisible] = useState(kept.margins === true);
     const [zoom, setZoom] = useState(1);
@@ -187,6 +325,10 @@ export const ModelViewer = (): JSX.Element => {
     const [editText, setEditText] = useState("");
     const [overlays, setOverlays] = useState<ICanvasOverlay[]>([]);
     const [menu, setMenu] = useState<IOpenMenu>();
+    const [save, setSave] = useState<SaveState>();
+    /** The model shown, for the canvas's events, which outlive renders. */
+    const loadedRef = useRef<ILoaded>();
+    loadedRef.current = loaded;
     const closeMenu = useCallback(() => { setMenu(undefined); }, []);
     const diagramIndex = Math.max(0, loaded?.model.diagrams.findIndex(
         (diagram) => { return diagram.name === diagramName; }) ?? 0);
@@ -200,7 +342,7 @@ export const ModelViewer = (): JSX.Element => {
      *
      * @returns What the toolbar calls.
      */
-    const mirror = <K extends "tool" | "gridVisible" | "pagesVisible"
+    const mirror = <K extends "gridVisible" | "pagesVisible"
         | "locked" | "marginsVisible">(key: K, set: (value: Canvas[K]) => void) => {
         return (value: Canvas[K]): void => {
             set(value);
@@ -250,7 +392,10 @@ export const ModelViewer = (): JSX.Element => {
             onEditRequest: (request) => {
                 setEdit(request);
                 setEditText(request.text);
+                setChoicesOpen(false);
             },
+            onTool: (next) => { setTool(next); },
+            onHint: setHint,
             onEditPlacement: (placement) => {
                 // The input follows its text as the view pans, zooms or
                 // turns; nothing else of the edit changes.
@@ -277,6 +422,22 @@ export const ModelViewer = (): JSX.Element => {
                 }
             },
             onNavigator: setNavigator,
+            // Every change of a project's diagram is kept and saved: those
+            // whose document differs from what was sent last go.
+            onHistory: () => {
+                const shown = loadedRef.current;
+                if (shown === undefined || !shown.editable) {
+                    return;
+                }
+                for (const diagram of shown.model.diagrams) {
+                    const saved = diagramDocument(diagram, shown.model);
+                    const text = JSON.stringify(saved);
+                    if (shown.sent.get(diagram.name) !== text) {
+                        shown.sent.set(diagram.name, text);
+                        post({ type: "diagramChanged", document: saved });
+                    }
+                }
+            },
         });
         canvas.setIsoAngles(presetFor(isoPresetId));
         canvas.marginsVisible = marginsVisible;
@@ -294,18 +455,102 @@ export const ModelViewer = (): JSX.Element => {
             switch (message.type) {
                 case "load": {
                     setError(undefined);
+                    // The edits still under way are answered in turn: their
+                    // places are kept, what took them back goes with the
+                    // figures it worked on.
+                    editsSentRef.current = editsSentRef.current.map(() => {
+                        return undefined;
+                    });
                     // The diagram opened in the tree, else the first.
                     setDiagramName(message.diagram);
+                    keepState({ target: message.target });
+                    const set = new EerFigureSet({
+                        catalog: catalogFromModel(message.model),
+                        diagrams: message.model.diagrams,
+                        loadIcons,
+                        editable: message.editable,
+                        onSchemaEdit: (schemaEdits: IMsmSchemaEdit[],
+                            changed?: IModelDiagram[],
+                            failed?: (message: string) => void) => {
+                            const shown = loadedRef.current;
+                            // The diagrams go with the edit, saved once it
+                            // is made: not again as changes of their own.
+                            const documents = shown === undefined
+                                ? undefined
+                                : changed?.map((diagram) => {
+                                    const document = diagramDocument(diagram,
+                                        shown.model);
+                                    shown.sent.set(diagram.name,
+                                        JSON.stringify(document));
+
+                                    return document;
+                                });
+                            editsSentRef.current.push(failed);
+                            post({ type: "schemaEdit", edits: schemaEdits,
+                                ...(documents === undefined ? {} : { documents }),
+                                ...(failed === undefined ? {} : { recover: true }) });
+                        },
+                        pickImage: () => {
+                            return new Promise<IPickedImage | undefined>(
+                                (resolve) => {
+                                    const input = fileRef.current;
+                                    if (input === null) {
+                                        resolve(undefined);
+
+                                        return;
+                                    }
+                                    pickRef.current = (picked) => {
+                                        pickRef.current = undefined;
+                                        picked.then(resolve, (reason: unknown) => {
+                                            setHint(reason instanceof Error
+                                                ? reason.message : String(reason));
+                                            resolve(undefined);
+                                        });
+                                    };
+                                    input.value = "";
+                                    // In the press that placed it: a file
+                                    // dialog opens only from a user's action.
+                                    input.click();
+                                });
+                        },
+                        onToolPanel: setToolPanel,
+                        requestImage: (diagram, figureId) => {
+                            post({ type: "imageWanted", diagram, figureId });
+                        },
+                    });
                     setLoaded({
                         model: message.model,
-                        set: new EerFigureSet({
-                            catalog: catalogFromModel(message.model),
-                            diagrams: message.model.diagrams,
-                            loadIcons,
-                        }),
+                        set,
                         source: message.source,
                         pageSettings: message.pageSettings,
+                        editable: message.editable,
+                        sent: documentsOf(message),
                     });
+                    break;
+                }
+
+                case "image": {
+                    loadedRef.current?.set.pictureArrived(message.diagram,
+                        message.figureId,
+                        message.image, message.error);
+                    break;
+                }
+
+                case "schemaEdited": {
+                    // A done edit brings the snapshot of the SQL. A failed
+                    // one is taken back by what sent it, or the model is
+                    // read again from what the SQL still says.
+                    const failed = editsSentRef.current.shift();
+                    if (message.objects !== undefined) {
+                        loadedRef.current?.set.replaceObjects(message.objects);
+                    } else if (message.error !== undefined) {
+                        failed?.(message.error);
+                    }
+                    break;
+                }
+
+                case "saveState": {
+                    setSave(message.save);
                     break;
                 }
 
@@ -347,8 +592,13 @@ export const ModelViewer = (): JSX.Element => {
         if (diagram === undefined) {
             return;
         }
-        // For the tab's title, however it was picked.
+        // For the tab's title, however it was picked, and for the panel
+        // restored after a restart.
         post({ type: "diagramShown", name: diagram.name });
+        const target = viewerState().target;
+        if (target !== undefined) {
+            keepState({ target: { ...target, diagram: diagram.name } });
+        }
         canvas.cancelEdit();
         setEdit(undefined);
         setMenu(undefined);
@@ -359,21 +609,187 @@ export const ModelViewer = (): JSX.Element => {
             });
     }, [loaded, diagramIndex]);
 
+    // Every new edit takes the focus, the next column's too.
     useEffect(() => {
         if (edit !== undefined) {
             inputRef.current?.focus();
             inputRef.current?.select();
         }
-    }, [edit === undefined]);
+    }, [edit?.serial]);
 
     const closeEdit = (): void => {
-        canvasRef.current?.cancelEdit();
         setEdit(undefined);
+        setChoicesOpen(false);
+        canvasRef.current?.cancelEdit();
     };
 
-    const commitEdit = (): void => {
-        canvasRef.current?.commitEdit(editText);
+    /**
+     * Makes the edit; its commit may open the next one at once (a new
+     * table's next column), which then stays open.
+     *
+     * @param how By Enter, or by leaving the input.
+     * @param text The text, where it is not what the input holds.
+     */
+    const commitEdit = (how: EditCommit, text = editText): void => {
         setEdit(undefined);
+        setChoicesOpen(false);
+        canvasRef.current?.commitEdit(text, how);
+    };
+
+    // The choices of an edit: the types for what follows a column's name.
+    const choices = edit?.choices;
+    const space = editText.search(/\s/);
+    const matches = choices === undefined || space < 0 ? []
+        : matchingTypes(editText.slice(space + 1), choices.items);
+
+    /**
+     * Opens the list of choices, on the preferred one while nothing is
+     * typed for it.
+     *
+     * @param text The edit's text, with the space that opens the list.
+     */
+    const openChoices = (text: string): void => {
+        setEditText(text);
+        const typed = text.slice(text.search(/\s/) + 1);
+        const found = choices === undefined ? []
+            : matchingTypes(typed, choices.items);
+        const preferred = found.findIndex((entry) => {
+            return entry.label === choices?.preferred;
+        });
+        setChoiceAt(typed.trim() === "" && preferred >= 0 ? preferred : 0);
+        setChoicesOpen(true);
+    };
+
+    /**
+     * Puts a picked choice after the column's name: commits a complete
+     * type, or leaves one whose values are typed next (`ENUM(`) open.
+     *
+     * @param entry The choice picked.
+     */
+    const pickChoice = (entry: IEditChoice): void => {
+        const text = `${editText.slice(0, space)} ${entry.insert}`;
+        if (entry.complete) {
+            commitEdit("enter", text);
+        } else {
+            setEditText(text);
+            setChoicesOpen(false);
+        }
+    };
+
+    /** Keys of an edit with choices; true where the key was taken. */
+    const choiceKey = (event: KeyboardEvent): boolean => {
+        if (choices === undefined) {
+            return false;
+        }
+        if (event.key === " " && space < 0) {
+            event.preventDefault();
+            if (editText.trim() !== "") {
+                openChoices(`${editText.trim()} `);
+            }
+
+            return true;
+        }
+        if (event.key === "Enter") {
+            event.preventDefault();
+            if (editText.trim() === "") {
+                commitEdit("enter");
+            } else if (space < 0) {
+                // Enter after the name asks for the type, as Space does.
+                openChoices(`${editText.trim()} `);
+            } else if (choicesOpen && matches[choiceAt] !== undefined) {
+                pickChoice(matches[choiceAt]);
+            } else {
+                commitEdit("enter");
+            }
+
+            return true;
+        }
+        if (choicesOpen && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+            event.preventDefault();
+            const step = event.key === "ArrowDown" ? 1 : -1;
+            setChoiceAt((at) => {
+                return Math.max(0, Math.min(matches.length - 1, at + step));
+            });
+
+            return true;
+        }
+
+        return false;
+    };
+
+    // The list hangs under the input as it is on the screen, upright in
+    // the 3D view too.
+    useLayoutEffect(() => {
+        const input = inputRef.current;
+        const host = hostRef.current;
+        if (!choicesOpen || input === null || host === null) {
+            setChoicesBox(undefined);
+
+            return;
+        }
+        const box = input.getBoundingClientRect();
+        const origin = host.getBoundingClientRect();
+        const left = box.left - origin.left;
+        const top = box.bottom - origin.top + 2;
+        // The same box as the view pans: no second render follows.
+        setChoicesBox((old) => {
+            return old?.left === left && old.top === top ? old : { left, top };
+        });
+    }, [choicesOpen, edit]);
+
+    // The choice picked shows: UUID, halfway down the list, at once.
+    useEffect(() => {
+        document.querySelector(".editChoices .highlighted")
+            ?.scrollIntoView({ block: "nearest" });
+    }, [choiceAt, choicesBox]);
+
+    const editable = loaded?.editable === true;
+    const tools = DIAGRAM_TOOLS.filter((entry) => {
+        return editable || !entry.edits;
+    });
+
+    /**
+     * Picks a tool of the palette.
+     *
+     * @param id The tool.
+     */
+    const selectTool = (id: string): void => {
+        const picked = tools.find((entry) => { return entry.id === id; });
+        if (picked === undefined || (locked && picked.edits)) {
+            return;
+        }
+        setTool(id);
+        if (canvasRef.current !== undefined) {
+            canvasRef.current.tool = id;
+        }
+        setHint(picked.hint);
+    };
+    const selectToolRef = useRef(selectTool);
+    selectToolRef.current = selectTool;
+
+    // The palette's keys, as Workbench has them: a letter or a digit,
+    // Escape for the pointer. Not while typing, nor with a modifier.
+    useEffect(() => {
+        const onKey = (event: KeyboardEvent): void => {
+            const target = event.target as HTMLElement | null;
+            if (event.metaKey || event.ctrlKey || event.altKey
+                || target?.closest("input, textarea, select") != null) {
+                return;
+            }
+            const key = event.key === "Escape" ? "Escape" : event.key.toLowerCase();
+            const match = DIAGRAM_TOOLS.find((entry) => { return entry.key === key; });
+            if (match !== undefined) {
+                selectToolRef.current(match.id);
+            }
+        };
+        window.addEventListener("keydown", onKey);
+
+        return () => { window.removeEventListener("keydown", onKey); };
+    }, []);
+
+    const showTools = (visible: boolean): void => {
+        setToolsVisible(visible);
+        keepState({ tools: visible });
     };
 
     const showNavigator = (visible: boolean): void => {
@@ -388,8 +804,6 @@ export const ModelViewer = (): JSX.Element => {
 
     return <div className="modelViewer">
         <CanvasToolbar
-            tool={tool}
-            onTool={mirror("tool", setTool)}
             view={view}
             onView={(next) => {
                 setView(next);
@@ -401,6 +815,8 @@ export const ModelViewer = (): JSX.Element => {
             onPagesVisible={mirror("pagesVisible", setPagesVisible)}
             locked={locked}
             onLocked={mirror("locked", setLocked)}
+            toolsVisible={toolsVisible}
+            onToolsVisible={showTools}
             navigatorVisible={navigatorVisible}
             onNavigatorVisible={showNavigator}
             menuOpen={sameOwner(menu?.owner, { kind: "toolbar" })}
@@ -509,6 +925,30 @@ export const ModelViewer = (): JSX.Element => {
                     });
                 }}
             />}
+            {toolsVisible && loaded !== undefined && <DiagramToolbar
+                tools={tools}
+                tool={tool}
+                onTool={selectTool}
+                locked={locked}
+            />}
+            {toolPanel !== undefined && <ToolPanel
+                panel={toolPanel}
+                onPickReferenced={() => { loaded?.set.pickReferenced(); }}
+            />}
+            <input
+                ref={fileRef}
+                type="file"
+                className="hiddenFileInput"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                aria-hidden="true"
+                tabIndex={-1}
+                onChange={(event) => {
+                    const file = (event.target as HTMLInputElement).files?.[0];
+                    pickRef.current?.(file === undefined
+                        ? Promise.resolve(undefined) : readPicture(file));
+                }}
+                onCancel={() => { pickRef.current?.(Promise.resolve(undefined)); }}
+            />
             {loaded === undefined && error === undefined && slow && <div
                 className="modelLoading"
                 role="status"
@@ -525,6 +965,11 @@ export const ModelViewer = (): JSX.Element => {
                 ref={inputRef}
                 className="inlineEditor"
                 aria-label={edit.label}
+                placeholder={edit.placeholder}
+                role={choices === undefined ? undefined : "combobox"}
+                aria-expanded={choices === undefined ? undefined : choicesOpen}
+                aria-autocomplete={choices === undefined ? undefined : "list"}
+                spellcheck={false}
                 value={editText}
                 style={{
                     // Exactly the text's box, so the transform lays it
@@ -536,26 +981,63 @@ export const ModelViewer = (): JSX.Element => {
                     fontWeight: edit.bold ? "bold" : "normal",
                 }}
                 onInput={(event) => {
-                    setEditText((event.target as HTMLInputElement).value);
-                }}
-                onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                        event.preventDefault();
-                        commitEdit();
-                    } else if (event.key === "Escape") {
-                        event.preventDefault();
-                        closeEdit();
+                    const value = (event.target as HTMLInputElement).value;
+                    if (choices !== undefined && /\s/.test(value.trimStart())) {
+                        openChoices(value);
+                    } else {
+                        setEditText(value);
                     }
                 }}
-                onBlur={commitEdit}
+                onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        // The list closes first; then the edit ends.
+                        if (choicesOpen) {
+                            setChoicesOpen(false);
+                        } else {
+                            closeEdit();
+                        }
+                    } else if (!choiceKey(event) && event.key === "Enter") {
+                        event.preventDefault();
+                        commitEdit("enter");
+                    }
+                }}
+                onBlur={() => { commitEdit("blur"); }}
             />}
+            {edit !== undefined && choicesOpen && choicesBox !== undefined
+                && matches.length > 0 && <ul
+                className="editChoices"
+                role="listbox"
+                aria-label="Data Types"
+                style={{ left: `${choicesBox.left}px`,
+                    top: `${choicesBox.top}px` }}
+            >
+                {matches.map((entry, index) => {
+                    return <li
+                        key={entry.label}
+                        role="option"
+                        aria-selected={index === choiceAt}
+                        className={index === choiceAt ? "highlighted" : undefined}
+                        // Before the input loses the focus.
+                        onMouseDown={(event) => {
+                            event.preventDefault();
+                            pickChoice(entry);
+                        }}
+                        onMouseEnter={() => { setChoiceAt(index); }}
+                    >{entry.label}</li>;
+                })}
+            </ul>}
         </div>
         {error !== undefined && <div className="modelError" role="alert">
             {error}
         </div>}
         {loaded !== undefined && error === undefined && <div
             className="modelStatus">
-            {`${loaded.model.schema} · ${loaded.source}`}
+            {hint !== "" && <span className="modelHint" role="status">
+                {hint}
+            </span>}
+            <span>{`${loaded.model.schema} · ${loaded.source}`
+                + (loaded.editable ? saveText(save) : "")}</span>
         </div>}
     </div>;
 };

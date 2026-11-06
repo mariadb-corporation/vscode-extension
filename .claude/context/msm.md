@@ -13,13 +13,13 @@ MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
 
 | File | Purpose |
 | --- | --- |
-| `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the twelve `msm.*` tools used, typed (the list's four, read with `listedProject`: an unknown color dropped, a missing `mcp_access` read as true, as the server reads an old entry); `msmToolArgs`, each tool's arguments by the server's names, which the Actions tab shows the call with (all but `connection_id`). `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
+| `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the seventeen `msm.*` tools used, typed (the five of the schema diagrams - `list_` / `get_` / `set_schema_diagram(s)`, `get_schema_diagram_image`, `edit_schema` - are the diagram viewer's, see modeler.md) (the list's four, read with `listedProject`: an unknown color dropped, a missing `mcp_access` read as true, as the server reads an old entry); `msmToolArgs`, each tool's arguments by the server's names, which the Actions tab shows the call with (all but `connection_id`). `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
 | `src/msm/msmFields.ts` | Pure, shared with the webview: per dialog its values, defaults and `*Problem` checks, version parsing / comparing (numbers, so 1.10 > 1.9), `projectFolderName` as the plugin names it. |
 | `src/msm/msmProtocol.ts`, `msmDialogPanel.ts` | The dialog's messages and panel, a `DialogPanel` typed by the dialog's kind: one at a time, checks the values again (and `host.check`, the disk) before `host.submit`; a failure stays in the dialog, or is notified once it was closed. |
 | `src/msm/msmCommands.ts` | `MsmCommands`: the dialogs' six commands and the list's four (`MSM_LIST_COMMANDS`), reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`); `changedDetails`, what an add or update sends. |
 | `src/msm/msmProjectsCommands.ts` | The MSM Projects view's refresh and folder commands (`MSM_FOLDER_COMMANDS`): New / Rename Folder, Set Folder Color, Remove Folder. |
 | `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds; its own bundle, on `dialogStyles.css` as Dump and Load's and New Sandbox's. |
-| `src/tree/msmProjectsTreeProvider.ts` | The MSM Projects view: folders, projects and each project's files; drag and drop; the folders, collapsed folders and folder colors it keeps itself. |
+| `src/tree/msmProjectsTreeProvider.ts` | The MSM Projects view: folders, projects, each project's Diagrams folder (`msm.list_schema_diagrams`; a shell without it shows none and logs it) and files; drag and drop; the folders, collapsed folders and folder colors it keeps itself. |
 
 ## The MSM Projects view
 
@@ -125,6 +125,8 @@ MSM Projects (`mariadb.msmProjects`).
 | `mariadb.msm.prepareRelease` | `*.msm.project` | Release version (the development version) and next version (its patch + 1, following the first until typed into), Stay on the Same Version, Replace Existing Files. Opens the files written. |
 | `mariadb.msm.generateDeploymentScript` | `*.msm.project` | A released version (newest first, marked where it has a script), Replace Existing File. Opens the script. |
 | `mariadb.msm.deploySchema` | `*.msm.project` | Connection (the configured ones; the default connection, or the only one, preselected), version (those with a script), Back Up the Schema First (default on) and its folder (empty: the project's `backups`). Refreshes the tree and the language server's catalog after. |
+| `mariadb.msm.openSchemaDiagram` | `*.msm.project`, a project row, its Diagrams folder and diagrams | Open Schema Diagram...: the diagram viewer on one of the project's schema diagrams (a pick where it has several; a project without any offers New Schema Diagram...), saved through msm as it is changed; see [modeler.md](modeler.md). |
+| `mariadb.msm.newSchemaDiagram` | A project row, and its Diagrams folder (inline `$(add)`, before Open) | New Schema Diagram...: asks for a name ("Diagram 1", numbered past the names in use; a taken one is refused), adds an empty diagram with `msm.create_schema_diagram` and `tables: []` (left out, msm would place every table), refreshes the view and opens the diagram to model on with the tool palette. msm makes the schema snapshot first where the script changed, so a brand-new project with no tables gets one too, and the palette's edits work at once. |
 
 From the palette, create starts in the first workspace folder (or home),
 and the others ask for the project folder with a folder picker. The old

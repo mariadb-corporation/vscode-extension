@@ -43,11 +43,13 @@ import {
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
 import type { IMsmApi } from "./mcp/msmApi.js";
-import { MsmCommands } from "./msm/msmCommands.js";
+import {
+    diagramNameTaken, MsmCommands, newDiagramName, projectPathOf,
+} from "./msm/msmCommands.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
 import { reportError } from "./errorMessages.js";
-import { errorText } from "./text.js";
+import { counted, errorText } from "./text.js";
 import { createSdkConnector } from "./mcp/sdkConnector.js";
 import {
     ServerStarter,
@@ -97,8 +99,17 @@ import { GENERAL_ACTIONS } from "./connections/connectionActivity.js";
 import { createLoggingSandboxApi } from "./sandboxes/sandboxActivity.js";
 import { SandboxStore } from "./sandboxes/sandboxStore.js";
 import { SandboxEditorPanel } from "./sandboxes/sandboxEditorPanel.js";
-import { ModelerPanel } from "./modeler/modelerPanel.js";
-import { assembleSchemaModel } from "./modeler/modelFormat.js";
+import { DiagramDrafts } from "./modeler/diagramDrafts.js";
+import {
+    MODELER_VIEW_TYPE,
+    ModelerPanel,
+} from "./modeler/modelerPanel.js";
+import type { ModelerTarget } from "./modeler/modelerProtocol.js";
+import {
+    ConnectionModelSource,
+    ProjectModelSource,
+    type IModelSource,
+} from "./modeler/modelSources.js";
 import { DiagramService } from "./modeler/diagramService.js";
 import { DoubleClick } from "./tree/doubleClick.js";
 import { DIAGRAM_CLICK_COMMAND } from "./tree/treeItems.js";
@@ -150,8 +161,11 @@ import {
     pickFolderColor,
 } from "./tree/folderPrompts.js";
 import {
+    MSM_DIAGRAM_CLICK_COMMAND,
+    MSM_DIAGRAM_COMMANDS,
     MSM_PROJECTS_VIEW_ID,
     MsmProjectsTreeProvider,
+    type IMsmDiagramNode,
     type MsmProjectsNode,
 } from "./tree/msmProjectsTreeProvider.js";
 import { registerMsmProjectsCommands } from "./msm/msmProjectsCommands.js";
@@ -323,6 +337,25 @@ const guard = async (
 };
 
 /**
+ * @param arg What a command was invoked on: an MSM project's node, or
+ *            nothing.
+ * @param title The title of the folder picker.
+ *
+ * @returns The MSM project's folder: the one invoked on, or one picked;
+ *          none where the picker was closed.
+ */
+const projectPathOrPick = async (
+    arg: unknown,
+    title: string,
+): Promise<string | undefined> => {
+    return projectPathOf(arg) ?? (await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        title,
+    }))?.[0]?.fsPath;
+};
+
+/**
  * Activates the extension.
  *
  * @param context The extension context.
@@ -439,6 +472,20 @@ export const activate = (context: vscode.ExtensionContext): void => {
     });
 
     /**
+     * @param uri A connection.
+     * @param schema A schema of it.
+     *
+     * @returns Its diagrams, read from its `msm_schema_diagrams` view on
+     *          the Diagram session: shown, never saved, as msm writes the
+     *          view.
+     */
+    const connectionDiagrams = (uri: string, schema: string): IModelSource => {
+        return new ConnectionModelSource(uri, schema, () => {
+            return diagrams.readDiagrams(uri, schema);
+        });
+    };
+
+    /**
      * Opens a schema's diagram in the viewer - in the schema's viewer
      * where one is up - which reads every document of the schema's
      * `msm_schema_diagrams` view and shows the diagram asked for.
@@ -446,22 +493,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
      * @param node The diagram's row.
      */
     const openSchemaDiagram = (node: IDiagramNode): void => {
-        ModelerPanel.show(context.extensionUri, {
-            connection: node.uri,
-            schema: node.schema,
-            diagram: node.name,
-        }, {
-            readModel: async () => {
-                const rows = await diagrams.readDiagrams(node.uri,
-                    node.schema);
-
-                return {
-                    model: assembleSchemaModel(rows),
-                    source: `${node.schema}.msm_schema_diagrams`,
-                };
-            },
-            log,
-        });
+        ModelerPanel.show(context.extensionUri,
+            connectionDiagrams(node.uri, node.schema), node.name, { log });
     };
 
     // Where every call is logged, the listings and reads are too, and the
@@ -948,6 +981,172 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const msmApi = (): Promise<IMsmApi> => {
         return serverApi(() => { return session.msmApi; });
     };
+
+    // A project's diagrams are read and saved through msm; what changed
+    // waits in the extension's storage until msm has it, so a VS Code
+    // closed in between loses nothing.
+    const diagramDrafts = new DiagramDrafts(path.join(
+        context.globalStorageUri.fsPath, "diagramDrafts"));
+    /** One source per project, so its msm calls run one at a time. */
+    const projectSources = new Map<string, ProjectModelSource>();
+    const projectDiagrams = (projectPath: string): ProjectModelSource => {
+        let source = projectSources.get(projectPath);
+        if (source === undefined) {
+            source = new ProjectModelSource(projectPath, {
+                msmApi,
+                put: putAction,
+                drafts: diagramDrafts,
+                keepDraft: async (diagram, when) => {
+                    const keep = "Keep My Changes";
+                    const answer = await vscode.window.showWarningMessage(
+                        `The diagram ${diagram} has changes from `
+                        + `${when.toLocaleString()} that were not saved, `
+                        + "and the project's diagram changed since.",
+                        { modal: true }, keep, "Use the Project's");
+
+                    return answer === keep;
+                },
+                log,
+            });
+            projectSources.set(projectPath, source);
+        }
+
+        return source;
+    };
+    const openProjectDiagram = (projectPath: string, name: string): void => {
+        ModelerPanel.show(context.extensionUri, projectDiagrams(projectPath),
+            name, { log });
+    };
+    /**
+     * Opens a diagram of a project, asking which where the project has
+     * several.
+     *
+     * @param projectPath The project folder.
+     */
+    const pickProjectDiagram = async (projectPath: string): Promise<void> => {
+        const listing = await (await msmApi()).listSchemaDiagrams(
+            projectPath);
+        if (listing.diagrams.length === 0) {
+            const create = "New Schema Diagram...";
+            void vscode.window.showInformationMessage(
+                `${path.basename(projectPath)} has no schema diagrams yet.`,
+                create).then((answer) => {
+                if (answer === create) {
+                    void vscode.commands.executeCommand(
+                        MSM_DIAGRAM_COMMANDS.create, vscode.Uri.file(projectPath));
+                }
+            });
+
+            return;
+        }
+        const picked = listing.diagrams.length === 1
+            ? listing.diagrams[0]
+            : (await vscode.window.showQuickPick(listing.diagrams.map(
+                (diagram) => {
+                    return {
+                        label: diagram.name,
+                        description: counted(diagram.figures, "figure"),
+                        diagram,
+                    };
+                }), { title: "Open Schema Diagram" }))?.diagram;
+        if (picked !== undefined) {
+            openProjectDiagram(projectPath, picked.name);
+        }
+    };
+    /** Two quick clicks on a project's diagram open it. */
+    const projectDiagramClicks = new DoubleClick();
+    /**
+     * @param target What a viewer showed before a restart.
+     *
+     * @returns Where its model comes from now.
+     */
+    const sourceOf = (target: ModelerTarget): IModelSource => {
+        return target.kind === "project"
+            ? projectDiagrams(target.projectPath)
+            : connectionDiagrams(target.connection, target.schema);
+    };
+    context.subscriptions.push(
+        // A diagram viewer open when VS Code closed comes back with it,
+        // with the changes that were not saved yet.
+        vscode.window.registerWebviewPanelSerializer(MODELER_VIEW_TYPE, {
+            deserializeWebviewPanel: (panel, state: unknown) => {
+                const target = (state as { target?: ModelerTarget } | undefined)
+                    ?.target;
+                if (target === undefined) {
+                    panel.dispose();
+
+                    return Promise.resolve();
+                }
+                ModelerPanel.revive(context.extensionUri, panel,
+                    sourceOf(target), target.diagram, { log });
+
+                return Promise.resolve();
+            },
+        }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.open,
+            async (arg?: unknown) => {
+                try {
+                    const node = arg as MsmProjectsNode | undefined;
+                    if (node?.kind === "diagram") {
+                        openProjectDiagram(node.projectPath, node.name);
+
+                        return;
+                    }
+                    const projectPath = await projectPathOrPick(arg,
+                        "Open Schema Diagram of an MSM Project");
+                    if (projectPath !== undefined) {
+                        await pickProjectDiagram(projectPath);
+                    }
+                } catch (error) {
+                    reportError(log, error, "open the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.create,
+            async (arg?: unknown) => {
+                try {
+                    const projectPath = await projectPathOrPick(arg,
+                        "New Schema Diagram in an MSM Project");
+                    if (projectPath === undefined) {
+                        return;
+                    }
+                    const api = await msmApi();
+                    const taken = (await api.listSchemaDiagrams(projectPath))
+                        .diagrams.map((diagram) => { return diagram.name; });
+                    const name = (await vscode.window.showInputBox({
+                        title: "New Schema Diagram",
+                        prompt: `The new diagram's name in `
+                            + `${path.basename(projectPath)}`,
+                        value: newDiagramName(taken),
+                        validateInput: (value) => {
+                            const trimmed = value.trim();
+                            if (trimmed === "") {
+                                return "Enter a name.";
+                            }
+
+                            return diagramNameTaken(taken, trimmed)
+                                ? `The project has a diagram ${trimmed} `
+                                    + "already."
+                                : undefined;
+                        },
+                    }))?.trim();
+                    if (name === undefined) {
+                        return;
+                    }
+                    await api.createEmptySchemaDiagram(projectPath, name);
+                    msmProjects.refresh();
+                    openProjectDiagram(projectPath, name);
+                } catch (error) {
+                    reportError(log, error, "create the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,
+            (node?: IMsmDiagramNode) => {
+                if (node?.kind === "diagram" && projectDiagramClicks.click(
+                    JSON.stringify([node.projectPath, node.name]))) {
+                    openProjectDiagram(node.projectPath, node.name);
+                }
+            }),
+    );
     const msmCommands = new MsmCommands({
         extensionUri: context.extensionUri,
         msmApi,

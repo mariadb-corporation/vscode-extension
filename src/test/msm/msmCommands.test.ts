@@ -33,6 +33,8 @@ import {
     MSM_LIST_COMMANDS,
     MsmCommands,
     msmCall,
+    diagramNameTaken,
+    newDiagramName,
     projectContext,
 } from "../../msm/msmCommands.js";
 import { MSM_DIALOG_VIEW_TYPE } from "../../msm/msmDialogPanel.js";
@@ -148,6 +150,14 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         addProject: answer("addProject", LISTED),
         updateProject: answer("updateProject", LISTED),
         removeProject: answer("removeProject", PROJECT),
+        listSchemaDiagrams: answer("listSchemaDiagrams", { diagrams: [] }),
+        getSchemaDiagrams: answer("getSchemaDiagrams", []),
+        getSchemaDiagramImage: answer("getSchemaDiagramImage", ""),
+        setSchemaDiagram: answer("setSchemaDiagram", []),
+        createEmptySchemaDiagram: answer("createEmptySchemaDiagram", undefined),
+        editSchema: answer("editSchema", {
+            rows: [], files: [], migration: [], notes: [],
+        }),
         setDevelopmentVersion: answer("setDevelopmentVersion", undefined),
     };
     setWorkspaceFolders([{ name: "work", uri: Uri.file("/work") }]);
@@ -259,6 +269,19 @@ const lastAction = (recorded: IRecorded): {
 const folder = (path: string): Uri => {
     return Uri.file(path);
 };
+
+describe("newDiagramName", () => {
+    it("numbers a new diagram past the names in use, in any case", () => {
+        expect(newDiagramName([])).toBe("Diagram 1");
+        expect(newDiagramName(["Main", "diagram 1", "Diagram 2"]))
+            .toBe("Diagram 3");
+    });
+
+    it("takes a name in use in another case for taken", () => {
+        expect(diagramNameTaken(["Main", "Diagram 1"], "diagram 1")).toBe(true);
+        expect(diagramNameTaken(["Main"], "Diagram 1")).toBe(false);
+    });
+});
 
 describe("msmCall", () => {
     it("shows a call's arguments, leaving out those not given", () => {

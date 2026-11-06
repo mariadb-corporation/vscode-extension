@@ -29,6 +29,7 @@ import type {
 import { McpToolError } from "../../mcp/protocol.js";
 import type { IServerStatus } from "../../mcp/serverStarter.js";
 import {
+    MSM_DIAGRAM_CLICK_COMMAND,
     MSM_PROJECTS_DRAG_MIME,
     MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY,
     MsmProjectsTreeProvider,
@@ -78,6 +79,13 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
     const updates: Array<[string, IMsmProjectDetails]> = [];
     const api = {
         listProjects: () => { return Promise.resolve(projects); },
+        listSchemaDiagrams: (path: string) => {
+            return Promise.resolve({
+                diagrams: path.endsWith("shop.msm.project")
+                    ? [{ name: "Main", figures: 3, connections: 1 }]
+                    : [],
+            });
+        },
         // The listing carries the versions: no project is read for them.
         projectInformation: () => {
             throw new Error("projectInformation is not to be called");
@@ -222,7 +230,8 @@ describe("the MSM Projects view", () => {
             const fake = setUp([listed(project)]);
             const [node] = await fake.tree.getChildren();
 
-            const files = await fake.tree.getChildren(node) as IMsmFileNode[];
+            const [, ...files] = await fake.tree.getChildren(node) as
+                IMsmFileNode[];
             expect(labels(fake, files))
                 .toEqual(["development", "msm.project.json"]);
             const folder = fake.tree.getTreeItem(files[0]);
@@ -238,6 +247,51 @@ describe("the MSM Projects view", () => {
             expect(labels(fake, await fake.tree.getChildren(files[0])))
                 .toEqual(["shop_next.sql"]);
         });
+
+    it("lists a project's diagrams first, which open on a double-click",
+        async () => {
+            const project = makeProject(root, "shop");
+            const fake = setUp([listed(project)]);
+            const [node] = await fake.tree.getChildren();
+            const [diagrams] = await fake.tree.getChildren(node);
+
+            const folder = fake.tree.getTreeItem(diagrams);
+            expect(folder.label).toBe("Diagrams");
+            expect(folder.contextValue).toBe("mariadbMsmDiagrams");
+            const rows = await fake.tree.getChildren(diagrams);
+            expect(rows).toEqual([{ kind: "diagram", projectPath: project,
+                name: "Main", figures: 3 }]);
+            const row = fake.tree.getTreeItem(rows[0]);
+            expect(row.description).toBe("3 figures");
+            expect(row.contextValue).toBe("mariadbMsmDiagram");
+            expect(row.command).toEqual({
+                command: MSM_DIAGRAM_CLICK_COMMAND,
+                title: "Open Diagram",
+                arguments: [rows[0]],
+            });
+            expect(await fake.tree.getChildren(rows[0])).toEqual([]);
+            expect(fake.tree.getParent(rows[0])).toBeUndefined();
+        });
+
+    it("shows no diagrams where the MariaDB Shell has none", async () => {
+        const logs: string[] = [];
+        const tree = new MsmProjectsTreeProvider({
+            msmApi: () => {
+                return Promise.resolve({
+                    listSchemaDiagrams: () => {
+                        return Promise.reject(new McpToolError(
+                            "msm.list_schema_diagrams",
+                            "Unknown tool: msm.list_schema_diagrams"));
+                    },
+                } as unknown as IMsmApi);
+            },
+            log: (message) => { logs.push(message); },
+        });
+
+        expect(await tree.getChildren({ kind: "diagrams",
+            projectPath: "/p/shop.msm.project" })).toEqual([]);
+        expect(logs[0]).toContain("a newer version is needed");
+    });
 
     it("moves a dropped project into the folder dropped on", async () => {
         const fake = setUp([

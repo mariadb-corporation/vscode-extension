@@ -181,13 +181,46 @@ export const changedDetails = (
  *
  * @returns The project folder it names, if it names one.
  */
-const projectPathOf = (arg: unknown): string | undefined => {
+export const projectPathOf = (arg: unknown): string | undefined => {
     if (arg instanceof vscode.Uri) {
         return arg.fsPath;
     }
     const row = arg as MsmProjectsNode | undefined;
 
-    return row?.kind === "project" ? row.project.projectPath : undefined;
+    return row?.kind === "project" ? row.project.projectPath
+        : row?.kind === "diagrams" ? row.projectPath : undefined;
+};
+
+/**
+ * @param taken The names of the project's diagrams.
+ *
+ * @returns The name a new diagram is offered: "Diagram 1", numbered past
+ *          the ones in use, in any case.
+ */
+export const newDiagramName = (taken: readonly string[]): string => {
+    const used = new Set(taken.map((name) => { return name.toLowerCase(); }));
+    let number = 1;
+    while (used.has(`diagram ${number}`)) {
+        number += 1;
+    }
+
+    return `Diagram ${number}`;
+};
+
+/**
+ * @param taken The names of the project's diagrams.
+ * @param name A name for a new one.
+ *
+ * @returns Whether a diagram has that name already, in any case: their
+ *          files would collide where the file system ignores case.
+ */
+export const diagramNameTaken = (
+    taken: readonly string[],
+    name: string,
+): boolean => {
+    const wanted = name.toLowerCase();
+
+    return taken.some((other) => { return other.toLowerCase() === wanted; });
 };
 
 /** The commands, by the dialog each opens. */

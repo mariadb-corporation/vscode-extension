@@ -54,6 +54,21 @@ describe("UndoStack", () => {
         expect(stack.canRedo).toBe(false);
     });
 
+    it("forgets an action without undoing it", () => {
+        const state = { value: 0 };
+        const stack = new UndoStack();
+        const first = setter(state, 0, 1);
+        stack.execute(first);
+        stack.execute(setter(state, 1, 2));
+        stack.discard(first);
+
+        expect(state.value).toBe(2);
+        expect(stack.entries.map((entry) => { return entry.label; }))
+            .toEqual(["Set 2"]);
+        expect(stack.undo()?.label).toBe("Set 2");
+        expect(stack.canUndo).toBe(false);
+    });
+
     it("records an action already made without making it again", () => {
         const state = { value: 5 };
         const stack = new UndoStack();
