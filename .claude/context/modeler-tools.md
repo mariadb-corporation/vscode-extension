@@ -37,6 +37,14 @@ and Enter moves on to a chain of column editors.
   E event group, Q sequence, 1 to 5 the relationships, 6 existing
   columns. Zoom has no key; Z held still zooms.
   The hints go to the start of the status line.
+- **The relationship icons** (`images/light/toolbar-diagram-rel*.svg`,
+  used as CSS masks) use Workbench's notation, drawn anew at 16 px: the
+  relationship's line across the top, dashed where it does not identify,
+  a crow's foot at a many end, and the cardinality written below,
+  right-aligned (`1:1`, `1:n`, `n:m`); Existing Columns (`relpick`) adds a
+  pipette. The characters are strokes, not SVG text, as a mask image
+  cannot count on a font. Two tables joined by an elbow line, with crow's
+  feet, read worse at 16 px.
 - **Diagram-only tools** (eraser, layer, note, image, routine group) are
   history actions saved like any change. The eraser removes a figure (and
   its connections) or a layer from the diagram, never the object from
@@ -171,9 +179,20 @@ and sequences: `add_trigger {trigger}` (`name`, `timing`, `events`,
 {trigger, table?}`, `rename_trigger {trigger, new_name}`; `add_event
 {event}` (`name`, `schedule`, `body`), `drop_event {event}`,
 `rename_event`; `add_sequence {sequence}` (`name`), `drop_sequence
-{sequence}`, `rename_sequence`. `add_sequence` places the CREATE before
-the first table (Section 140), so a column's `DEFAULT NEXT VALUE FOR` can
-use it. A table's triggers go with `drop_table`; undoing that needs
+{sequence}`, `rename_sequence`; a rename takes `{<kind>: old, new_name}`
+and each op refuses any other member (`bad-request`). `add_sequence`
+places the CREATE after the last sequence, else before the first table
+(Section 140), so a column's `DEFAULT NEXT VALUE FOR` can use it; tables,
+views and sequences share one namespace (`name-taken`). A trigger goes in
+Section 150 after the last trigger (never after the first event), else
+the last routine or view; an event after the last event, trigger, routine
+or view. `drop_trigger` is refused (`referenced`) while another trigger
+FOLLOWS or PRECEDES it, `drop_sequence` while a column default uses it;
+`drop_trigger`'s `table` is only checked. A trigger's or event's CREATE
+cannot run inside the update procedure (MariaDB 1303 / 1576): the binary
+notes `trigger-created`, `trigger-recreated` (a rename is a drop and a
+create) and `event-created`, and msm leaves those CREATEs to Section 150.
+A table's triggers go with `drop_table`; undoing that needs
 `add_trigger` for each. A binary lists the
 ops it has on an `edit ops:` line of `--help`. The viewer does not read
 it yet: msm does not pass it on, so every tool is offered in a project.

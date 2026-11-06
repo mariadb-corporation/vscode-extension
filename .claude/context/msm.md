@@ -65,7 +65,12 @@ MSM Projects (`mariadb.msmProjects`).
   the server knows a folder only as where a project is filed, so New Folder,
   the collapsed folders and the folders' colors are `FolderSet` /
   `FolderColors` in `globalState` under `mariadb.msmProjects.*` keys of their
-  own (`FolderColors` took a key argument for it). Drag and drop on a MIME of
+  own (`FolderColors` took a key argument for it). Every other row left
+  expanded (project, schema, Diagrams, object groups, a project's files)
+  is kept by item id (`ExpandedRows`, `mariadb.msmProjects.expandedRows`)
+  and drawn expanded after a restart, which VS Code does not do for an
+  extension's tree; the rows of projects no longer listed are forgotten
+  on the next listing. Drag and drop on a MIME of
   its own (`application/vnd.mariadb.msmprojects`) moves projects and whole
   folders with one `msm.update_project(new_folder=)` per project that moves,
   sent one at a time: each call rewrites the server's one `projects.json`

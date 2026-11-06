@@ -20,6 +20,9 @@ viewer is [`modeler.md`](modeler.md), its palette
 - An Object Details webview view below MSM Projects showing the object
   selected on a diagram in full, editable; the same view below Connections
   for live objects, read only for now, on the same code.
+- Then a compressed, read-only view for the side bars, the editing going
+  to a dedicated object editor, still to come. A tab of the MariaDB
+  panel (wider, one implementation) was tried for it and dropped.
 
 ## Where it lives
 
@@ -31,8 +34,8 @@ viewer is [`modeler.md`](modeler.md), its palette
 | `webview/src/modeler/placeObjects.ts` | Pure: the figures and connections placing objects adds (`placementOf`), the objects of selected figures (`objectsOfFigures`) |
 | `src/details/detailEdits.ts` | Pure: a table change of the view (`TableDetailChange`) as edits and their inverse (`tableDetailEdits`) |
 | `src/details/objectDetails.ts` | Pure: what the view shows (`IObjectDetailsView`), its messages, a project's object from the snapshot, a live one from `db.get_object_details` |
-| `src/details/objectDetailsProvider.ts` | One provider for both views (`mariadb.msmObjectDetails`, `mariadb.objectDetails`): the selection, reads, changes |
-| `webview/src/details/ObjectDetails.tsx`, `details.tsx`, `detailsStyles.css`, `vite.details.config.ts` | The page, its own build (`dist/webview/details.{js,css}`) |
+| `src/details/objectDetailsProvider.ts` | One provider for both views (`mariadb.msmObjectDetails`, `mariadb.objectDetails`): the selection and the reads |
+| `webview/src/details/ObjectDetails.tsx`, `details.tsx`, `detailsStyles.css`, `vite.details.config.ts` | The page, its own build (`dist/webview/details.{js,css}`): read only, a row a line |
 
 ## How it behaves
 
@@ -69,33 +72,38 @@ viewer is [`modeler.md`](modeler.md), its palette
   card, so placing one places its table where that is not shown. Figures go in rows
   of four, 240 apart. One undoable action; what was left out is said on
   the status line. Objects of another schema are refused.
-- **Dragging** puts the rows' `mariadb-schema-object:` URIs in
-  `text/uri-list` (both trees). VS Code hands a drop into a webview only
-  with Shift held, and without what `handleDrag` set: the page sees the
-  tree's own type (`application/vnd.code.tree.<view id lower-cased>`,
-  `OBJECT_TREE_DRAG_MIMES`) and an empty `text/uri-list`. So both trees
-  keep the drag's objects (`draggedObjects`, for 60 s, taken once), and a
-  drop with one of those types posts `treeDrop`; the panel answers
-  `treeDropped` with them (`IModelerHost.draggedObjects`). A drop of
-  nothing placeable says so in the hint. **Add to Diagram** (object rows of both trees) sends
+- **Dragging** cannot drop into a diagram: Electron refuses a drop from
+  the workbench into a cross-site frame, which every webview is
+  (electron#53669, in VS Code since about 1.141; a Shift drag of a file
+  from the Explorer fails the same way). So both trees keep the drag's
+  objects (`draggedObjects`: 15 s, taken once, cleared by a drop on a
+  tree) and the page, which gets no pointer events during a drag, posts
+  `pointerArrived` on its first move after a 400 ms pause; the panel
+  answers with `treeDropped` only right after such a drag, and the
+  objects are placed where the pointer came back (one undoable action).
+  A drag cancelled with Esc over the diagram places too. A real drop, if
+  a VS Code ever lets one through, still works (`treeDrop`). The trees
+  list no `text/uri-list` drag type: with it VS Code marks the drag as
+  one of resources and lays the editor area's drop overlay over the
+  webview. **Add to Diagram** (object rows of both trees) sends
   `placeObjects` to the schema's open viewer, in the middle of the view; for
   a project it opens one of its diagrams first if none is open, the
   objects waiting for the model (`ModelerPanel.place`). A live schema's
   needs its diagram open.
 - **Object Details** follows the last selection: a tree row (both trees),
   or figures selected on a diagram (the viewer posts `selection`; a routine
-  group's routines). A project's table is editable: name, comment, columns
-  (name, type with the column type list, NN, AI, default, comment, primary
-  key, drop, add), indexes (add, drop), foreign keys (drop). A field sends
-  its change when left or on Enter. Views, routines, triggers, events and
-  sequences are shown only (no op changes a view's SELECT or a body).
-- **A change** is turned into edits and their inverse from the snapshot.
-  With the project's diagram open it goes to the viewer
-  (`applySchemaChange`): shown, recorded in the history, sent with
-  `recover`, taken back where msm refuses it (`schemaEditFailed` tells the
-  view, which shows why and reads again). Otherwise it goes straight to
-  `ProjectModelSource.edit`. A rename makes the view follow the new name,
-  and go back where refused.
+  group's routines). It is read only and compressed for a side bar, a row
+  a line as the trees above it: a table's comment, columns (the diagram
+  card's key / NOT NULL / column icons, drawn as masks in the theme's
+  colour; name; then, as on the card, the type with AI and the default in
+  dimmed italics, cut short with the whole row as a tooltip), indexes and foreign keys; a view's columns;
+  a routine's parameters and what it returns; a trigger's, an event's and
+  a sequence's settings; SQL (a view's SELECT, a body) folded away in a
+  `<details>`. Changing an object is the object editor's: the view sends
+  only `ready`. `detailEdits.ts` (a table change as edits and their
+  inverse) stays for it, and the diagram uses it
+  (`ModelerPanel.applySchemaChange`). After a schema edit, refused or
+  made, the view reads the object again (`refreshed`).
 - **Live objects** come from `db.get_object_details`: columns with their
   flags, the primary key from `is_primary`, the comment. It has no
   indexes or foreign keys; the view says so.
@@ -109,5 +117,4 @@ viewer is [`modeler.md`](modeler.md), its palette
 
 ## Not yet tried in VS Code
 
-Whether a tree drag's `text/uri-list` reaches the webview's drop with
-Shift held; the views' sizes in the two sidebars.
+The compressed Object Details view at the side bars' widths.

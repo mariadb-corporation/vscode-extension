@@ -272,11 +272,11 @@ A panel 15px in from the canvas's top right corner, 192px wide (`Navigator.tsx`;
 20% under the first 240px, to cover less of the diagram):
 title "Navigator" with a hamburger (Fit Diagram, Actual Size, Hide
 Navigator; the toolbar's Navigator button brings it back, kept in the
-webview state), a zoom slider (log scale over `ZOOM_RANGE`) with the zoom's value as a
-split button (`SplitButton`, as the Isometric one: the value goes to the
-zoom last picked, 100% at first; its chevron lists 50 / 75 / 100 / 150%,
-`ZOOM_PRESETS`) and the
-overview. The panel draws no overview: its area is transparent and the
+webview state), the overview, and below it (as in Workbench) a zoom
+slider (log scale over `ZOOM_RANGE`) with the zoom's value as a split
+button (`SplitButton`, as the Isometric one: the value does again what
+was last picked, 100% at first; its chevron lists Fit the Pages, as the
+toolbar's button, then 50 / 75 / 100 / 150%, `ZOOM_PRESETS`). The panel draws no overview: its area is transparent and the
 canvas renders the scene into that part of its own WebGL canvas with a
 second, top-down camera (`#renderNavigator`, scissor + viewport), so it
 stays 2D in a 3D view without a second WebGL context. The part in view is
