@@ -29,7 +29,7 @@
 
 import * as vscode from "vscode";
 
-import type { IObjectInfo, ObjectType } from "../mcp/types.js";
+import { OBJECT_TYPES, type IObjectInfo, type ObjectType } from "../mcp/types.js";
 import type { ISchemaDefinition } from "../modeler/modelFormat.js";
 import {
     schemaObjectUri,
@@ -79,9 +79,7 @@ const GROUP_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
     view: "schemaViews.svg",
     function: "schemaFunctions.svg",
     procedure: "schemaProcedures.svg",
-    // The upstream icon set has no sequence icon, so this one falls back to
-    // a codicon rather than borrowing an unrelated picture.
-    sequence: new vscode.ThemeIcon("symbol-numeric"),
+    sequence: "schemaSequence.svg",
     trigger: "schemaTableTriggers.svg",
     event: "schemaEvents.svg",
 };
@@ -92,7 +90,7 @@ const OBJECT_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
     view: "schemaView.svg",
     function: "schemaFunction.svg",
     procedure: "schemaProcedure.svg",
-    sequence: new vscode.ThemeIcon("symbol-numeric"),
+    sequence: "schemaSequence.svg",
     trigger: "schemaTableTrigger.svg",
     event: "schemaEvent.svg",
 };
@@ -185,12 +183,8 @@ export const objectsOf = <P extends object>(
     });
 };
 
-/**
- * The object types msm's schema snapshot has, in the Connections view's
- * order: the snapshot has no sequences, triggers or events.
- */
-export const OUTLINE_OBJECT_TYPES: readonly ObjectType[] =
-    ["table", "view", "function", "procedure"];
+/** The object types msm's schema snapshot has: all of them, in order. */
+export const OUTLINE_OBJECT_TYPES: readonly ObjectType[] = OBJECT_TYPES;
 
 /**
  * @param definition msm's schema snapshot of a project's script.
@@ -229,8 +223,24 @@ export const outlineObjects = (
                 }).map((routine) => { return { name: routine.name }; });
             }
 
+            case "trigger": {
+                return (definition.triggers ?? []).map((trigger) => {
+                    return { name: trigger.name };
+                });
+            }
+
+            case "event": {
+                return (definition.events ?? []).map((event) => {
+                    return event.comment
+                        ? { name: event.name, comment: event.comment }
+                        : { name: event.name };
+                });
+            }
+
             default: {
-                return [];
+                return (definition.sequences ?? []).map((sequence) => {
+                    return { name: sequence.name };
+                });
             }
         }
     })();
@@ -272,22 +282,10 @@ export const objectUriList = (
 /**
  * @param row A row of an object.
  *
- * @returns The object, where a diagram can show it: a table, view or
- *          routine.
+ * @returns The object.
  */
-export const objectRefOf = (row: IObjectRow): ISchemaObjectRef | undefined => {
-    switch (row.objectType) {
-        case "table":
-        case "view":
-        case "procedure":
-        case "function": {
-            return { type: row.objectType, name: row.name };
-        }
-
-        default: {
-            return undefined;
-        }
-    }
+export const objectRefOf = (row: IObjectRow): ISchemaObjectRef => {
+    return { type: row.objectType, name: row.name };
 };
 
 /**

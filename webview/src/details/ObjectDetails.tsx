@@ -30,11 +30,15 @@ import type { TableDetailChange } from "../../../src/details/detailEdits.js";
 import type {
     DetailsHostMessage,
     IObjectDetailsView,
+    ObjectDetailsBody,
 } from "../../../src/details/objectDetails.js";
 import type {
     IOutlineColumn,
+    IOutlineEvent,
     IOutlineRoutine,
+    IOutlineSequence,
     IOutlineTable,
+    IOutlineTrigger,
     IOutlineView,
 } from "../../../src/modeler/modelFormat.js";
 import {
@@ -52,6 +56,9 @@ const TYPE_LABELS: Record<string, string> = {
     view: "View",
     procedure: "Procedure",
     function: "Function",
+    trigger: "Trigger",
+    event: "Event",
+    sequence: "Sequence",
 };
 
 interface IEditableTextProps {
@@ -399,6 +406,118 @@ const RoutineDetails = ({ routine }: { routine: IOutlineRoutine }):
     </>;
 };
 
+/** A trigger: when it fires, on what, and its body. */
+const TriggerDetails = ({ trigger }: { trigger: IOutlineTrigger }):
+    JSX.Element => {
+    return <>
+        {trigger.table === "" ? null : <section>
+            <Fields fields={[
+                ["Table", trigger.table],
+                ["Fires", `${trigger.timing} ${trigger.events.join(" OR ")}`
+                    + ((trigger.update_columns ?? []).length > 0
+                        ? ` OF ${trigger.update_columns!.join(", ")}` : "")],
+                ["Order", trigger.order
+                    ? `${trigger.order.kind} ${trigger.order.trigger}` : ""],
+                ["Definer", trigger.definer ?? ""],
+            ]} />
+        </section>}
+        <Code title="Body" text={trigger.body} />
+    </>;
+};
+
+/** An event: its schedule, status and body. */
+const EventDetails = ({ event }: { event: IOutlineEvent }): JSX.Element => {
+    return <>
+        <section>
+            <Fields fields={[
+                ["Schedule", event.schedule ?? ""],
+                ["Status", event.status ?? ""],
+                ["On completion", event.on_completion_preserve === true
+                    ? "PRESERVE" : event.on_completion_preserve === false
+                        ? "NOT PRESERVE" : ""],
+                ["Comment", event.comment ?? ""],
+                ["Definer", event.definer ?? ""],
+            ]} />
+        </section>
+        <Code title="Body" text={event.body} />
+    </>;
+};
+
+/** A sequence: its type and numbers. */
+const SequenceDetails = ({ sequence }: { sequence: IOutlineSequence }):
+    JSX.Element => {
+    return <section>
+        <Fields fields={[
+            ["Type", sequence.type ?? ""],
+            ["Start", sequence.start ?? ""],
+            ["Increment", sequence.increment ?? ""],
+            ["Min value", sequence.minvalue ?? ""],
+            ["Max value", sequence.maxvalue ?? ""],
+            ["Cache", sequence.cache ?? ""],
+            ["Cycle", sequence.cycle === true ? "CYCLE"
+                : sequence.cycle === false ? "NOCYCLE" : ""],
+        ]} />
+    </section>;
+};
+
+/** Label and value rows; the empty ones are left out. */
+const Fields = ({ fields }: { fields: Array<[string, string]> }):
+    JSX.Element => {
+    return <table className="detailsGrid"><tbody>
+        {fields.filter(([, value]) => { return value !== ""; })
+            .map(([label, value]) => {
+                return <tr key={label}>
+                    <th>{label}</th>
+                    <td>{value}</td>
+                </tr>;
+            })}
+    </tbody></table>;
+};
+
+/** SQL as written. */
+const Code = ({ title, text }: { title: string; text?: string }):
+    JSX.Element | null => {
+    return text === undefined ? null : <section>
+        <h3>{title}</h3>
+        <pre className="detailsCode">{text}</pre>
+    </section>;
+};
+
+/**
+ * @param object What is shown.
+ *
+ * @returns Its name.
+ */
+const objectName = (object: ObjectDetailsBody): string => {
+    switch (object.type) {
+        case "table": { return object.table.name; }
+        case "view": { return object.view.name; }
+        case "trigger": { return object.trigger.name; }
+        case "event": { return object.event.name; }
+        case "sequence": { return object.sequence.name; }
+        default: { return object.routine.name; }
+    }
+};
+
+/** What is shown of the object, by its type. */
+const Body = ({ object, disabled, change }: { object: ObjectDetailsBody;
+    disabled: boolean; change: (change: TableDetailChange) => void }):
+    JSX.Element => {
+    switch (object.type) {
+        case "table": {
+            return <TableDetails table={object.table} disabled={disabled}
+                change={change} />;
+        }
+        case "view": { return <ViewDetails view={object.view} />; }
+        case "trigger": { return <TriggerDetails trigger={object.trigger} />; }
+        case "event": { return <EventDetails event={object.event} />; }
+        case "sequence": {
+            return <SequenceDetails sequence={object.sequence} />;
+        }
+        default: { return <RoutineDetails routine={object.routine} />; }
+    }
+};
+
 /** The whole object. */
 const Details = ({ details, busy }: { details: IObjectDetailsView;
     busy: boolean }): JSX.Element => {
@@ -407,8 +526,7 @@ const Details = ({ details, busy }: { details: IObjectDetailsView;
     const change = (next: TableDetailChange): void => {
         post({ type: "change", change: next });
     };
-    const name = object.type === "table" ? object.table.name
-        : object.type === "view" ? object.view.name : object.routine.name;
+    const name = objectName(object);
 
     return <>
         <header className="detailsHeader">
@@ -422,12 +540,7 @@ const Details = ({ details, busy }: { details: IObjectDetailsView;
             <span className="detailsWhere">
                 {details.schema} · {details.where}</span>
         </header>
-        {object.type === "table"
-            ? <TableDetails table={object.table} disabled={disabled}
-                change={change} />
-            : object.type === "view"
-                ? <ViewDetails view={object.view} />
-                : <RoutineDetails routine={object.routine} />}
+        <Body object={object} disabled={disabled} change={change} />
         {details.partial === undefined ? null
             : <div className="detailsNote">{details.partial}</div>}
     </>;

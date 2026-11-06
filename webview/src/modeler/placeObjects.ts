@@ -16,19 +16,22 @@
  */
 
 /**
- * Placing objects the schema has already on a diagram: what a table, view
- * or routine dragged from a tree (or added with its Add to Diagram) puts
- * there. Pure, so it is tested without a scene.
+ * Placing objects the schema has already on a diagram: what an object
+ * dragged from a tree (or added with its Add to Diagram) puts there. Pure, so it is tested without a scene.
  *
  * As in Workbench, a table or view is shown once per diagram, and a table
  * comes with the connections of its foreign keys to the tables shown, and
  * of theirs to it. The routines dropped together go on one new routine
- * group.
+ * group, the events on one new event group; a sequence gets a figure; a
+ * trigger is shown on its table's card, which comes where it is not
+ * shown.
  */
 
 import type { ISchemaObjectRef } from "../../../src/modeler/modelerProtocol.js";
 import {
+    EVENT_GROUP_FIGURE,
     ROUTINE_GROUP_FIGURE,
+    SEQUENCE_FIGURE,
     TABLE_FIGURE,
     VIEW_FIGURE,
     type IModelConnection,
@@ -74,6 +77,7 @@ export const placementOf = (
     const figures: IModelFigure[] = [];
     const skipped: string[] = [];
     const routines: string[] = [];
+    const events: string[] = [];
     const at = (): { left: number; top: number } => {
         const index = figures.length;
 
@@ -124,6 +128,62 @@ export const placementOf = (
                 break;
             }
 
+            case "sequence": {
+                const sequence = (objects.sequences ?? []).find((entry) => {
+                    return entry.name === ref.name;
+                });
+                if (sequence === undefined) {
+                    skipped.push(`${ref.name} is not a sequence of the schema`);
+                } else if (shown((figure) => {
+                    return figure.sequence === sequence.name;
+                })) {
+                    skipped.push(`${sequence.name} is shown already`);
+                } else {
+                    figures.push({ id: newId(), type: SEQUENCE_FIGURE,
+                        name: sequence.name, sequence: sequence.name,
+                        ...at() });
+                }
+                break;
+            }
+
+            case "event": {
+                const event = (objects.events ?? []).find((entry) => {
+                    return entry.name === ref.name;
+                });
+                if (event === undefined) {
+                    skipped.push(`${ref.name} is not an event of the schema`);
+                } else if (events.includes(event.name) || shown((figure) => {
+                    return figure.events?.includes(event.name) ?? false;
+                })) {
+                    skipped.push(`${event.name} is shown already`);
+                } else {
+                    events.push(event.name);
+                }
+                break;
+            }
+
+            case "trigger": {
+                // Its table's card lists it: the table comes, if it is not
+                // shown yet.
+                const trigger = (objects.triggers ?? []).find((entry) => {
+                    return entry.name === ref.name;
+                });
+                const table = objects.tables.find((entry) => {
+                    return entry.name === trigger?.table;
+                });
+                if (trigger === undefined || table === undefined) {
+                    skipped.push(`${ref.name} is not a trigger of the schema`);
+                } else if (shown((figure) => {
+                    return figure.table === table.name;
+                })) {
+                    skipped.push(`${trigger.name} is shown on ${table.name}`);
+                } else {
+                    figures.push({ id: newId(), type: TABLE_FIGURE,
+                        name: table.name, table: table.name, ...at() });
+                }
+                break;
+            }
+
             default: {
                 const routine = objects.routines.find((entry) => {
                     return entry.name === ref.name
@@ -152,6 +212,17 @@ export const placementOf = (
                 return figure.name;
             })),
             routines,
+            ...at(),
+        });
+    }
+    if (events.length > 0) {
+        figures.push({
+            id: newId(),
+            type: EVENT_GROUP_FIGURE,
+            name: numberedName("events", diagram.figures.map((figure) => {
+                return figure.name;
+            })),
+            events,
             ...at(),
         });
     }
@@ -235,6 +306,14 @@ export const objectsOfFigures = (
         }
         if (figure?.view !== undefined) {
             return [{ type: "view", name: figure.view }];
+        }
+        if (figure?.sequence !== undefined) {
+            return [{ type: "sequence", name: figure.sequence }];
+        }
+        if (figure?.events !== undefined) {
+            return figure.events.map((name): ISchemaObjectRef => {
+                return { type: "event", name };
+            });
         }
 
         return (figure?.routines ?? []).flatMap((name) => {

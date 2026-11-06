@@ -27,13 +27,16 @@ import {
     figureType,
     IMAGE_FIGURE,
     NOTE_FIGURE,
+    EVENT_GROUP_FIGURE,
     ROUTINE_GROUP_FIGURE,
+    SEQUENCE_FIGURE,
     TABLE_FIGURE,
     VIEW_FIGURE,
     type IModelConnection,
     type IModelDiagram,
     type IModelFigure,
     type IModelLayer,
+    type IOutlineEvent,
     type IOutlineRoutine,
 } from "../../../src/modeler/modelFormat.js";
 import type {
@@ -111,7 +114,10 @@ import {
     editRect,
     layoutCard,
     MIN_FIGURE_WIDTH,
+    eventCardContent,
     routineCardContent,
+    sequenceCardContent,
+    sequenceOf,
     tableCardContent,
     tableOf,
     viewCardContent,
@@ -279,7 +285,7 @@ const sloped = (
 /** What a user can change of a table figure. */
 type FigureState = Pick<IModelFigure, "left" | "top" | "width" | "height"
     | "manualSizing" | "expanded" | "indicesExpanded"
-    | "foreignKeysExpanded" | "layer">;
+    | "foreignKeysExpanded" | "triggersExpanded" | "layer">;
 
 /** What a user can change of a layer. */
 type LayerState = Pick<IModelLayer, "left" | "top" | "width" | "height"
@@ -301,6 +307,7 @@ const figureState = (figure: IModelFigure): FigureState => {
         expanded: figure.expanded,
         indicesExpanded: figure.indicesExpanded,
         foreignKeysExpanded: figure.foreignKeysExpanded,
+        triggersExpanded: figure.triggersExpanded,
         layer: figure.layer,
     };
 };
@@ -333,7 +340,8 @@ const sameState = <T extends object>(a: T, b: T): boolean => {
  * a note, or a picture (an image; a figure of a type the viewer does not
  * know is a frame saying so).
  */
-type FigureKind = "table" | "view" | "routines" | "note" | "picture";
+type FigureKind = "table" | "view" | "routines" | "events" | "sequence"
+    | "note" | "picture";
 
 /** A figure on the canvas. */
 interface IFigureNode {
@@ -427,6 +435,14 @@ const kindOf = (figure: IModelFigure): FigureKind => {
 
         case ROUTINE_GROUP_FIGURE: {
             return "routines";
+        }
+
+        case EVENT_GROUP_FIGURE: {
+            return "events";
+        }
+
+        case SEQUENCE_FIGURE: {
+            return "sequence";
         }
 
         case NOTE_FIGURE: {
@@ -923,9 +939,27 @@ export class EerFigureSet implements IFigureSet {
                 return routineCardContent(routines, figure);
             }
 
+            case "events": {
+                const events = (figure.events ?? []).map((name) => {
+                    return catalog.event(name);
+                }).filter((event): event is IOutlineEvent => {
+                    return event !== undefined;
+                });
+
+                return eventCardContent(events, figure);
+            }
+
+            case "sequence": {
+                return sequenceCardContent(
+                    catalog.sequence(sequenceOf(figure)), figure);
+            }
+
             default: {
-                return tableCardContent(catalog.table(tableOf(figure)), figure,
-                    this.#options.editable === true);
+                const table = tableOf(figure);
+
+                return tableCardContent(catalog.table(table), figure,
+                    this.#options.editable === true,
+                    catalog.triggersOf(table));
             }
         }
     }
@@ -1577,7 +1611,13 @@ export class EerFigureSet implements IFigureSet {
                     { id: "separator1" }, autoSize]
                 : [autoSize];
         }
-        if (node.kind === "view") {
+        if (node.kind === "events") {
+            return this.#options.editable === true
+                ? [{ id: "addEvent", caption: "Add Event" },
+                    { id: "separator1" }, autoSize]
+                : [autoSize];
+        }
+        if (node.kind === "view" || node.kind === "sequence") {
             return [
                 { id: "toggleExpanded",
                     caption: expanded ? "Collapse" : "Expand" },
@@ -1607,6 +1647,12 @@ export class EerFigureSet implements IFigureSet {
                 id: "toggleForeignKeys",
                 caption: "Show Foreign Keys",
                 checked: figure.foreignKeysExpanded === true,
+                disabled: !expanded,
+            },
+            {
+                id: "toggleTriggers",
+                caption: "Show Triggers",
+                checked: figure.triggersExpanded !== false,
                 disabled: !expanded,
             },
             { id: "separator2" },
@@ -1660,6 +1706,13 @@ export class EerFigureSet implements IFigureSet {
                 break;
             }
 
+            case "toggleTriggers": {
+                const shown = node.figure.triggersExpanded !== false;
+                change(`${shown ? "Hide" : "Show"} Triggers of ${name}`,
+                    (figure) => { figure.triggersExpanded = !shown; });
+                break;
+            }
+
             case "autoSize": {
                 change(`Auto-Size ${name}`,
                     (figure) => { figure.manualSizing = false; });
@@ -1668,6 +1721,11 @@ export class EerFigureSet implements IFigureSet {
 
             case "addRoutine": {
                 this.#tools.addRoutine(node.figure.id);
+                break;
+            }
+
+            case "addEvent": {
+                this.#tools.addEvent(node.figure.id);
                 break;
             }
 

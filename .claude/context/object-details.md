@@ -38,9 +38,9 @@ viewer is [`modeler.md`](modeler.md), its palette
 
 - **The schema row** reads msm's snapshot (`msm.get_schema_diagrams`, the
   `msm-schema/1` row), which is what the diagrams draw and edit against.
-  The snapshot has no sequences, triggers or events, so only Tables, Views,
-  Functions and Procedures (a routine without a kind is a procedure) are
-  shown, by name. Where `msm.list_schema_diagrams` says the snapshot is not
+  It has all seven kinds of the Connections view (msm keeps the outline's
+  `triggers`, `events`, `sequences`); a routine without a kind is a
+  procedure. Shown by name. Where `msm.list_schema_diagrams` says the snapshot is not
   current, or there is none, the row says so; **Update Schema Snapshot**
   (`msm.update_schema_definition`) makes it again and reloads the project's
   open viewer (`ModelerPanel.reload`). Not done on expand: making the
@@ -50,7 +50,9 @@ viewer is [`modeler.md`](modeler.md), its palette
 - **Placing**: a table or view is shown once per diagram (Workbench); a
   table comes with a connection for each foreign key between it and a
   table shown (its own to itself too), in either direction, that has none.
-  Routines placed together go on one new routine group. Figures go in rows
+  Routines placed together go on one new routine group, events on one new
+  event group; a sequence gets a figure; a trigger is shown on its table's
+  card, so placing one places its table where that is not shown. Figures go in rows
   of four, 240 apart. One undoable action; what was left out is said on
   the status line. Objects of another schema are refused.
 - **Dragging** puts the rows' `mariadb-schema-object:` URIs in
@@ -65,8 +67,8 @@ viewer is [`modeler.md`](modeler.md), its palette
   group's routines). A project's table is editable: name, comment, columns
   (name, type with the column type list, NN, AI, default, comment, primary
   key, drop, add), indexes (add, drop), foreign keys (drop). A field sends
-  its change when left or on Enter. Views and routines are shown only (no
-  op changes a view's SELECT).
+  its change when left or on Enter. Views, routines, triggers, events and
+  sequences are shown only (no op changes a view's SELECT or a body).
 - **A change** is turned into edits and their inverse from the snapshot.
   With the project's diagram open it goes to the viewer
   (`applySchemaChange`): shown, recorded in the history, sent with

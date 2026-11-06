@@ -76,8 +76,9 @@ body,
 /*
  * The MySQL Shell's schema diagram designer's icons, drawn as masks over
  * the button's colour; the light files serve every theme. The palette's
- * table, view and routine group tools use the schema trees' icons
- * (schemaTable, schemaView, schemaProcedures), so they look like the
+ * table, view, routine group, trigger, event group and sequence tools use
+ * the schema trees' icons (schemaTable, schemaView, schemaProcedures,
+ * schemaTableTrigger, schemaEvents, schemaSequence), so they look like the
  * objects they place.
  */
 body {
@@ -95,6 +96,9 @@ body {
     --icon-diagram-table: url("../../images/light/schemaTable.svg");
     --icon-diagram-view: url("../../images/light/schemaView.svg");
     --icon-diagram-routines: url("../../images/light/schemaProcedures.svg");
+    --icon-diagram-trigger: url("../../images/light/schemaTableTrigger.svg");
+    --icon-diagram-events: url("../../images/light/schemaEvents.svg");
+    --icon-diagram-sequence: url("../../images/light/schemaSequence.svg");
     --icon-diagram-rel11: url("../../images/light/toolbar-diagram-rel11.svg");
     --icon-diagram-rel1n: url("../../images/light/toolbar-diagram-rel1n.svg");
     --icon-diagram-rel11id: url("../../images/light/toolbar-diagram-rel11id.svg");
@@ -168,6 +172,9 @@ button.toolbarText.toggled {
 .toolbarIcon.toolTable::before { mask-image: var(--icon-diagram-table); }
 .toolbarIcon.toolView::before { mask-image: var(--icon-diagram-view); }
 .toolbarIcon.toolRoutineGroup::before { mask-image: var(--icon-diagram-routines); }
+.toolbarIcon.toolTrigger::before { mask-image: var(--icon-diagram-trigger); }
+.toolbarIcon.toolEventGroup::before { mask-image: var(--icon-diagram-events); }
+.toolbarIcon.toolSequence::before { mask-image: var(--icon-diagram-sequence); }
 .toolbarIcon.toolRel11::before { mask-image: var(--icon-diagram-rel11); }
 .toolbarIcon.toolRel1n::before { mask-image: var(--icon-diagram-rel1n); }
 .toolbarIcon.toolRel11Id::before { mask-image: var(--icon-diagram-rel11id); }

@@ -129,6 +129,24 @@ describe("what the view shows", () => {
             name: "total" })).toBeUndefined();
     });
 
+    it("finds a project's trigger, event and sequence", () => {
+        const definition = { format: "msm-schema/1" as const, schema: "shop",
+            tables: [orders()],
+            triggers: [{ name: "orders_bi", timing: "BEFORE",
+                events: ["INSERT"], table: "orders" }],
+            events: [{ name: "purge", schedule: "EVERY 1 DAY" }],
+            sequences: [{ name: "order_no", start: "1000" }] };
+
+        expect(outlineDetails(definition, { type: "trigger",
+            name: "orders_bi" })).toMatchObject({ type: "trigger",
+            trigger: { table: "orders" } });
+        expect(outlineDetails(definition, { type: "event", name: "purge" }))
+            .toMatchObject({ type: "event", event: { schedule: "EVERY 1 DAY" } });
+        expect(outlineDetails(definition, { type: "sequence",
+            name: "order_no" })).toMatchObject({ type: "sequence",
+            sequence: { start: "1000" } });
+    });
+
     it("reads a live table's columns and primary key", () => {
         const body = liveDetails({
             basic: { schema: "shop", name: "orders", type: "BASE TABLE",

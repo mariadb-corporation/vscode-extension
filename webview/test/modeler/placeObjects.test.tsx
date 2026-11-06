@@ -132,6 +132,41 @@ describe("placing the schema's objects", () => {
     });
 });
 
+describe("placing sequences, events and triggers", () => {
+    it("gives a sequence a figure, the events one group, and a trigger its "
+        + "table", () => {
+        const lists = { ...objects(),
+            sequences: [{ name: "order_no" }],
+            events: [{ name: "purge" }, { name: "report" }],
+            triggers: [{ name: "orders_bi", timing: "BEFORE",
+                events: ["INSERT"], table: "orders" },
+            { name: "customer_bi", timing: "BEFORE", events: ["INSERT"],
+                table: "customer" }] };
+        const placed = placementOf([
+            { type: "sequence", name: "order_no" },
+            { type: "event", name: "purge" },
+            { type: "event", name: "report" },
+            { type: "trigger", name: "orders_bi" },
+            { type: "trigger", name: "customer_bi" },
+        ], diagram(), lists, { x: 0, y: 0 }, ids());
+
+        expect(placed.figures.map((figure) => {
+            return [figure.type, figure.name];
+        })).toEqual([["SequenceFigure", "order_no"],
+            ["TableFigure", "orders"],
+            ["EventGroupFigure", "events1"]]);
+        expect(placed.figures[2]?.events).toEqual(["purge", "report"]);
+        // customer is shown: its card lists its trigger.
+        expect(placed.skipped).toEqual(["customer_bi is shown on customer"]);
+        expect(objectsOfFigures({ ...diagram(), figures: placed.figures },
+            placed.figures.map((figure) => { return figure.id; }), lists))
+            .toEqual([{ type: "sequence", name: "order_no" },
+                { type: "table", name: "orders" },
+                { type: "event", name: "purge" },
+                { type: "event", name: "report" }]);
+    });
+});
+
 describe("the objects of the figures selected", () => {
     it("names a table's, a view's and a routine group's routines", () => {
         const shown = diagram();

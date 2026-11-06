@@ -26,8 +26,11 @@
 import type { IObjectDetails } from "../mcp/types.js";
 import type { ISchemaObjectRef } from "../modeler/modelerProtocol.js";
 import type {
+    IOutlineEvent,
     IOutlineRoutine,
+    IOutlineSequence,
     IOutlineTable,
+    IOutlineTrigger,
     IOutlineView,
     ISchemaDefinition,
 } from "../modeler/modelFormat.js";
@@ -37,7 +40,10 @@ import type { TableDetailChange } from "./detailEdits.js";
 export type ObjectDetailsBody =
     | { type: "table"; table: IOutlineTable }
     | { type: "view"; view: IOutlineView }
-    | { type: "procedure" | "function"; routine: IOutlineRoutine };
+    | { type: "procedure" | "function"; routine: IOutlineRoutine }
+    | { type: "trigger"; trigger: IOutlineTrigger }
+    | { type: "event"; event: IOutlineEvent }
+    | { type: "sequence"; sequence: IOutlineSequence };
 
 /** What the view shows. */
 export interface IObjectDetailsView {
@@ -93,14 +99,41 @@ export const outlineDetails = (
             return view === undefined ? undefined : { type: "view", view };
         }
 
-        default: {
+        case "procedure":
+        case "function": {
+            const type = ref.type;
             const routine = definition.routines?.find((entry) => {
                 return entry.name === ref.name
-                    && (entry.kind ?? "procedure") === ref.type;
+                    && (entry.kind ?? "procedure") === type;
             });
 
-            return routine === undefined
-                ? undefined : { type: ref.type, routine };
+            return routine === undefined ? undefined : { type, routine };
+        }
+
+        case "trigger": {
+            const trigger = definition.triggers?.find((entry) => {
+                return entry.name === ref.name;
+            });
+
+            return trigger === undefined
+                ? undefined : { type: "trigger", trigger };
+        }
+
+        case "event": {
+            const event = definition.events?.find((entry) => {
+                return entry.name === ref.name;
+            });
+
+            return event === undefined ? undefined : { type: "event", event };
+        }
+
+        default: {
+            const sequence = definition.sequences?.find((entry) => {
+                return entry.name === ref.name;
+            });
+
+            return sequence === undefined
+                ? undefined : { type: "sequence", sequence };
         }
     }
 };
@@ -147,9 +180,26 @@ export const liveDetails = (
                 columns: columns.map((column) => { return column.name; }) } };
         }
 
-        default: {
+        case "procedure":
+        case "function": {
             return { type: ref.type, routine: { name: details.basic.name,
                 kind: ref.type } };
+        }
+
+        // The server tells their names and comments only.
+        case "trigger": {
+            return { type: "trigger", trigger: { name: details.basic.name,
+                timing: "", events: [], table: "" } };
+        }
+
+        case "event": {
+            return { type: "event", event: { name: details.basic.name,
+                comment: details.basic.comment ?? null } };
+        }
+
+        default: {
+            return { type: "sequence",
+                sequence: { name: details.basic.name } };
         }
     }
 };

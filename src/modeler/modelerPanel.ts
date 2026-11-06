@@ -332,6 +332,9 @@ export class ModelerPanel {
                     tables: model.tables,
                     views: model.views,
                     routines: model.routines,
+                    triggers: model.triggers,
+                    events: model.events,
+                    sequences: model.sequences,
                 },
             });
             if (notes.length > 0) {

@@ -110,6 +110,11 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
                         { name: "count_orders", kind: "function" },
                         { name: "tidy" },
                     ],
+                    triggers: [{ name: "orders_bi", timing: "BEFORE",
+                        events: ["INSERT"], table: "orders" }],
+                    events: [{ name: "purge", schedule: "EVERY 1 DAY",
+                        comment: "Old rows" }],
+                    sequences: [{ name: "order_no" }],
                 }),
             }]);
         },
@@ -294,7 +299,7 @@ describe("the MSM Projects view", () => {
             expect(rows.map((row) => {
                 return fake.tree.getTreeItem(row).label;
             })).toEqual(["Diagrams", "Tables", "Views", "Functions",
-                "Procedures"]);
+                "Procedures", "Sequences", "Triggers", "Events"]);
             expect(fake.tree.getTreeItem(rows[1]).contextValue)
                 .toBe("mariadbMsmObjectGroup.table");
         });
@@ -318,6 +323,13 @@ describe("the MSM Projects view", () => {
             expect(await names(functions)).toEqual(["count_orders"]);
             // A routine without a kind is a procedure.
             expect(await names(procedures)).toEqual(["tidy"]);
+            const [, , , , , sequences, triggers, events] =
+                await fake.tree.getChildren(schema);
+            expect(await names(sequences)).toEqual(["order_no"]);
+            expect(await names(triggers)).toEqual(["orders_bi"]);
+            expect(await names(events)).toEqual(["purge"]);
+            const [purge] = await fake.tree.getChildren(events);
+            expect(fake.tree.getTreeItem(purge).tooltip).toBe("Old rows");
             const [customer] = await fake.tree.getChildren(tables);
             expect(customer).toMatchObject({ kind: "object", projectPath:
                 project, schema: "shop", objectType: "table",

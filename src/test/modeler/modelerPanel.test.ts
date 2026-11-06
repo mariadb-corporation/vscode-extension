@@ -54,6 +54,9 @@ const model: ISchemaModel = {
     tables: [],
     views: [],
     routines: [],
+    triggers: [],
+    events: [],
+    sequences: [],
     diagrams: [],
 };
 
@@ -299,7 +302,7 @@ describe("ModelerPanel", () => {
         expect(posted(panel).at(-1)).toEqual({
             type: "schemaEdited",
             objects: { sourceHash: "sha256:one++", tables: [], views: [],
-                routines: [] },
+                routines: [], triggers: [], events: [], sequences: [] },
         });
         panel.dispose();
     });

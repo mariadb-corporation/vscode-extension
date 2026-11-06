@@ -22,6 +22,7 @@
 
 import type { IDetailEdits } from "../details/detailEdits.js";
 import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
+import { OBJECT_TYPES, type ObjectType } from "../mcp/types.js";
 import type {
     IDiagramDocument,
     ISchemaModel,
@@ -36,9 +37,9 @@ export type ModelerTarget =
     | { kind: "connection"; connection: string; schema: string; diagram: string }
     | { kind: "project"; projectPath: string; diagram: string };
 
-/** A table, view or routine of a diagram's schema, by name. */
+/** An object of a diagram's schema, by name. */
 export interface ISchemaObjectRef {
-    type: "table" | "view" | "procedure" | "function";
+    type: ObjectType;
     name: string;
 }
 
@@ -74,7 +75,7 @@ export const schemaObjectUri = (
         + `${encodeURIComponent(ref.name)}?${query}`;
 };
 
-const OBJECT_TYPES = new Set(["table", "view", "procedure", "function"]);
+const OBJECT_TYPE_NAMES = new Set<string>(OBJECT_TYPES);
 
 /**
  * @param uriList A drag's `text/uri-list`: URIs, one a line (`#` lines
@@ -91,7 +92,7 @@ export const parseSchemaObjectUris = (
         + "\\?(.*)$", "u");
     for (const line of uriList.split(/\r?\n/u)) {
         const match = pattern.exec(line.trim());
-        if (match === null || !OBJECT_TYPES.has(match[1])) {
+        if (match === null || !OBJECT_TYPE_NAMES.has(match[1])) {
             continue;
         }
         const query = new URLSearchParams(match[3]);
@@ -104,7 +105,7 @@ export const parseSchemaObjectUris = (
                 ? { connection, schema } : undefined;
         if (place !== undefined) {
             found.push({ place, ref: {
-                type: match[1] as ISchemaObjectRef["type"],
+                type: match[1] as ObjectType,
                 name: decodeURIComponent(match[2]),
             } });
         }
@@ -136,7 +137,8 @@ export type SaveState =
 
 /** The snapshot's objects, as a schema edit leaves them. */
 export type ISchemaObjects = Pick<ISchemaModel,
-    "sourceHash" | "tables" | "views" | "routines">;
+    "sourceHash" | "tables" | "views" | "routines" | "triggers" | "events"
+    | "sequences">;
 
 /** Messages from the viewer to the extension. */
 export type ModelerWebviewMessage =

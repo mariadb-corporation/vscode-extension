@@ -17,8 +17,11 @@
 
 import type {
     IModelFigure,
+    IOutlineEvent,
     IOutlineRoutine,
+    IOutlineSequence,
     IOutlineTable,
+    IOutlineTrigger,
     IOutlineView,
 } from "../../../src/modeler/modelFormat.js";
 import {
@@ -62,11 +65,12 @@ export const CARD = {
 
 /** What an item of a card shows. */
 export type CardItemKind = "title" | "heading" | "column" | "index"
-    | "foreignKey" | "routine";
+    | "foreignKey" | "routine" | "trigger" | "event" | "property";
 
 /** The icon an item carries. */
 export type CardIcon = "table" | "view" | "routine" | "primaryKey"
-    | "notNull" | "nullable" | "index" | "foreignKey";
+    | "notNull" | "nullable" | "index" | "foreignKey" | "trigger" | "event"
+    | "sequence";
 
 /** One line of a card. */
 export interface ICardItem {
@@ -153,6 +157,7 @@ export const tableCardContent = (
     table: IOutlineTable | undefined,
     figure: IModelFigure,
     editable = false,
+    triggers: readonly IOutlineTrigger[] = [],
 ): ICardContent => {
     const content: ICardContent = {
         title: table?.name ?? tableOf(figure),
@@ -207,6 +212,101 @@ export const tableCardContent = (
                 };
             }),
         });
+    }
+    // Shown unless hidden, as the columns are: a table's triggers are
+    // what it does on its own.
+    if (figure.triggersExpanded !== false && triggers.length > 0) {
+        content.sections.push({
+            heading: "Triggers",
+            lines: triggers.map((trigger) => {
+                return {
+                    kind: "trigger" as const,
+                    text: trigger.name,
+                    detail: `${trigger.timing} ${trigger.events.join(" OR ")}`,
+                    icon: "trigger" as const,
+                    editable: false,
+                };
+            }),
+        });
+    }
+
+    return content;
+};
+
+/**
+ * @param events The events the figure lists that the snapshot has.
+ * @param figure The event group figure, for its name.
+ *
+ * @returns What the group's card shows: each event with its schedule.
+ */
+export const eventCardContent = (
+    events: readonly IOutlineEvent[],
+    figure: IModelFigure,
+): ICardContent => {
+    return {
+        title: figure.name,
+        icon: "event",
+        titleEditable: false,
+        sections: [{
+            heading: "Events",
+            lines: events.map((event) => {
+                return {
+                    kind: "event" as const,
+                    text: event.name,
+                    detail: event.schedule ?? "",
+                    icon: "event" as const,
+                    editable: false,
+                };
+            }),
+        }],
+    };
+};
+
+/**
+ * @param figure A sequence figure.
+ *
+ * @returns The name of the sequence it shows.
+ */
+export const sequenceOf = (figure: IModelFigure): string => {
+    return figure.sequence ?? figure.name;
+};
+
+/**
+ * @param sequence The sequence; undefined where the snapshot has none.
+ * @param figure The figure.
+ *
+ * @returns What the sequence's card shows: its type and numbers, those
+ *          written.
+ */
+export const sequenceCardContent = (
+    sequence: IOutlineSequence | undefined,
+    figure: IModelFigure,
+): ICardContent => {
+    const content: ICardContent = {
+        title: sequence?.name ?? sequenceOf(figure),
+        icon: "sequence",
+        titleEditable: false,
+        sections: [],
+    };
+    if (sequence === undefined || figure.expanded === false) {
+        return content;
+    }
+    const lines = ([
+        ["type", sequence.type],
+        ["start", sequence.start],
+        ["increment", sequence.increment],
+        ["min", sequence.minvalue],
+        ["max", sequence.maxvalue],
+        ["cache", sequence.cache],
+        ["cycle", sequence.cycle === true ? "yes" : undefined],
+    ] as Array<[string, string | null | undefined]>).filter(([, value]) => {
+        return value !== undefined && value !== null && value !== "";
+    }).map(([label, value]) => {
+        return { kind: "property" as const, text: label, detail: value!,
+            editable: false };
+    });
+    if (lines.length > 0) {
+        content.sections.push({ heading: "Sequence", lines });
     }
 
     return content;

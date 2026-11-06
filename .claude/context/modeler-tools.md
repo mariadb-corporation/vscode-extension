@@ -33,8 +33,9 @@ and Enter moves on to a chain of column editors.
   as in Workbench. The exception is a layer area too small to count
   (under 5 units: "Please select a larger area."), which keeps the tool.
   Keys, no modifier, never while typing: Esc pointer, H hand, D eraser,
-  L layer, N text, I image, T table, V view, G routine group, 1 to 5 the
-  relationships, 6 existing columns. Zoom has no key; Z held still zooms.
+  L layer, N text, I image, T table, V view, G routine group, R trigger,
+  E event group, Q sequence, 1 to 5 the relationships, 6 existing
+  columns. Zoom has no key; Z held still zooms.
   The hints go to the start of the status line.
 - **Diagram-only tools** (eraser, layer, note, image, routine group) are
   history actions saved like any change. The eraser removes a figure (and
@@ -82,6 +83,21 @@ and Enter moves on to a chain of column editors.
   wording), and for a refused undo or redo, which carries no `recover`.
   The viewer matches each `schemaEdited` to its request by order, since
   the panel answers them one at a time.
+- **Triggers, events and sequences** (not Workbench's; the user's
+  choices): a trigger is a "Triggers" section of its table's card (shown
+  unless `triggersExpanded` is false; the table menu's Show Triggers).
+  The Trigger tool is clicked on a table: `<table>_BEFORE_INSERT`, named
+  in place in that section, then `add_trigger` (BEFORE INSERT, body
+  `BEGIN\nEND`). Events are listed on an `EventGroupFigure` (`events`,
+  #F5C39A) like routines on a routine group, placed empty and filled from
+  its menu's Add Event (`add_event`, EVERY 1 DAY). A sequence is a
+  `SequenceFigure` (`sequence`, #C9B8E8) placed and named like a view
+  (`add_sequence`), its name free of tables' and views'. The ops come from
+  lsp-server (triggers and events first, sequences later, as sequence
+  references need resolving); the figure kinds from msm. Until a binary
+  and a shell have them, msm refuses and the viewer takes the change back.
+  The sequence icon `schemaSequence.svg` is the extension's own (the
+  upstream set has none).
 - **A new view** is named in place, then made with `add_view` and the
   placeholder `SELECT 1`: the SELECT is the user's to write in the SQL.
 - **Relationships** (Workbench's): pick the table that receives the

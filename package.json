@@ -1898,12 +1898,12 @@
         },
         {
           "command": "mariadb.addToDiagram",
-          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObject\\.(table|view|procedure|function)$/",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObject\\.(table|view|procedure|function|sequence|trigger|event)$/",
           "group": "0_msm@0"
         },
         {
           "command": "mariadb.addToDiagram",
-          "when": "view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view|procedure|function)$/",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view|procedure|function|sequence|trigger|event)$/",
           "group": "0_diagram@0"
         },
         {

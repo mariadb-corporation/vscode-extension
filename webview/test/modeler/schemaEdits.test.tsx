@@ -29,7 +29,10 @@ import {
     associativeTableChange,
     existingColumnsChange,
     freeName,
+    newEventChange,
+    newSequenceChange,
     newTableChange,
+    newTriggerChange,
     newViewChange,
     numberedName,
     relationshipChange,
@@ -58,7 +61,8 @@ const order = (): IOutlineTable => {
 };
 
 const objects = (...tables: IOutlineTable[]): ISchemaObjectLists => {
-    return { tables, views: [], routines: [] };
+    return { tables, views: [], routines: [], triggers: [], events: [],
+        sequences: [] };
 };
 
 describe("names", () => {
@@ -268,8 +272,18 @@ describe("the snapshot meanwhile", () => {
         expect(lists.views.map((view) => { return view.name; })).toEqual(["v"]);
         expect(lists.routines[0]).toMatchObject({ name: "r", kind: "procedure" });
 
+        applyEdits(lists, [...newTriggerChange("t", "t_bi").edits,
+            ...newEventChange("e").edits, ...newSequenceChange("s").edits]);
+        expect(lists.triggers).toEqual([{ name: "t_bi", timing: "BEFORE",
+            events: ["INSERT"], table: "t", body: "BEGIN\nEND" }]);
+        expect(lists.events?.map((event) => { return event.schedule; }))
+            .toEqual(["EVERY 1 DAY"]);
+        expect(lists.sequences).toEqual([{ name: "s" }]);
+
+        // A table's triggers go with it.
         applyEdits(lists, [{ op: "drop_table", table: "T" },
-            { op: "drop_view", view: "v" }, { op: "drop_routine", routine: "r" }]);
+            { op: "drop_view", view: "v" }, { op: "drop_routine", routine: "r" },
+            ...newEventChange("e").inverse, ...newSequenceChange("s").inverse]);
         expect(lists).toEqual(objects());
     });
 

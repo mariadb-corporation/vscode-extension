@@ -21,7 +21,9 @@ import {
     FIGURE_COLORS,
     IMAGE_FIGURE,
     NOTE_FIGURE,
+    EVENT_GROUP_FIGURE,
     ROUTINE_GROUP_FIGURE,
+    SEQUENCE_FIGURE,
     TABLE_FIGURE,
     VIEW_FIGURE,
     type IModelConnection,
@@ -50,8 +52,12 @@ import { sameName, type ISchemaCatalog } from "./catalog.js";
 import {
     associativeTableChange,
     existingColumnsChange,
+    freeName,
+    newEventChange,
     newRoutineChange,
+    newSequenceChange,
     newTableChange,
+    newTriggerChange,
     newViewChange,
     noPrimaryKey,
     numberedName,
@@ -119,6 +125,15 @@ export const DIAGRAM_TOOLS: readonly IDiagramTool[] = [
     { id: "routineGroup", title: "Place a New Routine Group", key: "g",
         icon: "toolRoutineGroup", group: 3, edits: true,
         hint: "Select location for new routine group." },
+    { id: "trigger", title: "Place a New Trigger on a Table", key: "r",
+        icon: "toolTrigger", group: 3, edits: true,
+        hint: "Select the table to add a trigger to." },
+    { id: "eventGroup", title: "Place a New Event Group", key: "e",
+        icon: "toolEventGroup", group: 3, edits: true,
+        hint: "Select location for new event group." },
+    { id: "sequence", title: "Place a New Sequence", key: "q",
+        icon: "toolSequence", group: 3, edits: true,
+        hint: "Select location for new sequence." },
     { id: "rel11", title: "Place a New 1:1 Non-Identifying Relationship",
         key: "1", icon: "toolRel11", group: 4, edits: true,
         hint: "Select the Table to receive the Foreign Key." },
@@ -297,6 +312,24 @@ export const parseColumnText = (text: string): { name: string; type: string } =>
 };
 
 /** A table placed whose name and columns are being entered. */
+/** What a group figure lists, and how a new member is made. */
+interface IGroupMember {
+    member: "routines" | "events";
+    /** The names in use. */
+    taken: string[];
+    /** The name a new one is numbered from. */
+    base: string;
+    /** The kind of the card's rows it is listed as. */
+    itemKind: "routine" | "event";
+    /** What it is, for the messages. */
+    what: string;
+    change: (name: string) => ISchemaChange;
+    /** What the status line says once it is made. */
+    created: (name: string) => string;
+    /** Adds it again with a name msm refused, to fix. */
+    again: (name: string) => void;
+}
+
 interface IPendingTable {
     figure: IModelFigure;
     columns: IOutlineColumn[];
@@ -392,6 +425,32 @@ export class DiagramTools {
             case "routineGroup": {
                 if (point !== undefined) {
                     this.#placeRoutineGroup(point);
+                }
+                break;
+            }
+
+            case "eventGroup": {
+                if (point !== undefined) {
+                    this.#placeEventGroup(point);
+                }
+                break;
+            }
+
+            case "sequence": {
+                if (point !== undefined) {
+                    this.#placeSequence(point);
+                }
+                break;
+            }
+
+            case "trigger": {
+                const hit = this.#target.hit(probe);
+                const figure = hit === undefined || hit.layer === true
+                    ? undefined : this.#target.figure(hit.figureId);
+                if (figure?.table === undefined) {
+                    this.#target.hint("Select a table to add a trigger to.");
+                } else {
+                    this.#addTrigger(figure.id);
                 }
                 break;
             }
@@ -706,9 +765,11 @@ export class DiagramTools {
 
     /** @returns The names tables and views share, taken. */
     #relationNames(): string[] {
-        const { tables, views } = this.#target.catalog.objects();
+        const { tables, views, sequences } = this.#target.catalog.objects();
 
-        return [...tables, ...views].map((object) => { return object.name; });
+        return [...tables, ...views, ...sequences ?? []].map((object) => {
+            return object.name;
+        });
     }
 
     /**
@@ -1023,13 +1084,31 @@ export class DiagramTools {
     }
 
     #placeRoutineGroup(point: IPoint): void {
+        this.#placeGroup(point, ROUTINE_GROUP_FIGURE, "routines", "Routine");
+    }
+
+    #placeEventGroup(point: IPoint): void {
+        this.#placeGroup(point, EVENT_GROUP_FIGURE, "events", "Event");
+    }
+
+    /**
+     * Places an empty group, its name entered in place: a figure of the
+     * diagram alone, its routines or events added from its menu.
+     *
+     * @param point Where.
+     * @param type The figure's type.
+     * @param member What it lists.
+     * @param what What it is a group of, for the labels.
+     */
+    #placeGroup(point: IPoint, type: string, member: "routines" | "events",
+        what: string): void {
         const target = this.#target;
-        const name = this.#figureName("routines");
+        const name = this.#figureName(member);
         const figure: IModelFigure = {
             id: newId(),
-            type: ROUTINE_GROUP_FIGURE,
+            type,
             name,
-            routines: [],
+            [member]: [],
             left: Math.round(point.x),
             top: Math.round(point.y),
         };
@@ -1038,12 +1117,12 @@ export class DiagramTools {
         target.done();
         target.editItem(figure.id, (item) => { return item.kind === "title"; }, {
             text: name,
-            label: "Routine group name",
+            label: `${what} group name`,
             commit: (text) => {
                 figure.name = text.trim() === "" ? name : text.trim();
                 target.refresh();
                 target.removeFigure(figure.id);
-                this.#placeFigure(figure, `Place Routine Group ${figure.name}`);
+                this.#placeFigure(figure, `Place ${what} Group ${figure.name}`);
             },
             cancel: () => {
                 target.removeFigure(figure.id);
@@ -1060,53 +1139,102 @@ export class DiagramTools {
      * @param text The name to show in the editor: the one msm refused.
      */
     public addRoutine(figureId: string, text?: string): void {
+        this.#addMember(figureId, {
+            member: "routines",
+            taken: this.#target.catalog.objects().routines.map((routine) => {
+                return routine.name;
+            }),
+            base: "routine",
+            itemKind: "routine",
+            what: "routine",
+            change: newRoutineChange,
+            created: (name) => {
+                return `Procedure '${name}' created; its body is to be `
+                    + "written in the SQL.";
+            },
+            again: (name) => { this.addRoutine(figureId, name); },
+        }, text);
+    }
+
+    /**
+     * Adds a new event to an event group: its name entered in place, then
+     * made in the SQL, run every day until its schedule is written.
+     *
+     * @param figureId The event group's figure.
+     * @param text The name to show in the editor: the one msm refused.
+     */
+    public addEvent(figureId: string, text?: string): void {
+        this.#addMember(figureId, {
+            member: "events",
+            taken: (this.#target.catalog.objects().events ?? []).map(
+                (event) => { return event.name; }),
+            base: "event",
+            itemKind: "event",
+            what: "event",
+            change: newEventChange,
+            created: (name) => {
+                return `Event '${name}' created; its schedule and body are `
+                    + "to be written in the SQL.";
+            },
+            again: (name) => { this.addEvent(figureId, name); },
+        }, text);
+    }
+
+    /**
+     * Adds a new object to a group's figure: it stands in the catalog
+     * while its name is entered in place, then is made in the SQL.
+     *
+     * @param figureId The group's figure.
+     * @param spec What the group lists, and how a new one is made.
+     * @param text The name to show in the editor: the one msm refused.
+     */
+    #addMember(figureId: string, spec: IGroupMember, text?: string): void {
         const target = this.#target;
         const figure = target.figure(figureId);
         if (figure === undefined) {
             return;
         }
-        const taken = target.catalog.objects().routines.map((routine) => {
-            return routine.name;
-        });
-        const name = numberedName("routine", taken);
-        // By name: other routines may come and go meanwhile.
+        const name = numberedName(spec.base, spec.taken);
+        // By name: other members may come and go meanwhile.
         let shown = name;
-        const show = (routine: string): void => {
-            shown = routine;
-            const routines = figure.routines ?? [];
-            if (!routines.some((other) => { return sameName(other, routine); })) {
-                figure.routines = [...routines, routine];
+        const show = (entry: string): void => {
+            shown = entry;
+            const members = figure[spec.member] ?? [];
+            if (!members.some((other) => { return sameName(other, entry); })) {
+                figure[spec.member] = [...members, entry];
             }
         };
         const hide = (): void => {
-            figure.routines = (figure.routines ?? []).filter((other) => {
-                return !sameName(other, shown);
-            });
+            figure[spec.member] = (figure[spec.member] ?? []).filter(
+                (other) => { return !sameName(other, shown); });
         };
         // Stands in the catalog while its name is entered.
-        const placeholder = newRoutineChange(name);
+        const placeholder = spec.change(name);
         target.catalog.edit(placeholder.edits);
         show(name);
         target.refresh();
         target.editItem(figureId, (item) => {
-            // `routine1(`: not `routine10(`'s row.
-            return item.kind === "routine" && item.text.startsWith(`${name}(`);
+            // `routine1(` or `event1`: not `routine10(`'s or `event10`'s row.
+            return item.kind === spec.itemKind && (item.text === name
+                || item.text.startsWith(`${name}(`));
         }, {
             text: text ?? name,
-            label: "Routine name",
+            label: `${spec.what[0]!.toUpperCase()}${spec.what.slice(1)} name`,
             commit: (text) => {
                 const entered = text.trim();
                 target.catalog.edit(placeholder.inverse);
                 if (entered === "" || (!sameName(entered, name)
-                    && taken.some((other) => { return sameName(other, entered); }))) {
+                    && spec.taken.some((other) => {
+                        return sameName(other, entered);
+                    }))) {
                     hide();
                     target.refresh();
                     target.hint(entered === "" ? ""
-                        : `A routine named ${entered} exists already.`);
+                        : `A ${spec.what} named ${entered} exists already.`);
 
                     return;
                 }
-                const change = newRoutineChange(entered);
+                const change = spec.change(entered);
                 target.catalog.edit(change.edits);
                 // The placeholder's row goes; the routine's comes.
                 hide();
@@ -1117,16 +1245,150 @@ export class DiagramTools {
                     hide,
                     (message) => {
                         this.#takeBack(change, hide, message);
-                        this.addRoutine(figureId, entered);
+                        spec.again(entered);
                         target.hint(message);
                     });
-                target.hint(`Procedure '${entered}' created; its body is to `
-                    + "be written in the SQL.");
+                target.hint(spec.created(entered));
             },
             cancel: () => {
                 target.catalog.edit(placeholder.inverse);
                 hide();
                 target.refresh();
+            },
+        });
+    }
+
+    /**
+     * Adds a new trigger to the table a figure shows: BEFORE INSERT, its
+     * name entered in place in the card's Triggers section, then made in
+     * the SQL.
+     *
+     * @param figureId The table's figure.
+     * @param text The name to show in the editor: the one msm refused.
+     */
+    #addTrigger(figureId: string, text?: string): void {
+        const target = this.#target;
+        const figure = target.figure(figureId);
+        const table = figure?.table;
+        if (figure === undefined || table === undefined) {
+            return;
+        }
+        const taken = (target.catalog.objects().triggers ?? []).map(
+            (trigger) => { return trigger.name; });
+        const name = freeName(`${table}_BEFORE_INSERT`, taken);
+        // The section shows the new trigger to name.
+        figure.triggersExpanded = undefined;
+        const placeholder = newTriggerChange(table, name);
+        target.catalog.edit(placeholder.edits);
+        target.refresh();
+        target.done();
+        target.editItem(figureId, (item) => {
+            return item.kind === "trigger" && item.text === name;
+        }, {
+            text: text ?? name,
+            label: "Trigger name",
+            commit: (text) => {
+                const entered = text.trim();
+                target.catalog.edit(placeholder.inverse);
+                if (entered === "" || (!sameName(entered, name)
+                    && taken.some((other) => { return sameName(other, entered); }))) {
+                    target.refresh();
+                    target.hint(entered === "" ? ""
+                        : `A trigger named ${entered} exists already.`);
+
+                    return;
+                }
+                const change = newTriggerChange(table, entered);
+                target.catalog.edit(change.edits);
+                target.refresh();
+                this.#recordSchemaChange(change, () => { /* in the card */ },
+                    () => { /* the catalog takes it back */ },
+                    (message) => {
+                        this.#takeBack(change, () => { /* nothing placed */ },
+                            message);
+                        this.#addTrigger(figureId, entered);
+                        target.hint(message);
+                    });
+                target.hint(`Trigger '${entered}' created on ${table}; when it `
+                    + "fires and its body are to be written in the SQL.");
+            },
+            cancel: () => {
+                target.catalog.edit(placeholder.inverse);
+                target.refresh();
+            },
+        });
+    }
+
+    /**
+     * Places a new sequence, its name entered in place, then made in the
+     * SQL. Sequences share their names with tables and views.
+     *
+     * @param point Where.
+     * @param text The name to show in the editor: the one msm refused.
+     */
+    #placeSequence(point: IPoint, text?: string): void {
+        const target = this.#target;
+        const name = numberedName("sequence", this.#relationNames());
+        const figure: IModelFigure = {
+            id: newId(),
+            type: SEQUENCE_FIGURE,
+            name,
+            sequence: name,
+            left: Math.round(point.x),
+            top: Math.round(point.y),
+        };
+        const placeholder = newSequenceChange(name);
+        target.catalog.edit(placeholder.edits);
+        target.addFigure(figure);
+        target.select([figure.id]);
+        target.done();
+        const drop = (): void => {
+            target.removeFigure(figure.id);
+            target.catalog.edit(placeholder.inverse);
+            target.refresh();
+        };
+        target.editItem(figure.id, (item) => { return item.kind === "title"; }, {
+            text: text ?? name,
+            label: "Sequence name",
+            commit: (text) => {
+                const entered = text.trim();
+                if (entered === "") {
+                    drop();
+                    target.hint("");
+
+                    return;
+                }
+                if (!sameName(entered, name) && this.#relationNames().some(
+                    (taken) => { return sameName(taken, entered); })) {
+                    drop();
+                    target.hint(`A table, view or sequence named ${entered} `
+                        + "exists already.");
+
+                    return;
+                }
+                const change = newSequenceChange(entered);
+                target.catalog.edit([...placeholder.inverse, ...change.edits]);
+                figure.name = entered;
+                figure.sequence = entered;
+                target.refresh();
+                const hide = (): void => { target.removeFigure(figure.id); };
+                this.#recordSchemaChange(change,
+                    () => { target.addFigure(figure); },
+                    hide,
+                    (message) => {
+                        const rect = target.figureRect(figure.id);
+                        this.#takeBack(change, hide, message);
+                        if (rect !== undefined) {
+                            this.#placeSequence({ x: rect.left, y: rect.top },
+                                entered);
+                            target.hint(message);
+                        }
+                    });
+                target.hint(`Sequence '${entered}' created.`);
+            },
+            cancel: () => {
+                drop();
+                target.hint("");
             },
         });
     }

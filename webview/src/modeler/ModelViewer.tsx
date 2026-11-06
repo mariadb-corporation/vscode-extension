@@ -32,6 +32,9 @@ import foreignKeyIcon from "../assets/modeler/schemaTableForeignKey.svg?raw";
 import indexIcon from "../assets/modeler/schemaTableIndex.svg?raw";
 import viewIcon from "../assets/modeler/schemaView.svg?raw";
 import routineIcon from "../assets/modeler/schemaRoutine.svg?raw";
+import triggerIcon from "../assets/modeler/schemaTrigger.svg?raw";
+import eventIcon from "../assets/modeler/schemaEvent.svg?raw";
+import sequenceIcon from "../assets/modeler/schemaSequence.svg?raw";
 
 import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
 import {
@@ -102,7 +105,7 @@ import { svgImage, type CardIcons } from "./tableCard.js";
  */
 const loadIcons = async (color: string): Promise<CardIcons> => {
     const [table, primaryKey, notNull, nullable, index, foreignKey, view,
-        routine] = await Promise.all([
+        routine, trigger, event, sequence] = await Promise.all([
         svgImage(tableIcon, color),
         svgImage(columnPrimaryKeyIcon, color),
         svgImage(columnNotNullIcon, color),
@@ -111,10 +114,13 @@ const loadIcons = async (color: string): Promise<CardIcons> => {
         svgImage(foreignKeyIcon, color),
         svgImage(viewIcon, color),
         svgImage(routineIcon, color),
+        svgImage(triggerIcon, color),
+        svgImage(eventIcon, color),
+        svgImage(sequenceIcon, color),
     ]);
 
     return { table, primaryKey, notNull, nullable, index, foreignKey, view,
-        routine };
+        routine, trigger, event, sequence };
 };
 
 /** What the viewer keeps across a reload of the webview. */
