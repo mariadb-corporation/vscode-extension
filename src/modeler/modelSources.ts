@@ -484,6 +484,42 @@ export class ProjectModelSource implements IModelSource {
     }
 
     /** Makes schema edits through msm, as an action of the queue. */
+    /**
+     * Makes the project's schema snapshot again, after the diagrams'
+     * changes, in turn with the viewer's edits: one made meanwhile would
+     * be refused as made against the old snapshot.
+     *
+     * @param onlyIfStale Only where the project has a snapshot that msm
+     *                    says is not the script's as it is (a script
+     *                    saved): one that is current is left alone, so
+     *                    making it, which writes Section 160, cannot lead
+     *                    to another, and a project without one waits for
+     *                    Update Schema Snapshot.
+     *
+     * @returns Whether it was made.
+     */
+    public async updateSnapshot(onlyIfStale = false): Promise<boolean> {
+        await this.flush();
+
+        return this.#enqueue(async () => {
+            if (onlyIfStale) {
+                const listing = await (await this.host.msmApi())
+                    .listSchemaDiagrams(this.projectPath);
+                if (listing.schemaDefinition?.current !== false) {
+                    return false;
+                }
+            }
+            await this.#action({
+                doing: `Updating the schema snapshot of ${this.#schema}`,
+                done: `Updated the schema snapshot of ${this.#schema}`,
+            }, "msm.update_schema_definition", {}, (api) => {
+                return api.updateSchemaDefinition(this.projectPath);
+            }, () => { return ""; });
+
+            return true;
+        });
+    }
+
     #editAction(
         edits: IMsmSchemaEdit[],
         baseHash: string,

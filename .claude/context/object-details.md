@@ -45,6 +45,20 @@ viewer is [`modeler.md`](modeler.md), its palette
   (`msm.update_schema_definition`) makes it again and reloads the project's
   open viewer (`ModelerPanel.reload`). Not done on expand: making the
   snapshot writes the script's Section 160.
+- **Saving the script** in an editor (`onDidSaveTextDocument`, any `.sql`
+  under `<project>.msm.project/development/`, `projectOfScriptFile`) makes
+  the snapshot again where msm says it is stale, then refreshes the tree,
+  Object Details and the open viewer. `SettledSaves` waits 300 ms so Save
+  All makes one. `ProjectModelSource.updateSnapshot` runs after the
+  diagrams' waiting saves and in the project's queue, so a viewer edit
+  never runs against the old snapshot (the command uses it too). No cycle:
+  msm writes the script on disk for every viewer edit and for the
+  snapshot itself, which fires no save (a `FileSystemWatcher` would see
+  them), and a current snapshot is never made again (msm's hash leaves
+  Section 160 out). A project without a snapshot waits for the command. A
+  failure is logged, not notified; the row then says the snapshot is
+  older. Not handled: an editor of the script left dirty while msm
+  rewrites it gets VS Code's "file is newer" on its next save.
 - **The tree refreshes** after every schema edit a viewer makes
   (`IModelerHost.schemaChanged`).
 - **Placing**: a table or view is shown once per diagram (Workbench); a

@@ -161,6 +161,20 @@ export const MSM_TITLES: Record<MsmDialogKind, string> = {
 const MSM_PROJECT_SUFFIX = ".msm.project";
 
 /**
+ * @param filePath A file saved.
+ *
+ * @returns The schema project whose development script it is part of
+ *          (`development/<schema>_next.sql`, or a section file under
+ *          `development/`); nothing for any other file.
+ */
+export const projectOfScriptFile = (filePath: string): string | undefined => {
+    const match = /^(.*\.msm\.project)[\\/]development[\\/].*\.sql$/iu
+        .exec(filePath);
+
+    return match?.[1];
+};
+
+/**
  * A version, as the plugin takes it: major.minor.patch, without leading
  * zeros - the plugin names a release's files by the text, so `01.0.0`
  * would be a second release of 1.0.0 beside the first.

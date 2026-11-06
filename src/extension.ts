@@ -46,6 +46,8 @@ import type { IMsmApi } from "./mcp/msmApi.js";
 import {
     diagramNameTaken, MsmCommands, newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
+import { projectOfScriptFile } from "./msm/msmFields.js";
+import { SettledSaves } from "./msm/settledSaves.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
 import { reportError } from "./errorMessages.js";
@@ -1100,6 +1102,26 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
         return source;
     };
+    /** Shows a project's snapshot made again: trees, details, its viewer. */
+    const snapshotUpdated = async (projectPath: string): Promise<void> => {
+        msmProjects.refresh();
+        objectDetails.refreshed();
+        await ModelerPanel.reload(projectDiagrams(projectPath));
+    };
+    const scriptSaves = new SettledSaves(async (projectPath) => {
+        try {
+            if (await projectDiagrams(projectPath).updateSnapshot(true)) {
+                await snapshotUpdated(projectPath);
+            }
+        } catch (error) {
+            // Not a notification on every save: the schema row says the
+            // snapshot is older than the script, the Actions tab why.
+            log(`Could not update the schema snapshot of '${projectPath}' `
+                + `after a save: ${errorText(error)}`);
+            msmProjects.refresh();
+        }
+    });
+    context.subscriptions.push(scriptSaves);
     const openProjectDiagram = (projectPath: string, name: string): void => {
         ModelerPanel.show(context.extensionUri, projectDiagrams(projectPath),
             name, modelerHost);
@@ -1272,15 +1294,24 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     await vscode.window.withProgress({
                         location: { viewId: "mariadb.msmProjects" },
                     }, async () => {
-                        await (await msmApi()).updateSchemaDefinition(
-                            projectPath);
+                        await projectDiagrams(projectPath).updateSnapshot();
                     });
-                    msmProjects.refresh();
-                    await ModelerPanel.reload(projectDiagrams(projectPath));
+                    await snapshotUpdated(projectPath);
                 } catch (error) {
                     reportError(log, error, "update the schema snapshot");
                 }
             }),
+        // A script saved in an editor makes the snapshot the trees and
+        // diagrams show again. Only a save in VS Code does: msm writes the
+        // script on disk for every diagram edit and for the snapshot
+        // itself (Section 160), which fires no save, so neither comes back
+        // here; and only a stale snapshot is made again.
+        vscode.workspace.onDidSaveTextDocument((document) => {
+            const projectPath = projectOfScriptFile(document.uri.fsPath);
+            if (projectPath !== undefined) {
+                scriptSaves.run(projectPath);
+            }
+        }),
         vscode.commands.registerCommand(ADD_TO_DIAGRAM_COMMAND,
             async (arg?: unknown, selected?: unknown) => {
                 try {

@@ -99,6 +99,8 @@ interface IFake {
     failSave: (error?: Error) => void;
     /** Makes the next schema edit fail. */
     failEdit: (error?: Error) => void;
+    /** What msm lists of the project's snapshot. */
+    listing: { schemaDefinition?: { tables: number; current: boolean } };
 }
 
 /**
@@ -120,7 +122,18 @@ const setUp = (keep = false): IFake => {
         { name: "Main", format: DIAGRAM_FORMAT, document: diagram("Main") }];
     let saveError: Error | undefined;
     let editError: Error | undefined;
+    const listing: IFake["listing"] = {};
     const api = {
+        listSchemaDiagrams: (path: string) => {
+            calls.push(["list", path]);
+
+            return Promise.resolve({ ...listing, diagrams: [] });
+        },
+        updateSchemaDefinition: (path: string) => {
+            calls.push(["update", path]);
+
+            return Promise.resolve();
+        },
         getSchemaDiagrams: (path: string) => {
             calls.push(["get", path]);
 
@@ -180,7 +193,7 @@ const setUp = (keep = false): IFake => {
     source.onSaveState = (state) => { states.push(state); };
 
     return {
-        source, calls, rows, drafts, states, actions, asked,
+        source, calls, rows, drafts, states, actions, asked, listing,
         failSave: (error = new Error("disk full")) => { saveError = error; },
         failEdit: (error = new Error("unsupported")) => { editError = error; },
     };
@@ -296,6 +309,33 @@ describe("ProjectModelSource", () => {
         expect(outcome.notes).toEqual(["A view refers to it."]);
         expect(calls(fake)).toContainEqual(expect.stringContaining(
             "edits=rename_table customer -> client"));
+    });
+
+    it("makes a stale snapshot again after what waits is saved, and only "
+        + "a stale one where asked", async () => {
+        await fake.source.read();
+        fake.source.changed(diagram("Main", 50));
+        fake.listing.schemaDefinition = { tables: 1, current: false };
+
+        expect(await fake.source.updateSnapshot(true)).toBe(true);
+        expect(fake.calls.slice(-3)).toEqual([["set", "Main"],
+            ["list", PROJECT], ["update", PROJECT]]);
+        expect(calls(fake)).toContainEqual(expect.stringContaining(
+            "msm.update_schema_definition("));
+
+        // Current, or none yet: left alone, so making it cannot lead to
+        // another, and a project without one waits for the command.
+        fake.listing.schemaDefinition = { tables: 1, current: true };
+        expect(await fake.source.updateSnapshot(true)).toBe(false);
+        fake.listing.schemaDefinition = undefined;
+        expect(await fake.source.updateSnapshot(true)).toBe(false);
+        expect(fake.calls.filter(([what]) => {
+            return what === "update";
+        })).toHaveLength(1);
+
+        // The command makes it whatever msm says.
+        expect(await fake.source.updateSnapshot()).toBe(true);
+        expect(fake.calls.at(-1)).toEqual(["update", PROJECT]);
     });
 
     it("saves the diagrams a schema edit placed figures on once it is made",
