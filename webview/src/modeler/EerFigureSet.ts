@@ -1046,11 +1046,10 @@ export class EerFigureSet implements IFigureSet {
         // Kept with the figure, so another diagram's mount has it; a save
         // leaves it out (`diagramDocument`).
         figure.image = image;
+        // Loaded now where its diagram is shown, else when it is.
+        this.#pictures.delete(key);
         if (diagram === this.#diagram.name) {
-            this.#loadPicture(figure, image);
-        } else {
-            // Loaded when its diagram is shown.
-            this.#pictures.delete(key);
+            this.#preparePicture(figure);
         }
     }
 
