@@ -28,10 +28,12 @@ import type {
 } from "../../mcp/msmApi.js";
 import { McpToolError } from "../../mcp/protocol.js";
 import { parseSchemaObjectUris } from "../../modeler/modelerProtocol.js";
+import type { IFolderMemento } from "../../tree/customFolders.js";
 import { draggedObjects } from "../../tree/schemaTree.js";
 import type { IServerStatus } from "../../mcp/serverStarter.js";
 import {
     MSM_DIAGRAM_CLICK_COMMAND,
+    MSM_EXPANDED_ROWS_KEY,
     MSM_PROJECTS_DRAG_MIME,
     MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY,
     MsmProjectsTreeProvider,
@@ -86,7 +88,10 @@ interface IFake {
     projects: IMsmListedProject[];
 }
 
-const setUp = (projects: IMsmListedProject[]): IFake => {
+const setUp = (
+    projects: IMsmListedProject[],
+    memento?: IFolderMemento,
+): IFake => {
     const updates: Array<[string, IMsmProjectDetails]> = [];
     const api = {
         listProjects: () => { return Promise.resolve(projects); },
@@ -137,6 +142,7 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
         resolveIcon,
         msmApi: () => { return Promise.resolve(api); },
         log: () => { /* not looked at */ },
+        memento,
     });
 
     return { tree, updates, projects };
@@ -400,21 +406,26 @@ describe("the MSM Projects view", () => {
 
             fake.tree.handleDrag([tables, customer, count], transfer as never);
 
-            expect(fake.tree.dragMimeTypes).toContain("text/uri-list");
-            expect(parseSchemaObjectUris(String(
-                transfer.get("text/uri-list")?.value))).toEqual([
+            // Not a drag of resources, which the editor area would take
+            // from a diagram's webview.
+            expect(fake.tree.dragMimeTypes).not.toContain("text/uri-list");
+            expect(transfer.get("text/uri-list")).toBeUndefined();
+            // Nothing the view files elsewhere.
+            expect(transfer.get(MSM_PROJECTS_DRAG_MIME)).toBeUndefined();
+            // Kept for a diagram, which asks for them on the drop.
+            expect(parseSchemaObjectUris(draggedObjects.take() ?? "")).toEqual([
                 { place: { projectPath: project },
                     ref: { type: "table", name: "Customer" } },
                 { place: { projectPath: project },
                     ref: { type: "function", name: "count_orders" } },
             ]);
-            // Nothing the view files elsewhere.
-            expect(transfer.get(MSM_PROJECTS_DRAG_MIME)).toBeUndefined();
-            // Kept for a diagram, which VS Code hands none of it.
-            expect(draggedObjects.take()).toBe(
-                transfer.get("text/uri-list")?.value);
 
             fake.tree.handleDrag([node], new DataTransfer() as never);
+            expect(draggedObjects.take()).toBeUndefined();
+
+            // One dropped on the tree itself is not for a diagram.
+            fake.tree.handleDrag([customer], new DataTransfer() as never);
+            await fake.tree.handleDrop(undefined, new DataTransfer() as never);
             expect(draggedObjects.take()).toBeUndefined();
         });
 
@@ -481,6 +492,43 @@ describe("the MSM Projects view", () => {
         await fake.tree.expanded(shop);
         expect(fake.tree.getTreeItem(shop).collapsibleState)
             .toBe(TreeItemCollapsibleState.Expanded);
+    });
+
+    it("opens the rows left expanded again after a restart, and forgets "
+        + "those of projects gone", async () => {
+        const stored = new Map<string, unknown>();
+        const memento: IFolderMemento = {
+            get: <T>(key: string, value: T): T => {
+                return (stored.get(key) as T | undefined) ?? value;
+            },
+            update: (key: string, value: unknown) => {
+                stored.set(key, value);
+
+                return Promise.resolve();
+            },
+        };
+        const project = makeProject(root, "shop");
+        const before = setUp([listed(project)], memento);
+        const [node] = await before.tree.getChildren();
+        const [schema] = await before.tree.getChildren(node);
+        const [, tables] = await before.tree.getChildren(schema);
+        await before.tree.expanded(node);
+        await before.tree.expanded(schema);
+        await before.tree.expanded(tables);
+        await before.tree.collapsed(schema);
+
+        const after = setUp([listed(project)], memento);
+        const [again] = await after.tree.getChildren();
+        const [schemaAgain] = await after.tree.getChildren(again);
+        const [, tablesAgain] = await after.tree.getChildren(schemaAgain);
+        expect([again, schemaAgain, tablesAgain].map((row) => {
+            return after.tree.getTreeItem(row).collapsibleState;
+        })).toEqual([TreeItemCollapsibleState.Expanded,
+            TreeItemCollapsibleState.Collapsed,
+            TreeItemCollapsibleState.Expanded]);
+
+        await setUp([], memento).tree.getChildren();
+        expect(stored.get(MSM_EXPANDED_ROWS_KEY)).toEqual([]);
     });
 
     it("walks up from a project to its folders, for reveal", () => {

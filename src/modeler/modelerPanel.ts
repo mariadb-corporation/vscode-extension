@@ -248,9 +248,27 @@ export class ModelerPanel {
                 break;
             }
 
+            case "pointerArrived": {
+                // Only right after a drag from a tree; otherwise nothing.
+                const uriList = this.host.draggedObjects?.();
+                if (uriList !== undefined) {
+                    this.host.log("Placing the objects dragged from a tree "
+                        + "where the pointer came back into the diagram.");
+                    this.#post({ type: "treeDropped", uriList,
+                        x: message.x, y: message.y });
+                }
+                break;
+            }
+
             case "treeDrop": {
-                this.#post({ type: "treeDropped",
-                    uriList: this.host.draggedObjects?.() ?? "",
+                const uriList = this.host.draggedObjects?.() ?? "";
+                // What reached the page, should a drop place nothing.
+                this.host.log(`A drop on the diagram carried `
+                    + `${message.types.join(", ") || "no types"}; `
+                    + (uriList === "" ? "no objects were dragged from a tree"
+                        : `objects dragged from a tree: `
+                            + uriList.split(/\r?\n/u).length));
+                this.#post({ type: "treeDropped", uriList,
                     x: message.x, y: message.y });
                 break;
             }

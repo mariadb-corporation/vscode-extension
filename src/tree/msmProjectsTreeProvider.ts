@@ -46,9 +46,11 @@ import {
     FolderSet,
     foldersToMove,
     isWithin,
+    memoryMemento,
     rebase,
     type IFolderMemento,
 } from "./customFolders.js";
+import { ExpandedRows } from "./expandedRows.js";
 import {
     DiagramsTreeItem,
     DiagramTreeItem,
@@ -61,7 +63,6 @@ import {
     outlineObjects,
     OUTLINE_OBJECT_TYPES,
     SchemaTreeItem,
-    URI_LIST_MIME,
     type IconResolver,
     type IDiagramEntryRow,
     type IDiagramsRow,
@@ -106,6 +107,8 @@ export const MSM_PROJECTS_DRAG_MIME = "application/vnd.mariadb.msmprojects";
  */
 export const MSM_FOLDERS_KEY = "mariadb.msmProjects.folders";
 export const MSM_COLLAPSED_FOLDERS_KEY = "mariadb.msmProjects.collapsedFolders";
+/** Where the rows left expanded (projects, schemas, groups, ...) are kept. */
+export const MSM_EXPANDED_ROWS_KEY = "mariadb.msmProjects.expandedRows";
 export const MSM_FOLDER_COLORS_KEY = "mariadb.msmProjects.folderColors";
 
 /** A folder of the list, as the Connections view's folders are. */
@@ -284,7 +287,11 @@ export class MsmProjectsTreeProvider
     implements vscode.TreeDataProvider<MsmProjectsNode>,
     vscode.TreeDragAndDropController<MsmProjectsNode>, vscode.Disposable {
 
-    public readonly dragMimeTypes = [MSM_PROJECTS_DRAG_MIME, URI_LIST_MIME];
+    // Not text/uri-list: VS Code then marks the drag as one of resources,
+    // and the editor area lays its drop overlay over a diagram's webview,
+    // which takes the drop even with Shift held. A diagram asks for the
+    // objects dragged instead (draggedObjects).
+    public readonly dragMimeTypes = [MSM_PROJECTS_DRAG_MIME];
     public readonly dropMimeTypes = [MSM_PROJECTS_DRAG_MIME];
 
     readonly #onDidChangeTreeData =
@@ -303,12 +310,16 @@ export class MsmProjectsTreeProvider
 
     public readonly customFolders: FolderSet;
     public readonly collapsedFolders: FolderSet;
+    /** Every other row left expanded; folders are open unless collapsed. */
+    public readonly expandedRows: ExpandedRows;
     public readonly folderColors: FolderColors;
 
     public constructor(private readonly host: IMsmProjectsHost) {
         this.customFolders = new FolderSet(host.memento, MSM_FOLDERS_KEY);
         this.collapsedFolders = new FolderSet(host.memento,
             MSM_COLLAPSED_FOLDERS_KEY);
+        this.expandedRows = new ExpandedRows(host.memento ?? memoryMemento(),
+            MSM_EXPANDED_ROWS_KEY);
         this.folderColors = new FolderColors(host.memento,
             MSM_FOLDER_COLORS_KEY);
         this.#viewState = new ViewStateTracker(
@@ -390,6 +401,24 @@ export class MsmProjectsTreeProvider
     }
 
     public getTreeItem(node: MsmProjectsNode): vscode.TreeItem {
+        const item = this.#itemOf(node);
+        // VS Code reopens none of an extension's rows after a restart.
+        if (node.kind !== "folder" && item.id !== undefined
+            && item.collapsibleState
+                === vscode.TreeItemCollapsibleState.Collapsed
+            && this.expandedRows.has(item.id)) {
+            item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        }
+
+        return item;
+    }
+
+    /**
+     * @param node A row.
+     *
+     * @returns Its item, as it is drawn before the rows left expanded.
+     */
+    #itemOf(node: MsmProjectsNode): vscode.TreeItem {
         switch (node.kind) {
             case "folder": {
                 return this.#folderItem(node);
@@ -653,7 +682,8 @@ export class MsmProjectsTreeProvider
     }
 
     /**
-     * Notes a folder the user collapsed, and redraws it closed.
+     * Notes a row the user collapsed: a folder is redrawn closed, any other
+ * row is drawn closed after a restart.
      *
      * @param node The row collapsed.
      *
@@ -663,20 +693,32 @@ export class MsmProjectsTreeProvider
         if (node.kind === "folder") {
             await this.collapsedFolders.add(node.path);
             this.#onDidChangeTreeData.fire(node);
+        } else {
+            const id = this.#itemOf(node).id;
+            if (id !== undefined) {
+                await this.expandedRows.delete(id);
+            }
         }
     }
 
     /**
-     * Notes a folder the user expanded, and redraws it open.
+     * Notes a row the user expanded: a folder is redrawn open, any other row
+ * is drawn open again after a restart.
      *
      * @param node The row expanded.
      *
      * @returns Nothing.
      */
     public async expanded(node: MsmProjectsNode): Promise<void> {
-        if (node.kind === "folder"
-            && await this.collapsedFolders.delete(node.path)) {
-            this.#onDidChangeTreeData.fire(node);
+        if (node.kind === "folder") {
+            if (await this.collapsedFolders.delete(node.path)) {
+                this.#onDidChangeTreeData.fire(node);
+            }
+        } else {
+            const id = this.#itemOf(node).id;
+            if (id !== undefined) {
+                await this.expandedRows.add(id);
+            }
         }
     }
 
@@ -770,10 +812,8 @@ export class MsmProjectsTreeProvider
                 ? [{ place: { projectPath: node.projectPath }, row: node }]
                 : [];
         }));
-        if (uris !== undefined) {
-            dataTransfer.set(URI_LIST_MIME, new vscode.DataTransferItem(uris));
-        }
-        // A webview gets none of it: a diagram asks for them on the drop.
+        // A webview gets nothing a tree sets: a diagram asks for them on
+        // the drop.
         draggedObjects.remember(uris);
     }
 
@@ -791,6 +831,8 @@ export class MsmProjectsTreeProvider
         target: MsmProjectsNode | undefined,
         dataTransfer: vscode.DataTransfer,
     ): Promise<void> {
+        // A drag that ended here is not one for a diagram.
+        draggedObjects.take();
         const carried: unknown = dataTransfer.get(MSM_PROJECTS_DRAG_MIME)
             ?.value;
         const rows = Array.isArray(carried)
@@ -879,6 +921,12 @@ export class MsmProjectsTreeProvider
      */
     async #list(): Promise<IMsmProjectNode[]> {
         const listed = await (await this.host.msmApi()).listProjects();
+        // The rows of projects no longer listed are not kept open.
+        void this.expandedRows.prune((id) => {
+            return listed.some((project) => {
+                return id.includes(project.projectPath);
+            });
+        });
 
         return listed.map((project) => {
             // In the one spelling the folder rows are drawn from, whatever

@@ -45,7 +45,6 @@ import {
 import { matchingTypes } from "../../../src/sql/columnTypes.js";
 import {
     isPlaceOf,
-    OBJECT_TREE_DRAG_MIMES,
     parseSchemaObjectUris,
     type ModelerHostMessage,
     type ModelerTarget,
@@ -248,6 +247,12 @@ const SPINNER_DELAY_MS = 300;
 const DEFAULT_PICTURE = { width: 160, height: 120 };
 
 /**
+ * How long the pointer has to have been still or away before a move counts
+ * as its coming back: after a drag, which the page sees none of.
+ */
+const ARRIVAL_PAUSE_MS = 400;
+
+/**
  * Reads a picture file picked for the image tool.
  *
  * @param file The file.
@@ -370,6 +375,33 @@ export const ModelViewer = (): JSX.Element => {
                 point);
         }
     };
+    // VS Code drops nothing dragged from a tree into a webview, Shift or
+    // not. The page gets no pointer events while a drag is on, so its
+    // first move after a pause, which is where a drag over it ended, asks
+    // the extension for the objects of a drag that has just ended; it
+    // answers only then (treeDropped).
+    useEffect(() => {
+        let last = 0;
+        const moved = (event: MouseEvent): void => {
+            const now = Date.now();
+            const paused = now - last > ARRIVAL_PAUSE_MS;
+            last = now;
+            if (paused && event.type === "mousemove"
+                && loadedRef.current !== undefined) {
+                post({ type: "pointerArrived", x: event.clientX,
+                    y: event.clientY });
+            }
+        };
+        for (const type of ["mousemove", "mousedown", "wheel"] as const) {
+            window.addEventListener(type, moved as EventListener, true);
+        }
+
+        return () => {
+            for (const type of ["mousemove", "mousedown", "wheel"] as const) {
+                window.removeEventListener(type, moved as EventListener, true);
+            }
+        };
+    }, []);
     const diagramIndex = Math.max(0, loaded?.model.diagrams.findIndex(
         (diagram) => { return diagram.name === diagramName; }) ?? 0);
 
@@ -872,23 +904,21 @@ export const ModelViewer = (): JSX.Element => {
     }) ?? [];
 
     /**
-     * Lets tables, views and routines dragged from a tree be dropped: VS
-     * Code hands a webview a drop from its views only with Shift held,
-     * with the tree's own type and an empty `text/uri-list`.
+     * Lets tables, views and routines dragged from a tree be dropped. VS
+     * Code lets a drag into a webview only with Shift held, and hands it
+     * none of what the tree set (its `text/uri-list` is empty), so any
+     * drag is taken.
      */
     const onDragOver = (event: DragEvent): void => {
-        const types = event.dataTransfer?.types ?? [];
-        if (loaded !== undefined && (types.includes("text/uri-list")
-            || OBJECT_TREE_DRAG_MIMES.some((type) => {
-                return types.includes(type);
-            }))) {
+        if (loaded !== undefined && event.dataTransfer !== null) {
             event.preventDefault();
-            event.dataTransfer!.dropEffect = "copy";
+            event.dataTransfer.dropEffect = "copy";
         }
     };
     /**
-     * Places the schema's objects dropped where the pointer is; for rows of
-     * a tree, which VS Code does not hand the page, asks the extension.
+     * Places the schema's objects dropped where the pointer is; for a drop
+     * without any the page can read (rows of a tree), asks the extension
+     * for the objects last dragged.
      */
     const onDrop = (event: DragEvent): void => {
         if (loaded === undefined || event.dataTransfer === null) {

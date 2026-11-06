@@ -51,18 +51,6 @@ export interface ISchemaObjectRef {
  */
 export const SCHEMA_OBJECT_SCHEME = "mariadb-schema-object";
 
-/**
- * The types a drag from the Connections and MSM Projects views carries
- * into a webview: VS Code's `application/vnd.code.tree.<view id>`, the
- * view id lower-cased. VS Code keeps what the tree's `handleDrag` sets to
- * itself (the webview's `text/uri-list` is empty), so a drop with one of
- * them asks the extension for the objects dragged.
- */
-export const OBJECT_TREE_DRAG_MIMES: readonly string[] = [
-    "application/vnd.code.tree.mariadb.connections",
-    "application/vnd.code.tree.mariadb.msmprojects",
-];
-
 /** Where a schema object is: a project's script, or a live schema. */
 export type SchemaObjectPlace =
     | { projectPath: string }
@@ -181,10 +169,19 @@ export type ModelerWebviewMessage =
      */
     | { type: "selection"; objects: ISchemaObjectRef[] }
     /**
-     * Rows of a tree were dropped at this point of the page (client
-     * coordinates): which objects they are, the extension knows.
+     * Something without schema objects the page can read was dropped at
+     * this point of the page (client coordinates): rows of a tree, whose
+     * objects VS Code keeps from the page and the extension knows. With
+     * the drop's types, for the log.
      */
-    | { type: "treeDrop"; x: number; y: number };
+    | { type: "treeDrop"; x: number; y: number; types: string[] }
+    /**
+     * The pointer moved in the page after a pause, at this point (client
+     * coordinates): where the rows of a drag from a tree go, should one
+     * have just ended. VS Code drops none into a webview, so the pointer's
+     * coming back after the drag stands in for the drop.
+     */
+    | { type: "pointerArrived"; x: number; y: number };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =
@@ -227,8 +224,9 @@ export type ModelerHostMessage =
      */
     | { type: "placeObjects"; objects: ISchemaObjectRef[] }
     /**
-     * The answer to a `treeDrop`: the dragged rows' `text/uri-list`
-     * (empty where the drag had no objects), and where they were dropped.
+     * The answer to a `treeDrop`, or to a `pointerArrived` after a drag
+     * from a tree: the dragged rows' `text/uri-list` (for a `treeDrop`,
+     * empty where the drag had no objects), and where they go.
      */
     | { type: "treeDropped"; uriList: string; x: number; y: number }
     /**

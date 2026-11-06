@@ -70,7 +70,7 @@ export interface IFolderMemento {
  *
  * @returns The memento.
  */
-const memoryMemento = (): IFolderMemento => {
+export const memoryMemento = (): IFolderMemento => {
     const values = new Map<string, unknown>();
 
     return {

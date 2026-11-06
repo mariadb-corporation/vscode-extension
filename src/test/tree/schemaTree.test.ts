@@ -18,9 +18,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import { OBJECT_TREE_DRAG_MIMES } from "../../modeler/modelerProtocol.js";
-import { CONNECTIONS_VIEW_ID } from "../../tree/connectionsTreeProvider.js";
-import { MSM_PROJECTS_VIEW_ID } from "../../tree/msmProjectsTreeProvider.js";
 import { DraggedObjects } from "../../tree/schemaTree.js";
 
 describe("DraggedObjects", () => {
@@ -40,13 +37,5 @@ describe("DraggedObjects", () => {
             dragged.remember("c");
             dragged.remember(undefined);
             expect(dragged.take()).toBeUndefined();
-        });
-
-    it("knows the trees' drag types by their view ids, as VS Code makes them",
-        () => {
-            expect(OBJECT_TREE_DRAG_MIMES).toEqual(
-                [CONNECTIONS_VIEW_ID, MSM_PROJECTS_VIEW_ID].map((id) => {
-                    return `application/vnd.code.tree.${id.toLowerCase()}`;
-                }));
         });
 });

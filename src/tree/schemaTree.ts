@@ -257,9 +257,6 @@ export const outlineObjects = (
  */
 export const ADD_TO_DIAGRAM_COMMAND = "mariadb.addToDiagram";
 
-/** The mime type a drag onto a diagram (or an editor) reads. */
-export const URI_LIST_MIME = "text/uri-list";
-
 /**
  * @param rows Rows dragged, with where each one's schema is.
  *
@@ -280,9 +277,10 @@ export const objectUriList = (
 };
 
 /**
- * The objects of the last drag from a tree, for a diagram they are dropped
- * on: VS Code hands a webview the drag's types but not what `handleDrag`
- * set, so the page asks for them (`treeDrop`).
+ * The objects of the last drag from a tree, for a diagram: Electron refuses
+ * a drop from the workbench into a webview (a cross-site frame), so the
+ * page asks for them as the pointer comes back after the drag
+ * (`pointerArrived`), or on a drop, should one ever reach it (`treeDrop`).
  */
 export class DraggedObjects {
     #uriList: string | undefined;
@@ -294,7 +292,7 @@ export class DraggedObjects {
      * @param now The clock.
      */
     public constructor(
-        private readonly maxAgeMs = 60_000,
+        private readonly maxAgeMs = 15_000,
         private readonly now: () => number = Date.now,
     ) {}
 
