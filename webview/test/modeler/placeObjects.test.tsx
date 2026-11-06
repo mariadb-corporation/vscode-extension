@@ -23,7 +23,10 @@ import {
     schemaObjectUri,
 } from "../../../src/modeler/modelerProtocol.js";
 import type { IModelDiagram } from "../../../src/modeler/modelFormat.js";
-import { placementOf } from "../../src/modeler/placeObjects.js";
+import {
+    objectsOfFigures,
+    placementOf,
+} from "../../src/modeler/placeObjects.js";
 import type { ISchemaObjectLists } from "../../src/modeler/schemaEdits.js";
 
 const objects = (): ISchemaObjectLists => {
@@ -126,6 +129,22 @@ describe("placing the schema's objects", () => {
             routines: ["tidy", "total"], left: 0, top: 0 }]);
         expect(placed.skipped).toEqual(["tidy is not a function of the "
             + "schema"]);
+    });
+});
+
+describe("the objects of the figures selected", () => {
+    it("names a table's, a view's and a routine group's routines", () => {
+        const shown = diagram();
+        shown.figures.push(
+            { id: "v", type: "ViewFigure", name: "ids", view: "customer_ids",
+                left: 0, top: 0 },
+            { id: "r", type: "RoutineGroupFigure", name: "routines",
+                routines: ["total", "gone"], left: 0, top: 0 });
+
+        expect(objectsOfFigures(shown, ["c", "v", "r", "x"], objects()))
+            .toEqual([{ type: "table", name: "customer" },
+                { type: "view", name: "customer_ids" },
+                { type: "function", name: "total" }]);
     });
 });
 

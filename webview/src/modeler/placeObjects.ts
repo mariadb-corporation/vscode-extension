@@ -212,3 +212,38 @@ const connectionsOf = (
 
     return connections;
 };
+
+/**
+ * @param diagram The diagram shown.
+ * @param ids The figures selected.
+ * @param objects The schema's objects.
+ *
+ * @returns The schema objects they show, for the Object Details view: a
+ *          table's, a view's, a routine group's routines.
+ */
+export const objectsOfFigures = (
+    diagram: IModelDiagram,
+    ids: readonly string[],
+    objects: ISchemaObjectLists,
+): ISchemaObjectRef[] => {
+    return ids.flatMap((id): ISchemaObjectRef[] => {
+        const figure = diagram.figures.find((entry) => {
+            return entry.id === id;
+        });
+        if (figure?.table !== undefined) {
+            return [{ type: "table", name: figure.table }];
+        }
+        if (figure?.view !== undefined) {
+            return [{ type: "view", name: figure.view }];
+        }
+
+        return (figure?.routines ?? []).flatMap((name) => {
+            const routine = objects.routines.find((entry) => {
+                return entry.name === name;
+            });
+
+            return routine === undefined ? []
+                : [{ type: routine.kind ?? "procedure", name }];
+        });
+    });
+};

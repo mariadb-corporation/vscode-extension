@@ -565,8 +565,47 @@ export const applyEdits = (
             }
 
             case "add_column": {
-                table?.columns.push(
-                    structuredClone(edit.column) as IOutlineColumn);
+                if (table !== undefined) {
+                    const added = structuredClone(edit.column) as IOutlineColumn;
+                    // Where it is asked for: first, after a column, else last.
+                    const after = typeof edit.after === "string"
+                        ? table.columns.findIndex((column) => {
+                            return sameName(column.name, text(edit, "after"));
+                        }) : -1;
+                    const at = edit.first === true ? 0
+                        : after >= 0 ? after + 1 : table.columns.length;
+                    table.columns.splice(at, 0, added);
+                }
+                break;
+            }
+
+            case "modify_column": {
+                if (table !== undefined) {
+                    const at = table.columns.findIndex((column) => {
+                        return sameName(column.name, text(edit, "column"));
+                    });
+                    if (at >= 0) {
+                        table.columns[at] = structuredClone(
+                            edit.new_column) as IOutlineColumn;
+                    }
+                }
+                break;
+            }
+
+            case "set_table_options": {
+                if (table !== undefined) {
+                    const options: Record<string, unknown> =
+                        { ...table.options };
+                    for (const [key, value] of Object.entries(
+                        edit.options as Record<string, unknown>)) {
+                        if (value === null) {
+                            delete options[key];
+                        } else {
+                            options[key] = value;
+                        }
+                    }
+                    table.options = options;
+                }
                 break;
             }
 

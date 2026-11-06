@@ -973,6 +973,7 @@ export const window = {
         const expanded = new EventEmitter<{ element: unknown }>();
         const collapsed = new EventEmitter<{ element: unknown }>();
         const visibility = new EventEmitter<{ visible: boolean }>();
+        const selected = new EventEmitter<{ selection: unknown[] }>();
         const view = {
             // What the user has selected; set through `select` below.
             selection: [] as unknown[],
@@ -981,10 +982,12 @@ export const window = {
             onDidExpandElement: expanded.event,
             onDidCollapseElement: collapsed.event,
             onDidChangeVisibility: visibility.event,
+            onDidChangeSelection: selected.event,
             dispose: () => {
                 expanded.dispose();
                 collapsed.dispose();
                 visibility.dispose();
+                selected.dispose();
             },
         };
         treeViews.push({
@@ -998,6 +1001,7 @@ export const window = {
             },
             select: (rows: unknown[]) => {
                 view.selection = rows;
+                selected.fire({ selection: rows });
             },
             setVisible: (visible: boolean) => {
                 view.visible = visible;

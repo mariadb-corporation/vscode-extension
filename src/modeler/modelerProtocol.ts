@@ -20,6 +20,7 @@
  * Shared by both sides, so free of `vscode`.
  */
 
+import type { IDetailEdits } from "../details/detailEdits.js";
 import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
 import type {
     IDiagramDocument,
@@ -159,7 +160,12 @@ export type ModelerWebviewMessage =
          * refuses it (a new table, its columns kept to fix), rather than
          * the project being read again.
          */
-        recover?: boolean };
+        recover?: boolean }
+    /**
+     * The schema objects the selected figures show, for the Object Details
+     * view: tables, views, and a routine group's routines.
+     */
+    | { type: "selection"; objects: ISchemaObjectRef[] };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =
@@ -200,4 +206,9 @@ export type ModelerHostMessage =
      * Places objects the schema has on the diagram shown: Add to Diagram
      * on a tree's rows, in the middle of the view.
      */
-    | { type: "placeObjects"; objects: ISchemaObjectRef[] };
+    | { type: "placeObjects"; objects: ISchemaObjectRef[] }
+    /**
+     * A change made in the Object Details view: shown, put in the
+     * history, sent as a `schemaEdit` and taken back where msm refuses it.
+     */
+    | { type: "applySchemaChange"; change: IDetailEdits };

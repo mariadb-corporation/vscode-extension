@@ -537,6 +537,16 @@ export class MsmProjectsTreeProvider
     }
 
     /**
+     * @param projectPath A project folder.
+     *
+     * @returns msm's schema snapshot of its development script, as the
+     *          view has read it; nothing where it has none.
+     */
+    public snapshot(projectPath: string): Promise<ISchemaDefinition | undefined> {
+        return this.#snapshotOf(projectPath);
+    }
+
+    /**
      * @param cache Where answers are kept until the next refresh.
      * @param key What is asked about.
      * @param read Reads the answer.

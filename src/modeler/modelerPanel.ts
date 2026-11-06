@@ -20,11 +20,13 @@ import * as vscode from "vscode";
 import { reportError } from "../errorMessages.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { errorText } from "../text.js";
+import type { IDetailEdits } from "../details/detailEdits.js";
 import type { IDiagramDocument } from "./modelFormat.js";
 import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
     ISchemaObjectRef,
     ModelerHostMessage,
+    ModelerTarget,
     ModelerWebviewMessage,
 } from "./modelerProtocol.js";
 import { DEFAULT_PAGE_SETTINGS } from "./pageSettings.js";
@@ -47,6 +49,13 @@ export interface IModelerHost {
      * objects read them again.
      */
     schemaChanged?(): void;
+    /** Called where msm refused a schema edit, with why. */
+    schemaEditFailed?(message: string): void;
+    /**
+     * Called as the figures selected change: the schema objects they
+     * show, and what the viewer shows (whose schema they are of).
+     */
+    selected?(target: ModelerTarget, objects: ISchemaObjectRef[]): void;
 }
 
 /** The view type the panels are registered under. */
@@ -228,6 +237,12 @@ export class ModelerPanel {
                 break;
             }
 
+            case "selection": {
+                this.host.selected?.(this.source.target(this.#diagram),
+                    message.objects);
+                break;
+            }
+
             case "schemaEdit": {
                 // One after the other: each is made against the snapshot
                 // the one before it left.
@@ -328,6 +343,7 @@ export class ModelerPanel {
             const text = reportError(this.host.log, error,
                 `change the schema ${this.#schema}`);
             this.#post({ type: "schemaEdited", error: text });
+            this.host.schemaEditFailed?.(text);
             // The viewer showed the change already: it takes it back
             // itself where it can (the SQL is as it was: msm edits whole
             // or not at all), else it goes back to what the project says -
@@ -361,6 +377,28 @@ export class ModelerPanel {
         } else {
             panel.#toPlace.push(...objects);
         }
+
+        return true;
+    }
+
+    /**
+     * Makes a change of the Object Details view in the source's panel,
+     * where one is up and has the model: there it joins the history.
+     *
+     * @param source Where the model comes from.
+     * @param change The change.
+     *
+     * @returns Whether a panel took it.
+     */
+    public static applySchemaChange(
+        source: IModelSource,
+        change: IDetailEdits,
+    ): boolean {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined || !panel.#loaded) {
+            return false;
+        }
+        panel.#post({ type: "applySchemaChange", change });
 
         return true;
     }

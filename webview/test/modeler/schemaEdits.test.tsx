@@ -273,6 +273,27 @@ describe("the snapshot meanwhile", () => {
         expect(lists).toEqual(objects());
     });
 
+    it("changes a column and a table's options, and adds a column where "
+        + "it is asked for", () => {
+        const lists = objects(customer());
+        applyEdits(lists, [
+            { op: "modify_column", table: "customer", column: "name",
+                new_column: { name: "name", type: "TEXT" } },
+            { op: "set_table_options", table: "customer",
+                options: { comment: "Buyers", engine: null } },
+            { op: "add_column", table: "customer",
+                column: { name: "code", type: "INT" }, first: true },
+            { op: "add_column", table: "customer",
+                column: { name: "email", type: "TEXT" }, after: "code" },
+        ]);
+
+        const table = lists.tables[0]!;
+        expect(table.columns.map((column) => {
+            return `${column.name} ${column.type}`;
+        })).toEqual(["code INT", "email TEXT", "id UUID", "name TEXT"]);
+        expect(table.options).toEqual({ comment: "Buyers" });
+    });
+
     it("makes a 1:1 foreign key over a unique key one", () => {
         const lists = objects(order(), customer());
         const result = relationshipChange(lists.tables[0]!, lists.tables[1]!,

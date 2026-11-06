@@ -41,6 +41,8 @@ import type {
     ISchemaObjects,
 } from "../../../src/modeler/modelerProtocol.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
+import type { IDetailEdits } from "../../../src/details/detailEdits.js";
+import type { ISchemaObjectLists } from "./schemaEdits.js";
 import type {
     ICanvasHost,
     ICanvasItem,
@@ -510,6 +512,11 @@ export class EerFigureSet implements IFigureSet {
     /** The diagram shown. */
     public get diagram(): IModelDiagram {
         return this.#diagram;
+    }
+
+    /** @returns The schema's objects, as the viewer has them now. */
+    public objects(): ISchemaObjectLists {
+        return this.#options.catalog.objects();
     }
 
     /**
@@ -1997,6 +2004,52 @@ export class EerFigureSet implements IFigureSet {
      */
     public pickReferenced(): void {
         this.#tools.pickReferenced();
+    }
+
+    /**
+     * Makes a change asked for elsewhere (the Object Details view), as one
+     * action of the history: shown at once, sent to msm, and taken back
+     * where msm refuses it, as a rename typed on a card is.
+     *
+     * @param change The change: its edits and the edits that undo them.
+     *
+     * @returns Nothing.
+     */
+    public applySchemaChange(change: IDetailEdits): void {
+        const host = this.#host;
+        if (host === undefined || this.#options.editable !== true) {
+            return;
+        }
+        const apply = (edits: readonly IMsmSchemaEdit[]): void => {
+            for (const edit of edits) {
+                if (edit.op === "rename_table") {
+                    this.#renameTable(String(edit.table),
+                        String(edit.new_name));
+                } else if (edit.op === "rename_column") {
+                    this.#options.catalog.renameColumn(String(edit.table),
+                        String(edit.column), String(edit.new_name));
+                } else {
+                    this.#options.catalog.edit([edit]);
+                }
+            }
+            this.#refresh();
+        };
+        const send = (edits: IMsmSchemaEdit[],
+            failed?: (message: string) => void): void => {
+            this.#options.onSchemaEdit?.(edits, undefined, failed);
+        };
+        const action = {
+            label: change.label,
+            undo: () => { apply(change.inverse); send(change.inverse); },
+            redo: () => { apply(change.edits); send(change.edits); },
+        };
+        apply(change.edits);
+        send(change.edits, (message) => {
+            host.history.discard(action);
+            apply(change.inverse);
+            host.hint(message);
+        });
+        host.history.record(action);
     }
 
     /**

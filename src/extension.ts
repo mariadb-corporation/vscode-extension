@@ -90,7 +90,14 @@ import {
     commonFolder,
 } from "./connections/connectionFolders.js";
 import { ConnectionEditorPanel } from "./connections/connectionEditorPanel.js";
-import { withDefaultScheme } from "./connections/connectionUri.js";
+import {
+    connectionLabel,
+    withDefaultScheme,
+} from "./connections/connectionUri.js";
+import {
+    OBJECT_DETAILS_VIEWS,
+    ObjectDetailsProvider,
+} from "./details/objectDetailsProvider.js";
 import type {
     ISandboxApi,
     ISandboxChange,
@@ -104,6 +111,7 @@ import { DiagramDrafts } from "./modeler/diagramDrafts.js";
 import {
     MODELER_VIEW_TYPE,
     ModelerPanel,
+    type IModelerHost,
 } from "./modeler/modelerPanel.js";
 import type { ModelerTarget } from "./modeler/modelerProtocol.js";
 import {
@@ -496,7 +504,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
      */
     const openSchemaDiagram = (node: IDiagramNode): void => {
         ModelerPanel.show(context.extensionUri,
-            connectionDiagrams(node.uri, node.schema), node.name, { log });
+            connectionDiagrams(node.uri, node.schema), node.name, modelerHost);
     };
 
     // Where every call is logged, the listings and reads are too, and the
@@ -855,6 +863,77 @@ export const activate = (context: vscode.ExtensionContext): void => {
     msmProjectsView.onDidCollapseElement((event) => {
         void msmProjects.collapsed(event.element);
     });
+
+    // The object selected - on a diagram, or in either tree - in full,
+    // below MSM Projects and below Connections.
+    const objectDetails = new ObjectDetailsProvider({
+        extensionUri: context.extensionUri,
+        log,
+        snapshot: (projectPath) => { return msmProjects.snapshot(projectPath); },
+        liveDetails: async (connection, schema, ref) => {
+            const connectionId = connections.connectionIdFor(connection,
+                UI_BACKEND_SESSION);
+            if (connectionId === undefined) {
+                throw new Error("The connection is not open.");
+            }
+
+            return (await connections.api()).getObjectDetails(connectionId,
+                schema, ref.name, ref.type);
+        },
+        connectionLabel,
+        change: async (projectPath, change, baseHash) => {
+            const source = projectDiagrams(projectPath);
+            // In the open diagram, where it joins the history.
+            if (ModelerPanel.applySchemaChange(source, change)) {
+                return "viewer";
+            }
+            if (baseHash === undefined) {
+                throw new Error("The project has no schema snapshot yet.");
+            }
+            await source.edit(change.edits, baseHash);
+            msmProjects.refresh();
+
+            return "made";
+        },
+    });
+    context.subscriptions.push(objectDetails,
+        ...OBJECT_DETAILS_VIEWS.map((id) => {
+            return vscode.window.registerWebviewViewProvider(id,
+                objectDetails);
+        }),
+        msmProjectsView.onDidChangeSelection((event) => {
+            const [node] = event.selection;
+            const ref = node?.kind === "object" ? objectRefOf(node) : undefined;
+            if (node?.kind === "object" && ref !== undefined) {
+                objectDetails.show({ projectPath: node.projectPath }, ref);
+            }
+        }),
+        connectionsView.onDidChangeSelection((event) => {
+            const [node] = event.selection;
+            const ref = node?.kind === "object" ? objectRefOf(node) : undefined;
+            if (node?.kind === "object" && ref !== undefined) {
+                objectDetails.show({ connection: node.uri,
+                    schema: node.schema }, ref);
+            }
+        }));
+    /** What a diagram viewer tells the views around it. */
+    const modelerHost: IModelerHost = {
+        log,
+        schemaChanged: () => {
+            msmProjects.refresh();
+            objectDetails.refreshed();
+        },
+        schemaEditFailed: (message) => { objectDetails.failed(message); },
+        selected: (target, objects) => {
+            const [first] = objects;
+            if (first !== undefined) {
+                objectDetails.show(target.kind === "project"
+                    ? { projectPath: target.projectPath }
+                    : { connection: target.connection,
+                        schema: target.schema }, first);
+            }
+        },
+    };
     const restdCommands = new RestdCommands({
         extensionUri: context.extensionUri,
         connect: (uri) => {
@@ -1018,7 +1097,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
     };
     const openProjectDiagram = (projectPath: string, name: string): void => {
         ModelerPanel.show(context.extensionUri, projectDiagrams(projectPath),
-            name, { log, schemaChanged: () => { msmProjects.refresh(); } });
+            name, modelerHost);
     };
     /**
      * Opens a diagram of a project, asking which where the project has
@@ -1117,8 +1196,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return Promise.resolve();
                 }
                 ModelerPanel.revive(context.extensionUri, panel,
-                    sourceOf(target), target.diagram, { log,
-                        schemaChanged: () => { msmProjects.refresh(); } });
+                    sourceOf(target), target.diagram, modelerHost);
 
                 return Promise.resolve();
             },

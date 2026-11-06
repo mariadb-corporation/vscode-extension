@@ -84,6 +84,7 @@ import {
 } from "./diagramTools.js";
 import { DiagramToolbar, ToolPanel } from "./DiagramToolbar.js";
 import { EerFigureSet } from "./EerFigureSet.js";
+import { objectsOfFigures } from "./placeObjects.js";
 import { svgImage, type CardIcons } from "./tableCard.js";
 
 /**
@@ -400,6 +401,15 @@ export const ModelViewer = (): JSX.Element => {
             },
             onTool: (next) => { setTool(next); },
             onHint: setHint,
+            onSelection: (ids) => {
+                const shown = loadedRef.current;
+                if (shown === undefined || ids.length === 0) {
+                    return;
+                }
+                // What the figures show, for the Object Details view.
+                post({ type: "selection", objects: objectsOfFigures(
+                    shown.set.diagram, ids, shown.set.objects()) });
+            },
             onEditPlacement: (placement) => {
                 // The input follows its text as the view pans, zooms or
                 // turns; nothing else of the edit changes.
@@ -561,6 +571,11 @@ export const ModelViewer = (): JSX.Element => {
 
                 case "showDiagram": {
                     setDiagramName(message.name);
+                    break;
+                }
+
+                case "applySchemaChange": {
+                    loadedRef.current?.set.applySchemaChange(message.change);
                     break;
                 }
 
