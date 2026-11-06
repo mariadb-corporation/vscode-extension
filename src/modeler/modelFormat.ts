@@ -313,7 +313,7 @@ export const routineLabel = (routine: IOutlineRoutine): string => {
  * @returns The document as an object.
  * @throws If it is not a JSON object.
  */
-const documentOf = (row: IDiagramRow): Record<string, unknown> => {
+export const documentOf = (row: IDiagramRow): Record<string, unknown> => {
     const value: unknown = typeof row.document === "string"
         ? JSON.parse(row.document)
         : row.document;

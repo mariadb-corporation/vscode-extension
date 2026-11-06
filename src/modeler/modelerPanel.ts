@@ -67,6 +67,8 @@ export class ModelerPanel {
     #reading?: ReturnType<IModelSource["read"]>;
     /** The snapshot's hash schema edits are made against. */
     #sourceHash?: string;
+    /** The schema edits under way, which run one at a time. */
+    #editing: Promise<void> = Promise.resolve();
     #schema: string;
 
     private constructor(
@@ -216,7 +218,13 @@ export class ModelerPanel {
             }
 
             case "schemaEdit": {
-                await this.#editSchema(message.edits);
+                // One after the other: each is made against the snapshot
+                // the one before it left.
+                const edit = this.#editing.then(() => {
+                    return this.#editSchema(message.edits);
+                });
+                this.#editing = edit;
+                await edit;
                 break;
             }
 

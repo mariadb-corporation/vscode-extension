@@ -33,6 +33,7 @@ import type { DiagramDrafts } from "./diagramDrafts.js";
 import {
     assembleSchemaModel,
     DIAGRAM_FORMAT,
+    documentOf,
     type IDiagramDocument,
     type IDiagramRow,
     type IModelDiagram,
@@ -129,10 +130,8 @@ const hashesOf = (rows: readonly IDiagramRow[]): Map<string, string> => {
     return new Map(rows.filter((row) => {
         return row.format === DIAGRAM_FORMAT;
     }).map((row) => {
-        const document = (typeof row.document === "string"
-            ? JSON.parse(row.document) : row.document) as IModelDiagram;
-
-        return [row.name, diagramHash(document)];
+        return [row.name,
+            diagramHash(documentOf(row) as unknown as IModelDiagram)];
     }));
 };
 
@@ -394,10 +393,22 @@ export class ProjectModelSource implements IModelSource {
             this.onSaveState?.({ state: "failed", message: errorText(error) });
             throw error;
         }
-        this.#bases.set(name, diagramHash(pending.document));
-        if (this.#pending.get(name) === pending) {
+        const base = diagramHash(pending.document);
+        this.#bases.set(name, base);
+        const newer = this.#pending.get(name);
+        if (newer === pending) {
             this.#pending.delete(name);
             this.host.drafts.remove(this.projectPath, name);
+        } else if (newer !== undefined) {
+            // Changes made while this save ran build on what it saved: their
+            // draft says so, or the next start would take the save for a
+            // change the project made.
+            try {
+                this.host.drafts.put(this.projectPath, newer.document, base);
+            } catch (error) {
+                this.host.log(`Could not keep the changes of the diagram `
+                    + `${name}: ${errorText(error)}`);
+            }
         }
         if (this.#pending.size === 0) {
             this.onSaveState?.({ state: "saved" });
