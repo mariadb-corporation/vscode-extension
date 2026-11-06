@@ -60,7 +60,13 @@ export type ModelerWebviewMessage =
      * saved once the edit is made, and not at all where it fails.
      */
     | { type: "schemaEdit"; edits: IMsmSchemaEdit[];
-        documents?: IDiagramDocument[] };
+        documents?: IDiagramDocument[];
+        /**
+         * Whether the viewer takes the change back itself where msm
+         * refuses it (a new table, its columns kept to fix), rather than
+         * the project being read again.
+         */
+        recover?: boolean };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =

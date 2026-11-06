@@ -327,6 +327,25 @@ describe("ModelerPanel", () => {
             panel.dispose();
         });
 
+    it("leaves a refused edit to the viewer where it takes it back itself",
+        async () => {
+            const from = source("world", {
+                editable: true,
+                edit: () => { return Promise.reject(new Error("bad type")); },
+            });
+            const panel = show("MRS", from);
+            await ready(panel);
+
+            (panel.webview as MockWebview).receive({ type: "schemaEdit",
+                edits: [{ op: "add_table" }], recover: true });
+            await flush();
+
+            expect(posted(panel).slice(1)).toEqual([{ type: "schemaEdited",
+                error: "bad type" }]);
+            expect(from.reads).toBe(1);
+            panel.dispose();
+        });
+
     it("refuses schema edits a source cannot make", async () => {
         const panel = show("MRS");
         await ready(panel);

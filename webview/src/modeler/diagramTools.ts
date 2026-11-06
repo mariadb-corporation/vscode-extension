@@ -34,7 +34,8 @@ import {
 import type { IRect } from "../../../src/modeler/pageSettings.js";
 import {
     COLUMN_TYPES,
-    PREFERRED_COLUMN_TYPE,
+    DEFAULT_COLUMN_TYPE,
+    KEY_COLUMN_TYPE,
 } from "../../../src/sql/columnTypes.js";
 import type {
     EditCommit,
@@ -43,7 +44,7 @@ import type {
     IToolSession,
 } from "../canvas/canvasTypes.js";
 import type { IPoint } from "../canvas/geometry.js";
-import type { UndoStack } from "../canvas/undoStack.js";
+import type { IUndoableAction, UndoStack } from "../canvas/undoStack.js";
 import { sameName, type ISchemaCatalog } from "./catalog.js";
 import {
     associativeTableChange,
@@ -245,8 +246,15 @@ export interface IToolTarget {
     hint(text: string): void;
     /** Hands the pointer back to the pointer tool. */
     done(): void;
-    /** Sends schema edits, with the shown diagram as it is now. */
-    schemaEdit(edits: IMsmSchemaEdit[]): void;
+    /**
+     * Sends schema edits, with the shown diagram as it is now.
+     *
+     * @param edits The edits.
+     * @param failed Takes it back where msm refuses it, given msm's
+     *               message; without it, a refusal reads the project
+     *               again.
+     */
+    schemaEdit(edits: IMsmSchemaEdit[], failed?: (message: string) => void): void;
     /** Asks for a picture to place; nothing where none was picked. */
     pickImage(): Promise<IPickedImage | undefined>;
     panel(panel?: IToolPanel): void;
@@ -597,15 +605,17 @@ export class DiagramTools {
      * @param change The change.
      * @param show Shows what the change places (its figures).
      * @param hide Takes that away.
+     * @param failed Takes the change back where msm refuses it (the
+     *               action is no longer in the history then).
      */
     #recordSchemaChange(
         change: ISchemaChange,
         show: () => void,
         hide: () => void,
+        failed?: (message: string) => void,
     ): void {
         const target = this.#target;
-        target.schemaEdit(change.edits);
-        target.history.record({
+        const action: IUndoableAction = {
             label: change.label,
             undo: () => {
                 hide();
@@ -619,7 +629,13 @@ export class DiagramTools {
                 target.refresh();
                 target.schemaEdit(change.edits);
             },
-        });
+        };
+        target.schemaEdit(change.edits, failed === undefined ? undefined
+            : (message) => {
+                target.history.discard(action);
+                failed(message);
+            });
+        target.history.record(action);
     }
 
     /** @returns The names tables and views share, taken. */
@@ -703,54 +719,97 @@ export class DiagramTools {
         this.#target.refresh();
     }
 
-    #editColumn(pending: IPendingTable): void {
+    /**
+     * Opens the editor of a column of the table being entered: the next
+     * one, in the empty row, or one entered already (msm refused it).
+     *
+     * @param pending The table.
+     * @param at The column entered already, by index.
+     */
+    #editColumn(pending: IPendingTable, at?: number): void {
         const target = this.#target;
         const { figure } = pending;
+        const entered = at === undefined ? undefined : pending.columns[at];
+        const index = at ?? pending.columns.length;
+        // The first column is the key, `id UUID`; the next ones are
+        // VARCHAR(45) until another type is picked.
+        const type = index === 0 ? KEY_COLUMN_TYPE : DEFAULT_COLUMN_TYPE;
         target.editItem(figure.id, (item) => {
-            return item.kind === "column" && item.text === "";
+            return item.kind === "column" && item.text === (entered?.name ?? "");
         }, {
-            // The first column is the key: an id, a UUID unless picked
-            // otherwise.
-            text: pending.columns.length === 0 ? "id" : "",
+            text: entered !== undefined ? `${entered.name} ${entered.type}`
+                : index === 0 ? `id ${KEY_COLUMN_TYPE}` : "",
             label: "Column name and type",
             placeholder: "column_name TYPE",
-            choices: { items: COLUMN_TYPES, preferred: PREFERRED_COLUMN_TYPE },
-            commit: (text, how) => { this.#columnEntered(pending, text, how); },
+            choices: { items: COLUMN_TYPES, preferred: type },
+            commit: (text, how) => {
+                this.#columnEntered(pending, text, how, at);
+            },
             cancel: () => { this.#finishTable(pending); },
         });
     }
 
-    #columnEntered(pending: IPendingTable, text: string, how: EditCommit): void {
+    /**
+     * Takes a column typed into the table being entered.
+     *
+     * @param pending The table.
+     * @param text The column's `name TYPE`.
+     * @param how By Enter, or by leaving the input.
+     * @param at The column entered already that it replaces, by index.
+     */
+    #columnEntered(
+        pending: IPendingTable,
+        text: string,
+        how: EditCommit,
+        at?: number,
+    ): void {
         const target = this.#target;
         const { name, type } = parseColumnText(text);
+        const table = target.catalog.table(pending.figure.table ?? "");
+        const next = (): void => {
+            this.#relayoutPending(pending);
+            if (how === "blur") {
+                this.#finishTable(pending);
+            } else {
+                this.#editColumn(pending);
+            }
+        };
         if (name === "") {
-            this.#finishTable(pending);
+            if (at === undefined) {
+                this.#finishTable(pending);
+            } else {
+                // A column emptied goes.
+                pending.columns.splice(at, 1);
+                table?.columns.splice(at, 1);
+                next();
+            }
 
             return;
         }
-        if (pending.columns.some((column) => { return sameName(column.name, name); })) {
+        if (pending.columns.some((column, index) => {
+            return index !== at && sameName(column.name, name);
+        })) {
             target.hint(`The table has a column ${name} already.`);
-            this.#editColumn(pending);
+            this.#editColumn(pending, at);
 
             return;
         }
+        const index = at ?? pending.columns.length;
         const column: IOutlineColumn = {
             name,
-            type: type === "" ? PREFERRED_COLUMN_TYPE : type,
-            nullable: pending.columns.length === 0 ? false : undefined,
+            type: type !== "" ? type
+                : index === 0 ? KEY_COLUMN_TYPE : DEFAULT_COLUMN_TYPE,
+            nullable: index === 0 ? false : undefined,
         };
-        pending.columns.push(column);
-        const table = target.catalog.table(pending.figure.table ?? "");
-        if (table !== undefined) {
+        if (at === undefined) {
+            pending.columns.push(column);
             // Before the empty row the next column is entered in.
-            table.columns.splice(table.columns.length - 1, 0, { ...column });
-        }
-        this.#relayoutPending(pending);
-        if (how === "blur") {
-            this.#finishTable(pending);
+            table?.columns.splice(table.columns.length - 1, 0, { ...column });
         } else {
-            this.#editColumn(pending);
+            pending.columns[at] = column;
+            table?.columns.splice(at, 1, { ...column });
         }
+        next();
     }
 
     /** Makes the table entered: in the SQL, and as one action. */
@@ -771,8 +830,46 @@ export class DiagramTools {
         this.#relayoutPending(pending);
         this.#recordSchemaChange(change,
             () => { target.addFigure(figure); },
-            () => { target.removeFigure(figure.id); });
+            () => { target.removeFigure(figure.id); },
+            (message) => { this.#reopenTable(pending, message); });
         target.hint(`Table '${name}' created.`);
+    }
+
+    /**
+     * Takes up a table msm refused, as it was entered: a column it names
+     * (a type it does not know) is edited again, else the table's name.
+     * Nothing typed is lost; Enter on the empty row, or Escape, sends it
+     * again.
+     *
+     * @param pending The table.
+     * @param message Why msm refused it, as "column `price`: ...".
+     */
+    #reopenTable(pending: IPendingTable, message: string): void {
+        const target = this.#target;
+        const { figure } = pending;
+        const name = figure.table ?? figure.name;
+        target.catalog.edit([
+            { op: "drop_table", table: name },
+            { op: "add_table", table: { name, columns: [
+                ...pending.columns.map((column) => { return { ...column }; }),
+                { name: "", type: "" },
+            ] } },
+        ]);
+        if (target.figure(figure.id) === undefined) {
+            target.addFigure(figure);
+        }
+        this.#relayoutPending(pending);
+        target.hint(message);
+        // msm passes the language server's message on, after its own
+        // words: "... could not be made (bad-request): column `price`: ...".
+        const column = /column `([^`]+)`:/.exec(message)?.[1];
+        const at = column === undefined ? -1 : pending.columns.findIndex(
+            (entry) => { return sameName(entry.name, column); });
+        if (at >= 0) {
+            this.#editColumn(pending, at);
+        } else {
+            this.#editTableName(pending);
+        }
     }
 
     #placeView(point: IPoint): void {

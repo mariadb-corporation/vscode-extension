@@ -222,7 +222,8 @@ export class ModelerPanel {
                 // One after the other: each is made against the snapshot
                 // the one before it left.
                 const edit = this.#editing.then(() => {
-                    return this.#editSchema(message.edits, message.documents);
+                    return this.#editSchema(message.edits, message.documents,
+                        message.recover === true);
                 });
                 this.#editing = edit;
                 await edit;
@@ -279,6 +280,7 @@ export class ModelerPanel {
     async #editSchema(
         edits: Parameters<NonNullable<IModelSource["edit"]>>[0],
         documents?: IDiagramDocument[],
+        recover = false,
     ): Promise<void> {
         if (this.source.edit === undefined || this.#sourceHash === undefined) {
             this.#post({ type: "schemaEdited",
@@ -310,8 +312,10 @@ export class ModelerPanel {
                 `change the schema ${this.#schema}`);
             this.#post({ type: "schemaEdited", error: text });
             // The viewer showed the change already: it goes back to what
-            // the project says.
-            await this.#load();
+            // the project says - or takes it back itself.
+            if (!recover) {
+                await this.#load();
+            }
         }
     }
 

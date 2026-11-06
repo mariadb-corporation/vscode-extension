@@ -53,6 +53,8 @@ class FakeTarget implements IToolTarget {
     public point: IPoint = { x: 100.4, y: 50.6 };
     public edits: IToolEdit[] = [];
     public sent: IMsmSchemaEdit[][] = [];
+    /** What takes back each request sent, where the tool gave one. */
+    public failures: Array<((message: string) => void) | undefined> = [];
     public sentFigures: string[][] = [];
     public hints: string[] = [];
     public doneCount = 0;
@@ -134,8 +136,10 @@ class FakeTarget implements IToolTarget {
     public hint(text: string): void { this.hints.push(text); }
     public done(): void { this.doneCount += 1; }
 
-    public schemaEdit(edits: IMsmSchemaEdit[]): void {
+    public schemaEdit(edits: IMsmSchemaEdit[],
+        failed?: (message: string) => void): void {
         this.sent.push(edits);
+        this.failures.push(failed);
         this.sentFigures.push(this.shown.figures.map((figure) => {
             return figure.name;
         }));
@@ -233,11 +237,14 @@ describe("diagram tools", () => {
 
             target.edit.commit("orders", "enter");
             expect(target.shown.figures[0]?.table).toBe("orders");
-            // The first column: an id, its types offered, UUID first.
-            expect(target.edit.text).toBe("id");
+            // The first column: the key, `id UUID`.
+            expect(target.edit.text).toBe("id UUID");
             expect(target.edit.choices?.preferred).toBe("UUID");
 
             target.edit.commit("id UUID", "enter");
+            // The next ones: VARCHAR(45) offered first.
+            expect(target.edit.text).toBe("");
+            expect(target.edit.choices?.preferred).toBe("VARCHAR(45)");
             target.edit.commit("title VARCHAR(45)", "enter");
             expect(target.catalog.table("orders")?.columns.map((column) => {
                 return column.name;
@@ -294,14 +301,69 @@ describe("diagram tools", () => {
         it("ends with the column typed when its input loses the focus", () => {
             tools.down("table", probe);
             target.edit.commit("t", "enter");
+            target.edit.commit("code", "enter");
             const editsBefore = target.edits.length;
-            target.edit.commit("code", "blur");
+            target.edit.commit("label", "blur");
 
-            // No next column; the type left out is UUID.
+            // No next column; a type left out is the key's UUID first,
+            // VARCHAR(45) after it.
             expect(target.edits).toHaveLength(editsBefore);
             expect(target.sent[0]?.[0]).toMatchObject({ table: { columns: [
-                { name: "code", type: "UUID", nullable: false }] } });
+                { name: "code", type: "UUID", nullable: false },
+                { name: "label", type: "VARCHAR(45)" }] } });
         });
+
+        it("takes a table msm refused up again at the column it names, "
+            + "and sends it again once fixed", () => {
+            tools.down("table", probe);
+            target.edit.commit("product", "enter");
+            target.edit.commit("id UUID", "enter");
+            target.edit.commit("price VARCHR(45)", "enter");
+            target.edit.commit("note TEXT", "enter");
+            target.edit.commit("", "enter");
+            expect(target.history.entries).toHaveLength(1);
+
+            target.failures[0]?.("The edits to `shop` could not be made "
+                + "(bad-request): column `price`: `VARCHR(45)` is not a MariaDB "
+                + "data type");
+
+            // Out of the history, nothing sent to undo; the columns kept.
+            expect(target.history.entries).toEqual([]);
+            expect(target.sent).toHaveLength(1);
+            expect(target.figure(target.shown.figures[0]!.id)).toBeDefined();
+            expect(target.catalog.table("product")?.columns.map((column) => {
+                return column.name;
+            })).toEqual(["id", "price", "note", ""]);
+            expect(target.hints.at(-1)).toContain("is not a MariaDB data type");
+            expect(target.edit.text).toBe("price VARCHR(45)");
+
+            target.edit.commit("price DECIMAL(10,2)", "enter");
+            // On to the empty row, where Enter sends it again.
+            expect(target.edit.text).toBe("");
+            target.edit.commit("", "enter");
+            expect(target.sent[1]?.[0]).toMatchObject({ table: { columns: [
+                { name: "id", type: "UUID" },
+                { name: "price", type: "DECIMAL(10,2)" },
+                { name: "note", type: "TEXT" }] } });
+            expect(target.history.entries).toHaveLength(1);
+        });
+
+        it("takes a refused table up at its name where msm names no column",
+            () => {
+                tools.down("table", probe);
+                target.edit.commit("t", "enter");
+                target.edit.commit("id UUID", "enter");
+                target.edit.commit("", "enter");
+
+                target.failures[0]?.("The edits could not be made "
+                    + "(name-taken): `t` exists already");
+                expect(target.edit.label).toBe("Table name");
+                target.edit.commit("t2", "enter");
+                target.edit.commit("", "enter");
+
+                expect(target.sent[1]?.[0]).toMatchObject({ table: {
+                    name: "t2", columns: [{ name: "id", type: "UUID" }] } });
+            });
 
         it("asks again for a name taken, or a column entered twice", () => {
             tools.down("table", probe);

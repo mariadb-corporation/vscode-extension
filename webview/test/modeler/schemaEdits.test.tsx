@@ -21,7 +21,8 @@ import type { IOutlineTable } from "../../../src/modeler/modelFormat.js";
 import {
     COLUMN_TYPES,
     matchingTypes,
-    PREFERRED_COLUMN_TYPE,
+    DEFAULT_COLUMN_TYPE,
+    KEY_COLUMN_TYPE,
 } from "../../../src/sql/columnTypes.js";
 import {
     applyEdits,
@@ -73,11 +74,13 @@ describe("names", () => {
 });
 
 describe("column types", () => {
-    it("offers UUID first while nothing is typed, and every type", () => {
+    it("offers every type, the key's and the default one among them", () => {
         expect(matchingTypes("")).toHaveLength(COLUMN_TYPES.length);
-        expect(COLUMN_TYPES.some((entry) => {
-            return entry.label === PREFERRED_COLUMN_TYPE;
-        })).toBe(true);
+        for (const type of [KEY_COLUMN_TYPE, DEFAULT_COLUMN_TYPE]) {
+            expect(COLUMN_TYPES.some((entry) => {
+                return entry.label === type;
+            })).toBe(true);
+        }
     });
 
     it("matches what is typed from the start, in any case", () => {

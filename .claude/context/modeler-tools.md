@@ -51,14 +51,24 @@ and Enter moves on to a chain of column editors.
 - **A new table**: a click places `table1` (numbered past every table and
   view name) with an empty row; its name is edited in place (Esc or an
   empty name drops it), then each column in a `name TYPE` editor. The
-  first column is prefilled `id`; Space or Enter after a name opens the
-  type list with UUID picked, typing filters it from the start, Enter
-  takes the one picked, and an open type (`ENUM(`) keeps the editor for
-  its values. Enter after a type opens the next column's editor; Enter on
-  an empty name, Esc, or leaving the input ends the table. The first
-  column is the primary key and NOT NULL. Nothing is sent until the table
-  ends: one `add_table` with every column (lsp-server refuses a table
-  without one).
+  first column is prefilled `id UUID` (the user: "suggesting id with
+  PRIMARY KEY is great, just make it UUID type"); the next ones default
+  to VARCHAR(45), which the type list picks first. Space or Enter after a
+  name opens the type list, typing filters it from the start, Enter takes
+  the one picked, and an open type (`ENUM(`) keeps the editor for its
+  values. Enter after a type opens the next column's editor; Enter on an
+  empty name, Esc, or leaving the input ends the table. The first column
+  is the primary key and NOT NULL. Nothing is sent until the table ends:
+  one `add_table` with every column (lsp-server refuses a table without
+  one).
+- **A table msm refuses is not lost.** Its `schemaEdit` carries
+  `recover`, so the panel does not read the project again. The viewer
+  drops the action from the history (`UndoStack.discard`) and takes the
+  table up as it was entered. A column msm names ("column `price`: ... is
+  not a MariaDB data type", inside msm's own wording) is edited again;
+  otherwise (a name taken) the name is. The viewer matches each
+  `schemaEdited` to its request by order, since the panel answers them
+  one at a time.
 - **A new view** is named in place, then made with `add_view` and the
   placeholder `SELECT 1`: the SELECT is the user's to write in the SQL.
 - **Relationships** (Workbench's): pick the table that receives the

@@ -387,7 +387,8 @@ export interface IEerFigureSetOptions {
      * the change changed too (a figure placed for a new table), which are
      * saved only once the edit is made.
      */
-    onSchemaEdit?: (edits: IMsmSchemaEdit[], diagrams?: IModelDiagram[]) => void;
+    onSchemaEdit?: (edits: IMsmSchemaEdit[], diagrams?: IModelDiagram[],
+        failed?: (message: string) => void) => void;
     /** Asks for a picture to place: the image tool's file dialog. */
     pickImage?: () => Promise<IPickedImage | undefined>;
     /** Shows the existing-columns relationship's panel, or no more. */
@@ -1985,8 +1986,8 @@ export class EerFigureSet implements IFigureSet {
             select: (ids) => { this.#host?.select(ids); },
             hint: (text) => { this.#host?.hint(text); },
             done: () => { this.#host?.toolDone(); },
-            schemaEdit: (edits) => {
-                this.#options.onSchemaEdit?.(edits, [this.#diagram]);
+            schemaEdit: (edits, failed) => {
+                this.#options.onSchemaEdit?.(edits, [this.#diagram], failed);
             },
             pickImage: () => {
                 return this.#options.pickImage?.() ?? Promise.resolve(undefined);

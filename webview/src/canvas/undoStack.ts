@@ -98,6 +98,26 @@ export class UndoStack {
     }
 
     /**
+     * Forgets an action without undoing it: one whose effect was taken
+     * back otherwise (a schema change msm refused).
+     *
+     * @param action The action.
+     *
+     * @returns Nothing.
+     */
+    public discard(action: IUndoableAction): void {
+        const index = this.#actions.indexOf(action);
+        if (index < 0) {
+            return;
+        }
+        this.#actions.splice(index, 1);
+        if (index < this.#done) {
+            this.#done -= 1;
+        }
+        this.#changed();
+    }
+
+    /**
      * Takes the last action in effect back.
      *
      * @returns The action undone, or nothing where there is none.

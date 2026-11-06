@@ -90,8 +90,11 @@ export const COLUMN_TYPES: readonly IColumnTypeChoice[] = [
     choice("YEAR"),
 ];
 
-/** The type picked when nothing is typed yet. */
-export const PREFERRED_COLUMN_TYPE = "UUID";
+/** The type of a new table's first column, its key: `id UUID`. */
+export const KEY_COLUMN_TYPE = "UUID";
+
+/** The type of the columns after it, until another is picked. */
+export const DEFAULT_COLUMN_TYPE = "VARCHAR(45)";
 
 /**
  * @param typed What is typed for the type, in any case.

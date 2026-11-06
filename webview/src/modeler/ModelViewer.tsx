@@ -277,6 +277,11 @@ export const ModelViewer = (): JSX.Element => {
     const canvasRef = useRef<Canvas>();
     const inputRef = useRef<HTMLInputElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
+    /**
+     * What takes back each schema edit sent, in order (msm answers them
+     * one at a time): nothing for one the project is read again for.
+     */
+    const editsSentRef = useRef<Array<((message: string) => void) | undefined>>([]);
     /** Settles the image tool's request once a file is picked, or none. */
     const pickRef = useRef<(picked: Promise<IPickedImage | undefined>) => void>();
 
@@ -449,6 +454,7 @@ export const ModelViewer = (): JSX.Element => {
             switch (message.type) {
                 case "load": {
                     setError(undefined);
+                    editsSentRef.current = [];
                     // The diagram opened in the tree, else the first.
                     setDiagramName(message.diagram);
                     keepState({ target: message.target });
@@ -458,7 +464,8 @@ export const ModelViewer = (): JSX.Element => {
                         loadIcons,
                         editable: message.editable,
                         onSchemaEdit: (schemaEdits: IMsmSchemaEdit[],
-                            changed?: IModelDiagram[]) => {
+                            changed?: IModelDiagram[],
+                            failed?: (message: string) => void) => {
                             const shown = loadedRef.current;
                             // The diagrams go with the edit, saved once it
                             // is made: not again as changes of their own.
@@ -472,8 +479,10 @@ export const ModelViewer = (): JSX.Element => {
 
                                     return document;
                                 });
+                            editsSentRef.current.push(failed);
                             post({ type: "schemaEdit", edits: schemaEdits,
-                                ...(documents === undefined ? {} : { documents }) });
+                                ...(documents === undefined ? {} : { documents }),
+                                ...(failed === undefined ? {} : { recover: true }) });
                         },
                         pickImage: () => {
                             return new Promise<IPickedImage | undefined>(
@@ -522,10 +531,14 @@ export const ModelViewer = (): JSX.Element => {
                 }
 
                 case "schemaEdited": {
-                    // A failed edit reloads the model, from what the SQL
-                    // still says; a done one brings the snapshot of it.
+                    // A done edit brings the snapshot of the SQL. A failed
+                    // one is taken back by what sent it, or the model is
+                    // read again from what the SQL still says.
+                    const failed = editsSentRef.current.shift();
                     if (message.objects !== undefined) {
                         loadedRef.current?.set.replaceObjects(message.objects);
+                    } else if (message.error !== undefined) {
+                        failed?.(message.error);
                     }
                     break;
                 }
