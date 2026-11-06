@@ -324,6 +324,31 @@ describe("ProjectModelSource", () => {
             expect(await fake.drafts.list(PROJECT)).toEqual([]);
         });
 
+    it("says nothing waits once a failed edit dropped the changes made "
+        + "meanwhile", async () => {
+        await fake.source.read();
+        fake.failEdit();
+        const editing = fake.source.edit([{ op: "add_table",
+            table: { name: "t" } }], "sha256:one", [diagram("Main", 70)]);
+        fake.source.changed(diagram("Main", 80));
+
+        await expect(editing).rejects.toThrow("unsupported");
+        expect(fake.states.at(-1)).toEqual({ state: "saved" });
+    });
+
+    it("counts an edit as made when the save of its diagrams fails",
+        async () => {
+            await fake.source.read();
+            fake.failSave();
+            const outcome = await fake.source.edit([{ op: "add_table",
+                table: { name: "t" } }], "sha256:one", [diagram("Main", 70)]);
+
+            expect(outcome.model.sourceHash).toBe("sha256:two");
+            expect(fake.calls.slice(-2)).toEqual([["edit", "sha256:one"],
+                ["set", "Main"]]);
+            expect(fake.states.at(-1)?.state).toBe("failed");
+        });
+
     it("reads a picture msm left out", async () => {
         expect(await fake.source.image("Main", "logo"))
             .toBe("data:image/png;base64,AAAA");

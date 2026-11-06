@@ -455,7 +455,12 @@ export const ModelViewer = (): JSX.Element => {
             switch (message.type) {
                 case "load": {
                     setError(undefined);
-                    editsSentRef.current = [];
+                    // The edits still under way are answered in turn: their
+                    // places are kept, what took them back goes with the
+                    // figures it worked on.
+                    editsSentRef.current = editsSentRef.current.map(() => {
+                        return undefined;
+                    });
                     // The diagram opened in the tree, else the first.
                     setDiagramName(message.diagram);
                     keepState({ target: message.target });

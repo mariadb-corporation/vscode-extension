@@ -44,7 +44,7 @@ import {
 import { UtilCommands } from "./util/utilCommands.js";
 import type { IMsmApi } from "./mcp/msmApi.js";
 import {
-    MsmCommands, newDiagramName, projectPathOf,
+    diagramNameTaken, MsmCommands, newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
@@ -1123,7 +1123,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                                 return "Enter a name.";
                             }
 
-                            return taken.includes(trimmed)
+                            return diagramNameTaken(taken, trimmed)
                                 ? `The project has a diagram ${trimmed} `
                                     + "already."
                                 : undefined;

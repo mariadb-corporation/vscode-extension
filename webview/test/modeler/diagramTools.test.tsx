@@ -30,6 +30,7 @@ import type { IProbe } from "../../src/canvas/canvasTypes.js";
 import type { IPoint } from "../../src/canvas/geometry.js";
 import { UndoStack } from "../../src/canvas/undoStack.js";
 import { catalogFromModel, type ISchemaCatalog } from "../../src/modeler/catalog.js";
+import type { ICardItem } from "../../src/modeler/tableCard.js";
 import {
     DiagramTools,
     parseColumnText,
@@ -52,6 +53,8 @@ class FakeTarget implements IToolTarget {
     public next?: IToolHit;
     public point: IPoint = { x: 100.4, y: 50.6 };
     public edits: IToolEdit[] = [];
+    /** What finds the item of each edit opened. */
+    public finds: Array<(item: ICardItem) => boolean> = [];
     public sent: IMsmSchemaEdit[][] = [];
     /** What takes back each request sent, where the tool gave one. */
     public failures: Array<((message: string) => void) | undefined> = [];
@@ -123,8 +126,10 @@ class FakeTarget implements IToolTarget {
 
     public refresh(): void { /* nothing drawn */ }
 
-    public editItem(_figureId: string, _find: unknown, edit: IToolEdit): void {
+    public editItem(_figureId: string, find: (item: ICardItem) => boolean,
+        edit: IToolEdit): void {
         this.edits.push(edit);
+        this.finds.push(find);
     }
 
     public highlight(highlight?: IToolHighlight): void {
@@ -610,6 +615,35 @@ describe("diagram tools", () => {
                 name: "charge", kind: "procedure", parameters: [],
                 body: "BEGIN\nEND" } }]]);
             expect(target.catalog.routine("charge")).toBeDefined();
+        });
+
+        it("edits the new routine's row, not one whose name it starts", () => {
+            target.shown.figures.push({ id: "g", type: "RoutineGroupFigure",
+                name: "billing", routines: [], left: 0, top: 0 });
+            tools.addRoutine("g");
+            const row = (text: string): ICardItem => {
+                return { kind: "routine", text, editable: false,
+                    rect: { left: 0, top: 0, width: 10, height: 10 } };
+            };
+
+            expect(target.finds[0]?.(row("routine1()"))).toBe(true);
+            expect(target.finds[0]?.(row("routine10()"))).toBe(false);
+        });
+
+        it("takes back a refused routine without the ones added since", () => {
+            target.shown.figures.push({ id: "g", type: "RoutineGroupFigure",
+                name: "billing", routines: [], left: 0, top: 0 });
+            tools.addRoutine("g");
+            target.edit.commit("charge", "enter");
+            tools.addRoutine("g");
+            target.edit.commit("refund", "enter");
+            expect(target.figure("g")?.routines).toEqual(["charge", "refund"]);
+
+            target.failures[0]?.("The edits could not be made (name-taken): "
+                + "a function `charge` exists");
+
+            expect(target.figure("g")?.routines).toContain("refund");
+            expect(target.figure("g")?.routines).not.toContain("charge");
         });
 
         it("takes a refused view's name up again, as typed", () => {

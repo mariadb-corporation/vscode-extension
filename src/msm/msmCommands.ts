@@ -207,6 +207,22 @@ export const newDiagramName = (taken: readonly string[]): string => {
     return `Diagram ${number}`;
 };
 
+/**
+ * @param taken The names of the project's diagrams.
+ * @param name A name for a new one.
+ *
+ * @returns Whether a diagram has that name already, in any case: their
+ *          files would collide where the file system ignores case.
+ */
+export const diagramNameTaken = (
+    taken: readonly string[],
+    name: string,
+): boolean => {
+    const wanted = name.toLowerCase();
+
+    return taken.some((other) => { return other.toLowerCase() === wanted; });
+};
+
 /** The commands, by the dialog each opens. */
 export const MSM_COMMANDS: Record<MsmDialogKind, string> = {
     create: "mariadb.msm.createProject",

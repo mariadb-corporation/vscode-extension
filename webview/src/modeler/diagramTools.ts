@@ -1021,18 +1021,28 @@ export class DiagramTools {
             return routine.name;
         });
         const name = numberedName("routine", taken);
-        const routines = figure.routines ?? [];
+        // By name: other routines may come and go meanwhile.
+        let shown = name;
         const show = (routine: string): void => {
-            figure.routines = [...routines, routine];
+            shown = routine;
+            const routines = figure.routines ?? [];
+            if (!routines.some((other) => { return sameName(other, routine); })) {
+                figure.routines = [...routines, routine];
+            }
         };
-        const hide = (): void => { figure.routines = routines; };
+        const hide = (): void => {
+            figure.routines = (figure.routines ?? []).filter((other) => {
+                return !sameName(other, shown);
+            });
+        };
         // Stands in the catalog while its name is entered.
         const placeholder = newRoutineChange(name);
         target.catalog.edit(placeholder.edits);
         show(name);
         target.refresh();
         target.editItem(figureId, (item) => {
-            return item.kind === "routine" && item.text.startsWith(name);
+            // `routine1(`: not `routine10(`'s row.
+            return item.kind === "routine" && item.text.startsWith(`${name}(`);
         }, {
             text: text ?? name,
             label: "Routine name",
@@ -1050,6 +1060,8 @@ export class DiagramTools {
                 }
                 const change = newRoutineChange(entered);
                 target.catalog.edit(change.edits);
+                // The placeholder's row goes; the routine's comes.
+                hide();
                 show(entered);
                 target.refresh();
                 this.#recordSchemaChange(change,

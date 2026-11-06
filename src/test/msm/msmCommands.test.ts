@@ -33,6 +33,7 @@ import {
     MSM_LIST_COMMANDS,
     MsmCommands,
     msmCall,
+    diagramNameTaken,
     newDiagramName,
     projectContext,
 } from "../../msm/msmCommands.js";
@@ -274,6 +275,11 @@ describe("newDiagramName", () => {
         expect(newDiagramName([])).toBe("Diagram 1");
         expect(newDiagramName(["Main", "diagram 1", "Diagram 2"]))
             .toBe("Diagram 3");
+    });
+
+    it("takes a name in use in another case for taken", () => {
+        expect(diagramNameTaken(["Main", "Diagram 1"], "diagram 1")).toBe(true);
+        expect(diagramNameTaken(["Main"], "Diagram 1")).toBe(false);
     });
 });
 
