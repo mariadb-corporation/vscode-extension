@@ -262,9 +262,9 @@ describe("ModelerPanel", () => {
         await flush();
 
         expect(posted(panel)).toEqual([
-            { type: "image", figureId: "logo",
+            { type: "image", diagram: "MRS", figureId: "logo",
                 image: "data:image/png;base64,MRS" },
-            { type: "image", figureId: "gone",
+            { type: "image", diagram: "MRS", figureId: "gone",
                 error: "no picture" },
         ]);
         panel.dispose();

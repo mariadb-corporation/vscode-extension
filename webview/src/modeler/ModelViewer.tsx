@@ -403,7 +403,8 @@ export const ModelViewer = (): JSX.Element => {
                 }
 
                 case "image": {
-                    loadedRef.current?.set.pictureArrived(message.figureId,
+                    loadedRef.current?.set.pictureArrived(message.diagram,
+                        message.figureId,
                         message.image, message.error);
                     break;
                 }

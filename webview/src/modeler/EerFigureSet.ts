@@ -414,6 +414,17 @@ const kindOf = (figure: IModelFigure): FigureKind => {
 };
 
 /**
+ * @param diagram A diagram's name.
+ * @param figureId A figure of it.
+ *
+ * @returns The key its picture is kept under: figure ids are a diagram's
+ *          own, so the same id can stand for another picture elsewhere.
+ */
+const pictureKey = (diagram: string, figureId: string): string => {
+    return `${diagram}\u0000${figureId}`;
+};
+
+/**
  * @param kind What a figure is drawn as.
  *
  * @returns Whether it is a card: a schema object's, with a header and a
@@ -442,7 +453,11 @@ export class EerFigureSet implements IFigureSet {
     #rasterFrame?: number;
     /** The cards, for hit-testing: kept, since the pointer asks often. */
     #cardMeshes: THREE.Object3D[] = [];
-    /** The image figures' pictures, by figure id, kept across diagrams. */
+    /**
+     * The image figures' pictures, by `pictureKey`, kept across diagrams:
+     * a picture can be placed on several diagrams, each figure sized and
+     * placed as that diagram has it.
+     */
     readonly #pictures = new Map<string, IPicture>();
     /** The pictures asked of the extension, so each is asked once. */
     readonly #picturesAsked = new Set<string>();
@@ -909,11 +924,12 @@ export class EerFigureSet implements IFigureSet {
      * msm left it out; the figure is drawn again once it is there.
      */
     #preparePicture(figure: IModelFigure): void {
-        if (this.#pictures.has(figure.id)) {
+        const key = pictureKey(this.#diagram.name, figure.id);
+        if (this.#pictures.has(key)) {
             return;
         }
         if (figureType(figure) !== IMAGE_FIGURE) {
-            this.#pictures.set(figure.id, {
+            this.#pictures.set(key, {
                 status: `A figure of the type ${figureType(figure)}, `
                     + "which the viewer does not show",
             });
@@ -926,37 +942,42 @@ export class EerFigureSet implements IFigureSet {
             return;
         }
         if (figure.image_size !== undefined && this.#options.requestImage) {
-            this.#pictures.set(figure.id, { status: "Loading the picture…" });
-            if (!this.#picturesAsked.has(figure.id)) {
-                this.#picturesAsked.add(figure.id);
+            this.#pictures.set(key, { status: "Loading the picture…" });
+            if (!this.#picturesAsked.has(key)) {
+                this.#picturesAsked.add(key);
                 this.#options.requestImage(this.#diagram.name, figure.id);
             }
 
             return;
         }
-        this.#pictures.set(figure.id, { status: "No picture" });
+        this.#pictures.set(key, { status: "No picture" });
     }
 
     /** Loads a picture from its data URL, then draws its figure again. */
     #loadPicture(figure: IModelFigure, dataUrl: string): void {
-        this.#pictures.set(figure.id, { status: "Loading the picture…" });
+        const diagram = this.#diagram.name;
+        const key = pictureKey(diagram, figure.id);
+        this.#pictures.set(key, { status: "Loading the picture…" });
         const image = new Image();
         image.onload = () => {
-            this.#pictures.set(figure.id, { image, status: "" });
-            this.#redrawFigure(figure.id);
+            this.#pictures.set(key, { image, status: "" });
+            this.#redrawFigure(diagram, figure.id);
         };
         image.onerror = () => {
-            this.#pictures.set(figure.id, {
+            this.#pictures.set(key, {
                 status: "The picture cannot be shown",
             });
-            this.#redrawFigure(figure.id);
+            this.#redrawFigure(diagram, figure.id);
         };
         image.src = sizedPicture(dataUrl, figure.width ?? 160,
             figure.height ?? 60);
     }
 
-    /** Draws a figure again where it is shown. */
-    #redrawFigure(id: string): void {
+    /** Draws a figure of a diagram again, where that diagram is shown. */
+    #redrawFigure(diagram: string, id: string): void {
+        if (diagram !== this.#diagram.name) {
+            return;
+        }
         const node = this.#figures.get(id);
         if (node !== undefined) {
             node.rasterScale = 0;
@@ -967,30 +988,38 @@ export class EerFigureSet implements IFigureSet {
     /**
      * Takes the picture of an image figure the extension was asked for.
      *
+     * @param diagram The figure's diagram.
      * @param figureId The figure.
      * @param image The picture, a data URL; none where it could not be
      *              had.
      * @param error Why not.
      */
-    public pictureArrived(figureId: string, image?: string, error?: string): void {
-        const figure = this.#options.diagrams.flatMap((diagram) => {
-            return diagram.figures;
-        }).find((candidate) => { return candidate.id === figureId; });
+    public pictureArrived(diagram: string, figureId: string, image?: string,
+        error?: string): void {
+        const figure = this.#options.diagrams.find((candidate) => {
+            return candidate.name === diagram;
+        })?.figures.find((candidate) => { return candidate.id === figureId; });
         if (figure === undefined) {
             return;
         }
+        const key = pictureKey(diagram, figureId);
         if (image === undefined) {
-            this.#pictures.set(figureId, {
+            this.#pictures.set(key, {
                 status: `The picture could not be read: ${error ?? ""}`,
             });
-            this.#redrawFigure(figureId);
+            this.#redrawFigure(diagram, figureId);
 
             return;
         }
         // Kept with the figure, so another diagram's mount has it; a save
         // leaves it out (`diagramDocument`).
         figure.image = image;
-        this.#loadPicture(figure, image);
+        if (diagram === this.#diagram.name) {
+            this.#loadPicture(figure, image);
+        } else {
+            // Loaded when its diagram is shown.
+            this.#pictures.delete(key);
+        }
     }
 
     /** Puts a table's card, slab and shadow where its rectangle is. */
@@ -1097,7 +1126,8 @@ export class EerFigureSet implements IFigureSet {
         if (node.kind === "note") {
             canvas = drawNote(node.figure, width, height, host.theme, scale);
         } else if (node.kind === "picture") {
-            const picture = this.#pictures.get(node.figure.id);
+            const picture = this.#pictures.get(
+                pictureKey(this.#diagram.name, node.figure.id));
             canvas = drawImageFigure(node.figure, width, height,
                 picture?.image, picture?.status ?? "", host.theme, scale);
         } else {

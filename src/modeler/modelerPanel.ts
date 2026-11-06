@@ -268,9 +268,9 @@ export class ModelerPanel {
         }
         try {
             const image = await this.source.image(diagram, figureId);
-            this.#post({ type: "image", figureId, image });
+            this.#post({ type: "image", diagram, figureId, image });
         } catch (error) {
-            this.#post({ type: "image", figureId,
+            this.#post({ type: "image", diagram, figureId,
                 error: errorText(error) });
         }
     }

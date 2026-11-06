@@ -79,6 +79,7 @@ export type ModelerHostMessage =
     /** An image figure's picture, or why there is none. */
     | {
         type: "image";
+        diagram: string;
         figureId: string;
         image?: string;
         error?: string;
