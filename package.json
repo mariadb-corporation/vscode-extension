@@ -3150,7 +3150,8 @@
     "ui-test:dump-load": "npm run ui-test -- dump-load",
     "ui-test:restd": "npm run ui-test -- restd",
     "ui-test:lsp": "npm run ui-test -- lsp",
-    "ui-test:msm": "npm run ui-test -- msm"
+    "ui-test:msm": "npm run ui-test -- msm",
+    "ui-test:msm-diagrams": "npm run ui-test -- msm-diagrams"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
