@@ -161,6 +161,7 @@ describe("what the view shows", () => {
             columns: [{ name: "id", type: "int", nullable: false,
                 default: null, auto_increment: true, comment: null }],
             indexes: [{ name: null, kind: "primary", columns: ["id"] }],
+            foreign_keys: [],
             options: { comment: "Orders" },
         } });
     });

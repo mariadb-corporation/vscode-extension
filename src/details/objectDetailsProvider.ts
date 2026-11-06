@@ -16,11 +16,13 @@
  */
 
 /**
- * The Object Details view: the table, view or routine last selected - on
- * a diagram, in the MSM Projects view or in the Connections view - read
- * only and compressed for a side bar. The view is there twice, below MSM
- * Projects and below Connections, both drawn by this one provider from
- * the one selection. Changing an object is the object editor's.
+ * The Object Details view: the object last selected - on a diagram, in the
+ * MSM Projects view or in the Connections view - read only and compressed
+ * for a side bar. The view is there twice, below MSM Projects and below
+ * Connections, both drawn by this one provider, each with its own side's
+ * selection: a project's objects below MSM Projects, a live schema's
+ * below Connections; empty until one is selected there. Changing an
+ * object is the object editor's.
  */
 
 import * as vscode from "vscode";
@@ -65,44 +67,76 @@ interface ISubject {
     ref: ISchemaObjectRef;
 }
 
+/** Whose objects a view shows: the Connections side bar's, or msm's. */
+type DetailsSide = "connections" | "msm";
+
+/** What one side bar's view shows, kept apart from the other's. */
+interface ISideState {
+    subject?: ISubject;
+    /** What its views were last sent, for one that opens later. */
+    shown: DetailsHostMessage;
+    /** Counts the reads, so an older one does not overwrite a newer. */
+    reads: number;
+    /** Whether the subject is to be read once a view of the side shows. */
+    stale: boolean;
+}
+
+/**
+ * @param place Where an object is.
+ *
+ * @returns The side bar whose view shows it.
+ */
+const sideOf = (place: SchemaObjectPlace): DetailsSide => {
+    return "projectPath" in place ? "msm" : "connections";
+};
+
+/**
+ * @param viewType One of `OBJECT_DETAILS_VIEWS`.
+ *
+ * @returns The side bar it is in.
+ */
+const sideOfView = (viewType: string): DetailsSide => {
+    return viewType === "mariadb.msmObjectDetails" ? "msm" : "connections";
+};
+
 export class ObjectDetailsProvider
     implements vscode.WebviewViewProvider, vscode.Disposable {
 
     readonly #views = new Set<vscode.WebviewView>();
-    #subject?: ISubject;
-    /** What the views were last sent, for one that opens later. */
-    #shown: DetailsHostMessage = { type: "show",
-        message: "Select a table, view or routine on a diagram or in a tree." };
-    /** Counts the reads, so an older one does not overwrite a newer. */
-    #reads = 0;
-    /** Whether the subject is to be read once a view shows. */
-    #stale = false;
+    /** Each side bar's object: nothing until one is selected there. */
+    readonly #sides: Record<DetailsSide, ISideState> = {
+        connections: { shown: { type: "show" }, reads: 0, stale: false },
+        msm: { shown: { type: "show" }, reads: 0, stale: false },
+    };
 
     public constructor(private readonly host: IObjectDetailsHost) { }
 
     public resolveWebviewView(view: vscode.WebviewView): void {
+        const side = sideOfView(view.viewType);
+        const state = this.#sides[side];
         view.webview.options = webviewOptions(this.host.extensionUri);
         view.webview.html = buildWebviewHtml(view.webview,
             this.host.extensionUri, "details", "Object Details");
         this.#views.add(view);
         view.onDidDispose(() => { this.#views.delete(view); });
         view.onDidChangeVisibility(() => {
-            if (view.visible && this.#stale) {
-                void this.#read();
+            if (view.visible && state.stale) {
+                void this.#read(side);
             }
         });
-        if (this.#stale) {
-            void this.#read();
+        if (state.stale) {
+            void this.#read(side);
         }
         view.webview.onDidReceiveMessage((message: DetailsWebviewMessage) => {
             if (message.type === "ready") {
-                void view.webview.postMessage(this.#shown);
+                void view.webview.postMessage(state.shown);
             }
         });
     }
 
     /**
-     * Shows an object.
+     * Shows an object, in the view of the side bar whose objects it is:
+     * a project's below MSM Projects, a live schema's below Connections.
      *
      * @param place Where it is.
      * @param ref The object.
@@ -110,22 +144,26 @@ export class ObjectDetailsProvider
      * @returns Nothing.
      */
     public show(place: SchemaObjectPlace, ref: ISchemaObjectRef): void {
-        const same = this.#subject !== undefined
-            && JSON.stringify(this.#subject) === JSON.stringify({ place, ref });
+        const side = sideOf(place);
+        const state = this.#sides[side];
+        const same = state.subject !== undefined
+            && JSON.stringify(state.subject) === JSON.stringify({ place, ref });
         if (!same) {
-            this.#subject = { place, ref };
-            void this.#read();
+            state.subject = { place, ref };
+            void this.#read(side);
         }
     }
 
     /**
-     * Reads the object shown again: after msm changed the schema.
+     * Reads the objects shown again: after msm changed the schema.
      *
      * @returns Nothing.
      */
     public refreshed(): void {
-        if (this.#subject !== undefined) {
-            void this.#read();
+        for (const side of ["connections", "msm"] as const) {
+            if (this.#sides[side].subject !== undefined) {
+                void this.#read(side);
+            }
         }
     }
 
@@ -133,30 +171,38 @@ export class ObjectDetailsProvider
         this.#views.clear();
     }
 
-    #post(message: DetailsHostMessage): void {
-        this.#shown = message;
-        for (const view of this.#views) {
+    /** @returns The views of a side bar. */
+    #viewsOf(side: DetailsSide): vscode.WebviewView[] {
+        return [...this.#views].filter((view) => {
+            return sideOfView(view.viewType) === side;
+        });
+    }
+
+    #post(side: DetailsSide, message: DetailsHostMessage): void {
+        this.#sides[side].shown = message;
+        for (const view of this.#viewsOf(side)) {
             void view.webview.postMessage(message);
         }
     }
 
     /**
-     * Reads the object shown and sends it to the views; where none shows,
-     * it is read once one does, not on every selection.
+     * Reads a side bar's object and sends it to its view; where that does
+     * not show, it is read once it does, not on every selection.
      */
-    async #read(): Promise<void> {
-        const subject = this.#subject;
+    async #read(side: DetailsSide): Promise<void> {
+        const state = this.#sides[side];
+        const subject = state.subject;
         if (subject === undefined) {
             return;
         }
         // A read still going is of an older subject, or older state: its
         // answer is not shown, whether this one reads or waits.
-        this.#reads += 1;
-        const read = this.#reads;
-        this.#stale = ![...this.#views].some((view) => {
+        state.reads += 1;
+        const read = state.reads;
+        state.stale = !this.#viewsOf(side).some((view) => {
             return view.visible;
         });
-        if (this.#stale) {
+        if (state.stale) {
             return;
         }
         let message: DetailsHostMessage;
@@ -166,8 +212,8 @@ export class ObjectDetailsProvider
             message = { type: "show", message: `The details of `
                 + `${subject.ref.name} could not be read: ${errorText(error)}` };
         }
-        if (read === this.#reads) {
-            this.#post(message);
+        if (read === state.reads) {
+            this.#post(side, message);
         }
     }
 
@@ -194,9 +240,6 @@ export class ObjectDetailsProvider
         return { type: "show", details: {
             schema: place.schema,
             where: this.host.connectionLabel(place.connection),
-            partial: ref.type === "table"
-                ? "Indexes and foreign keys are shown for a project's tables."
-                : undefined,
             object: liveDetails(details, ref),
         } };
     }

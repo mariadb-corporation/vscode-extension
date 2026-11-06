@@ -72,17 +72,73 @@ export interface IColumnDetails {
     id_generation: string | null;
     comment: string;
     column_default: string | null;
+    charset?: string | null;
+    collation?: string | null;
 }
 
-/** What `db.get_object_details` returns for a table. */
+/** One constrained column of a table, as `db.get_object_details` lists it. */
+export interface IConstraintDetails {
+    constraint_name: string;
+    /** `PRIMARY KEY`, `UNIQUE`, `FOREIGN KEY` or `CHECK`. */
+    constraint_type: string;
+    /** Null for a CHECK constraint. */
+    column_name: string | null;
+}
+
+/**
+ * A foreign key of a table or onto it: `n:1` points from the table to
+ * another, `1:n` and `1:1` from another to the table.
+ */
+export interface IReferenceDetails {
+    /** The other table. */
+    name: string;
+    ref_column_names: string;
+    reference_mapping: {
+        kind: "n:1" | "1:n" | "1:1";
+        /** `schema.name` of the foreign key. */
+        constraint: string;
+        to_many?: boolean;
+        referenced_schema?: string;
+        referenced_table?: string;
+        /** `base` is the column of the table holding the key. */
+        column_mapping: Array<{ base: string; ref: string }>;
+    };
+    table_schema: string;
+    table_name: string;
+}
+
+/** A parameter of a stored routine, as `db.get_object_details` lists it. */
+export interface IParameterDetails {
+    name: string;
+    /** `IN`, `OUT`, `INOUT`; null for a function's. */
+    mode: string | null;
+    datatype: string;
+    parameter_default: string | null;
+}
+
+/** What `db.get_object_details` returns, by the object's type. */
 export interface IObjectDetails {
     basic: {
         schema: string;
         name: string;
         type: string;
-        comment?: string;
+        comment?: string | null;
     };
+    /** A table's and a view's. */
     columns?: IColumnDetails[];
+    /** A table's. */
+    constraints?: IConstraintDetails[];
+    /** A table's, both ways. */
+    references?: IReferenceDetails[];
+    /** A routine's. */
+    parameters?: IParameterDetails[];
+    /** What a function returns; null for a procedure. */
+    returns?: string | null;
+    /**
+     * A sequence's, trigger's or event's own: INFORMATION_SCHEMA's
+     * columns, lower case.
+     */
+    details?: Record<string, unknown>;
 }
 
 /** One warning a statement produced, as `SHOW WARNINGS` reports it. */

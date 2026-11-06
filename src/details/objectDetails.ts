@@ -27,6 +27,8 @@ import type { IObjectDetails } from "../mcp/types.js";
 import type { ISchemaObjectRef } from "../modeler/modelerProtocol.js";
 import type {
     IOutlineEvent,
+    IOutlineForeignKey,
+    IOutlineIndex,
     IOutlineRoutine,
     IOutlineSequence,
     IOutlineTable,
@@ -49,11 +51,6 @@ export interface IObjectDetailsView {
     schema: string;
     /** Where the object is: "project shop" or the connection's caption. */
     where: string;
-    /**
-     * What the source cannot tell: a live table's indexes and foreign
-     * keys, say.
-     */
-    partial?: string;
     object: ObjectDetailsBody;
 }
 
@@ -139,11 +136,105 @@ export const outlineDetails = (
 };
 
 /**
+ * @param value A value of INFORMATION_SCHEMA, as the server sends it.
+ *
+ * @returns It as text; nothing where it is null.
+ */
+const text = (value: unknown): string | undefined => {
+    return value === null || value === undefined ? undefined : String(value);
+};
+
+/**
+ * @param details What `db.get_object_details` says of a table.
+ *
+ * @returns Its primary and unique keys, from its constraints; where the
+ *          server sends none, the primary key from the columns' flags.
+ */
+const liveIndexes = (details: IObjectDetails): IOutlineIndex[] => {
+    if (details.constraints === undefined) {
+        const key = (details.columns ?? []).filter((column) => {
+            return column.is_primary === 1;
+        }).map((column) => { return column.name; });
+
+        return key.length === 0 ? []
+            : [{ name: null, kind: "primary", columns: key }];
+    }
+    const indexes = new Map<string, IOutlineIndex>();
+    for (const row of details.constraints) {
+        const kind = row.constraint_type === "PRIMARY KEY" ? "primary"
+            : row.constraint_type === "UNIQUE" ? "unique" : undefined;
+        if (kind === undefined || row.column_name === null) {
+            continue;
+        }
+        const index = indexes.get(row.constraint_name) ?? { name: kind
+            === "primary" ? null : row.constraint_name, kind, columns: [] };
+        index.columns.push(row.column_name);
+        indexes.set(row.constraint_name, index);
+    }
+
+    return [...indexes.values()];
+};
+
+/**
+ * @param details What `db.get_object_details` says of a table.
+ *
+ * @returns The foreign keys it holds (the `n:1` references).
+ */
+const liveForeignKeys = (details: IObjectDetails): IOutlineForeignKey[] => {
+    return (details.references ?? []).filter((reference) => {
+        return reference.reference_mapping.kind === "n:1";
+    }).map((reference) => {
+        const mapping = reference.reference_mapping;
+        const schema = mapping.referenced_schema;
+
+        return {
+            name: mapping.constraint.slice(mapping.constraint.indexOf(".") + 1),
+            columns: mapping.column_mapping.map((pair) => { return pair.base; }),
+            references: {
+                schema: schema === undefined || schema === details.basic.schema
+                    ? null : schema,
+                table: mapping.referenced_table ?? reference.name,
+                columns: mapping.column_mapping.map((pair) => {
+                    return pair.ref;
+                }),
+            },
+        };
+    });
+};
+
+/**
+ * @param details What `db.get_object_details` says of an event.
+ *
+ * @returns Its schedule as `CREATE EVENT` writes it.
+ */
+const liveSchedule = (details: Record<string, unknown>): string | undefined => {
+    if (details.event_type === "ONE TIME") {
+        return details.execute_at === null ? undefined
+            : `AT '${text(details.execute_at)}'`;
+    }
+    if (details.interval_value === null || details.interval_value === undefined) {
+        return undefined;
+    }
+
+    return [`EVERY ${text(details.interval_value)} ${text(details.interval_field)}`,
+        details.starts ? `STARTS '${text(details.starts)}'` : "",
+        details.ends ? `ENDS '${text(details.ends)}'` : ""]
+        .filter((part) => { return part !== ""; }).join(" ");
+};
+
+/** INFORMATION_SCHEMA's event status, as `CREATE EVENT` writes it. */
+const EVENT_STATUS: Record<string, string> = {
+    ENABLED: "ENABLE",
+    DISABLED: "DISABLE",
+    SLAVESIDE_DISABLED: "DISABLE ON SLAVE",
+};
+
+/**
  * @param details What `db.get_object_details` says of the object.
  * @param ref The object asked about.
  *
- * @returns It in the outline's shape: a table's columns with its primary
- *          key, from the columns' flags; a view's columns.
+ * @returns It in the outline's shape, with all of it the outline has room
+ *          for.
  */
 export const liveDetails = (
     details: IObjectDetails,
@@ -159,47 +250,79 @@ export const liveDetails = (
             comment: column.comment === "" ? null : column.comment,
         };
     });
+    const own = details.details ?? {};
+    const name = details.basic.name;
     switch (ref.type) {
         case "table": {
-            const key = (details.columns ?? []).filter((column) => {
-                return column.is_primary === 1;
-            }).map((column) => { return column.name; });
-
             return { type: "table", table: {
-                name: details.basic.name,
+                name,
                 columns,
-                indexes: key.length === 0 ? []
-                    : [{ name: null, kind: "primary", columns: key }],
+                indexes: liveIndexes(details),
+                foreign_keys: liveForeignKeys(details),
                 ...(details.basic.comment
                     ? { options: { comment: details.basic.comment } } : {}),
             } };
         }
 
         case "view": {
-            return { type: "view", view: { name: details.basic.name,
+            return { type: "view", view: { name,
                 columns: columns.map((column) => { return column.name; }) } };
         }
 
         case "procedure":
         case "function": {
-            return { type: ref.type, routine: { name: details.basic.name,
-                kind: ref.type } };
+            return { type: ref.type, routine: {
+                name,
+                kind: ref.type,
+                parameters: (details.parameters ?? []).map((parameter) => {
+                    return {
+                        mode: parameter.mode,
+                        name: parameter.name,
+                        type: parameter.parameter_default === null
+                            ? parameter.datatype
+                            : `${parameter.datatype} DEFAULT `
+                                + parameter.parameter_default,
+                    };
+                }),
+                returns: details.returns ?? null,
+            } };
         }
 
-        // The server tells their names and comments only.
         case "trigger": {
-            return { type: "trigger", trigger: { name: details.basic.name,
-                timing: "", events: "", table: "" } };
+            return { type: "trigger", trigger: {
+                name,
+                timing: text(own.action_timing) ?? "",
+                events: (text(own.event_manipulation) ?? "")
+                    .split(",").join(" OR "),
+                table: text(own.table_name) ?? "",
+                body: text(own.action_statement),
+                definer: text(own.definer) ?? null,
+            } };
         }
 
         case "event": {
-            return { type: "event", event: { name: details.basic.name,
-                comment: details.basic.comment ?? null } };
+            const completion = text(own.on_completion);
+
+            return { type: "event", event: {
+                name,
+                schedule: liveSchedule(own),
+                status: EVENT_STATUS[text(own.status) ?? ""]
+                    ?? text(own.status) ?? null,
+                on_completion_preserve: completion === undefined ? null
+                    : completion === "PRESERVE",
+                comment: details.basic.comment ?? null,
+                body: text(own.event_definition),
+                definer: text(own.definer) ?? null,
+            } };
         }
 
         default: {
-            return { type: "sequence",
-                sequence: { name: details.basic.name } };
+            return { type: "sequence", sequence: {
+                name,
+                type: text(own.data_type) ?? null,
+                start: text(own.start_value) ?? null,
+                increment: text(own.increment) ?? null,
+            } };
         }
     }
 };

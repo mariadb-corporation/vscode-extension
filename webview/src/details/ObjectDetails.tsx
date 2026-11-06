@@ -372,8 +372,6 @@ const Details = ({ details }: { details: IObjectDetailsView }):
                 {details.schema} · {details.where}</span>
         </header>
         <Body object={object} />
-        {details.partial === undefined ? null
-            : <div className="detailsNote">{details.partial}</div>}
     </>;
 };
 

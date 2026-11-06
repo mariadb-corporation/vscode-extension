@@ -44,6 +44,13 @@ in `syntaxes/words.json`, a case per lexer token class, and snapshots of
 real SQL corpora (`corpus/*.tokens`, rewritten with `vitest -u` after a
 deliberate change). See [sql-grammar.md](sql-grammar.md).
 
+**One unit test fails only in the full run.** `src/test/modeler/
+modelSources.test.ts` › "keeps a change at once, saves it once settled,
+then drops it" finds no draft (`kept` undefined) under the load of the
+whole suite, and passes when its file runs alone. It is timing (the
+draft's settle), not the code under test: run the file alone to tell.
+Not fixed yet.
+
 ## UI tests (ExTester)
 
 `MARIADB_SHELL=<path to mariadb-shell> npm run ui-test [suite...]`

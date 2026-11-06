@@ -29,11 +29,12 @@ import type { ISchemaDefinition } from "../../modeler/modelFormat.js";
 import { Uri } from "../mocks/vscode.js";
 
 /** A webview view that keeps what it is sent. */
-const fakeView = (visible: boolean) => {
+const fakeView = (viewType: string, visible: boolean) => {
     const posted: DetailsHostMessage[] = [];
     let receive: (message: DetailsWebviewMessage) => void = () => { /* */ };
     let visibilityChanged = () => { /* */ };
     const view = {
+        viewType,
         webview: {
             options: {},
             html: "",
@@ -80,6 +81,10 @@ const settle = async (): Promise<void> => {
     }
 };
 
+const PROJECT = { projectPath: "/p/shop.msm.project" };
+const LIVE = { connection: "mariadb://localhost", schema: "shop" };
+const ORDERS = { type: "table", name: "orders" } as const;
+
 const setUp = (visible = true) => {
     let reads = 0;
     const host: IObjectDetailsHost = {
@@ -95,41 +100,51 @@ const setUp = (visible = true) => {
         connectionLabel: () => { return "local"; },
     };
     const provider = new ObjectDetailsProvider(host);
-    const fake = fakeView(visible);
-    provider.resolveWebviewView(fake.view as never);
+    const live = fakeView("mariadb.objectDetails", true);
+    const msm = fakeView("mariadb.msmObjectDetails", visible);
+    provider.resolveWebviewView(live.view as never);
+    provider.resolveWebviewView(msm.view as never);
 
-    return { provider, fake, reads: () => { return reads; },
-        shown: fake.shown };
+    return { provider, live, msm, reads: () => { return reads; } };
 };
 
 describe("the Object Details view", () => {
-    it("shows a project's table and a live one, read only", async () => {
-        const { provider, fake } = setUp();
-        fake.send({ type: "ready" });
-        expect(fake.posted[0]).toMatchObject({ type: "show",
-            message: expect.stringContaining("Select") });
+    it("is empty in a side bar where nothing was selected yet", () => {
+        const { live, msm } = setUp();
+        live.send({ type: "ready" });
+        msm.send({ type: "ready" });
 
-        provider.show({ projectPath: "/p/shop.msm.project" },
-            { type: "table", name: "orders" });
+        expect(live.posted).toEqual([{ type: "show" }]);
+        expect(msm.posted).toEqual([{ type: "show" }]);
+    });
+
+    it("shows a project's object below MSM Projects and a live one below "
+        + "Connections, each kept apart", async () => {
+        const { provider, live, msm } = setUp();
+        provider.show(PROJECT, ORDERS);
         await settle();
-        expect(fake.posted.at(-1)).toMatchObject({ type: "show", details: {
+        expect(msm.posted.at(-1)).toMatchObject({ type: "show", details: {
             schema: "shop", where: "Project",
             object: { type: "table", table: { name: "orders" } } } });
+        expect(live.posted).toEqual([]);
 
-        provider.show({ connection: "mariadb://localhost", schema: "shop" },
-            { type: "table", name: "orders" });
+        provider.show(LIVE, ORDERS);
         await settle();
-        expect(fake.posted.at(-1)).toMatchObject({ type: "show", details: {
-            where: "local", partial: expect.stringContaining("Indexes") } });
+        expect(live.posted.at(-1)).toMatchObject({ type: "show", details: {
+            where: "local", object: { type: "table" } } });
+        expect(msm.posted).toHaveLength(1);
+
+        // A view opened again gets its own side's object.
+        msm.send({ type: "ready" });
+        expect(msm.posted.at(-1)).toMatchObject({ details: {
+            where: "Project" } });
     });
 
     it("reads the object again once the schema changed, and not the same "
         + "selection twice", async () => {
         const { provider, reads } = setUp();
-        provider.show({ projectPath: "/p/shop.msm.project" },
-            { type: "table", name: "orders" });
-        provider.show({ projectPath: "/p/shop.msm.project" },
-            { type: "table", name: "orders" });
+        provider.show(PROJECT, ORDERS);
+        provider.show(PROJECT, ORDERS);
         await settle();
         expect(reads()).toBe(1);
 
@@ -138,19 +153,18 @@ describe("the Object Details view", () => {
         expect(reads()).toBe(2);
     });
 
-    it("reads nothing while no view shows, and the selection once one "
-        + "does", async () => {
-        const { provider, fake, reads, shown } = setUp(false);
-        provider.show({ projectPath: "/p/shop.msm.project" },
-            { type: "table", name: "orders" });
+    it("reads nothing while its view does not show, and the selection once "
+        + "it does", async () => {
+        const { provider, msm, reads } = setUp(false);
+        provider.show(PROJECT, ORDERS);
         provider.refreshed();
         await settle();
         expect(reads()).toBe(0);
 
-        shown();
+        msm.shown();
         await settle();
         expect(reads()).toBe(1);
-        expect(fake.posted.at(-1)).toMatchObject({ type: "show",
+        expect(msm.posted.at(-1)).toMatchObject({ type: "show",
             details: { object: { type: "table" } } });
     });
 });

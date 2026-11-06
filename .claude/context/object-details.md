@@ -94,9 +94,13 @@ viewer is [`modeler.md`](modeler.md), its palette
   a project it opens one of its diagrams first if none is open, the
   objects waiting for the model (`ModelerPanel.place`). A live schema's
   needs its diagram open.
-- **Object Details** follows the last selection: a tree row (both trees),
-  or figures selected on a diagram (the viewer posts `selection`; a routine
-  group's routines). It is read only and compressed for a side bar, a row
+- **Object Details** follows the last selection of its own side bar,
+  kept apart: below MSM Projects a project's object (its tree, or a
+  project's diagram), below Connections a live one (its tree, or a live
+  schema's diagram); `ObjectDetailsProvider` keeps one state per side,
+  and a view is empty until something is selected on its side. Figures
+  selected on a diagram post `selection` (a routine group's routines).
+  It is read only and compressed for a side bar, a row
   a line as the trees above it: a table's comment, columns (the diagram
   card's key / NOT NULL / column icons, drawn as masks in the theme's
   colour; name; then, as on the card, the type with AI and the default in
@@ -108,11 +112,17 @@ viewer is [`modeler.md`](modeler.md), its palette
   inverse) stays for it, and the diagram uses it
   (`ModelerPanel.applySchemaChange`). After a schema edit, made or
   refused as the project changed, the view reads the object again
-  (`refreshed`). Nothing is read while neither view shows: the object
-  selected meanwhile is read once one does.
-- **Live objects** come from `db.get_object_details`: columns with their
-  flags, the primary key from `is_primary`, the comment. It has no
-  indexes or foreign keys; the view says so.
+  (`refreshed`). Nothing is read while a side's view does not show: the
+  object selected meanwhile is read once it does.
+- **Live objects** come from `db.get_object_details`, mapped into the
+  outline's shapes (`liveDetails`): a table's columns, its primary and
+  unique keys (`constraints`), the foreign keys it holds (`references`
+  of kind `n:1`; those onto it are left out); a routine's parameters and
+  `returns`; a trigger's, event's and sequence's INFORMATION_SCHEMA row
+  (`details`), an event's schedule written as `CREATE EVENT` does. The
+  server has no plain indexes, foreign key actions, routine bodies or a
+  sequence's min / max / cache / cycle; the view shows what there is,
+  without a note.
 - Edits sent back carry the outline's members only: lsp-server refuses an
   unknown member, so a foreign key loses msm's derived `many` /
   `mandatory`, and a column is sent whole (a member left out of
@@ -120,6 +130,26 @@ viewer is [`modeler.md`](modeler.md), its palette
 
 - A trigger's `events` is one string (`"INSERT"`, `"UPDATE OR DELETE"`),
   shown as written on the card's row and in the details.
+
+## Open questions and leftovers
+
+- `detailEdits.ts` → `ModelerPanel.applySchemaChange` → `ModelViewer` →
+  `EerFigureSet.applySchemaChange` has no caller outside tests while the
+  view is read only. Kept for the object editor; to decide: drop it until
+  then, or keep it. Before using it: `dropColumn`'s inverse re-adds the
+  column only, not the primary key, indexes or foreign keys MariaDB
+  dropped with it; its `primaryKeyColumns` (exact case, array) differs
+  from the catalog's (`webview/src/modeler/catalog.ts`, lower case, Set),
+  and its column / index / foreign key builders copy `schemaEdits.ts`'s.
+- No tree sets `text/uri-list` on a drag, so `onDrop`'s `getData` branch
+  in `ModelViewer.tsx` and the `mariadb-schema-object:` URIs only carry
+  `draggedObjects` inside the extension; kept for a real drop should
+  Electron ever let one through.
+- Duplication worth folding: `#placeSequence` / `#placeView` and
+  `#addTrigger` / `#addMember` in `diagramTools.ts`; the object type →
+  outline list lookup in `schemaTree.ts` (`outlineObjects`),
+  `objectDetails.ts` (`outlineDetails`) and `placeObjects.ts`
+  (`placementOf`); both trees' `handleDrag` filling `draggedObjects`.
 
 ## Not yet tried in VS Code
 
