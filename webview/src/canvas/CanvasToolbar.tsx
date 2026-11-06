@@ -17,22 +17,21 @@
 
 import type { ComponentChildren, JSX } from "preact";
 
-import type { Tool, ViewMode } from "./canvasTypes.js";
+import type { ViewMode } from "./canvasTypes.js";
 import { HamburgerButton, MENU_BUTTON_SIZE } from "./CanvasMenu.js";
 import type { IIsoAngles } from "./geometry.js";
 import { SplitButton } from "./SplitButton.js";
 
 /**
  * The canvas's toolbar, laid out as the MySQL Shell's schema diagram
- * designer laid out its own: sections headed by a label - Tools, View -
- * with the same icons, plus the projection (2D or a 3D view) and the
- * Navigator. What a figure set adds (the diagram to show, say) follows,
+ * designer laid out its own: sections headed by a label - View,
+ * Projection - with the same icons, and the switches of the floating
+ * panels (the tool palette, the Navigator). The tools themselves are on
+ * the palette. What a figure set adds (the diagram to show, say) follows,
  * as the toolbar's children.
  */
 
 export interface ICanvasToolbarProps {
-    tool: Tool;
-    onTool: (tool: Tool) => void;
     view: ViewMode;
     onView: (view: ViewMode) => void;
     gridVisible: boolean;
@@ -41,6 +40,9 @@ export interface ICanvasToolbarProps {
     onPagesVisible: (visible: boolean) => void;
     locked: boolean;
     onLocked: (locked: boolean) => void;
+    /** Whether the tool palette is shown. */
+    toolsVisible: boolean;
+    onToolsVisible: (visible: boolean) => void;
     navigatorVisible: boolean;
     onNavigatorVisible: (visible: boolean) => void;
     onFit: () => void;
@@ -100,19 +102,6 @@ export const ToolbarSection = (props: {
 
 export const CanvasToolbar = (props: ICanvasToolbarProps): JSX.Element => {
     return <div className="toolbar" role="toolbar">
-        <ToolbarSection label="Tools:">
-            <IconButton icon="toolPointer" title="Select Objects"
-                toggled={props.tool === "pointer"}
-                onClick={() => { props.onTool("pointer"); }} />
-            <IconButton icon="toolHand" title="Pan (or hold Space)"
-                toggled={props.tool === "hand"}
-                onClick={() => { props.onTool("hand"); }} />
-            <IconButton icon="toolZoom"
-                title="Zoom in; Alt + click to zoom out (or hold Z)"
-                toggled={props.tool === "zoom"}
-                onClick={() => { props.onTool("zoom"); }} />
-        </ToolbarSection>
-        <span className="toolbarDivider" />
         <ToolbarSection label="View:">
             <IconButton icon="viewReset" title="Fit the pages (Cmd/Ctrl + 0)"
                 onClick={props.onFit} />
@@ -133,6 +122,15 @@ export const CanvasToolbar = (props: ICanvasToolbarProps): JSX.Element => {
                 title={props.locked ? "Unlock Diagram" : "Lock Diagram"}
                 toggled={props.locked}
                 onClick={() => { props.onLocked(!props.locked); }} />
+            <button type="button"
+                className={"toolbarText" + (props.toolsVisible
+                    ? " toggled" : "")}
+                aria-pressed={props.toolsVisible}
+                title={props.toolsVisible ? "Hide the Tools"
+                    : "Show the Tools"}
+                onClick={() => {
+                    props.onToolsVisible(!props.toolsVisible);
+                }}>Tools</button>
             <button type="button"
                 className={"toolbarText" + (props.navigatorVisible
                     ? " toggled" : "")}

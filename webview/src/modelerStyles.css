@@ -85,6 +85,19 @@ body {
     --icon-view-reset: url("../../images/light/toolbar-view-reset.svg");
     --icon-view-lock: url("../../images/light/toolbar-view-lock.svg");
     --icon-view-ruler: url("../../images/light/toolbar-view-ruler.svg");
+    --icon-diagram-eraser: url("../../images/light/toolbar-diagram-eraser.svg");
+    --icon-diagram-layer: url("../../images/light/toolbar-diagram-layer.svg");
+    --icon-diagram-note: url("../../images/light/toolbar-diagram-note.svg");
+    --icon-diagram-image: url("../../images/light/toolbar-diagram-image.svg");
+    --icon-diagram-table: url("../../images/light/toolbar-diagram-table.svg");
+    --icon-diagram-view: url("../../images/light/toolbar-diagram-view.svg");
+    --icon-diagram-routines: url("../../images/light/toolbar-diagram-routines.svg");
+    --icon-diagram-rel11: url("../../images/light/toolbar-diagram-rel11.svg");
+    --icon-diagram-rel1n: url("../../images/light/toolbar-diagram-rel1n.svg");
+    --icon-diagram-rel11id: url("../../images/light/toolbar-diagram-rel11id.svg");
+    --icon-diagram-rel1nid: url("../../images/light/toolbar-diagram-rel1nid.svg");
+    --icon-diagram-relnm: url("../../images/light/toolbar-diagram-relnm.svg");
+    --icon-diagram-relpick: url("../../images/light/toolbar-diagram-relpick.svg");
 }
 
 .toolbarIcon,
@@ -145,6 +158,19 @@ button.toolbarText.toggled {
 .toolbarIcon.viewReset::before { mask-image: var(--icon-view-reset); }
 .toolbarIcon.viewLock::before { mask-image: var(--icon-view-lock); }
 .toolbarIcon.viewRuler::before { mask-image: var(--icon-view-ruler); }
+.toolbarIcon.toolEraser::before { mask-image: var(--icon-diagram-eraser); }
+.toolbarIcon.toolLayer::before { mask-image: var(--icon-diagram-layer); }
+.toolbarIcon.toolNote::before { mask-image: var(--icon-diagram-note); }
+.toolbarIcon.toolImage::before { mask-image: var(--icon-diagram-image); }
+.toolbarIcon.toolTable::before { mask-image: var(--icon-diagram-table); }
+.toolbarIcon.toolView::before { mask-image: var(--icon-diagram-view); }
+.toolbarIcon.toolRoutineGroup::before { mask-image: var(--icon-diagram-routines); }
+.toolbarIcon.toolRel11::before { mask-image: var(--icon-diagram-rel11); }
+.toolbarIcon.toolRel1n::before { mask-image: var(--icon-diagram-rel1n); }
+.toolbarIcon.toolRel11Id::before { mask-image: var(--icon-diagram-rel11id); }
+.toolbarIcon.toolRel1nId::before { mask-image: var(--icon-diagram-rel1nid); }
+.toolbarIcon.toolRelNm::before { mask-image: var(--icon-diagram-relnm); }
+.toolbarIcon.toolRelPick::before { mask-image: var(--icon-diagram-relpick); }
 
 .toolbarSelect {
     margin: 0 4px;
@@ -497,4 +523,169 @@ button.toolbarText.toggled {
 
 .modelError {
     color: var(--vscode-errorForeground, #f14c4c);
+}
+
+/*
+ * The tool palette (`DiagramToolbar`): a floating vertical panel over the
+ * canvas's top left corner, drawn as the Navigator is, its tools in
+ * groups between dividers. Opaque, over the menu buttons of the figures
+ * under it.
+ */
+.diagramToolbar {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3px;
+    border: 1px solid var(--vscode-editorWidget-border,
+            var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+    border-radius: 4px;
+    background: var(--vscode-editorWidget-background);
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+
+.diagramToolGroup {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.diagramToolbar .diagramTool {
+    width: 24px;
+    height: 24px;
+    margin: 1px 0;
+}
+
+.diagramToolbar .diagramTool:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.diagramToolDivider {
+    display: block;
+    width: 16px;
+    height: 1px;
+    margin: 3px 0;
+    background: var(--vscode-panel-border,
+            var(--vscode-widget-border, currentColor));
+}
+
+/*
+ * The panel of "Place a Relationship Using Existing Columns", beside the
+ * palette: the columns picked, the one matched next in bold.
+ */
+.toolPanel {
+    position: absolute;
+    top: 15px;
+    left: 56px;
+    z-index: 4;
+    min-width: 180px;
+    max-width: 260px;
+    padding: 6px 8px;
+    border: 1px solid var(--vscode-editorWidget-border,
+            var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+    border-radius: 4px;
+    background: var(--vscode-editorWidget-background);
+    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+    font-size: 0.85em;
+}
+
+.toolPanelTitle {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.toolPanelText {
+    color: var(--vscode-descriptionForeground);
+}
+
+.toolPanelColumns {
+    margin: 6px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.toolPanelColumns li.current {
+    font-weight: 600;
+}
+
+.toolPanelButton {
+    margin-top: 6px;
+    padding: 2px 8px;
+    border: none;
+    border-radius: 2px;
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+}
+
+.toolPanelButton:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+/* The image tool's file dialog: opened by the tool, never seen. */
+.hiddenFileInput {
+    display: none;
+}
+
+/*
+ * The data types offered for a column being entered, under its input as
+ * the input is on the screen, as VS Code's suggestions are drawn.
+ */
+.editChoices {
+    position: absolute;
+    z-index: 5;
+    min-width: 160px;
+    max-height: 220px;
+    margin: 0;
+    padding: 2px 0;
+    overflow-y: auto;
+    list-style: none;
+    border: 1px solid var(--vscode-editorSuggestWidget-border,
+            var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+    border-radius: 3px;
+    background: var(--vscode-editorSuggestWidget-background,
+            var(--vscode-editorWidget-background));
+    color: var(--vscode-editorSuggestWidget-foreground,
+            var(--vscode-foreground));
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.85em;
+}
+
+.editChoices li {
+    padding: 1px 8px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.editChoices li.highlighted {
+    background: var(--vscode-editorSuggestWidget-selectedBackground,
+            var(--vscode-list-activeSelectionBackground));
+    color: var(--vscode-editorSuggestWidget-selectedForeground,
+            var(--vscode-list-activeSelectionForeground, inherit));
+}
+
+/* What the tool expects next, at the start of the status line. */
+.modelStatus {
+    display: flex;
+    gap: 12px;
+}
+
+.modelStatus > span:last-child {
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.modelHint {
+    color: var(--vscode-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
 }

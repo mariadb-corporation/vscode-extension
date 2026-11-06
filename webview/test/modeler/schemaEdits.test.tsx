@@ -1,0 +1,284 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+import { describe, expect, it } from "vitest";
+
+import type { IOutlineTable } from "../../../src/modeler/modelFormat.js";
+import {
+    COLUMN_TYPES,
+    matchingTypes,
+    PREFERRED_COLUMN_TYPE,
+} from "../../../src/sql/columnTypes.js";
+import {
+    applyEdits,
+    associativeTableChange,
+    existingColumnsChange,
+    freeName,
+    newTableChange,
+    newViewChange,
+    numberedName,
+    relationshipChange,
+    type ISchemaObjectLists,
+} from "../../src/modeler/schemaEdits.js";
+
+const customer = (): IOutlineTable => {
+    return {
+        name: "customer",
+        columns: [
+            { name: "id", type: "UUID", nullable: false },
+            { name: "name", type: "VARCHAR(45)" },
+        ],
+        indexes: [{ name: null, kind: "primary", columns: ["id"] }],
+        foreign_keys: [],
+    };
+};
+
+const order = (): IOutlineTable => {
+    return {
+        name: "order",
+        columns: [{ name: "id", type: "INT", nullable: false }],
+        indexes: [{ name: null, kind: "primary", columns: ["id"] }],
+        foreign_keys: [],
+    };
+};
+
+const objects = (...tables: IOutlineTable[]): ISchemaObjectLists => {
+    return { tables, views: [], routines: [] };
+};
+
+describe("names", () => {
+    it("numbers a new object's name from 1, past the names in use", () => {
+        expect(numberedName("table", [])).toBe("table1");
+        expect(numberedName("table", ["Table1", "table2"])).toBe("table3");
+    });
+
+    it("keeps a name that is free, and numbers one that is not", () => {
+        expect(freeName("fk_a_b", ["fk_x"])).toBe("fk_a_b");
+        expect(freeName("fk_a_b", ["FK_A_B"])).toBe("fk_a_b1");
+    });
+});
+
+describe("column types", () => {
+    it("offers UUID first while nothing is typed, and every type", () => {
+        expect(matchingTypes("")).toHaveLength(COLUMN_TYPES.length);
+        expect(COLUMN_TYPES.some((entry) => {
+            return entry.label === PREFERRED_COLUMN_TYPE;
+        })).toBe(true);
+    });
+
+    it("matches what is typed from the start, in any case", () => {
+        expect(matchingTypes("var").map((entry) => { return entry.label; }))
+            .toEqual(["VARBINARY(255)", "VARCHAR(45)"]);
+        expect(matchingTypes("int u").map((entry) => { return entry.label; }))
+            .toEqual(["INT UNSIGNED"]);
+    });
+
+    it("leaves the types that need values open", () => {
+        const enumType = matchingTypes("enum")[0];
+        expect(enumType?.insert).toBe("ENUM(");
+        expect(enumType?.complete).toBe(false);
+    });
+});
+
+describe("schema changes", () => {
+    it("makes a new table with its first column as the primary key", () => {
+        const change = newTableChange("table1", [
+            { name: "id", type: "UUID" },
+            { name: "title", type: "VARCHAR(45)" },
+        ]);
+
+        expect(change.edits).toEqual([{
+            op: "add_table",
+            table: {
+                name: "table1",
+                columns: [
+                    { name: "id", type: "UUID", nullable: false },
+                    { name: "title", type: "VARCHAR(45)" },
+                ],
+                indexes: [{ kind: "primary", columns: ["id"] }],
+                foreign_keys: [],
+            },
+        }]);
+        expect(change.inverse).toEqual([{ op: "drop_table", table: "table1" }]);
+    });
+
+    it("places a view with a placeholder SELECT", () => {
+        expect(newViewChange("view1").edits).toEqual([{
+            op: "add_view", view: { name: "view1", definition: "SELECT 1" },
+        }]);
+    });
+
+    it("adds a column per referenced key column and a foreign key over them "
+        + "for a 1:n relationship", () => {
+        const child = order();
+        const result = relationshipChange(child, customer(),
+            { many: true, identifying: false }, [child, customer()]);
+        if ("error" in result) {
+            throw new Error(result.error);
+        }
+
+        expect(result.change.edits).toEqual([
+            { op: "add_column", table: "order",
+                column: { name: "customer_id", type: "UUID", nullable: false } },
+            { op: "add_foreign_key", table: "order", foreign_key: {
+                name: "fk_order_customer",
+                columns: ["customer_id"],
+                references: { table: "customer", columns: ["id"] },
+            } },
+        ]);
+        expect(result.change.inverse).toEqual([
+            { op: "drop_foreign_key", table: "order", name: "fk_order_customer" },
+            { op: "drop_column", table: "order", column: "customer_id" },
+        ]);
+    });
+
+    it("adds an identifying relationship's columns to the primary key, and "
+        + "makes a 1:1 one's unique; undone foreign key first", () => {
+        const child = order();
+        const result = relationshipChange(child, customer(),
+            { many: false, identifying: true }, [child, customer()]);
+        if ("error" in result) {
+            throw new Error(result.error);
+        }
+
+        expect(result.change.edits.map((edit) => { return edit.op; })).toEqual([
+            "add_column", "set_primary_key", "add_index", "add_foreign_key"]);
+        expect(result.change.edits[1]).toEqual({ op: "set_primary_key",
+            table: "order", columns: ["id", "customer_id"] });
+        expect(result.change.inverse).toEqual([
+            { op: "drop_foreign_key", table: "order", name: "fk_order_customer" },
+            { op: "drop_index", table: "order",
+                name: "fk_order_customer_UNIQUE" },
+            { op: "set_primary_key", table: "order", columns: ["id"] },
+            { op: "drop_column", table: "order", column: "customer_id" },
+        ]);
+    });
+
+    it("refuses a relationship to a table without a primary key", () => {
+        const parent: IOutlineTable = { name: "log", columns: [
+            { name: "line", type: "TEXT" }] };
+
+        expect(relationshipChange(order(), parent,
+            { many: true, identifying: false }, [])).toEqual({
+            error: "'log' has no Primary Key. Please add a PK or select another "
+                + "Table.",
+        });
+    });
+
+    it("copies a SERIAL key as BIGINT UNSIGNED, and keeps new names free", () => {
+        const parent: IOutlineTable = {
+            name: "customer",
+            columns: [{ name: "id", type: "SERIAL" }],
+            indexes: [{ name: null, kind: "primary", columns: ["id"] }],
+        };
+        const child = order();
+        child.columns.push({ name: "customer_id", type: "INT" });
+        child.foreign_keys = [{ name: "fk_order_customer", columns: [],
+            references: { schema: null, table: "x", columns: [] } }];
+        const result = relationshipChange(child, parent,
+            { many: true, identifying: false }, [child, parent]);
+        if ("error" in result) {
+            throw new Error(result.error);
+        }
+
+        expect(result.change.edits[0]).toEqual({ op: "add_column",
+            table: "order", column: { name: "customer_id1",
+                type: "BIGINT UNSIGNED", nullable: false } });
+        expect(result.foreignKey.name).toBe("fk_order_customer1");
+    });
+
+    it("joins two tables through a new table for an n:m relationship", () => {
+        const result = associativeTableChange(order(), customer(),
+            [order(), customer()]);
+        if ("error" in result) {
+            throw new Error(result.error);
+        }
+
+        expect(result.table.name).toBe("order_has_customer");
+        expect(result.table.columns.map((column) => { return column.name; }))
+            .toEqual(["order_id", "customer_id"]);
+        expect(result.table.indexes).toEqual([{ name: null, kind: "primary",
+            columns: ["order_id", "customer_id"] }]);
+        expect(result.table.foreign_keys?.map((key) => { return key.name; }))
+            .toEqual(["fk_order_has_customer_order",
+                "fk_order_has_customer_customer"]);
+        expect(result.change.inverse).toEqual([{ op: "drop_table",
+            table: "order_has_customer" }]);
+    });
+
+    it("makes a foreign key over columns picked in both tables", () => {
+        const { change } = existingColumnsChange(order(), ["id"], customer(),
+            ["id"], []);
+
+        expect(change.edits).toEqual([{ op: "add_foreign_key", table: "order",
+            foreign_key: { name: "fk_order_customer", columns: ["id"],
+                references: { table: "customer", columns: ["id"] } } }]);
+    });
+});
+
+describe("the snapshot meanwhile", () => {
+    it("shows a relationship's columns and foreign key, and takes them back "
+        + "with its inverse", () => {
+        const lists = objects(order(), customer());
+        const result = relationshipChange(lists.tables[0]!, lists.tables[1]!,
+            { many: true, identifying: true }, lists.tables);
+        if ("error" in result) {
+            throw new Error(result.error);
+        }
+
+        applyEdits(lists, result.change.edits);
+        const changed = lists.tables[0]!;
+        expect(changed.columns.map((column) => { return column.name; }))
+            .toEqual(["id", "customer_id"]);
+        expect(changed.indexes?.[0]?.columns).toEqual(["id", "customer_id"]);
+        expect(changed.foreign_keys?.[0]).toMatchObject({
+            name: "fk_order_customer", many: true, referenced_mandatory: true,
+        });
+
+        applyEdits(lists, result.change.inverse);
+        expect(lists.tables[0]).toEqual(order());
+    });
+
+    it("adds and drops tables, views and routines", () => {
+        const lists = objects();
+        applyEdits(lists, newTableChange("t", [{ name: "id", type: "UUID" }]).edits);
+        applyEdits(lists, newViewChange("v").edits);
+        applyEdits(lists, [{ op: "add_routine", routine: { name: "r",
+            kind: "procedure", parameters: [], body: "BEGIN\nEND" } }]);
+
+        expect(lists.tables[0]?.indexes).toEqual([{ name: null, kind: "primary",
+            columns: ["id"] }]);
+        expect(lists.views.map((view) => { return view.name; })).toEqual(["v"]);
+        expect(lists.routines[0]).toMatchObject({ name: "r", kind: "procedure" });
+
+        applyEdits(lists, [{ op: "drop_table", table: "T" },
+            { op: "drop_view", view: "v" }, { op: "drop_routine", routine: "r" }]);
+        expect(lists).toEqual(objects());
+    });
+
+    it("makes a 1:1 foreign key over a unique key one", () => {
+        const lists = objects(order(), customer());
+        const result = relationshipChange(lists.tables[0]!, lists.tables[1]!,
+            { many: false, identifying: false }, lists.tables);
+        if ("error" in result) {
+            throw new Error(result.error);
+        }
+        applyEdits(lists, result.change.edits);
+
+        expect(lists.tables[0]?.foreign_keys?.[0]?.many).toBe(false);
+    });
+});

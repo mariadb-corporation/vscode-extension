@@ -48,6 +48,7 @@ import type {
     IMoveSession,
     IProbe,
     IResizeSession,
+    IToolSession,
 } from "../canvas/canvasTypes.js";
 import type { IPoint, Segment } from "../canvas/geometry.js";
 import {
@@ -60,6 +61,15 @@ import {
     Z,
 } from "../canvas/threeHelpers.js";
 import { foreignKeyOf, sameName, type ISchemaCatalog } from "./catalog.js";
+import {
+    DiagramTools,
+    type IPickedImage,
+    type IToolEdit,
+    type IToolHighlight,
+    type IToolHit,
+    type IToolPanel,
+    type IToolTarget,
+} from "./diagramTools.js";
 import {
     crowsFoot,
     oneMarker,
@@ -372,8 +382,16 @@ export interface IEerFigureSetOptions {
      * changes in the SQL. A live schema's view is msm's to write.
      */
     editable?: boolean;
-    /** Sends schema edits on, once the viewer shows them. */
-    onSchemaEdit?: (edits: IMsmSchemaEdit[]) => void;
+    /**
+     * Sends schema edits on, once the viewer shows them; with the diagrams
+     * the change changed too (a figure placed for a new table), which are
+     * saved only once the edit is made.
+     */
+    onSchemaEdit?: (edits: IMsmSchemaEdit[], diagrams?: IModelDiagram[]) => void;
+    /** Asks for a picture to place: the image tool's file dialog. */
+    pickImage?: () => Promise<IPickedImage | undefined>;
+    /** Shows the existing-columns relationship's panel, or no more. */
+    onToolPanel?: (panel?: IToolPanel) => void;
     /** Asks for the picture msm left out of an image figure. */
     requestImage?: (diagram: string, figureId: string) => void;
 }
@@ -469,10 +487,19 @@ export class EerFigureSet implements IFigureSet {
     /** What this set drew into the canvas's groups, to remove it. */
     #base = new THREE.Group();
     #lifted = new THREE.Group();
+    /** The palette's tools, which place and connect figures. */
+    readonly #tools: DiagramTools;
+    /** What a relationship tool marks, and the marks drawn for it. */
+    #toolHighlight?: IToolHighlight;
+    #highlightMarks: THREE.Object3D[] = [];
+    /** The area a layer is dragged out over, and its marks. */
+    #toolBand?: IRect;
+    #bandMarks: THREE.Object3D[] = [];
 
     public constructor(options: IEerFigureSetOptions) {
         this.#options = options;
         this.#diagram = options.diagrams[0];
+        this.#tools = new DiagramTools(this.#toolTarget());
     }
 
     /** The diagram shown. */
@@ -533,6 +560,9 @@ export class EerFigureSet implements IFigureSet {
         this.#cardMeshes = [];
         this.#layers.clear();
         this.#connections = [];
+        // Disposed with the groups.
+        this.#highlightMarks = [];
+        this.#bandMarks = [];
         this.#host = undefined;
     }
 
@@ -1267,6 +1297,7 @@ export class EerFigureSet implements IFigureSet {
             this.#placeFigure(node);
         }
         this.#routeAll();
+        this.#drawHighlight();
     }
 
     public zoomSettled(): void {
@@ -1530,7 +1561,10 @@ export class EerFigureSet implements IFigureSet {
             disabled: figure.manualSizing !== true,
         };
         if (node.kind === "routines") {
-            return [autoSize];
+            return this.#options.editable === true
+                ? [{ id: "addRoutine", caption: "Add Routine" },
+                    { id: "separator1" }, autoSize]
+                : [autoSize];
         }
         if (node.kind === "view") {
             return [
@@ -1618,6 +1652,11 @@ export class EerFigureSet implements IFigureSet {
             case "autoSize": {
                 change(`Auto-Size ${name}`,
                     (figure) => { figure.manualSizing = false; });
+                break;
+            }
+
+            case "addRoutine": {
+                this.#tools.addRoutine(node.figure.id);
                 break;
             }
 
@@ -1868,6 +1907,11 @@ export class EerFigureSet implements IFigureSet {
      */
     public replaceObjects(objects: ISchemaObjects): void {
         this.#options.catalog.replace(objects);
+        this.#refresh();
+    }
+
+    /** Lays every card out again from the catalog, and routes again. */
+    #refresh(): void {
         if (this.#host === undefined) {
             return;
         }
@@ -1878,6 +1922,369 @@ export class EerFigureSet implements IFigureSet {
         }
         this.#routeAll();
         this.#host.invalidate();
+    }
+
+    // --- The palette's tools ------------------------------------------------
+
+    public toolDown(tool: string, probe: IProbe): IToolSession | undefined {
+        return this.#tools.down(tool, probe);
+    }
+
+    public toolHover(tool: string, probe: IProbe): void {
+        this.#tools.hover(tool, probe);
+    }
+
+    public toolCancel(): void {
+        this.#tools.cancel();
+    }
+
+    /**
+     * Moves an existing-columns relationship on to its referenced columns:
+     * the button of its panel.
+     */
+    public pickReferenced(): void {
+        this.#tools.pickReferenced();
+    }
+
+    /** @returns The set as the tools see it. */
+    #toolTarget(): IToolTarget {
+        const set = this;
+
+        return {
+            catalog: this.#options.catalog,
+            get history() { return set.#host!.history; },
+            diagram: () => { return this.#diagram; },
+            hit: (probe) => { return this.#toolHit(probe); },
+            pointOf: (probe) => { return probe.pointOn("base", 0); },
+            figureRect: (id) => {
+                const node = this.#figures.get(id);
+
+                return node === undefined ? undefined : this.#figureRect(node);
+            },
+            figure: (id) => {
+                return this.#diagram.figures.find((figure) => {
+                    return figure.id === id;
+                });
+            },
+            addFigure: (figure) => { this.#addFigure(figure); },
+            removeFigure: (id) => { return this.#removeFigure(id); },
+            addLayer: (layer) => { this.#addLayer(layer); },
+            removeLayer: (id) => { this.#removeLayer(id); },
+            addConnection: (connection) => { this.#addConnection(connection); },
+            removeConnection: (id) => { this.#removeConnection(id); },
+            refresh: () => { this.#refresh(); },
+            editItem: (id, find, edit) => { this.#editItem(id, find, edit); },
+            highlight: (highlight) => {
+                this.#toolHighlight = highlight;
+                this.#drawHighlight();
+            },
+            band: (rect) => {
+                this.#toolBand = rect;
+                this.#drawBand();
+            },
+            select: (ids) => { this.#host?.select(ids); },
+            hint: (text) => { this.#host?.hint(text); },
+            done: () => { this.#host?.toolDone(); },
+            schemaEdit: (edits) => {
+                this.#options.onSchemaEdit?.(edits, [this.#diagram]);
+            },
+            pickImage: () => {
+                return this.#options.pickImage?.() ?? Promise.resolve(undefined);
+            },
+            panel: (panel) => { this.#options.onToolPanel?.(panel); },
+        };
+    }
+
+    /** What is under the pointer for a tool: a figure and its row, or a layer. */
+    #toolHit(probe: IProbe): IToolHit | undefined {
+        const hit = this.#figureHit(probe);
+        if (hit === undefined) {
+            const layer = this.#layerAt(probe);
+
+            return layer === undefined ? undefined
+                : { figureId: layer.layer.id, layer: true };
+        }
+        const { node } = hit;
+        if (node.kind !== "table") {
+            return { figureId: node.figure.id };
+        }
+        const rect = this.#figureRect(node);
+        const item = cardItemAt(node.layout, hit.uv.x * rect.width,
+            (1 - hit.uv.y) * rect.height);
+
+        return {
+            figureId: node.figure.id,
+            table: tableOf(node.figure),
+            column: item?.kind === "column" ? item.text : undefined,
+        };
+    }
+
+    #addFigure(figure: IModelFigure): void {
+        if (!this.#diagram.figures.includes(figure)) {
+            this.#diagram.figures.push(figure);
+        }
+        if (this.#host === undefined || this.#figures.has(figure.id)) {
+            return;
+        }
+        this.#buildFigure(figure);
+        const node = this.#figures.get(figure.id);
+        if (node !== undefined && figure.layer === undefined) {
+            this.#fileUnderLayer(node);
+        }
+        this.#host.invalidate();
+    }
+
+    /** Removes a figure, and the connections to it, which it returns. */
+    #removeFigure(id: string): IModelConnection[] {
+        const diagram = this.#diagram;
+        const connections = diagram.connections.filter((connection) => {
+            return connection.startFigure === id || connection.endFigure === id;
+        });
+        for (const connection of connections) {
+            this.#removeConnection(connection.id);
+        }
+        diagram.figures = diagram.figures.filter((figure) => {
+            return figure.id !== id;
+        });
+        const node = this.#figures.get(id);
+        if (node !== undefined) {
+            for (const object of [node.mesh, node.slab, node.shadow]) {
+                object.removeFromParent();
+                disposeGroup(object);
+            }
+            this.#figures.delete(id);
+            this.#rasterQueue.delete(node);
+            this.#cardMeshes = this.#cardMeshes.filter((mesh) => {
+                return mesh !== node.mesh;
+            });
+            this.#host?.select([]);
+            this.#host?.invalidate();
+        }
+
+        return connections;
+    }
+
+    /** Adds a layer, and files the figures lying on it under it. */
+    #addLayer(layer: IModelLayer): void {
+        if (!this.#diagram.layers.includes(layer)) {
+            this.#diagram.layers.push(layer);
+        }
+        if (this.#host === undefined) {
+            return;
+        }
+        this.#buildLayer(layer);
+        this.#restack();
+        this.#refile();
+    }
+
+    /** Removes a layer; its figures keep their places on the page. */
+    #removeLayer(id: string): void {
+        const layer = this.#diagram.layers.find((entry) => {
+            return entry.id === id;
+        });
+        this.#diagram.layers = this.#diagram.layers.filter((entry) => {
+            return entry.id !== id;
+        });
+        for (const figure of this.#diagram.figures) {
+            if (layer !== undefined && figure.layer === id) {
+                figure.left += layer.left;
+                figure.top += layer.top;
+                figure.layer = undefined;
+            }
+        }
+        const node = this.#layers.get(id);
+        if (node !== undefined) {
+            for (const object of [node.plate, node.border, node.label]) {
+                object.removeFromParent();
+                disposeGroup(object);
+            }
+            this.#layers.delete(id);
+            this.#host?.select([]);
+        }
+        if (this.#host !== undefined) {
+            for (const figure of this.#figures.values()) {
+                figure.layer = this.#layerById(figure.figure.layer);
+            }
+            this.#restack();
+            this.#refile();
+        }
+    }
+
+    /** Files every figure under the layer it lies on, and draws them. */
+    #refile(): void {
+        for (const node of this.#layers.values()) {
+            this.#placeLayer(node);
+        }
+        for (const node of this.#figures.values()) {
+            this.#fileUnderLayer(node);
+            this.#placeFigure(node);
+        }
+        this.#routeAll();
+        this.#host?.invalidate();
+    }
+
+    #addConnection(connection: IModelConnection): void {
+        if (!this.#diagram.connections.includes(connection)) {
+            this.#diagram.connections.push(connection);
+        }
+        if (this.#host !== undefined && !this.#connections.some((node) => {
+            return node.connection === connection;
+        })) {
+            this.#buildConnection(connection);
+            this.viewChanged();
+            this.#host.invalidate();
+        }
+    }
+
+    #removeConnection(id: string): void {
+        this.#diagram.connections = this.#diagram.connections.filter(
+            (connection) => { return connection.id !== id; });
+        this.#connections = this.#connections.filter((node) => {
+            if (node.connection.id !== id) {
+                return true;
+            }
+            node.line.removeFromParent();
+            node.line.geometry.dispose();
+            node.line.material.dispose();
+
+            return false;
+        });
+        this.#host?.invalidate();
+    }
+
+    /** Opens an input over an item of a figure's card, for a tool. */
+    #editItem(
+        figureId: string,
+        find: (item: ICardItem) => boolean,
+        edit: IToolEdit,
+    ): void {
+        const node = this.#figures.get(figureId);
+        const item = node?.layout.items.find(find);
+        if (node === undefined || item === undefined) {
+            edit.cancel?.();
+
+            return;
+        }
+        const title = item.kind === "title";
+        this.#host?.startEdit({
+            ...edit,
+            bold: title,
+            fontSize: title ? CARD.titleFontSize : CARD.rowFontSize,
+            plane: "lifted",
+            elevation: () => { return this.#elevation(node.layer); },
+            area: () => {
+                // Found again: the card may be laid out anew meanwhile.
+                const current = this.#figures.get(figureId);
+                const found = current?.layout.items.find(find);
+                if (current === undefined || found === undefined) {
+                    return undefined;
+                }
+                const rect = this.#figureRect(current);
+                const area = editRect(found);
+
+                return { ...area, left: rect.left + area.left,
+                    top: rect.top + area.top };
+            },
+        });
+    }
+
+    /** Draws what a relationship tool marks: tables, and column rows. */
+    #drawHighlight(): void {
+        for (const mark of this.#highlightMarks) {
+            mark.removeFromParent();
+            disposeGroup(mark);
+        }
+        this.#highlightMarks = [];
+        const highlight = this.#toolHighlight;
+        const host = this.#host;
+        if (highlight === undefined || host === undefined) {
+            host?.invalidate();
+
+            return;
+        }
+        const color = new THREE.Color(host.theme.selection);
+        const lift = host.lift();
+        for (const id of new Set(highlight.figures)) {
+            const node = this.#figures.get(id);
+            if (node === undefined) {
+                continue;
+            }
+            const rect = this.#figureRect(node);
+            const outline = new THREE.LineLoop(new THREE.BufferGeometry()
+                .setFromPoints(roundedRect(rect.left - 2, -(rect.top - 2)
+                    - (rect.height + 4), rect.width + 4, rect.height + 4,
+                CARD.radius + 2).getPoints(6)),
+            new THREE.LineBasicMaterial({ color }));
+            outline.position.z = this.#elevation(node.layer) * lift
+                + Z.liftedDecoration;
+            setDrawOrder(outline, DRAW_ORDER.decorations);
+            this.#lifted.add(outline);
+            this.#highlightMarks.push(outline);
+        }
+        for (const row of highlight.rows) {
+            const node = this.#figures.get(row.figureId);
+            const item = node?.layout.items.find((entry) => {
+                return entry.kind === "column" && sameName(entry.text, row.column);
+            });
+            if (node === undefined || item === undefined) {
+                continue;
+            }
+            const card = this.#figureRect(node);
+            const rect = { left: card.left + item.rect.left,
+                top: card.top + item.rect.top, width: item.rect.width,
+                height: item.rect.height };
+            const center = planeCenter(rect);
+            const fill = new THREE.Mesh(
+                new THREE.PlaneGeometry(rect.width, rect.height),
+                new THREE.MeshBasicMaterial({ color, transparent: true,
+                    opacity: 0.3, depthWrite: false }));
+            fill.position.set(center.x, center.y,
+                this.#elevation(node.layer) * lift + Z.liftedDecoration);
+            setDrawOrder(fill, DRAW_ORDER.decorations);
+            this.#lifted.add(fill);
+            this.#highlightMarks.push(fill);
+        }
+        host.invalidate();
+    }
+
+    /** Draws the area a layer is dragged out over. */
+    #drawBand(): void {
+        for (const mark of this.#bandMarks) {
+            mark.removeFromParent();
+            disposeGroup(mark);
+        }
+        this.#bandMarks = [];
+        const rect = this.#toolBand;
+        const host = this.#host;
+        if (rect === undefined || host === undefined) {
+            host?.invalidate();
+
+            return;
+        }
+        const color = new THREE.Color(host.theme.selection);
+        const center = planeCenter(rect);
+        const fill = new THREE.Mesh(
+            new THREE.PlaneGeometry(Math.max(1, rect.width),
+                Math.max(1, rect.height)),
+            new THREE.MeshBasicMaterial({ color, transparent: true,
+                opacity: 0.12, depthWrite: false }));
+        fill.position.set(center.x, center.y, Z.baseDecoration);
+        const border = new THREE.LineLoop(new THREE.BufferGeometry()
+            .setFromPoints([
+                new THREE.Vector3(rect.left, -rect.top, 0),
+                new THREE.Vector3(rect.left + rect.width, -rect.top, 0),
+                new THREE.Vector3(rect.left + rect.width,
+                    -(rect.top + rect.height), 0),
+                new THREE.Vector3(rect.left, -(rect.top + rect.height), 0),
+            ]),
+        new THREE.LineBasicMaterial({ color }));
+        border.position.z = Z.baseDecoration;
+        for (const mark of [fill, border]) {
+            setDrawOrder(mark, DRAW_ORDER.decorations);
+            this.#base.add(mark);
+            this.#bandMarks.push(mark);
+        }
+        host.invalidate();
     }
 }
 

@@ -20,6 +20,7 @@ import * as vscode from "vscode";
 import { reportError } from "../errorMessages.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { errorText } from "../text.js";
+import type { IDiagramDocument } from "./modelFormat.js";
 import type { IModelSource } from "./modelSources.js";
 import type {
     ModelerHostMessage,
@@ -221,7 +222,7 @@ export class ModelerPanel {
                 // One after the other: each is made against the snapshot
                 // the one before it left.
                 const edit = this.#editing.then(() => {
-                    return this.#editSchema(message.edits);
+                    return this.#editSchema(message.edits, message.documents);
                 });
                 this.#editing = edit;
                 await edit;
@@ -277,6 +278,7 @@ export class ModelerPanel {
 
     async #editSchema(
         edits: Parameters<NonNullable<IModelSource["edit"]>>[0],
+        documents?: IDiagramDocument[],
     ): Promise<void> {
         if (this.source.edit === undefined || this.#sourceHash === undefined) {
             this.#post({ type: "schemaEdited",
@@ -286,7 +288,7 @@ export class ModelerPanel {
         }
         try {
             const { model, notes } = await this.source.edit(edits,
-                this.#sourceHash);
+                this.#sourceHash, documents);
             this.#sourceHash = model.sourceHash;
             this.#post({
                 type: "schemaEdited",
