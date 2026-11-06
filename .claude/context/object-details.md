@@ -84,6 +84,9 @@ viewer is [`modeler.md`](modeler.md), its palette
   `mandatory`, and a column is sent whole (a member left out of
   `modify_column` takes the outline's default).
 
+- A trigger's `events` is one string (`"INSERT"`, `"UPDATE OR DELETE"`),
+  shown as written on the card's row and in the details.
+
 ## Not yet tried in VS Code
 
 Whether a tree drag's `text/uri-list` reaches the webview's drop with

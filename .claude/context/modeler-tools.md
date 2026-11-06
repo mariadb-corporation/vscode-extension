@@ -92,10 +92,11 @@ and Enter moves on to a chain of column editors.
   #F5C39A) like routines on a routine group, placed empty and filled from
   its menu's Add Event (`add_event`, EVERY 1 DAY). A sequence is a
   `SequenceFigure` (`sequence`, #C9B8E8) placed and named like a view
-  (`add_sequence`), its name free of tables' and views'. The ops come from
-  lsp-server (triggers and events first, sequences later, as sequence
-  references need resolving); the figure kinds from msm. Until a binary
-  and a shell have them, msm refuses and the viewer takes the change back.
+  (`add_sequence`), its name free of tables' and views'. The ops are
+  lsp-server's, the figure kinds and the Triggers section's count msm's
+  (both agreed with those repos' sessions; see the ops below). Where a
+  binary or a shell lacks them, msm refuses and the viewer takes the
+  change back.
   The sequence icon `schemaSequence.svg` is the extension's own (the
   upstream set has none).
 - **A new view** is named in place, then made with `add_view` and the
@@ -128,8 +129,13 @@ are added), then `IToolTarget.schemaEdit` posts `schemaEdit` with
 as sent, so `onHistory` does not post them again as `diagramChanged`.
 `ProjectModelSource.edit` saves what waits, makes the edit, and only then
 saves the documents (unless newer changes of that diagram wait). If the
-edit fails, it drops their pending changes and drafts: a figure of a table
-that was never made is not saved, nor taken up again from a draft. Undo
+edit fails, it drops their pending changes, drafts and save timers: a
+figure of a table that was never made is not saved, nor taken up again
+from a draft. Where msm made the edit but saving the documents then
+fails, that is a failed save (the save state says so); the edit counts as
+made, so the viewer keeps it and the next edit is made against its
+snapshot. The viewer matches each `schemaEdited` to its request by order,
+and keeps a slot for every request still waiting across a reload. Undo
 sends the inverse with the
 documents again: drop the foreign key first, then restore the primary
 key, then drop the columns (the server refuses to change a key a foreign
@@ -155,7 +161,17 @@ Shapes are the outline's structs: `add_table {table}`, `add_column
 {view: {name, definition}}` (the SELECT alone), `add_routine {routine}`,
 `drop_table {table}`, `drop_column {table, column}`, `drop_foreign_key
 {table, name}`, `drop_index {table, name}` or `{table, kind: "primary"}`,
-`drop_view {view}`, `drop_routine {routine, kind?}`. A binary lists the
+`drop_view {view}`, `drop_routine {routine, kind?}`. For triggers, events
+and sequences: `add_trigger {trigger}` (`name`, `timing`, `events`,
+`table`, `body`; `events` is one string as the outline writes it,
+`"INSERT"` or `"UPDATE OR DELETE"`, an array is refused), `drop_trigger
+{trigger, table?}`, `rename_trigger {trigger, new_name}`; `add_event
+{event}` (`name`, `schedule`, `body`), `drop_event {event}`,
+`rename_event`; `add_sequence {sequence}` (`name`), `drop_sequence
+{sequence}`, `rename_sequence`. `add_sequence` places the CREATE before
+the first table (Section 140), so a column's `DEFAULT NEXT VALUE FOR` can
+use it. A table's triggers go with `drop_table`; undoing that needs
+`add_trigger` for each. A binary lists the
 ops it has on an `edit ops:` line of `--help`. The viewer does not read
 it yet: msm does not pass it on, so every tool is offered in a project.
 
@@ -183,3 +199,19 @@ pointer capture refuses synthetic ones. Checked that way: the palette,
 placing a table with its name, columns and the type list, a 1:n
 relationship with its hover outline, the existing-columns floater and
 row marks, a layer dragged around two tables.
+
+## Known gaps
+
+Found by the code reviews, each left open as it needs a decision:
+
+- A redraw of the figures (a reload) while a new table's column editor is
+  open runs the editor's `cancel`, which ends the table and can send
+  `add_table` from figures being thrown away: `cancel` means both Esc and
+  "the figures went away".
+- Undoing a change before msm answers, then msm refusing it, takes it back
+  twice: no rule yet for undo while an edit waits on msm.
+- Leaving the new table's name editor (a click elsewhere) still opens the
+  first column's editor, which takes the focus back.
+- Removing a figure clears the whole selection.
+- A refused edit drops its diagrams' changes made while it ran (a figure
+  moved meanwhile), with the figures of objects msm did not make.

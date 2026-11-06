@@ -345,6 +345,11 @@ are dropped when Cmd goes up, on blur and when hidden.
 
 ## Known gaps / next steps
 
+- Pictures (kept per diagram and figure, `pictureKey`): an erased image
+  figure's decoded picture stays in `#pictures` / `#picturesAsked`; a
+  picture request that failed is not asked again; an `image` reply from
+  before a reload reaches the new figure set, so a picture can be fetched
+  and decoded twice.
 - **Rendering the viewer without VS Code**: headless Chrome
   (`--headless=new --enable-unsafe-swiftshader --use-angle=swiftshader
   --screenshot`) on a page with `dist/webview/modeler.{js,css}` inlined
