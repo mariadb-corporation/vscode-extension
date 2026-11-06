@@ -483,7 +483,6 @@ export class ProjectModelSource implements IModelSource {
         };
     }
 
-    /** Makes schema edits through msm, as an action of the queue. */
     /**
      * Makes the project's schema snapshot again, after the diagrams'
      * changes, in turn with the viewer's edits: one made meanwhile would
@@ -520,6 +519,7 @@ export class ProjectModelSource implements IModelSource {
         });
     }
 
+    /** Makes schema edits through msm, as an action of the queue. */
     #editAction(
         edits: IMsmSchemaEdit[],
         baseHash: string,

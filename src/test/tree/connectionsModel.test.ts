@@ -22,9 +22,9 @@ import {
     UI_BACKEND_SESSION,
 } from "../../connections/connectionManager.js";
 import { inTreeOrder } from "../../connections/connectionFolders.js";
+import { OBJECT_GROUP_LABELS } from "../../tree/schemaTree.js";
 import {
     ConnectionsModel,
-    OBJECT_GROUP_LABELS,
     type ConnectionsNode,
     type IConnectionNode,
     type IDiagramsNode,

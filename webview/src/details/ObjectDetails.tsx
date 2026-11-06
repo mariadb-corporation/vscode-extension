@@ -46,6 +46,7 @@ import notNullSvg from "../assets/modeler/schemaTableColumnNN.svg?raw";
 import keySvg from "../assets/modeler/schemaTableColumnPK.svg?raw";
 import foreignKeySvg from "../assets/modeler/schemaTableForeignKey.svg?raw";
 import indexSvg from "../assets/modeler/schemaTableIndex.svg?raw";
+import { primaryKeyColumns } from "../modeler/catalog.js";
 import { post } from "../vscodeApi.js";
 
 /**
@@ -102,15 +103,13 @@ const columnFlags = (column: IOutlineColumn): string => {
 
 /** A table's columns, one line each, its primary key marked. */
 const ColumnsSection = ({ table }: { table: IOutlineTable }): JSX.Element => {
-    const key = table.indexes?.find((index) => {
-        return index.kind === "primary";
-    })?.columns ?? [];
+    const key = primaryKeyColumns(table);
 
     return <section>
         <h3>Columns</h3>
         <ul className="detailsList">
             {table.columns.map((column) => {
-                const inKey = key.includes(column.name);
+                const inKey = key.has(column.name.toLowerCase());
                 const flags = columnFlags(column);
 
                 return <li key={column.name} title={[`${column.name} ${column.type}`,

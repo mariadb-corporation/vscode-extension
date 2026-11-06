@@ -62,8 +62,12 @@ viewer is [`modeler.md`](modeler.md), its palette
   failure is logged, not notified; the row then says the snapshot is
   older. Not handled: an editor of the script left dirty while msm
   rewrites it gets VS Code's "file is newer" on its next save.
-- **The tree refreshes** after every schema edit a viewer makes
-  (`IModelerHost.schemaChanged`).
+- **The tree refreshes** after every schema edit a viewer makes, and
+  after one msm refused as the project changed meanwhile
+  (`IModelerHost.schemaChanged`, with the viewer's target): only that
+  project's listing and snapshot are read again (`refreshProject`), the
+  list of projects is kept. The snapshot is read with one diagram's row,
+  not all of them.
 - **Placing**: a table or view is shown once per diagram (Workbench); a
   table comes with a connection for each foreign key between it and a
   table shown (its own to itself too), in either direction, that has none.
@@ -102,8 +106,10 @@ viewer is [`modeler.md`](modeler.md), its palette
   `<details>`. Changing an object is the object editor's: the view sends
   only `ready`. `detailEdits.ts` (a table change as edits and their
   inverse) stays for it, and the diagram uses it
-  (`ModelerPanel.applySchemaChange`). After a schema edit, refused or
-  made, the view reads the object again (`refreshed`).
+  (`ModelerPanel.applySchemaChange`). After a schema edit, made or
+  refused as the project changed, the view reads the object again
+  (`refreshed`). Nothing is read while neither view shows: the object
+  selected meanwhile is read once one does.
 - **Live objects** come from `db.get_object_details`: columns with their
   flags, the primary key from `is_primary`, the comment. It has no
   indexes or foreign keys; the view says so.

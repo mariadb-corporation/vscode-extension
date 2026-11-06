@@ -38,15 +38,7 @@ import {
     type IconResolver,
 } from "./schemaTree.js";
 
-export {
-    createIconResolver,
-    DiagramsTreeItem,
-    DiagramTreeItem,
-    ObjectGroupTreeItem,
-    ObjectTreeItem,
-    SchemaTreeItem,
-    type IconResolver,
-} from "./schemaTree.js";
+export { createIconResolver, type IconResolver } from "./schemaTree.js";
 
 /**
  * The icon shown for a connection, by the scheme of its URI, without its

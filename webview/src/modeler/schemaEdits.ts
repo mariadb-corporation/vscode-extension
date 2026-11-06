@@ -55,9 +55,9 @@ export interface ISchemaObjectLists {
     tables: IOutlineTable[];
     views: IOutlineView[];
     routines: IOutlineRoutine[];
-    triggers?: IOutlineTrigger[];
-    events?: IOutlineEvent[];
-    sequences?: IOutlineSequence[];
+    triggers: IOutlineTrigger[];
+    events: IOutlineEvent[];
+    sequences: IOutlineSequence[];
 }
 
 /** What a relationship tool makes. */
@@ -617,7 +617,7 @@ export const applyEdits = (
             case "drop_table": {
                 objects.tables = without(objects.tables, text(edit, "table"));
                 // Its triggers go with it.
-                objects.triggers = (objects.triggers ?? []).filter(
+                objects.triggers = objects.triggers.filter(
                     (trigger) => {
                         return !sameName(trigger.table, text(edit, "table"));
                     });
@@ -765,37 +765,37 @@ export const applyEdits = (
             }
 
             case "add_trigger": {
-                (objects.triggers ??= []).push(
+                objects.triggers.push(
                     structuredClone(edit.trigger) as IOutlineTrigger);
                 break;
             }
 
             case "drop_trigger": {
-                objects.triggers = without(objects.triggers ?? [],
+                objects.triggers = without(objects.triggers,
                     text(edit, "trigger"));
                 break;
             }
 
             case "add_event": {
-                (objects.events ??= []).push(
+                objects.events.push(
                     structuredClone(edit.event) as IOutlineEvent);
                 break;
             }
 
             case "drop_event": {
-                objects.events = without(objects.events ?? [],
+                objects.events = without(objects.events,
                     text(edit, "event"));
                 break;
             }
 
             case "add_sequence": {
-                (objects.sequences ??= []).push(
+                objects.sequences.push(
                     structuredClone(edit.sequence) as IOutlineSequence);
                 break;
             }
 
             case "drop_sequence": {
-                objects.sequences = without(objects.sequences ?? [],
+                objects.sequences = without(objects.sequences,
                     text(edit, "sequence"));
                 break;
             }

@@ -392,12 +392,13 @@ export const ModelViewer = (): JSX.Element => {
                     y: event.clientY });
             }
         };
-        for (const type of ["mousemove", "mousedown", "wheel"] as const) {
+        const types = ["mousemove", "mousedown", "wheel"] as const;
+        for (const type of types) {
             window.addEventListener(type, moved as EventListener, true);
         }
 
         return () => {
-            for (const type of ["mousemove", "mousedown", "wheel"] as const) {
+            for (const type of types) {
                 window.removeEventListener(type, moved as EventListener, true);
             }
         };

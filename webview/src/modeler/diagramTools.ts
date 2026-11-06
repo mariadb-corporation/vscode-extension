@@ -311,18 +311,15 @@ export const parseColumnText = (text: string): { name: string; type: string } =>
             type: trimmed.slice(space).trim().replace(/\s+/g, " ") };
 };
 
-/** A table placed whose name and columns are being entered. */
 /** What a group figure lists, and how a new member is made. */
 interface IGroupMember {
-    member: "routines" | "events";
+    /**
+     * What it is: the name a new one is numbered from, the kind of the
+     * card's rows, and what the messages call it.
+     */
+    kind: "routine" | "event";
     /** The names in use. */
     taken: string[];
-    /** The name a new one is numbered from. */
-    base: string;
-    /** The kind of the card's rows it is listed as. */
-    itemKind: "routine" | "event";
-    /** What it is, for the messages. */
-    what: string;
     change: (name: string) => ISchemaChange;
     /** What the status line says once it is made. */
     created: (name: string) => string;
@@ -330,6 +327,7 @@ interface IGroupMember {
     again: (name: string) => void;
 }
 
+/** A table placed whose name and columns are being entered. */
 interface IPendingTable {
     figure: IModelFigure;
     columns: IOutlineColumn[];
@@ -767,7 +765,7 @@ export class DiagramTools {
     #relationNames(): string[] {
         const { tables, views, sequences } = this.#target.catalog.objects();
 
-        return [...tables, ...views, ...sequences ?? []].map((object) => {
+        return [...tables, ...views, ...sequences].map((object) => {
             return object.name;
         });
     }
@@ -1140,13 +1138,10 @@ export class DiagramTools {
      */
     public addRoutine(figureId: string, text?: string): void {
         this.#addMember(figureId, {
-            member: "routines",
+            kind: "routine",
             taken: this.#target.catalog.objects().routines.map((routine) => {
                 return routine.name;
             }),
-            base: "routine",
-            itemKind: "routine",
-            what: "routine",
             change: newRoutineChange,
             created: (name) => {
                 return `Procedure '${name}' created; its body is to be `
@@ -1165,12 +1160,9 @@ export class DiagramTools {
      */
     public addEvent(figureId: string, text?: string): void {
         this.#addMember(figureId, {
-            member: "events",
-            taken: (this.#target.catalog.objects().events ?? []).map(
+            kind: "event",
+            taken: this.#target.catalog.objects().events.map(
                 (event) => { return event.name; }),
-            base: "event",
-            itemKind: "event",
-            what: "event",
             change: newEventChange,
             created: (name) => {
                 return `Event '${name}' created; its schedule and body are `
@@ -1194,18 +1186,19 @@ export class DiagramTools {
         if (figure === undefined) {
             return;
         }
-        const name = numberedName(spec.base, spec.taken);
+        const member = spec.kind === "routine" ? "routines" : "events";
+        const name = numberedName(spec.kind, spec.taken);
         // By name: other members may come and go meanwhile.
         let shown = name;
         const show = (entry: string): void => {
             shown = entry;
-            const members = figure[spec.member] ?? [];
+            const members = figure[member] ?? [];
             if (!members.some((other) => { return sameName(other, entry); })) {
-                figure[spec.member] = [...members, entry];
+                figure[member] = [...members, entry];
             }
         };
         const hide = (): void => {
-            figure[spec.member] = (figure[spec.member] ?? []).filter(
+            figure[member] = (figure[member] ?? []).filter(
                 (other) => { return !sameName(other, shown); });
         };
         // Stands in the catalog while its name is entered.
@@ -1215,11 +1208,11 @@ export class DiagramTools {
         target.refresh();
         target.editItem(figureId, (item) => {
             // `routine1(` or `event1`: not `routine10(`'s or `event10`'s row.
-            return item.kind === spec.itemKind && (item.text === name
+            return item.kind === spec.kind && (item.text === name
                 || item.text.startsWith(`${name}(`));
         }, {
             text: text ?? name,
-            label: `${spec.what[0]!.toUpperCase()}${spec.what.slice(1)} name`,
+            label: `${spec.kind[0]!.toUpperCase()}${spec.kind.slice(1)} name`,
             commit: (text) => {
                 const entered = text.trim();
                 target.catalog.edit(placeholder.inverse);
@@ -1230,7 +1223,7 @@ export class DiagramTools {
                     hide();
                     target.refresh();
                     target.hint(entered === "" ? ""
-                        : `A ${spec.what} named ${entered} exists already.`);
+                        : `A ${spec.kind} named ${entered} exists already.`);
 
                     return;
                 }
@@ -1273,7 +1266,7 @@ export class DiagramTools {
         if (figure === undefined || table === undefined) {
             return;
         }
-        const taken = (target.catalog.objects().triggers ?? []).map(
+        const taken = target.catalog.objects().triggers.map(
             (trigger) => { return trigger.name; });
         const name = freeName(`${table}_BEFORE_INSERT`, taken);
         // The section shows the new trigger to name.

@@ -45,12 +45,11 @@ import { DEFAULT_PAGE_SETTINGS } from "./pageSettings.js";
 export interface IModelerHost {
     log(message: string): void;
     /**
-     * Called once msm made a schema edit: the trees drawing the schema's
-     * objects read them again.
+     * Called once msm made a schema edit, or refused one as the project
+     * changed meanwhile: the trees drawing the schema's objects read them
+     * again.
      */
-    schemaChanged?(): void;
-    /** Called where msm refused a schema edit, with why. */
-    schemaEditFailed?(message: string): void;
+    schemaChanged?(target: ModelerTarget): void;
     /**
      * Called as the figures selected change: the schema objects they
      * show, and what the viewer shows (whose schema they are of).
@@ -353,7 +352,7 @@ export class ModelerPanel {
             const { model, notes } = await this.source.edit(edits,
                 this.#sourceHash, documents);
             this.#sourceHash = model.sourceHash;
-            this.host.schemaChanged?.();
+            this.host.schemaChanged?.(this.source.target(this.#diagram));
             this.#post({
                 type: "schemaEdited",
                 objects: {
@@ -376,13 +375,18 @@ export class ModelerPanel {
             const text = reportError(this.host.log, error,
                 `change the schema ${this.#schema}`);
             this.#post({ type: "schemaEdited", error: text });
-            this.host.schemaEditFailed?.(text);
             // The viewer showed the change already: it takes it back
             // itself where it can (the SQL is as it was: msm edits whole
             // or not at all), else it goes back to what the project says -
             // always where the project changed since the viewer read it.
-            if (!recover || isStaleSnapshot(text)) {
+            const stale = isStaleSnapshot(text);
+            if (!recover || stale) {
                 await this.#load();
+            }
+            // The project changed meanwhile: the trees and Object Details
+            // read it again too.
+            if (stale) {
+                this.host.schemaChanged?.(this.source.target(this.#diagram));
             }
         }
     }

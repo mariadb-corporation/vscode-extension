@@ -52,6 +52,9 @@ const objects = (): ISchemaObjectLists => {
             { name: "tidy", kind: "procedure" },
             { name: "total", kind: "function" },
         ],
+        triggers: [],
+        events: [],
+        sequences: [],
     };
 };
 

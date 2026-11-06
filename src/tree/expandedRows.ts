@@ -16,7 +16,7 @@
  */
 
 
-import type { IFolderMemento } from "./customFolders.js";
+import { memoryMemento, type IFolderMemento } from "./customFolders.js";
 
 /**
  * The rows of a tree the user left expanded, by their item ids, kept in a
@@ -25,11 +25,11 @@ import type { IFolderMemento } from "./customFolders.js";
  */
 export class ExpandedRows {
     /**
-     * @param memento Where the ids persist.
+     * @param memento Where the ids persist; in memory where none is given.
      * @param key The key they are kept under.
      */
     public constructor(
-        private readonly memento: IFolderMemento,
+        private readonly memento: IFolderMemento = memoryMemento(),
         private readonly key: string,
     ) { }
 

@@ -29,9 +29,10 @@ import type { ISchemaDefinition } from "../../modeler/modelFormat.js";
 import { Uri } from "../mocks/vscode.js";
 
 /** A webview view that keeps what it is sent. */
-const fakeView = () => {
+const fakeView = (visible: boolean) => {
     const posted: DetailsHostMessage[] = [];
     let receive: (message: DetailsWebviewMessage) => void = () => { /* */ };
+    let visibilityChanged = () => { /* */ };
     const view = {
         webview: {
             options: {},
@@ -48,11 +49,18 @@ const fakeView = () => {
                 receive = listener;
             },
         },
+        visible,
         onDidDispose: () => { /* kept */ },
+        onDidChangeVisibility: (listener: () => void) => {
+            visibilityChanged = listener;
+        },
     };
 
     return { view, posted, send: (message: DetailsWebviewMessage) => {
         receive(message);
+    }, shown: () => {
+        view.visible = true;
+        visibilityChanged();
     } };
 };
 
@@ -72,7 +80,7 @@ const settle = async (): Promise<void> => {
     }
 };
 
-const setUp = () => {
+const setUp = (visible = true) => {
     let reads = 0;
     const host: IObjectDetailsHost = {
         extensionUri: Uri.file("/ext") as never,
@@ -87,10 +95,11 @@ const setUp = () => {
         connectionLabel: () => { return "local"; },
     };
     const provider = new ObjectDetailsProvider(host);
-    const fake = fakeView();
+    const fake = fakeView(visible);
     provider.resolveWebviewView(fake.view as never);
 
-    return { provider, fake, reads: () => { return reads; } };
+    return { provider, fake, reads: () => { return reads; },
+        shown: fake.shown };
 };
 
 describe("the Object Details view", () => {
@@ -127,5 +136,21 @@ describe("the Object Details view", () => {
         provider.refreshed();
         await settle();
         expect(reads()).toBe(2);
+    });
+
+    it("reads nothing while no view shows, and the selection once one "
+        + "does", async () => {
+        const { provider, fake, reads, shown } = setUp(false);
+        provider.show({ projectPath: "/p/shop.msm.project" },
+            { type: "table", name: "orders" });
+        provider.refreshed();
+        await settle();
+        expect(reads()).toBe(0);
+
+        shown();
+        await settle();
+        expect(reads()).toBe(1);
+        expect(fake.posted.at(-1)).toMatchObject({ type: "show",
+            details: { object: { type: "table" } } });
     });
 });

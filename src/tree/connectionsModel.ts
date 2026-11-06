@@ -200,8 +200,6 @@ export const folderOf = (
     }
 };
 
-export { OBJECT_GROUP_LABELS } from "./schemaTree.js";
-
 /**
  * The contents of the Connections view, as plain data.
  *

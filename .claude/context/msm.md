@@ -70,7 +70,8 @@ MSM Projects (`mariadb.msmProjects`).
   is kept by item id (`ExpandedRows`, `mariadb.msmProjects.expandedRows`)
   and drawn expanded after a restart, which VS Code does not do for an
   extension's tree; the rows of projects no longer listed are forgotten
-  on the next listing. Drag and drop on a MIME of
+  on the next listing (`rowIdOf` makes the ids, `isRowOf` matches a
+  project's, so `/a/p` is not taken for `/a/p2`). Drag and drop on a MIME of
   its own (`application/vnd.mariadb.msmprojects`) moves projects and whole
   folders with one `msm.update_project(new_folder=)` per project that moves,
   sent one at a time: each call rewrites the server's one `projects.json`

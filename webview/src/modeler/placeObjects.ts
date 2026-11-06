@@ -129,7 +129,7 @@ export const placementOf = (
             }
 
             case "sequence": {
-                const sequence = (objects.sequences ?? []).find((entry) => {
+                const sequence = objects.sequences.find((entry) => {
                     return entry.name === ref.name;
                 });
                 if (sequence === undefined) {
@@ -147,7 +147,7 @@ export const placementOf = (
             }
 
             case "event": {
-                const event = (objects.events ?? []).find((entry) => {
+                const event = objects.events.find((entry) => {
                     return entry.name === ref.name;
                 });
                 if (event === undefined) {
@@ -165,7 +165,7 @@ export const placementOf = (
             case "trigger": {
                 // Its table's card lists it: the table comes, if it is not
                 // shown yet.
-                const trigger = (objects.triggers ?? []).find((entry) => {
+                const trigger = objects.triggers.find((entry) => {
                     return entry.name === ref.name;
                 });
                 const table = objects.tables.find((entry) => {

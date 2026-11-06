@@ -34,7 +34,7 @@ import type { IServerStatus } from "../mcp/serverStarter.js";
 import type {
     IMsmApi, IMsmDiagramListing, IMsmListedProject,
 } from "../mcp/msmApi.js";
-import type { ConnectionColor } from "../mcp/types.js";
+import { OBJECT_TYPES, type ConnectionColor } from "../mcp/types.js";
 import { schemaNameOfFolder } from "../msm/msmFields.js";
 import {
     schemaDefinitionOf, type ISchemaDefinition,
@@ -46,7 +46,6 @@ import {
     FolderSet,
     foldersToMove,
     isWithin,
-    memoryMemento,
     rebase,
     type IFolderMemento,
 } from "./customFolders.js";
@@ -61,7 +60,6 @@ import {
     objectUriList,
     ObjectTreeItem,
     outlineObjects,
-    OUTLINE_OBJECT_TYPES,
     SchemaTreeItem,
     type IconResolver,
     type IDiagramEntryRow,
@@ -318,7 +316,7 @@ export class MsmProjectsTreeProvider
         this.customFolders = new FolderSet(host.memento, MSM_FOLDERS_KEY);
         this.collapsedFolders = new FolderSet(host.memento,
             MSM_COLLAPSED_FOLDERS_KEY);
-        this.expandedRows = new ExpandedRows(host.memento ?? memoryMemento(),
+        this.expandedRows = new ExpandedRows(host.memento,
             MSM_EXPANDED_ROWS_KEY);
         this.folderColors = new FolderColors(host.memento,
             MSM_FOLDER_COLORS_KEY);
@@ -340,6 +338,20 @@ export class MsmProjectsTreeProvider
         this.#listing = undefined;
         this.#listings.clear();
         this.#snapshots.clear();
+        this.#onDidChangeTreeData.fire(undefined);
+    }
+
+    /**
+     * Reads a project's diagrams and snapshot again and redraws the view;
+     * the list of projects is kept.
+     *
+     * @param projectPath The project whose schema changed.
+     *
+     * @returns Nothing.
+     */
+    public refreshProject(projectPath: string): void {
+        this.#listings.delete(projectPath);
+        this.#snapshots.delete(projectPath);
         this.#onDidChangeTreeData.fire(undefined);
     }
 
@@ -443,7 +455,7 @@ export class MsmProjectsTreeProvider
             case "objectGroup": {
                 const item = new ObjectGroupTreeItem(node, this.host.resolveIcon,
                     "mariadbMsm");
-                item.id = `msmGroup:${node.projectPath}:${node.objectType}`;
+                item.id = rowIdOf(node);
 
                 return item;
             }
@@ -451,8 +463,7 @@ export class MsmProjectsTreeProvider
             case "object": {
                 const item = new ObjectTreeItem(node, this.host.resolveIcon,
                     "mariadbMsm");
-                item.id = `msmObject:${node.projectPath}:${node.objectType}:`
-                    + node.name;
+                item.id = rowIdOf(node);
 
                 return item;
             }
@@ -477,12 +488,15 @@ export class MsmProjectsTreeProvider
                 }
 
                 case "project": {
-                    return node.project.exists
-                        ? [
-                            await this.#schemaOf(node.project),
-                            ...await filesIn(node.project.projectPath),
-                        ]
-                        : [];
+                    if (!node.project.exists) {
+                        return [];
+                    }
+                    const [schema, files] = await Promise.all([
+                        this.#schemaOf(node.project),
+                        filesIn(node.project.projectPath),
+                    ]);
+
+                    return [schema, ...files];
                 }
 
                 case "schema": {
@@ -491,7 +505,7 @@ export class MsmProjectsTreeProvider
                     return [
                         { ...place, kind: "diagrams", schema: node.schema },
                         ...objectGroupsOf(place, node.schema,
-                            OUTLINE_OBJECT_TYPES),
+                            OBJECT_TYPES),
                     ];
                 }
 
@@ -500,7 +514,7 @@ export class MsmProjectsTreeProvider
                 }
 
                 case "objectGroup": {
-                    const definition = await this.#snapshotOf(node.projectPath);
+                    const definition = await this.snapshot(node.projectPath);
 
                     return definition === undefined ? [] : objectsOf(
                         { projectPath: node.projectPath }, node,
@@ -555,25 +569,17 @@ export class MsmProjectsTreeProvider
      * @returns msm's schema snapshot of its development script, read once
      *          until the next refresh; nothing where it has none.
      */
-    #snapshotOf(projectPath: string): Promise<ISchemaDefinition | undefined> {
+    public snapshot(projectPath: string): Promise<ISchemaDefinition | undefined> {
         return this.#cached(this.#snapshots, projectPath, async () => {
-            if (!(await this.#listingOf(projectPath))?.schemaDefinition) {
+            const listing = await this.#listingOf(projectPath);
+            if (!listing?.schemaDefinition) {
                 return undefined;
             }
 
+            // One diagram's row at most comes with the snapshot, not all.
             return schemaDefinitionOf(await (await this.host.msmApi())
-                .getSchemaDiagrams(projectPath));
+                .getSchemaDiagrams(projectPath, listing.diagrams[0]?.name));
         });
-    }
-
-    /**
-     * @param projectPath A project folder.
-     *
-     * @returns msm's schema snapshot of its development script, as the
-     *          view has read it; nothing where it has none.
-     */
-    public snapshot(projectPath: string): Promise<ISchemaDefinition | undefined> {
-        return this.#snapshotOf(projectPath);
     }
 
     /**
@@ -586,19 +592,19 @@ export class MsmProjectsTreeProvider
      */
     #cached<T>(cache: Map<string, Promise<T>>, key: string,
         read: () => Promise<T>): Promise<T> {
-        let answer = cache.get(key);
-        if (answer === undefined) {
-            const reading = read();
-            answer = reading;
-            cache.set(key, reading);
-            reading.catch(() => {
-                if (cache.get(key) === reading) {
-                    cache.delete(key);
-                }
-            });
+        const kept = cache.get(key);
+        if (kept !== undefined) {
+            return kept;
         }
+        const reading = read();
+        cache.set(key, reading);
+        reading.catch(() => {
+            if (cache.get(key) === reading) {
+                cache.delete(key);
+            }
+        });
 
-        return answer;
+        return reading;
     }
 
     /**
@@ -694,10 +700,7 @@ export class MsmProjectsTreeProvider
             await this.collapsedFolders.add(node.path);
             this.#onDidChangeTreeData.fire(node);
         } else {
-            const id = this.#itemOf(node).id;
-            if (id !== undefined) {
-                await this.expandedRows.delete(id);
-            }
+            await this.expandedRows.delete(rowIdOf(node));
         }
     }
 
@@ -715,10 +718,7 @@ export class MsmProjectsTreeProvider
                 this.#onDidChangeTreeData.fire(node);
             }
         } else {
-            const id = this.#itemOf(node).id;
-            if (id !== undefined) {
-                await this.expandedRows.add(id);
-            }
+            await this.expandedRows.add(rowIdOf(node));
         }
     }
 
@@ -924,7 +924,7 @@ export class MsmProjectsTreeProvider
         // The rows of projects no longer listed are not kept open.
         void this.expandedRows.prune((id) => {
             return listed.some((project) => {
-                return id.includes(project.projectPath);
+                return isRowOf(id, project.projectPath);
             });
         });
 
@@ -979,6 +979,61 @@ export class MsmProjectsTreeProvider
 }
 
 /**
+ * @param node A row other than a folder.
+ *
+ * @returns Its id: the same across refreshes and restarts, so the rows
+ *          left expanded are drawn so again.
+ */
+const rowIdOf = (node: Exclude<MsmProjectsNode, IMsmFolderNode>): string => {
+    switch (node.kind) {
+        case "project": {
+            return `msmProject:${node.project.projectPath}`;
+        }
+
+        case "schema": {
+            return `msmSchema:${node.projectPath}`;
+        }
+
+        case "diagrams": {
+            return `msmDiagrams:${node.projectPath}`;
+        }
+
+        case "diagram": {
+            return `msmDiagram:${node.projectPath}:${node.name}`;
+        }
+
+        case "objectGroup": {
+            return `msmGroup:${node.projectPath}:${node.objectType}`;
+        }
+
+        case "object": {
+            return `msmObject:${node.projectPath}:${node.objectType}:`
+                + node.name;
+        }
+
+        default: {
+            return `msmFile:${node.path}`;
+        }
+    }
+};
+
+/**
+ * @param id A row's id, as `rowIdOf` makes it.
+ * @param projectPath A project folder.
+ *
+ * @returns Whether the row is the project's or one of its rows: the path
+ *          ends there or goes on into it, so `/a/p` is not taken for
+ *          `/a/p2`.
+ */
+const isRowOf = (id: string, projectPath: string): boolean => {
+    const at = id.indexOf(":") + 1;
+
+    return id.startsWith(projectPath, at)
+        && ["", ":", "/", "\\"].includes(
+            id.charAt(at + projectPath.length));
+};
+
+/**
  * @param node A project.
  *
  * @returns Its row: expandable to its files, colored as the user chose,
@@ -989,7 +1044,7 @@ const projectItem = (node: IMsmProjectNode): vscode.TreeItem => {
     const item = new vscode.TreeItem(projectLabel(project), project.exists
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None);
-    item.id = `msmProject:${project.projectPath}`;
+    item.id = rowIdOf(node);
     item.description = projectDescription(node);
     item.contextValue = project.exists
         ? "mariadbMsmProject" : "mariadbMsmProject.missing";
@@ -1026,7 +1081,7 @@ const schemaItem = (
     resolveIcon: IconResolver,
 ): vscode.TreeItem => {
     const item = new SchemaTreeItem(node, resolveIcon, "mariadbMsm");
-    item.id = `msmSchema:${node.projectPath}`;
+    item.id = rowIdOf(node);
     if (!node.snapshot) {
         item.description = "no snapshot yet";
         item.tooltip = `The schema ${node.schema} has no snapshot yet: `
@@ -1057,7 +1112,7 @@ const diagramsItem = (
     const item = new DiagramsTreeItem(node, resolveIcon, "mariadbMsm",
         "The schema diagrams of the project, kept in MSM Section 160 of its "
         + "development script");
-    item.id = `msmDiagrams:${node.projectPath}`;
+    item.id = rowIdOf(node);
 
     return item;
 };
@@ -1075,7 +1130,7 @@ const diagramItem = (
 ): vscode.TreeItem => {
     const item = new DiagramTreeItem(node, resolveIcon, "mariadbMsm",
         MSM_DIAGRAM_CLICK_COMMAND);
-    item.id = `msmDiagram:${node.projectPath}:${node.name}`;
+    item.id = rowIdOf(node);
 
     return item;
 };
@@ -1091,7 +1146,7 @@ const fileItem = (node: IMsmFileNode): vscode.TreeItem => {
     const item = new vscode.TreeItem(basename(node.path), node.directory
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None);
-    item.id = `msmFile:${node.path}`;
+    item.id = rowIdOf(node);
     item.resourceUri = uri;
     item.iconPath = node.directory ? vscode.ThemeIcon.Folder
         : vscode.ThemeIcon.File;

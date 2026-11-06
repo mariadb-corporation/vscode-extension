@@ -117,6 +117,13 @@ export const Navigator = (props: INavigatorProps): JSX.Element => {
      * again: a zoom, or fitting the pages.
      */
     const [lastPick, setLastPick] = useState<number | typeof FIT>(1);
+    const zoomTo = (pick: number | typeof FIT): void => {
+        if (pick === FIT) {
+            props.onFit();
+        } else {
+            props.onZoom(pick);
+        }
+    };
     const aspect = props.state?.aspect ?? 0.7;
     const height = Math.round(Math.min(AREA_MAX_HEIGHT,
         Math.max(AREA_MIN_HEIGHT, AREA_WIDTH * aspect)));
@@ -249,13 +256,7 @@ export const Navigator = (props: INavigatorProps): JSX.Element => {
                 title={lastPick === FIT ? "Fit the pages"
                     : `Zoom to ${Math.round(lastPick * 100)}%`}
                 toggled={false}
-                onClick={() => {
-                    if (lastPick === FIT) {
-                        props.onFit();
-                    } else {
-                        props.onZoom(lastPick);
-                    }
-                }}
+                onClick={() => { zoomTo(lastPick); }}
                 menuLabel="Choose the Zoom"
                 items={[
                     { id: FIT, caption: "Fit the Pages" },
@@ -266,15 +267,9 @@ export const Navigator = (props: INavigatorProps): JSX.Element => {
                 // Ticked where the zoom is one of them.
                 selected={String(Math.round(props.zoom * 100) / 100)}
                 onSelect={(id) => {
-                    if (id === FIT) {
-                        setLastPick(FIT);
-                        props.onFit();
-
-                        return;
-                    }
-                    const zoom = Number(id);
-                    setLastPick(zoom);
-                    props.onZoom(zoom);
+                    const pick = id === FIT ? FIT : Number(id);
+                    setLastPick(pick);
+                    zoomTo(pick);
                 }}
             />
         </div>

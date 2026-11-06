@@ -647,11 +647,6 @@ export class Canvas {
     }
 
     /**
-     * Drops the edit the input was opened for.
-     *
-     * @returns Nothing.
-     */
-    /**
      * @param clientX Where on the page, as a drop event says.
      * @param clientY Where on the page, as a drop event says.
      *
@@ -671,6 +666,11 @@ export class Canvas {
             y: this.#container.clientHeight / 2 }, "base", 0);
     }
 
+    /**
+     * Drops the edit the input was opened for.
+     *
+     * @returns Nothing.
+     */
     public cancelEdit(): void {
         const edit = this.#edit;
         this.#edit = undefined;

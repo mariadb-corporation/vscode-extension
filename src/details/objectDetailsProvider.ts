@@ -26,7 +26,7 @@
 import * as vscode from "vscode";
 
 import { errorText } from "../text.js";
-import { buildWebviewHtml } from "../webview/html.js";
+import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import type { IObjectDetails } from "../mcp/types.js";
 import type {
     ISchemaObjectRef,
@@ -75,19 +75,25 @@ export class ObjectDetailsProvider
         message: "Select a table, view or routine on a diagram or in a tree." };
     /** Counts the reads, so an older one does not overwrite a newer. */
     #reads = 0;
+    /** Whether the subject is to be read once a view shows. */
+    #stale = false;
 
     public constructor(private readonly host: IObjectDetailsHost) { }
 
     public resolveWebviewView(view: vscode.WebviewView): void {
-        view.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [vscode.Uri.joinPath(this.host.extensionUri,
-                "dist", "webview")],
-        };
+        view.webview.options = webviewOptions(this.host.extensionUri);
         view.webview.html = buildWebviewHtml(view.webview,
             this.host.extensionUri, "details", "Object Details");
         this.#views.add(view);
         view.onDidDispose(() => { this.#views.delete(view); });
+        view.onDidChangeVisibility(() => {
+            if (view.visible && this.#stale) {
+                void this.#read();
+            }
+        });
+        if (this.#stale) {
+            void this.#read();
+        }
         view.webview.onDidReceiveMessage((message: DetailsWebviewMessage) => {
             if (message.type === "ready") {
                 void view.webview.postMessage(this.#shown);
@@ -134,14 +140,25 @@ export class ObjectDetailsProvider
         }
     }
 
-    /** Reads the object shown and sends it to the views. */
+    /**
+     * Reads the object shown and sends it to the views; where none shows,
+     * it is read once one does, not on every selection.
+     */
     async #read(): Promise<void> {
         const subject = this.#subject;
         if (subject === undefined) {
             return;
         }
+        // A read still going is of an older subject, or older state: its
+        // answer is not shown, whether this one reads or waits.
         this.#reads += 1;
         const read = this.#reads;
+        this.#stale = ![...this.#views].some((view) => {
+            return view.visible;
+        });
+        if (this.#stale) {
+            return;
+        }
         let message: DetailsHostMessage;
         try {
             message = await this.#detailsOf(subject);

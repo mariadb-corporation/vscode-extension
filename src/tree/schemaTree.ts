@@ -29,8 +29,9 @@
 
 import * as vscode from "vscode";
 
-import { OBJECT_TYPES, type IObjectInfo, type ObjectType } from "../mcp/types.js";
+import type { IObjectInfo, ObjectType } from "../mcp/types.js";
 import type { ISchemaDefinition } from "../modeler/modelFormat.js";
+import { counted } from "../text.js";
 import {
     schemaObjectUri,
     type ISchemaObjectRef,
@@ -183,9 +184,6 @@ export const objectsOf = <P extends object>(
     });
 };
 
-/** The object types msm's schema snapshot has: all of them, in order. */
-export const OUTLINE_OBJECT_TYPES: readonly ObjectType[] = OBJECT_TYPES;
-
 /**
  * @param definition msm's schema snapshot of a project's script.
  * @param objectType The objects wanted.
@@ -267,10 +265,8 @@ export const ADD_TO_DIAGRAM_COMMAND = "mariadb.addToDiagram";
 export const objectUriList = (
     rows: ReadonlyArray<{ place: SchemaObjectPlace; row: IObjectRow }>,
 ): string | undefined => {
-    const uris = rows.flatMap(({ place, row }) => {
-        const ref = objectRefOf(row);
-
-        return ref === undefined ? [] : [schemaObjectUri(place, ref)];
+    const uris = rows.map(({ place, row }) => {
+        return schemaObjectUri(place, objectRefOf(row));
     });
 
     return uris.length === 0 ? undefined : uris.join("\r\n");
@@ -398,8 +394,7 @@ export class DiagramTreeItem<T extends IDiagramEntryRow>
         super(node, node.name, DIAGRAM_ICON, false, resolveIcon);
         this.contextValue = `${prefix}Diagram`;
         if (node.figures !== undefined) {
-            this.description = node.figures === 1
-                ? "1 figure" : `${node.figures} figures`;
+            this.description = counted(node.figures, "figure");
         }
         this.command = {
             command: clickCommand,

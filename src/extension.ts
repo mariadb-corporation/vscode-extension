@@ -895,28 +895,27 @@ export const activate = (context: vscode.ExtensionContext): void => {
         }),
         msmProjectsView.onDidChangeSelection((event) => {
             const [node] = event.selection;
-            const ref = node?.kind === "object" ? objectRefOf(node) : undefined;
-            if (node?.kind === "object" && ref !== undefined) {
-                objectDetails.show({ projectPath: node.projectPath }, ref);
+            if (node?.kind === "object") {
+                objectDetails.show({ projectPath: node.projectPath },
+                    objectRefOf(node));
             }
         }),
         connectionsView.onDidChangeSelection((event) => {
             const [node] = event.selection;
-            const ref = node?.kind === "object" ? objectRefOf(node) : undefined;
-            if (node?.kind === "object" && ref !== undefined) {
+            if (node?.kind === "object") {
                 objectDetails.show({ connection: node.uri,
-                    schema: node.schema }, ref);
+                    schema: node.schema }, objectRefOf(node));
             }
         }));
     /** What a diagram viewer tells the views around it. */
     const modelerHost: IModelerHost = {
         log,
-        schemaChanged: () => {
-            msmProjects.refresh();
+        schemaChanged: (target) => {
+            if (target.kind === "project") {
+                msmProjects.refreshProject(target.projectPath);
+            }
             objectDetails.refreshed();
         },
-        // The project is read again; what Object Details shows with it.
-        schemaEditFailed: () => { objectDetails.refreshed(); },
         draggedObjects: () => { return draggedObjects.take(); },
         selected: (target, objects) => {
             const [first] = objects;
@@ -1091,7 +1090,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
     };
     /** Shows a project's snapshot made again: trees, details, its viewer. */
     const snapshotUpdated = async (projectPath: string): Promise<void> => {
-        msmProjects.refresh();
+        msmProjects.refreshProject(projectPath);
         objectDetails.refreshed();
         await ModelerPanel.reload(projectDiagrams(projectPath));
     };
@@ -1105,7 +1104,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             // snapshot is older than the script, the Actions tab why.
             log(`Could not update the schema snapshot of '${projectPath}' `
                 + `after a save: ${errorText(error)}`);
-            msmProjects.refresh();
+            msmProjects.refreshProject(projectPath);
         }
     });
     context.subscriptions.push(scriptSaves);
@@ -1165,9 +1164,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             return;
         }
         const refs = rows.flatMap((row) => {
-            const ref = row.kind === "object" ? objectRefOf(row) : undefined;
-
-            return ref === undefined ? [] : [ref];
+            return row.kind === "object" ? [objectRefOf(row)] : [];
         });
         if ("projectPath" in first) {
             const source = projectDiagrams(first.projectPath);
@@ -1279,7 +1276,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 }
                 try {
                     await vscode.window.withProgress({
-                        location: { viewId: "mariadb.msmProjects" },
+                        location: { viewId: MSM_PROJECTS_VIEW_ID },
                     }, async () => {
                         await projectDiagrams(projectPath).updateSnapshot();
                     });
