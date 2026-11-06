@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import type { IToolCaller } from "../../mcp/mariaDbApi.js";
 import type { IToolResult } from "../../mcp/protocol.js";
 import {
+    MINIMUM_RESTD_VERSION,
     RESTD_LIFECYCLE_TIMEOUT_MS,
     RESTD_SETUP_TIMEOUT_MS,
     RestdApi,
@@ -80,7 +81,7 @@ describe("RestdApi", () => {
                 name: "restd.configure_restd",
                 args: {
                     connection_id: "c1", password: "pw", sandbox_port: 3311,
-                    port: 9443,
+                    port: 9443, restd_version: MINIMUM_RESTD_VERSION,
                 },
                 timeoutMs: RESTD_SETUP_TIMEOUT_MS,
             }]);
@@ -91,7 +92,9 @@ describe("RestdApi", () => {
 
         await new RestdApi(caller).configure({ connectionId: "c1" });
 
-        expect(caller.calls[0]?.args).toEqual({ connection_id: "c1" });
+        expect(caller.calls[0]?.args).toEqual({
+            connection_id: "c1", restd_version: MINIMUM_RESTD_VERSION,
+        });
     });
 
     it("starts and stops by folder", async () => {
