@@ -36,7 +36,10 @@ import {
     type IModelLayer,
     type IOutlineRoutine,
 } from "../../../src/modeler/modelFormat.js";
-import type { ISchemaObjects } from "../../../src/modeler/modelerProtocol.js";
+import type {
+    ISchemaObjectRef,
+    ISchemaObjects,
+} from "../../../src/modeler/modelerProtocol.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
 import type {
     ICanvasHost,
@@ -1994,6 +1997,18 @@ export class EerFigureSet implements IFigureSet {
      */
     public pickReferenced(): void {
         this.#tools.pickReferenced();
+    }
+
+    /**
+     * Places objects the schema has on the diagram shown.
+     *
+     * @param refs The objects.
+     * @param point Where the first goes.
+     *
+     * @returns Nothing.
+     */
+    public placeObjects(refs: readonly ISchemaObjectRef[], point: IPoint): void {
+        this.#tools.placeObjects(refs, point);
     }
 
     /** @returns The set as the tools see it. */

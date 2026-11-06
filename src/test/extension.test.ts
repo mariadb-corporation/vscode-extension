@@ -337,6 +337,7 @@ describe("activate", () => {
         })).toEqual([
             "mariadb.addConnection",
             "mariadb.addSandbox",
+            "mariadb.addToDiagram",
             "mariadb.cancelTask",
             "mariadb.clearDefaultConnection",
             "mariadb.clearFinishedTasks",

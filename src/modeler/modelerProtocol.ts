@@ -35,6 +35,99 @@ export type ModelerTarget =
     | { kind: "connection"; connection: string; schema: string; diagram: string }
     | { kind: "project"; projectPath: string; diagram: string };
 
+/** A table, view or routine of a diagram's schema, by name. */
+export interface ISchemaObjectRef {
+    type: "table" | "view" | "procedure" | "function";
+    name: string;
+}
+
+/**
+ * The scheme of the URIs a tree's rows carry in a drag's `text/uri-list`:
+ * `mariadb-schema-object:/table/customer?project=<path>`, or
+ * `?connection=<uri>&schema=<schema>` for a live schema's row. A drop on
+ * a diagram reads them back.
+ */
+export const SCHEMA_OBJECT_SCHEME = "mariadb-schema-object";
+
+/** Where a schema object is: a project's script, or a live schema. */
+export type SchemaObjectPlace =
+    | { projectPath: string }
+    | { connection: string; schema: string };
+
+/**
+ * @param place Where the object is.
+ * @param ref The object.
+ *
+ * @returns Its URI for a drag.
+ */
+export const schemaObjectUri = (
+    place: SchemaObjectPlace,
+    ref: ISchemaObjectRef,
+): string => {
+    const query = "projectPath" in place
+        ? `project=${encodeURIComponent(place.projectPath)}`
+        : `connection=${encodeURIComponent(place.connection)}`
+            + `&schema=${encodeURIComponent(place.schema)}`;
+
+    return `${SCHEMA_OBJECT_SCHEME}:/${ref.type}/`
+        + `${encodeURIComponent(ref.name)}?${query}`;
+};
+
+const OBJECT_TYPES = new Set(["table", "view", "procedure", "function"]);
+
+/**
+ * @param uriList A drag's `text/uri-list`: URIs, one a line (`#` lines
+ *                are comments).
+ *
+ * @returns The schema objects among them, with where each is; other URIs
+ *          are left out.
+ */
+export const parseSchemaObjectUris = (
+    uriList: string,
+): Array<{ place: SchemaObjectPlace; ref: ISchemaObjectRef }> => {
+    const found: Array<{ place: SchemaObjectPlace; ref: ISchemaObjectRef }> = [];
+    const pattern = new RegExp(`^${SCHEMA_OBJECT_SCHEME}:/([a-z]+)/([^?]+)`
+        + "\\?(.*)$", "u");
+    for (const line of uriList.split(/\r?\n/u)) {
+        const match = pattern.exec(line.trim());
+        if (match === null || !OBJECT_TYPES.has(match[1])) {
+            continue;
+        }
+        const query = new URLSearchParams(match[3]);
+        const project = query.get("project");
+        const connection = query.get("connection");
+        const schema = query.get("schema");
+        const place: SchemaObjectPlace | undefined = project !== null
+            ? { projectPath: project }
+            : connection !== null && schema !== null
+                ? { connection, schema } : undefined;
+        if (place !== undefined) {
+            found.push({ place, ref: {
+                type: match[1] as ISchemaObjectRef["type"],
+                name: decodeURIComponent(match[2]),
+            } });
+        }
+    }
+
+    return found;
+};
+
+/**
+ * @param place Where dropped objects are.
+ * @param target What a viewer shows.
+ *
+ * @returns Whether they are of its schema.
+ */
+export const isPlaceOf = (
+    place: SchemaObjectPlace,
+    target: ModelerTarget,
+): boolean => {
+    return "projectPath" in place
+        ? target.kind === "project" && target.projectPath === place.projectPath
+        : target.kind === "connection" && target.connection === place.connection
+            && target.schema === place.schema;
+};
+
 /** Where a project's saves stand. */
 export type SaveState =
     | { state: "pending" | "saving" | "saved" }
@@ -102,4 +195,9 @@ export type ModelerHostMessage =
         error?: string;
     }
     /** Where the saves stand. */
-    | { type: "saveState"; save: SaveState };
+    | { type: "saveState"; save: SaveState }
+    /**
+     * Places objects the schema has on the diagram shown: Add to Diagram
+     * on a tree's rows, in the middle of the view.
+     */
+    | { type: "placeObjects"; objects: ISchemaObjectRef[] };

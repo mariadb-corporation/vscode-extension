@@ -55,10 +55,12 @@ import {
     ObjectGroupTreeItem,
     objectGroupsOf,
     objectsOf,
+    objectUriList,
     ObjectTreeItem,
     outlineObjects,
     OUTLINE_OBJECT_TYPES,
     SchemaTreeItem,
+    URI_LIST_MIME,
     type IconResolver,
     type IDiagramEntryRow,
     type IDiagramsRow,
@@ -281,7 +283,7 @@ export class MsmProjectsTreeProvider
     implements vscode.TreeDataProvider<MsmProjectsNode>,
     vscode.TreeDragAndDropController<MsmProjectsNode>, vscode.Disposable {
 
-    public readonly dragMimeTypes = [MSM_PROJECTS_DRAG_MIME];
+    public readonly dragMimeTypes = [MSM_PROJECTS_DRAG_MIME, URI_LIST_MIME];
     public readonly dropMimeTypes = [MSM_PROJECTS_DRAG_MIME];
 
     readonly #onDidChangeTreeData =
@@ -743,12 +745,22 @@ export class MsmProjectsTreeProvider
         source: readonly MsmProjectsNode[],
         dataTransfer: vscode.DataTransfer,
     ): void {
+        // Folders and projects are filed elsewhere in the view.
         const dragged = source.filter((node) => {
-            return node.kind !== "file";
+            return node.kind === "folder" || node.kind === "project";
         });
         if (dragged.length > 0) {
             dataTransfer.set(MSM_PROJECTS_DRAG_MIME,
                 new vscode.DataTransferItem(dragged));
+        }
+        // Tables, views and routines go onto a diagram of the project.
+        const uris = objectUriList(source.flatMap((node) => {
+            return node.kind === "object"
+                ? [{ place: { projectPath: node.projectPath }, row: node }]
+                : [];
+        }));
+        if (uris !== undefined) {
+            dataTransfer.set(URI_LIST_MIME, new vscode.DataTransferItem(uris));
         }
     }
 

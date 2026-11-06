@@ -27,6 +27,7 @@ import type {
     IMsmProjectDetails,
 } from "../../mcp/msmApi.js";
 import { McpToolError } from "../../mcp/protocol.js";
+import { parseSchemaObjectUris } from "../../modeler/modelerProtocol.js";
 import type { IServerStatus } from "../../mcp/serverStarter.js";
 import {
     MSM_DIAGRAM_CLICK_COMMAND,
@@ -372,6 +373,31 @@ describe("the MSM Projects view", () => {
             projectPath: "/p/shop.msm.project" })).toEqual([]);
         expect(logs[0]).toContain("a newer version is needed");
     });
+
+    it("carries the tables, views and routines dragged to a diagram",
+        async () => {
+            const project = makeProject(root, "shop");
+            const fake = setUp([listed(project)]);
+            const [node] = await fake.tree.getChildren();
+            const [schema] = await fake.tree.getChildren(node);
+            const [, tables, , functions] = await fake.tree.getChildren(schema);
+            const [customer] = await fake.tree.getChildren(tables);
+            const [count] = await fake.tree.getChildren(functions);
+            const transfer = new DataTransfer();
+
+            fake.tree.handleDrag([tables, customer, count], transfer as never);
+
+            expect(fake.tree.dragMimeTypes).toContain("text/uri-list");
+            expect(parseSchemaObjectUris(String(
+                transfer.get("text/uri-list")?.value))).toEqual([
+                { place: { projectPath: project },
+                    ref: { type: "table", name: "Customer" } },
+                { place: { projectPath: project },
+                    ref: { type: "function", name: "count_orders" } },
+            ]);
+            // Nothing the view files elsewhere.
+            expect(transfer.get(MSM_PROJECTS_DRAG_MIME)).toBeUndefined();
+        });
 
     it("moves a dropped project into the folder dropped on", async () => {
         const fake = setUp([

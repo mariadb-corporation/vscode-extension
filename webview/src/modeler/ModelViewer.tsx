@@ -40,10 +40,12 @@ import {
     type ISchemaModel,
 } from "../../../src/modeler/modelFormat.js";
 import { matchingTypes } from "../../../src/sql/columnTypes.js";
-import type {
-    ModelerHostMessage,
-    ModelerTarget,
-    SaveState,
+import {
+    isPlaceOf,
+    parseSchemaObjectUris,
+    type ModelerHostMessage,
+    type ModelerTarget,
+    type SaveState,
 } from "../../../src/modeler/modelerProtocol.js";
 import type { IPageSettings } from "../../../src/modeler/pageSettings.js";
 import { Canvas, ZOOM_RANGE } from "../canvas/Canvas.js";
@@ -162,6 +164,8 @@ interface ILoaded {
     editable: boolean;
     /** Each diagram's document as last sent to be saved, by name. */
     sent: Map<string, string>;
+    /** What the viewer shows: a dropped object has to be of its schema. */
+    target: ModelerTarget;
 }
 
 /**
@@ -525,6 +529,7 @@ export const ModelViewer = (): JSX.Element => {
                         pageSettings: message.pageSettings,
                         editable: message.editable,
                         sent: documentsOf(message),
+                        target: message.target,
                     });
                     break;
                 }
@@ -556,6 +561,15 @@ export const ModelViewer = (): JSX.Element => {
 
                 case "showDiagram": {
                     setDiagramName(message.name);
+                    break;
+                }
+
+                case "placeObjects": {
+                    const point = canvas.viewCenter();
+                    if (point !== undefined) {
+                        loadedRef.current?.set.placeObjects(message.objects,
+                            point);
+                    }
                     break;
                 }
 
@@ -802,6 +816,40 @@ export const ModelViewer = (): JSX.Element => {
         return diagram.name;
     }) ?? [];
 
+    /**
+     * Lets tables, views and routines dragged from a tree be dropped: VS
+     * Code hands a webview a drop from its views only with Shift held, as
+     * `text/uri-list`.
+     */
+    const onDragOver = (event: DragEvent): void => {
+        if (loaded !== undefined
+            && event.dataTransfer?.types.includes("text/uri-list") === true) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+        }
+    };
+    /** Places the schema's objects dropped where the pointer is. */
+    const onDrop = (event: DragEvent): void => {
+        const list = event.dataTransfer?.getData("text/uri-list") ?? "";
+        const dropped = parseSchemaObjectUris(list);
+        if (loaded === undefined || dropped.length === 0) {
+            return;
+        }
+        event.preventDefault();
+        const ours = dropped.filter(({ place }) => {
+            return isPlaceOf(place, loaded.target);
+        });
+        const point = canvasRef.current?.pageAt(event.clientX, event.clientY);
+        if (ours.length === 0 || point === undefined) {
+            setHint(ours.length === 0
+                ? "Only objects of this diagram's schema can be placed on it."
+                : "");
+
+            return;
+        }
+        loaded.set.placeObjects(ours.map(({ ref }) => { return ref; }), point);
+    };
+
     return <div className="modelViewer">
         <CanvasToolbar
             view={view}
@@ -872,7 +920,8 @@ export const ModelViewer = (): JSX.Element => {
                 </select>
             </ToolbarSection>
         </CanvasToolbar>
-        <div className="modelCanvasHost" ref={hostRef}>
+        <div className="modelCanvasHost" ref={hostRef}
+            onDragOver={onDragOver} onDrop={onDrop}>
             {overlays.map((overlay) => {
                 return <MenuButton
                     key={overlay.id}

@@ -1200,6 +1200,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "mariadb.addToDiagram",
+        "title": "Add to Diagram",
+        "category": "MariaDB",
+        "icon": "$(type-hierarchy-sub)"
+      },
+      {
         "command": "mariadb.msm.updateSchemaSnapshot",
         "title": "Update Schema Snapshot",
         "category": "MariaDB",
@@ -1880,6 +1886,16 @@
           "group": "inline@0"
         },
         {
+          "command": "mariadb.addToDiagram",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObject\\.(table|view|procedure|function)$/",
+          "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.addToDiagram",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view|procedure|function)$/",
+          "group": "0_diagram@0"
+        },
+        {
           "command": "mariadb.msm.updateSchemaSnapshot",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
           "group": "0_msm@0"
@@ -2000,6 +2016,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "mariadb.addToDiagram",
+          "when": "false"
+        },
         {
           "command": "mariadb.msm.updateSchemaSnapshot",
           "when": "false"

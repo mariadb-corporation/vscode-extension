@@ -31,6 +31,11 @@ import * as vscode from "vscode";
 
 import type { IObjectInfo, ObjectType } from "../mcp/types.js";
 import type { ISchemaDefinition } from "../modeler/modelFormat.js";
+import {
+    schemaObjectUri,
+    type ISchemaObjectRef,
+    type SchemaObjectPlace,
+} from "../modeler/modelerProtocol.js";
 
 /** Resolves an icon name to the light and dark files to show for it. */
 export type IconResolver = (name: string) => {
@@ -234,6 +239,55 @@ export const outlineObjects = (
         return a.name.localeCompare(b.name, undefined,
             { sensitivity: "base" });
     });
+};
+
+/**
+ * Places the tables, views and routines run on on the open diagram of
+ * their schema: what dragging them there does.
+ */
+export const ADD_TO_DIAGRAM_COMMAND = "mariadb.addToDiagram";
+
+/** The mime type a drag onto a diagram (or an editor) reads. */
+export const URI_LIST_MIME = "text/uri-list";
+
+/**
+ * @param rows Rows dragged, with where each one's schema is.
+ *
+ * @returns The `text/uri-list` of the tables, views and routines among
+ *          them, which a diagram places where they are dropped; nothing
+ *          where there is none.
+ */
+export const objectUriList = (
+    rows: ReadonlyArray<{ place: SchemaObjectPlace; row: IObjectRow }>,
+): string | undefined => {
+    const uris = rows.flatMap(({ place, row }) => {
+        const ref = objectRefOf(row);
+
+        return ref === undefined ? [] : [schemaObjectUri(place, ref)];
+    });
+
+    return uris.length === 0 ? undefined : uris.join("\r\n");
+};
+
+/**
+ * @param row A row of an object.
+ *
+ * @returns The object, where a diagram can show it: a table, view or
+ *          routine.
+ */
+export const objectRefOf = (row: IObjectRow): ISchemaObjectRef | undefined => {
+    switch (row.objectType) {
+        case "table":
+        case "view":
+        case "procedure":
+        case "function": {
+            return { type: row.objectType, name: row.name };
+        }
+
+        default: {
+            return undefined;
+        }
+    }
 };
 
 /**

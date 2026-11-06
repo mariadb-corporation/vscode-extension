@@ -23,6 +23,7 @@ import { errorText } from "../text.js";
 import type { IDiagramDocument } from "./modelFormat.js";
 import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
+    ISchemaObjectRef,
     ModelerHostMessage,
     ModelerWebviewMessage,
 } from "./modelerProtocol.js";
@@ -75,6 +76,10 @@ export class ModelerPanel {
     #sourceHash?: string;
     /** The schema edits under way, which run one at a time. */
     #editing: Promise<void> = Promise.resolve();
+    /** Whether the page has the model: objects to place wait until then. */
+    #loaded = false;
+    /** Objects to place once the page has the model. */
+    #toPlace: ISchemaObjectRef[] = [];
     #schema: string;
 
     private constructor(
@@ -241,6 +246,7 @@ export class ModelerPanel {
 
     /** Reads the model, and sends it to the page. */
     async #load(): Promise<void> {
+        this.#loaded = false;
         try {
             // Started as the panel opened, alongside the page's own start;
             // a reload of the page reads again.
@@ -261,6 +267,11 @@ export class ModelerPanel {
                 editable: this.source.editable,
                 target: this.source.target(this.#diagram),
             });
+            this.#loaded = true;
+            if (this.#toPlace.length > 0) {
+                this.#post({ type: "placeObjects", objects: this.#toPlace });
+                this.#toPlace = [];
+            }
         } catch (error) {
             const text = errorText(error);
             this.host.log(`Could not read the diagrams of `
@@ -325,6 +336,33 @@ export class ModelerPanel {
                 await this.#load();
             }
         }
+    }
+
+    /**
+     * Places objects of the schema on the diagram the source's panel
+     * shows, once it has the model, and brings the panel forward.
+     *
+     * @param source Where the model comes from.
+     * @param objects The objects.
+     *
+     * @returns Whether a panel of the source is up to place them.
+     */
+    public static place(
+        source: IModelSource,
+        objects: ISchemaObjectRef[],
+    ): boolean {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined) {
+            return false;
+        }
+        panel.#panel.reveal(undefined, false);
+        if (panel.#loaded) {
+            panel.#post({ type: "placeObjects", objects });
+        } else {
+            panel.#toPlace.push(...objects);
+        }
+
+        return true;
     }
 
     /**

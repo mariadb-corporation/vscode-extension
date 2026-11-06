@@ -16,6 +16,7 @@
  */
 
 import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
+import type { ISchemaObjectRef } from "../../../src/modeler/modelerProtocol.js";
 import {
     FIGURE_COLORS,
     IMAGE_FIGURE,
@@ -58,6 +59,7 @@ import {
     type IRelationshipKind,
     type ISchemaChange,
 } from "./schemaEdits.js";
+import { placementOf } from "./placeObjects.js";
 import type { ICardItem } from "./tableCard.js";
 
 /**
@@ -447,6 +449,52 @@ export class DiagramTools {
         target.select([figure.id]);
         target.hint(`Placed ${figure.name}`);
         target.done();
+    }
+
+    /**
+     * Places objects the schema has already: dropped from a tree, or added
+     * with a row's Add to Diagram. One action of the history; a table
+     * comes with the connections of its foreign keys to the tables shown.
+     *
+     * @param refs The objects.
+     * @param point Where the first goes; the others follow in rows.
+     *
+     * @returns Nothing.
+     */
+    public placeObjects(refs: readonly ISchemaObjectRef[], point: IPoint): void {
+        const target = this.#target;
+        const { figures, connections, skipped } = placementOf(refs,
+            target.diagram(), target.catalog.objects(), point, newId);
+        const why = skipped.length === 0 ? ""
+            : ` Not placed: ${skipped.join("; ")}.`;
+        if (figures.length === 0) {
+            target.hint(why.trim());
+
+            return;
+        }
+        const names = figures.map((figure) => { return figure.name; });
+        target.history.execute({
+            label: names.length === 1
+                ? `Place ${names[0]}` : `Place ${names.length} Objects`,
+            redo: () => {
+                for (const figure of figures) {
+                    target.addFigure(figure);
+                }
+                for (const connection of connections) {
+                    target.addConnection(connection);
+                }
+            },
+            undo: () => {
+                for (const connection of connections) {
+                    target.removeConnection(connection.id);
+                }
+                for (const figure of figures) {
+                    target.removeFigure(figure.id);
+                }
+            },
+        });
+        target.select(figures.map((figure) => { return figure.id; }));
+        target.hint(`Placed ${names.join(", ")}.${why}`);
     }
 
     #placeNote(point: IPoint): void {

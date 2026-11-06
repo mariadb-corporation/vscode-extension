@@ -79,6 +79,7 @@ import {
     CONNECTIONS_VIEW_ID,
 } from "./tree/connectionsTreeProvider.js";
 import { createIconResolver } from "./tree/treeItems.js";
+import { ADD_TO_DIAGRAM_COMMAND, objectRefOf } from "./tree/schemaTree.js";
 import {
     COLLAPSED_FOLDERS_KEY,
     FolderColors,
@@ -1055,6 +1056,42 @@ export const activate = (context: vscode.ExtensionContext): void => {
             openProjectDiagram(projectPath, picked.name);
         }
     };
+    /**
+     * Places tables, views and routines of a tree on the diagram of their
+     * schema that is open, opening one of a project's where none is.
+     *
+     * @param arg The row the command was run on.
+     * @param selected Every row selected, where several are.
+     */
+    const addToDiagram = async (arg: unknown, selected: unknown):
+        Promise<void> => {
+        const rows = (Array.isArray(selected) && selected.length > 0
+            ? selected : [arg]) as Array<MsmProjectsNode | ConnectionsNode>;
+        const first = rows[0];
+        if (first?.kind !== "object") {
+            return;
+        }
+        const refs = rows.flatMap((row) => {
+            const ref = row.kind === "object" ? objectRefOf(row) : undefined;
+
+            return ref === undefined ? [] : [ref];
+        });
+        if ("projectPath" in first) {
+            const source = projectDiagrams(first.projectPath);
+            if (!ModelerPanel.place(source, refs)) {
+                await pickProjectDiagram(first.projectPath);
+                ModelerPanel.place(source, refs);
+            }
+
+            return;
+        }
+        if (!ModelerPanel.place(connectionDiagrams(first.uri, first.schema),
+            refs)) {
+            void vscode.window.showInformationMessage(
+                `Open a diagram of ${first.schema} first: its objects are `
+                + "placed on the diagram shown.");
+        }
+    };
     /** Two quick clicks on a project's diagram open it. */
     const projectDiagramClicks = new DoubleClick();
     /**
@@ -1159,6 +1196,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     await ModelerPanel.reload(projectDiagrams(projectPath));
                 } catch (error) {
                     reportError(log, error, "update the schema snapshot");
+                }
+            }),
+        vscode.commands.registerCommand(ADD_TO_DIAGRAM_COMMAND,
+            async (arg?: unknown, selected?: unknown) => {
+                try {
+                    await addToDiagram(arg, selected);
+                } catch (error) {
+                    reportError(log, error, "add the objects to the diagram");
                 }
             }),
         vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,

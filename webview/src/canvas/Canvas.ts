@@ -651,6 +651,26 @@ export class Canvas {
      *
      * @returns Nothing.
      */
+    /**
+     * @param clientX Where on the page, as a drop event says.
+     * @param clientY Where on the page, as a drop event says.
+     *
+     * @returns The diagram's point there, on its base plane; nothing where
+     *          the view shows none.
+     */
+    public pageAt(clientX: number, clientY: number): IPoint | undefined {
+        const bounds = this.#renderer.domElement.getBoundingClientRect();
+
+        return this.#pageAt({ x: clientX - bounds.left,
+            y: clientY - bounds.top }, "base", 0);
+    }
+
+    /** @returns The diagram's point in the middle of the view. */
+    public viewCenter(): IPoint | undefined {
+        return this.#pageAt({ x: this.#container.clientWidth / 2,
+            y: this.#container.clientHeight / 2 }, "base", 0);
+    }
+
     public cancelEdit(): void {
         const edit = this.#edit;
         this.#edit = undefined;

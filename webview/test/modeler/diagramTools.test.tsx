@@ -536,6 +536,33 @@ describe("diagram tools", () => {
     });
 
     describe("diagram objects", () => {
+        it("places objects the schema has as one action, undone whole", () => {
+            tools.placeObjects([{ type: "table", name: "customer" },
+                { type: "table", name: "order" },
+                { type: "table", name: "nope" }], { x: 10, y: 20 });
+
+            expect(target.shown.figures.map((figure) => {
+                return [figure.table, figure.left, figure.top];
+            })).toEqual([["customer", 10, 20], ["order", 250, 20]]);
+            expect(target.history.entries.map((entry) => {
+                return entry.label;
+            })).toEqual(["Place 2 Objects"]);
+            expect(target.hints.at(-1)).toBe("Placed customer, order. Not "
+                + "placed: nope is not a table of the schema.");
+            expect(target.sent).toEqual([]);
+
+            target.history.undo();
+            expect(target.shown.figures).toEqual([]);
+        });
+
+        it("says why nothing was placed", () => {
+            tools.placeObjects([{ type: "view", name: "v" }], { x: 0, y: 0 });
+
+            expect(target.history.entries).toEqual([]);
+            expect(target.hints.at(-1)).toBe("Not placed: v is not a view of "
+                + "the schema.");
+        });
+
         it("places a text object, and goes back to the pointer", () => {
             tools.down("note", probe);
 

@@ -58,6 +58,7 @@ import {
     type IconResolver,
 } from "./treeItems.js";
 import { isMrsNode, type MrsModel } from "./mrsModel.js";
+import { objectUriList, URI_LIST_MIME } from "./schemaTree.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
 import { errorText } from "../text.js";
 
@@ -109,7 +110,7 @@ export class ConnectionsTreeProvider
     vscode.TreeDragAndDropController<ConnectionsNode>,
     vscode.Disposable {
 
-    public readonly dragMimeTypes = [CONNECTIONS_DRAG_MIME];
+    public readonly dragMimeTypes = [CONNECTIONS_DRAG_MIME, URI_LIST_MIME];
     public readonly dropMimeTypes = [CONNECTIONS_DRAG_MIME];
 
     readonly #model: ConnectionsModel;
@@ -475,6 +476,16 @@ export class ConnectionsTreeProvider
         if (dragged.length > 0) {
             dataTransfer.set(CONNECTIONS_DRAG_MIME,
                 new vscode.DataTransferItem(dragged));
+        }
+        // Tables, views and routines go onto a diagram of their schema.
+        const uris = objectUriList(source.flatMap((node) => {
+            return node.kind === "object"
+                ? [{ place: { connection: node.uri, schema: node.schema },
+                    row: node }]
+                : [];
+        }));
+        if (uris !== undefined) {
+            dataTransfer.set(URI_LIST_MIME, new vscode.DataTransferItem(uris));
         }
     }
 
