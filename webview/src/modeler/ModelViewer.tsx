@@ -924,15 +924,13 @@ export const ModelViewer = (): JSX.Element => {
         if (loaded === undefined || event.dataTransfer === null) {
             return;
         }
+        event.preventDefault();
         const list = event.dataTransfer.getData("text/uri-list");
         if (parseSchemaObjectUris(list).length > 0) {
-            event.preventDefault();
             placeDropped(list, event.clientX, event.clientY);
-        } else if (OBJECT_TREE_DRAG_MIMES.some((type) => {
-            return event.dataTransfer!.types.includes(type);
-        })) {
-            event.preventDefault();
-            post({ type: "treeDrop", x: event.clientX, y: event.clientY });
+        } else {
+            post({ type: "treeDrop", x: event.clientX, y: event.clientY,
+                types: [...event.dataTransfer.types] });
         }
     };
 
@@ -1021,6 +1019,7 @@ export const ModelViewer = (): JSX.Element => {
                 zoom={zoom}
                 zoomRange={ZOOM_RANGE}
                 onZoom={(next) => { canvasRef.current?.zoomTo(next); }}
+                onFit={() => { canvasRef.current?.fit(); }}
                 onArea={(area, panel) => {
                     canvasRef.current?.setNavigatorArea(area, panel);
                 }}

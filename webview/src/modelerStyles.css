@@ -353,6 +353,10 @@ button.toolbarText.toggled {
 }
 
 .navigatorZoom {
+    /* Below the overview: the panel's bottom corners. */
+    border-radius: 0 0 3px 3px;
+    border-top: 1px solid var(--vscode-editorWidget-border,
+            var(--vscode-widget-border, transparent));
     display: flex;
     align-items: center;
     gap: 6px;

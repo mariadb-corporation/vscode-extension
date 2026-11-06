@@ -46,6 +46,9 @@ const AREA_WIDTH = 192;
 const AREA_MIN_HEIGHT = 64;
 const AREA_MAX_HEIGHT = 192;
 
+/** The value's list's entry that fits the pages, above the zooms. */
+const FIT = "fit";
+
 /** The zooms the value's list offers. */
 const ZOOM_PRESETS = [0.5, 0.75, 1, 1.5] as const;
 
@@ -89,6 +92,8 @@ export interface INavigatorProps {
     zoom: number;
     zoomRange: { min: number; max: number };
     onZoom: (zoom: number) => void;
+    /** Zooms to show the pages whole, as the toolbar's Fit the pages. */
+    onFit: () => void;
     /**
      * The overview's area changed: where the canvas draws it, relative to
      * the canvas host (the canvas sits at its top left).
@@ -107,8 +112,11 @@ export const Navigator = (props: INavigatorProps): JSX.Element => {
     const root = useRef<HTMLDivElement>(null);
     const area = useRef<HTMLDivElement>(null);
     const drag = useRef<{ x: number; y: number } | undefined>(undefined);
-    /** The zoom last picked from the list, which the value goes to. */
-    const [lastPick, setLastPick] = useState(1);
+    /**
+     * What was last picked from the list, which the value's button does
+     * again: a zoom, or fitting the pages.
+     */
+    const [lastPick, setLastPick] = useState<number | typeof FIT>(1);
     const aspect = props.state?.aspect ?? 0.7;
     const height = Math.round(Math.min(AREA_MAX_HEIGHT,
         Math.max(AREA_MIN_HEIGHT, AREA_WIDTH * aspect)));
@@ -184,37 +192,6 @@ export const Navigator = (props: INavigatorProps): JSX.Element => {
                 }}
             />
         </div>
-        <div className="navigatorZoom">
-            <input
-                type="range"
-                aria-label="Zoom"
-                min={0}
-                max={SLIDER_STEPS}
-                value={zoomToSlider(props.zoom, props.zoomRange)}
-                onInput={(event) => {
-                    props.onZoom(sliderToZoom(
-                        Number((event.target as HTMLInputElement).value),
-                        props.zoomRange));
-                }}
-            />
-            <SplitButton
-                caption={`${Math.round(props.zoom * 100)}%`}
-                title={`Zoom to ${Math.round(lastPick * 100)}%`}
-                toggled={false}
-                onClick={() => { props.onZoom(lastPick); }}
-                menuLabel="Choose the Zoom"
-                items={ZOOM_PRESETS.map((zoom) => {
-                    return { id: String(zoom), caption: `${zoom * 100}%` };
-                })}
-                // Ticked where the zoom is one of them.
-                selected={String(Math.round(props.zoom * 100) / 100)}
-                onSelect={(id) => {
-                    const zoom = Number(id);
-                    setLastPick(zoom);
-                    props.onZoom(zoom);
-                }}
-            />
-        </div>
         <div
             ref={area}
             className="navigatorArea"
@@ -252,6 +229,54 @@ export const Navigator = (props: INavigatorProps): JSX.Element => {
                     }).join(" ")}
                 />}
             </svg>
+        </div>
+        {/* Below the overview, as in Workbench. */}
+        <div className="navigatorZoom">
+            <input
+                type="range"
+                aria-label="Zoom"
+                min={0}
+                max={SLIDER_STEPS}
+                value={zoomToSlider(props.zoom, props.zoomRange)}
+                onInput={(event) => {
+                    props.onZoom(sliderToZoom(
+                        Number((event.target as HTMLInputElement).value),
+                        props.zoomRange));
+                }}
+            />
+            <SplitButton
+                caption={`${Math.round(props.zoom * 100)}%`}
+                title={lastPick === FIT ? "Fit the pages"
+                    : `Zoom to ${Math.round(lastPick * 100)}%`}
+                toggled={false}
+                onClick={() => {
+                    if (lastPick === FIT) {
+                        props.onFit();
+                    } else {
+                        props.onZoom(lastPick);
+                    }
+                }}
+                menuLabel="Choose the Zoom"
+                items={[
+                    { id: FIT, caption: "Fit the Pages" },
+                    ...ZOOM_PRESETS.map((zoom) => {
+                        return { id: String(zoom), caption: `${zoom * 100}%` };
+                    }),
+                ]}
+                // Ticked where the zoom is one of them.
+                selected={String(Math.round(props.zoom * 100) / 100)}
+                onSelect={(id) => {
+                    if (id === FIT) {
+                        setLastPick(FIT);
+                        props.onFit();
+
+                        return;
+                    }
+                    const zoom = Number(id);
+                    setLastPick(zoom);
+                    props.onZoom(zoom);
+                }}
+            />
         </div>
     </div>;
 };
