@@ -57,7 +57,13 @@ viewer is [`modeler.md`](modeler.md), its palette
   the status line. Objects of another schema are refused.
 - **Dragging** puts the rows' `mariadb-schema-object:` URIs in
   `text/uri-list` (both trees). VS Code hands a drop into a webview only
-  with Shift held. **Add to Diagram** (object rows of both trees) sends
+  with Shift held, and without what `handleDrag` set: the page sees the
+  tree's own type (`application/vnd.code.tree.<view id lower-cased>`,
+  `OBJECT_TREE_DRAG_MIMES`) and an empty `text/uri-list`. So both trees
+  keep the drag's objects (`draggedObjects`, for 60 s, taken once), and a
+  drop with one of those types posts `treeDrop`; the panel answers
+  `treeDropped` with them (`IModelerHost.draggedObjects`). A drop of
+  nothing placeable says so in the hint. **Add to Diagram** (object rows of both trees) sends
   `placeObjects` to the schema's open viewer, in the middle of the view; for
   a project it opens one of its diagrams first if none is open, the
   objects waiting for the model (`ModelerPanel.place`). A live schema's

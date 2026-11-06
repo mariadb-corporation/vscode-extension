@@ -51,6 +51,18 @@ export interface ISchemaObjectRef {
  */
 export const SCHEMA_OBJECT_SCHEME = "mariadb-schema-object";
 
+/**
+ * The types a drag from the Connections and MSM Projects views carries
+ * into a webview: VS Code's `application/vnd.code.tree.<view id>`, the
+ * view id lower-cased. VS Code keeps what the tree's `handleDrag` sets to
+ * itself (the webview's `text/uri-list` is empty), so a drop with one of
+ * them asks the extension for the objects dragged.
+ */
+export const OBJECT_TREE_DRAG_MIMES: readonly string[] = [
+    "application/vnd.code.tree.mariadb.connections",
+    "application/vnd.code.tree.mariadb.msmprojects",
+];
+
 /** Where a schema object is: a project's script, or a live schema. */
 export type SchemaObjectPlace =
     | { projectPath: string }
@@ -167,7 +179,12 @@ export type ModelerWebviewMessage =
      * The schema objects the selected figures show, for the Object Details
      * view: tables, views, and a routine group's routines.
      */
-    | { type: "selection"; objects: ISchemaObjectRef[] };
+    | { type: "selection"; objects: ISchemaObjectRef[] }
+    /**
+     * Rows of a tree were dropped at this point of the page (client
+     * coordinates): which objects they are, the extension knows.
+     */
+    | { type: "treeDrop"; x: number; y: number };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =
@@ -209,6 +226,11 @@ export type ModelerHostMessage =
      * on a tree's rows, in the middle of the view.
      */
     | { type: "placeObjects"; objects: ISchemaObjectRef[] }
+    /**
+     * The answer to a `treeDrop`: the dragged rows' `text/uri-list`
+     * (empty where the drag had no objects), and where they were dropped.
+     */
+    | { type: "treeDropped"; uriList: string; x: number; y: number }
     /**
      * A change made in the Object Details view: shown, put in the
      * history, sent as a `schemaEdit` and taken back where msm refuses it.

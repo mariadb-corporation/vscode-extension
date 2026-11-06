@@ -58,7 +58,11 @@ import {
     type IconResolver,
 } from "./treeItems.js";
 import { isMrsNode, type MrsModel } from "./mrsModel.js";
-import { objectUriList, URI_LIST_MIME } from "./schemaTree.js";
+import {
+    draggedObjects,
+    objectUriList,
+    URI_LIST_MIME,
+} from "./schemaTree.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
 import { errorText } from "../text.js";
 
@@ -487,6 +491,8 @@ export class ConnectionsTreeProvider
         if (uris !== undefined) {
             dataTransfer.set(URI_LIST_MIME, new vscode.DataTransferItem(uris));
         }
+        // A webview gets none of it: a diagram asks for them on the drop.
+        draggedObjects.remember(uris);
     }
 
     /**

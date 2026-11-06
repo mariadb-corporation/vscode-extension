@@ -28,6 +28,7 @@ import type {
 } from "../../mcp/msmApi.js";
 import { McpToolError } from "../../mcp/protocol.js";
 import { parseSchemaObjectUris } from "../../modeler/modelerProtocol.js";
+import { draggedObjects } from "../../tree/schemaTree.js";
 import type { IServerStatus } from "../../mcp/serverStarter.js";
 import {
     MSM_DIAGRAM_CLICK_COMMAND,
@@ -409,6 +410,12 @@ describe("the MSM Projects view", () => {
             ]);
             // Nothing the view files elsewhere.
             expect(transfer.get(MSM_PROJECTS_DRAG_MIME)).toBeUndefined();
+            // Kept for a diagram, which VS Code hands none of it.
+            expect(draggedObjects.take()).toBe(
+                transfer.get("text/uri-list")?.value);
+
+            fake.tree.handleDrag([node], new DataTransfer() as never);
+            expect(draggedObjects.take()).toBeUndefined();
         });
 
     it("moves a dropped project into the folder dropped on", async () => {

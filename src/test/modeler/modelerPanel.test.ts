@@ -216,6 +216,30 @@ describe("ModelerPanel", () => {
             panel.dispose();
         });
 
+    it("answers a drop of tree rows with the objects last dragged, once",
+        async () => {
+            const dragged = ["mariadb-schema-object:/table/city?project=%2Fp"];
+            ModelerPanel.show(extensionUri as never, source(), "MRS", {
+                ...host(),
+                draggedObjects: () => { return dragged.shift(); },
+            });
+            const panel = lastPanel();
+            await ready(panel);
+            const webview = panel.webview as MockWebview;
+
+            webview.receive({ type: "treeDrop", x: 10, y: 20 });
+            webview.receive({ type: "treeDrop", x: 30, y: 40 });
+            await flush();
+
+            expect(posted().slice(1)).toEqual([
+                { type: "treeDropped", x: 10, y: 20,
+                    uriList: "mariadb-schema-object:/table/city?project=%2Fp" },
+                { type: "treeDropped", uriList: "", x: 30, y: 40 },
+            ]);
+
+            panel.dispose();
+        });
+
     it("titles itself by the diagram the page shows", () => {
         const panel = show("MRS");
 

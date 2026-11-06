@@ -55,6 +55,7 @@ import {
     ObjectGroupTreeItem,
     objectGroupsOf,
     objectsOf,
+    draggedObjects,
     objectUriList,
     ObjectTreeItem,
     outlineObjects,
@@ -772,6 +773,8 @@ export class MsmProjectsTreeProvider
         if (uris !== undefined) {
             dataTransfer.set(URI_LIST_MIME, new vscode.DataTransferItem(uris));
         }
+        // A webview gets none of it: a diagram asks for them on the drop.
+        draggedObjects.remember(uris);
     }
 
     /**

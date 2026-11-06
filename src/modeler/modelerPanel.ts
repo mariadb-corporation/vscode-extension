@@ -56,6 +56,11 @@ export interface IModelerHost {
      * show, and what the viewer shows (whose schema they are of).
      */
     selected?(target: ModelerTarget, objects: ISchemaObjectRef[]): void;
+    /**
+     * The objects of the last drag from a tree, as `text/uri-list`, once:
+     * what rows dropped on the page were.
+     */
+    draggedObjects?(): string | undefined;
 }
 
 /** The view type the panels are registered under. */
@@ -240,6 +245,13 @@ export class ModelerPanel {
             case "selection": {
                 this.host.selected?.(this.source.target(this.#diagram),
                     message.objects);
+                break;
+            }
+
+            case "treeDrop": {
+                this.#post({ type: "treeDropped",
+                    uriList: this.host.draggedObjects?.() ?? "",
+                    x: message.x, y: message.y });
                 break;
             }
 

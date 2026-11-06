@@ -79,7 +79,11 @@ import {
     CONNECTIONS_VIEW_ID,
 } from "./tree/connectionsTreeProvider.js";
 import { createIconResolver } from "./tree/treeItems.js";
-import { ADD_TO_DIAGRAM_COMMAND, objectRefOf } from "./tree/schemaTree.js";
+import {
+    ADD_TO_DIAGRAM_COMMAND,
+    draggedObjects,
+    objectRefOf,
+} from "./tree/schemaTree.js";
 import {
     COLLAPSED_FOLDERS_KEY,
     FolderColors,
@@ -924,6 +928,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             objectDetails.refreshed();
         },
         schemaEditFailed: (message) => { objectDetails.failed(message); },
+        draggedObjects: () => { return draggedObjects.take(); },
         selected: (target, objects) => {
             const [first] = objects;
             if (first !== undefined) {

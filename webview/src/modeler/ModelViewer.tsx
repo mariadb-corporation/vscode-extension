@@ -45,6 +45,7 @@ import {
 import { matchingTypes } from "../../../src/sql/columnTypes.js";
 import {
     isPlaceOf,
+    OBJECT_TREE_DRAG_MIMES,
     parseSchemaObjectUris,
     type ModelerHostMessage,
     type ModelerTarget,
@@ -341,6 +342,34 @@ export const ModelViewer = (): JSX.Element => {
     const loadedRef = useRef<ILoaded>();
     loadedRef.current = loaded;
     const closeMenu = useCallback(() => { setMenu(undefined); }, []);
+    /**
+     * Places the objects of a drop's `text/uri-list` that are of this
+     * diagram's schema, at a point of the page; says why where none is.
+     * Reads refs only: the host's answer to a tree drop calls it too.
+     */
+    const placeDropped = (uriList: string, x: number, y: number): void => {
+        const shown = loadedRef.current;
+        if (shown === undefined) {
+            return;
+        }
+        const dropped = parseSchemaObjectUris(uriList);
+        const ours = dropped.filter(({ place }) => {
+            return isPlaceOf(place, shown.target);
+        });
+        const point = canvasRef.current?.pageAt(x, y);
+        if (ours.length === 0) {
+            setHint(dropped.length === 0
+                ? "Only tables, views, routines, triggers, events and "
+                    + "sequences can be placed on a diagram."
+                : "Only objects of this diagram's schema can be placed on it.");
+
+            return;
+        }
+        if (point !== undefined) {
+            shown.set.placeObjects(ours.map(({ ref }) => { return ref; }),
+                point);
+        }
+    };
     const diagramIndex = Math.max(0, loaded?.model.diagrams.findIndex(
         (diagram) => { return diagram.name === diagramName; }) ?? 0);
 
@@ -594,6 +623,11 @@ export const ModelViewer = (): JSX.Element => {
                     break;
                 }
 
+                case "treeDropped": {
+                    placeDropped(message.uriList, message.x, message.y);
+                    break;
+                }
+
                 case "error": {
                     setError(message.message);
                     break;
@@ -839,36 +873,37 @@ export const ModelViewer = (): JSX.Element => {
 
     /**
      * Lets tables, views and routines dragged from a tree be dropped: VS
-     * Code hands a webview a drop from its views only with Shift held, as
-     * `text/uri-list`.
+     * Code hands a webview a drop from its views only with Shift held,
+     * with the tree's own type and an empty `text/uri-list`.
      */
     const onDragOver = (event: DragEvent): void => {
-        if (loaded !== undefined
-            && event.dataTransfer?.types.includes("text/uri-list") === true) {
+        const types = event.dataTransfer?.types ?? [];
+        if (loaded !== undefined && (types.includes("text/uri-list")
+            || OBJECT_TREE_DRAG_MIMES.some((type) => {
+                return types.includes(type);
+            }))) {
             event.preventDefault();
-            event.dataTransfer.dropEffect = "copy";
+            event.dataTransfer!.dropEffect = "copy";
         }
     };
-    /** Places the schema's objects dropped where the pointer is. */
+    /**
+     * Places the schema's objects dropped where the pointer is; for rows of
+     * a tree, which VS Code does not hand the page, asks the extension.
+     */
     const onDrop = (event: DragEvent): void => {
-        const list = event.dataTransfer?.getData("text/uri-list") ?? "";
-        const dropped = parseSchemaObjectUris(list);
-        if (loaded === undefined || dropped.length === 0) {
+        if (loaded === undefined || event.dataTransfer === null) {
             return;
         }
-        event.preventDefault();
-        const ours = dropped.filter(({ place }) => {
-            return isPlaceOf(place, loaded.target);
-        });
-        const point = canvasRef.current?.pageAt(event.clientX, event.clientY);
-        if (ours.length === 0 || point === undefined) {
-            setHint(ours.length === 0
-                ? "Only objects of this diagram's schema can be placed on it."
-                : "");
-
-            return;
+        const list = event.dataTransfer.getData("text/uri-list");
+        if (parseSchemaObjectUris(list).length > 0) {
+            event.preventDefault();
+            placeDropped(list, event.clientX, event.clientY);
+        } else if (OBJECT_TREE_DRAG_MIMES.some((type) => {
+            return event.dataTransfer!.types.includes(type);
+        })) {
+            event.preventDefault();
+            post({ type: "treeDrop", x: event.clientX, y: event.clientY });
         }
-        loaded.set.placeObjects(ours.map(({ ref }) => { return ref; }), point);
     };
 
     return <div className="modelViewer">

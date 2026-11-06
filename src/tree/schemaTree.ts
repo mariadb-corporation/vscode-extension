@@ -280,6 +280,51 @@ export const objectUriList = (
 };
 
 /**
+ * The objects of the last drag from a tree, for a diagram they are dropped
+ * on: VS Code hands a webview the drag's types but not what `handleDrag`
+ * set, so the page asks for them (`treeDrop`).
+ */
+export class DraggedObjects {
+    #uriList: string | undefined;
+    #at = 0;
+
+    /**
+     * @param maxAgeMs How long a drag's objects are kept: a drag that
+     *                 ended elsewhere must not be placed by a later drop.
+     * @param now The clock.
+     */
+    public constructor(
+        private readonly maxAgeMs = 60_000,
+        private readonly now: () => number = Date.now,
+    ) {}
+
+    /**
+     * Keeps a drag's objects; a drag without any forgets the last ones.
+     *
+     * @param uriList What `objectUriList` made of the rows dragged.
+     */
+    public remember(uriList: string | undefined): void {
+        this.#uriList = uriList;
+        this.#at = this.now();
+    }
+
+    /**
+     * @returns The objects of the last drag, once: nothing where it had
+     *          none or is too old.
+     */
+    public take(): string | undefined {
+        const uriList = this.#uriList;
+        this.#uriList = undefined;
+
+        return uriList !== undefined && this.now() - this.#at <= this.maxAgeMs
+            ? uriList : undefined;
+    }
+}
+
+/** The one both trees' drags go into. */
+export const draggedObjects = new DraggedObjects();
+
+/**
  * @param row A row of an object.
  *
  * @returns The object.
