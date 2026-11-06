@@ -350,14 +350,12 @@ export const ModelViewer = (): JSX.Element => {
                 if (shown === undefined || !shown.editable) {
                     return;
                 }
-                for (const [name, text] of documentsOf(shown)) {
-                    if (shown.sent.get(name) !== text) {
-                        shown.sent.set(name, text);
-                        post({
-                            type: "diagramChanged",
-                            document: JSON.parse(text) as ReturnType<
-                                typeof diagramDocument>,
-                        });
+                for (const diagram of shown.model.diagrams) {
+                    const saved = diagramDocument(diagram, shown.model);
+                    const text = JSON.stringify(saved);
+                    if (shown.sent.get(diagram.name) !== text) {
+                        shown.sent.set(diagram.name, text);
+                        post({ type: "diagramChanged", document: saved });
                     }
                 }
             },
@@ -381,16 +379,13 @@ export const ModelViewer = (): JSX.Element => {
                     // The diagram opened in the tree, else the first.
                     setDiagramName(message.diagram);
                     keepState({ target: message.target });
-                    let edits = 0;
                     const set = new EerFigureSet({
                         catalog: catalogFromModel(message.model),
                         diagrams: message.model.diagrams,
                         loadIcons,
                         editable: message.editable,
                         onSchemaEdit: (schemaEdits: IMsmSchemaEdit[]) => {
-                            edits += 1;
-                            post({ type: "schemaEdit", id: edits,
-                                edits: schemaEdits });
+                            post({ type: "schemaEdit", edits: schemaEdits });
                         },
                         requestImage: (diagram, figureId) => {
                             post({ type: "imageWanted", diagram, figureId });

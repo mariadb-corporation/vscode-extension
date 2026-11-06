@@ -181,13 +181,14 @@ export const changedDetails = (
  *
  * @returns The project folder it names, if it names one.
  */
-const projectPathOf = (arg: unknown): string | undefined => {
+export const projectPathOf = (arg: unknown): string | undefined => {
     if (arg instanceof vscode.Uri) {
         return arg.fsPath;
     }
     const row = arg as MsmProjectsNode | undefined;
 
-    return row?.kind === "project" ? row.project.projectPath : undefined;
+    return row?.kind === "project" ? row.project.projectPath
+        : row?.kind === "diagrams" ? row.projectPath : undefined;
 };
 
 /** The commands, by the dialog each opens. */

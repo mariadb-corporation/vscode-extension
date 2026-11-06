@@ -227,9 +227,6 @@ export const SCHEMA_DEFINITION_FORMAT = "msm-schema/1";
 /** The format of a diagram's document. */
 export const DIAGRAM_FORMAT = "msm-diagram/1";
 
-/** The name of the schema snapshot's row. */
-export const SCHEMA_DEFINITION_ROW = "schema_definition";
-
 /** The schema snapshot: the objects the diagrams draw. */
 export interface ISchemaDefinition {
     format: typeof SCHEMA_DEFINITION_FORMAT;
@@ -265,6 +262,31 @@ export const DIAGRAMS_VIEW = "msm_schema_diagrams";
  */
 export const figureType = (figure: IModelFigure): string => {
     return figure.type ?? TABLE_FIGURE;
+};
+
+/**
+ * @param figure A figure.
+ *
+ * @returns Its colour: its own, else its kind's, else a table's.
+ */
+export const figureColor = (figure: IModelFigure): string => {
+    return figure.color || FIGURE_COLORS[figureType(figure)]
+        || FIGURE_COLORS[TABLE_FIGURE];
+};
+
+/**
+ * @param figures A diagram's figures.
+ *
+ * @returns The figures without their pictures, which msm keeps apart.
+ */
+export const withoutPictures = (
+    figures: IModelFigure[],
+): IModelFigure[] => {
+    return figures.map((figure) => {
+        const { image: _image, image_size: _size, ...kept } = figure;
+
+        return kept;
+    });
 };
 
 /**
@@ -388,10 +410,6 @@ export const diagramDocument = (
             ? {} : { figureNotation: model.figureNotation }),
         ...(model.connectionNotation === undefined
             ? {} : { connectionNotation: model.connectionNotation }),
-        figures: diagram.figures.map((figure) => {
-            const { image: _image, image_size: _size, ...rest } = figure;
-
-            return rest;
-        }),
+        figures: withoutPictures(diagram.figures),
     };
 };

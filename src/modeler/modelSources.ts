@@ -26,6 +26,7 @@ import {
     callArguments,
     GENERAL_ACTIONS,
 } from "../connections/connectionActivity.js";
+import { schemaNameOfFolder } from "../msm/msmFields.js";
 import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
 import { counted, errorText } from "../text.js";
 import type { DiagramDrafts } from "./diagramDrafts.js";
@@ -36,6 +37,7 @@ import {
     type IDiagramRow,
     type IModelDiagram,
     type ISchemaModel,
+    withoutPictures,
 } from "./modelFormat.js";
 import type { ModelerTarget, SaveState } from "./modelerProtocol.js";
 
@@ -112,11 +114,7 @@ export const diagramHash = (document: IModelDiagram): string => {
         format: _format,
         ...rest
     } = document as IDiagramDocument;
-    const figures = document.figures.map((figure) => {
-        const { image: _image, image_size: _size, ...kept } = figure;
-
-        return kept;
-    });
+    const figures = withoutPictures(document.figures);
 
     return createHash("sha256").update(canonicalJson({ ...rest, figures }))
         .digest("hex");
@@ -216,7 +214,7 @@ interface IPending {
  *          schema.
  */
 const folderSchema = (projectPath: string): string => {
-    return basename(projectPath).replace(/\.msm\.project$/, "");
+    return schemaNameOfFolder(basename(projectPath));
 };
 
 /**

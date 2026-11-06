@@ -48,14 +48,10 @@ export interface IDiagramDraft {
 }
 
 /** A draft as its file holds it. */
-interface IDraftFile {
+type IDraftFile = Omit<IDiagramDraft, "savedAt"> & {
     version: 1;
-    projectPath: string;
-    name: string;
-    base: string;
-    document: IDiagramDocument;
     savedAt: string;
-}
+};
 
 /**
  * @param text A text.
@@ -147,13 +143,8 @@ export class DiagramDrafts {
                     join(this.folder, name), "utf8")) as IDraftFile;
                 if (content.version === 1
                     && content.projectPath === projectPath) {
-                    drafts.push({
-                        projectPath: content.projectPath,
-                        name: content.name,
-                        base: content.base,
-                        document: content.document,
-                        savedAt: new Date(content.savedAt),
-                    });
+                    const { version: _version, savedAt, ...draft } = content;
+                    drafts.push({ ...draft, savedAt: new Date(savedAt) });
                 }
             } catch {
                 // Not one of ours, or cut short: there is nothing to take.

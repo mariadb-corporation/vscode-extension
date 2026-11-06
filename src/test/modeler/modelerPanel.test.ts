@@ -262,9 +262,9 @@ describe("ModelerPanel", () => {
         await flush();
 
         expect(posted(panel)).toEqual([
-            { type: "image", diagram: "MRS", figureId: "logo",
+            { type: "image", figureId: "logo",
                 image: "data:image/png;base64,MRS" },
-            { type: "image", diagram: "MRS", figureId: "gone",
+            { type: "image", figureId: "gone",
                 error: "no picture" },
         ]);
         panel.dispose();
@@ -287,10 +287,10 @@ describe("ModelerPanel", () => {
         await ready(panel);
         const rename = { op: "rename_table", table: "a", new_name: "b" };
 
-        (panel.webview as MockWebview).receive({ type: "schemaEdit", id: 1,
+        (panel.webview as MockWebview).receive({ type: "schemaEdit",
             edits: [rename] });
         await flush();
-        (panel.webview as MockWebview).receive({ type: "schemaEdit", id: 2,
+        (panel.webview as MockWebview).receive({ type: "schemaEdit",
             edits: [rename] });
         await flush();
 
@@ -298,7 +298,6 @@ describe("ModelerPanel", () => {
             .toEqual(["sha256:one", "sha256:one+"]);
         expect(posted(panel).at(-1)).toEqual({
             type: "schemaEdited",
-            id: 2,
             objects: { sourceHash: "sha256:one++", tables: [], views: [],
                 routines: [] },
         });
@@ -315,13 +314,13 @@ describe("ModelerPanel", () => {
             await ready(panel);
 
             (panel.webview as MockWebview).receive({ type: "schemaEdit",
-                id: 1, edits: [{ op: "rename_table" }] });
+                edits: [{ op: "rename_table" }] });
             await flush();
 
             expect(posted(panel).slice(1).map((message) => {
                 return message.type;
             })).toEqual(["schemaEdited", "load"]);
-            expect(posted(panel)[1]).toEqual({ type: "schemaEdited", id: 1,
+            expect(posted(panel)[1]).toEqual({ type: "schemaEdited",
                 error: "stale" });
             expect(from.reads).toBe(2);
             expect(errorMessages.at(-1)).toContain("stale");
@@ -332,12 +331,12 @@ describe("ModelerPanel", () => {
         const panel = show("MRS");
         await ready(panel);
 
-        (panel.webview as MockWebview).receive({ type: "schemaEdit", id: 3,
+        (panel.webview as MockWebview).receive({ type: "schemaEdit",
             edits: [] });
         await flush();
 
         expect(posted(panel).at(-1)).toMatchObject({ type: "schemaEdited",
-            id: 3 });
+            error: "The schema of this diagram cannot be edited." });
         panel.dispose();
     });
 

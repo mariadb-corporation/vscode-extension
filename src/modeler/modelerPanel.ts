@@ -216,7 +216,7 @@ export class ModelerPanel {
             }
 
             case "schemaEdit": {
-                await this.#editSchema(message.id, message.edits);
+                await this.#editSchema(message.edits);
                 break;
             }
 
@@ -260,19 +260,18 @@ export class ModelerPanel {
         }
         try {
             const image = await this.source.image(diagram, figureId);
-            this.#post({ type: "image", diagram, figureId, image });
+            this.#post({ type: "image", figureId, image });
         } catch (error) {
-            this.#post({ type: "image", diagram, figureId,
+            this.#post({ type: "image", figureId,
                 error: errorText(error) });
         }
     }
 
     async #editSchema(
-        id: number,
         edits: Parameters<NonNullable<IModelSource["edit"]>>[0],
     ): Promise<void> {
         if (this.source.edit === undefined || this.#sourceHash === undefined) {
-            this.#post({ type: "schemaEdited", id,
+            this.#post({ type: "schemaEdited",
                 error: "The schema of this diagram cannot be edited." });
 
             return;
@@ -283,7 +282,6 @@ export class ModelerPanel {
             this.#sourceHash = model.sourceHash;
             this.#post({
                 type: "schemaEdited",
-                id,
                 objects: {
                     ...(model.sourceHash === undefined
                         ? {} : { sourceHash: model.sourceHash }),
@@ -300,7 +298,7 @@ export class ModelerPanel {
         } catch (error) {
             const text = reportError(this.host.log, error,
                 `change the schema ${this.#schema}`);
-            this.#post({ type: "schemaEdited", id, error: text });
+            this.#post({ type: "schemaEdited", error: text });
             // The viewer showed the change already: it goes back to what
             // the project says.
             await this.#load();

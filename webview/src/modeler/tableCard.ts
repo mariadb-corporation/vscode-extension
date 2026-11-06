@@ -22,10 +22,8 @@ import type {
     IOutlineView,
 } from "../../../src/modeler/modelFormat.js";
 import {
-    FIGURE_COLORS,
-    figureType,
+    figureColor,
     routineLabel,
-    TABLE_FIGURE,
 } from "../../../src/modeler/modelFormat.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
 import type { IDiagramTheme } from "../canvas/theme.js";
@@ -517,6 +515,30 @@ export const svgImage = (
 };
 
 /**
+ * Starts a figure's canvas at a scale.
+ *
+ * @param width The figure's width, in diagram units.
+ * @param height Its height.
+ * @param scale Device pixels per diagram unit.
+ *
+ * @returns The canvas and its context, or no context in a page that
+ *          cannot draw.
+ */
+export const startCanvas = (
+    width: number,
+    height: number,
+    scale: number,
+): { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D | null } => {
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.ceil(width * scale));
+    canvas.height = Math.max(1, Math.ceil(height * scale));
+    const context = canvas.getContext("2d");
+    context?.scale(scale, scale);
+
+    return { canvas, context };
+};
+
+/**
  * Draws a card into a canvas.
  *
  * @param layout The card's layout.
@@ -536,18 +558,12 @@ export const drawTableCard = (
     headerIcons: CardIcons,
     scale: number,
 ): HTMLCanvasElement => {
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.ceil(layout.width * scale));
-    canvas.height = Math.max(1, Math.ceil(layout.height * scale));
-    const context = canvas.getContext("2d");
+    const { width, height } = layout;
+    const { canvas, context } = startCanvas(width, height, scale);
     if (context === null) {
         return canvas;
     }
-    context.scale(scale, scale);
-
-    const { width, height } = layout;
-    const headerColor = figure.color
-        || FIGURE_COLORS[figureType(figure)] || FIGURE_COLORS[TABLE_FIGURE];
+    const headerColor = figureColor(figure);
     const headerText = contrastingText(headerColor);
 
     const outline = new Path2D();

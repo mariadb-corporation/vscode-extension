@@ -23,9 +23,6 @@
 import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
 import type {
     IDiagramDocument,
-    IOutlineRoutine,
-    IOutlineTable,
-    IOutlineView,
     ISchemaModel,
 } from "./modelFormat.js";
 import type { IPageSettings } from "./pageSettings.js";
@@ -44,12 +41,8 @@ export type SaveState =
     | { state: "failed"; message: string };
 
 /** The snapshot's objects, as a schema edit leaves them. */
-export interface ISchemaObjects {
-    sourceHash?: string;
-    tables: IOutlineTable[];
-    views: IOutlineView[];
-    routines: IOutlineRoutine[];
-}
+export type ISchemaObjects = Pick<ISchemaModel,
+    "sourceHash" | "tables" | "views" | "routines">;
 
 /** Messages from the viewer to the extension. */
 export type ModelerWebviewMessage =
@@ -62,7 +55,7 @@ export type ModelerWebviewMessage =
     /** The picture of an image figure that came without one. */
     | { type: "imageWanted"; diagram: string; figureId: string }
     /** Schema objects to change in the project's SQL. */
-    | { type: "schemaEdit"; id: number; edits: IMsmSchemaEdit[] };
+    | { type: "schemaEdit"; edits: IMsmSchemaEdit[] };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =
@@ -86,7 +79,6 @@ export type ModelerHostMessage =
     /** An image figure's picture, or why there is none. */
     | {
         type: "image";
-        diagram: string;
         figureId: string;
         image?: string;
         error?: string;
@@ -94,7 +86,6 @@ export type ModelerHostMessage =
     /** What a schema edit came to: the new snapshot, or its error. */
     | {
         type: "schemaEdited";
-        id: number;
         objects?: ISchemaObjects;
         error?: string;
     }

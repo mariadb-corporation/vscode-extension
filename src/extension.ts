@@ -43,11 +43,11 @@ import {
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
 import type { IMsmApi } from "./mcp/msmApi.js";
-import { MsmCommands } from "./msm/msmCommands.js";
+import { MsmCommands, projectPathOf } from "./msm/msmCommands.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
 import { reportError } from "./errorMessages.js";
-import { errorText } from "./text.js";
+import { counted, errorText } from "./text.js";
 import { createSdkConnector } from "./mcp/sdkConnector.js";
 import {
     ServerStarter,
@@ -1017,7 +1017,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 (diagram) => {
                     return {
                         label: diagram.name,
-                        description: `${String(diagram.figures)} figures`,
+                        description: counted(diagram.figures, "figure"),
                         diagram,
                     };
                 }), { title: "Open Schema Diagram" }))?.diagram;
@@ -1064,18 +1064,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
                         return;
                     }
-                    const projectPath = arg instanceof vscode.Uri
-                        ? arg.fsPath
-                        : node?.kind === "project"
-                            ? node.project.projectPath
-                            : node?.kind === "diagrams"
-                                ? node.projectPath
-                                : (await vscode.window.showOpenDialog({
-                                    canSelectFolders: true,
-                                    canSelectFiles: false,
-                                    title: "Open Schema Diagram of an MSM "
-                                        + "Project",
-                                }))?.[0]?.fsPath;
+                    const projectPath = projectPathOf(arg)
+                        ?? (await vscode.window.showOpenDialog({
+                            canSelectFolders: true,
+                            canSelectFiles: false,
+                            title: "Open Schema Diagram of an MSM Project",
+                        }))?.[0]?.fsPath;
                     if (projectPath !== undefined) {
                         await pickProjectDiagram(projectPath);
                     }

@@ -23,7 +23,7 @@ import { LineSegmentsGeometry }
 
 import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
 import {
-    FIGURE_COLORS,
+    figureColor,
     figureType,
     IMAGE_FIGURE,
     NOTE_FIGURE,
@@ -92,7 +92,6 @@ import {
     drawLabel,
     drawTableCard,
     editRect,
-    estimateText,
     layoutCard,
     MIN_FIGURE_WIDTH,
     routineCardContent,
@@ -149,9 +148,6 @@ const MAX_LAYER_ELEVATION = 240;
 
 /** The texture scales a card is drawn at: device pixels per unit. */
 const RASTER_STEPS = [0.25, 0.5, 1, 2, 3, 4];
-
-/** The colour of a figure that has none. */
-const DEFAULT_FIGURE_COLOR = "#98BFDA";
 
 /**
  * Where the light comes from that shades the slabs' sides, in the plane's
@@ -418,13 +414,13 @@ const kindOf = (figure: IModelFigure): FigureKind => {
 };
 
 /**
- * @param figure A figure.
+ * @param kind What a figure is drawn as.
  *
- * @returns Its colour: its own, else its kind's.
+ * @returns Whether it is a card: a schema object's, with a header and a
+ *          menu, laid out from its content.
  */
-const colorOf = (figure: IModelFigure): string => {
-    return figure.color || FIGURE_COLORS[figureType(figure)]
-        || DEFAULT_FIGURE_COLOR;
+const isCard = (kind: FigureKind): boolean => {
+    return kind !== "note" && kind !== "picture";
 };
 
 export class EerFigureSet implements IFigureSet {
@@ -780,7 +776,7 @@ export class EerFigureSet implements IFigureSet {
         // would show through a transparent one.
         slab.visible = shadow.visible = kind !== "picture";
 
-        const card = kind === "table" || kind === "view" || kind === "routines";
+        const card = isCard(kind);
         const node: IFigureNode = {
             kind,
             figure,
@@ -803,7 +799,7 @@ export class EerFigureSet implements IFigureSet {
                     menuBand: {
                         top: 0,
                         height: CARD.headerHeight,
-                        color: contrastingText(colorOf(figure)),
+                        color: contrastingText(figureColor(figure)),
                     },
                 } : {}),
             },
@@ -828,7 +824,7 @@ export class EerFigureSet implements IFigureSet {
      * @returns The layout; a note's and a picture's have no items.
      */
     #layoutOf(kind: FigureKind, figure: IModelFigure): ICardLayout {
-        if (kind === "note" || kind === "picture") {
+        if (!isCard(kind)) {
             const font = cssFont(parseWorkbenchFont(figure.font),
                 this.#host?.theme.fontFamily ?? "sans-serif");
             const size = plainFigureSize(figure, (line) => {
@@ -884,16 +880,15 @@ export class EerFigureSet implements IFigureSet {
             ? `bold ${String(CARD.titleFontSize)}px ${family}`
             : `${font === "detail" ? "italic " : ""}`
                 + `${String(CARD.rowFontSize)}px ${family}`;
-        const width = this.#measureIn(css, text);
 
-        return Number.isNaN(width) ? estimateText(text, font) : width;
+        return this.#measureIn(css, text);
     };
 
     /**
      * @param font A CSS font.
      * @param text A text.
      *
-     * @returns Its width; NaN where the page cannot measure.
+     * @returns Its width; an estimate where the page cannot measure.
      */
     #measureIn(font: string, text: string): number {
         if (this.#measureContext === undefined) {
@@ -1012,7 +1007,7 @@ export class EerFigureSet implements IFigureSet {
                 rect.height);
             node.slab.geometry.dispose();
             node.slab.geometry = slabGeometry(rect.width, rect.height,
-                new THREE.Color(colorOf(node.figure)));
+                new THREE.Color(figureColor(node.figure)));
             node.shadow.geometry.dispose();
             node.shadow.geometry = shadowGeometry(rect.width, rect.height);
         }
@@ -1092,7 +1087,7 @@ export class EerFigureSet implements IFigureSet {
         // In the header's TEXT colour: the figure's own colour is the
         // header's background, on which the icon would not show.
         const headerIcons = await this.#iconsIn(
-            contrastingText(colorOf(node.figure)));
+            contrastingText(figureColor(node.figure)));
         if (this.#figures.get(node.figure.id) !== node) {
             return;
         }
@@ -1494,8 +1489,7 @@ export class EerFigureSet implements IFigureSet {
             ];
         }
         const node = this.#figures.get(id);
-        if (node === undefined || node.kind === "note"
-            || node.kind === "picture") {
+        if (node === undefined || !isCard(node.kind)) {
             return [];
         }
         const figure = node.figure;
@@ -1848,7 +1842,7 @@ export class EerFigureSet implements IFigureSet {
             return;
         }
         for (const node of this.#figures.values()) {
-            if (node.kind !== "note" && node.kind !== "picture") {
+            if (isCard(node.kind)) {
                 this.#relayout(node);
             }
         }

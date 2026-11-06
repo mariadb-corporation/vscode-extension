@@ -16,12 +16,12 @@
  */
 
 import {
-    FIGURE_COLORS,
+    figureColor,
     NOTE_FIGURE,
     type IModelFigure,
 } from "../../../src/modeler/modelFormat.js";
 import type { IDiagramTheme } from "../canvas/theme.js";
-import { MAX_AUTO_WIDTH } from "./tableCard.js";
+import { MAX_AUTO_WIDTH, startCanvas } from "./tableCard.js";
 
 /**
  * The figures that show no schema object: a note's text, as Workbench
@@ -196,26 +196,6 @@ export const plainFigureSize = (
 };
 
 /**
- * Starts a figure's canvas at a scale, clipped to a rounded rectangle.
- *
- * @returns The canvas and its context, or no context in a page that
- *          cannot draw.
- */
-const startCanvas = (
-    width: number,
-    height: number,
-    scale: number,
-): { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D | null } => {
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.ceil(width * scale));
-    canvas.height = Math.max(1, Math.ceil(height * scale));
-    const context = canvas.getContext("2d");
-    context?.scale(scale, scale);
-
-    return { canvas, context };
-};
-
-/**
  * Draws a note: a sheet in its colour with its text, wrapped and cut off
  * at its size.
  *
@@ -239,7 +219,7 @@ export const drawNote = (
     if (context === null) {
         return canvas;
     }
-    context.fillStyle = figure.color || FIGURE_COLORS[NOTE_FIGURE];
+    context.fillStyle = figureColor(figure);
     context.fillRect(0, 0, width, height);
     const font = parseWorkbenchFont(figure.font);
     context.font = cssFont(font, theme.fontFamily);
