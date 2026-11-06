@@ -199,8 +199,10 @@ figure sets, so the canvas knows nothing of tables or layers:
   (after saving what waits, as msm renames the stored diagrams), and
   sends the new snapshot back (`schemaEdited.objects`, `replaceObjects`:
   the catalog replaced, every card laid out again). Undo sends the
-  reverse rename. A failed edit is notified and the panel reads the
-  project again (the viewer showed the change already). Notes msm
+  reverse rename. A failed edit is notified and taken back where it
+  stands, its name opened again as typed (see
+  [`modeler-tools.md`](modeler-tools.md)); a stale snapshot, or a refused
+  undo or redo, has the panel read the project again. Notes msm
   returns (what the binary could not rewrite) are a warning. Renames are
   offered in projects only (`editable`): a live schema's VIEW is msm's.
   msm keeps each edit's migration for the next release's update script

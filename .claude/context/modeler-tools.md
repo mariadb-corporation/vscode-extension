@@ -61,14 +61,27 @@ and Enter moves on to a chain of column editors.
   is the primary key and NOT NULL. Nothing is sent until the table ends:
   one `add_table` with every column (lsp-server refuses a table without
   one).
-- **A table msm refuses is not lost.** Its `schemaEdit` carries
-  `recover`, so the panel does not read the project again. The viewer
-  drops the action from the history (`UndoStack.discard`) and takes the
-  table up as it was entered. A column msm names ("column `price`: ... is
-  not a MariaDB data type", inside msm's own wording) is edited again;
-  otherwise (a name taken) the name is. The viewer matches each
-  `schemaEdited` to its request by order, since the panel answers them
-  one at a time.
+- **A change msm refuses is taken back where it stands** (the user
+  agreed: not by reading the project again, which cleared the history and
+  fitted the view). msm edits whole or not at all, so a refused edit left
+  the SQL as it was. Every first send of a tool's change and of a rename
+  carries `recover`. The viewer drops the action from the history
+  (`UndoStack.discard`), takes back what it showed (`#takeBack`: the
+  figures and connections go, the catalog takes the inverse locally, with
+  nothing sent) and puts msm's message on the status line. Where something
+  was typed, it is opened again as typed:
+  - a new table at the column msm names ("column `price`: ... is not a
+    MariaDB data type", inside msm's own wording), else at its name, all
+    columns kept;
+  - a view's or a routine's name, placed again;
+  - a table's or column's new name, over the old one again.
+
+  The relationship tools only take back: the fix is another pick, not
+  another text. The panel still reads the project again where msm says
+  the snapshot is stale (`isStaleSnapshot`, msm's `StaleSchemaError`
+  wording), and for a refused undo or redo, which carries no `recover`.
+  The viewer matches each `schemaEdited` to its request by order, since
+  the panel answers them one at a time.
 - **A new view** is named in place, then made with `add_view` and the
   placeholder `SELECT 1`: the SELECT is the user's to write in the SQL.
 - **Relationships** (Workbench's): pick the table that receives the
@@ -100,8 +113,8 @@ as sent, so `onHistory` does not post them again as `diagramChanged`.
 `ProjectModelSource.edit` saves what waits, makes the edit, and only then
 saves the documents (unless newer changes of that diagram wait). If the
 edit fails, it drops their pending changes and drafts: a figure of a table
-that was never made is not saved, nor taken up again from a draft. The
-panel then reads the project again. Undo sends the inverse with the
+that was never made is not saved, nor taken up again from a draft. Undo
+sends the inverse with the
 documents again: drop the foreign key first, then restore the primary
 key, then drop the columns (the server refuses to change a key a foreign
 key relies on, error 1553).
@@ -112,8 +125,8 @@ Agreed with the lsp-server session on 2026-11-06. PR 2 brings
 `add_table`, `drop_table`, `add_column`, `modify_column`, `drop_column`,
 `set_table_options`, `add_view`, `drop_view`, `add_routine` and
 `drop_routine`; PR 3 brings `add_index`, `drop_index`, `add_foreign_key`,
-`drop_foreign_key` and `set_primary_key`. Until then they answer
-`unsupported`, which the viewer reports before reading the project again.
+`drop_foreign_key` and `set_primary_key`. A binary without them answers
+`unsupported`, which the viewer takes back like any refusal.
 Shapes are the outline's structs: `add_table {table}`, `add_column
 {table, column, after?, first?}`, `add_foreign_key {table, foreign_key}`,
 `add_index {table, index}`, `set_primary_key {table, columns}`, `add_view

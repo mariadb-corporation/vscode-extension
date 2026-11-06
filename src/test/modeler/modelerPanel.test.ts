@@ -346,6 +346,27 @@ describe("ModelerPanel", () => {
             panel.dispose();
         });
 
+    it("reads the project again where it changed since, even so",
+        async () => {
+            const from = source("world", {
+                editable: true,
+                edit: () => {
+                    return Promise.reject(new Error("The schema changed since "
+                        + "the snapshot the edits were made against (`a`, now "
+                        + "`b`): read the diagrams again and redo them."));
+                },
+            });
+            const panel = show("MRS", from);
+            await ready(panel);
+
+            (panel.webview as MockWebview).receive({ type: "schemaEdit",
+                edits: [{ op: "add_table" }], recover: true });
+            await flush();
+
+            expect(from.reads).toBe(2);
+            panel.dispose();
+        });
+
     it("refuses schema edits a source cannot make", async () => {
         const panel = show("MRS");
         await ready(panel);

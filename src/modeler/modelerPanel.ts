@@ -21,7 +21,7 @@ import { reportError } from "../errorMessages.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { errorText } from "../text.js";
 import type { IDiagramDocument } from "./modelFormat.js";
-import type { IModelSource } from "./modelSources.js";
+import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
     ModelerHostMessage,
     ModelerWebviewMessage,
@@ -311,9 +311,11 @@ export class ModelerPanel {
             const text = reportError(this.host.log, error,
                 `change the schema ${this.#schema}`);
             this.#post({ type: "schemaEdited", error: text });
-            // The viewer showed the change already: it goes back to what
-            // the project says - or takes it back itself.
-            if (!recover) {
+            // The viewer showed the change already: it takes it back
+            // itself where it can (the SQL is as it was: msm edits whole
+            // or not at all), else it goes back to what the project says -
+            // always where the project changed since the viewer read it.
+            if (!recover || isStaleSnapshot(text)) {
                 await this.#load();
             }
         }

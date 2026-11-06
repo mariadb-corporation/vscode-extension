@@ -1736,11 +1736,17 @@ export class EerFigureSet implements IFigureSet {
         }
     }
 
-    /** Opens the input over a table's or column's name. */
-    #editCardItem(node: IFigureNode, item: ICardItem): void {
+    /**
+     * Opens the input over a table's or column's name.
+     *
+     * @param node The table's figure.
+     * @param item The name's item.
+     * @param text What the input holds: the name, or one msm refused.
+     */
+    #editCardItem(node: IFigureNode, item: ICardItem, text = item.text): void {
         const title = item.kind === "title";
         const spec: IEditSpec = {
-            text: item.text,
+            text,
             label: title ? "Table name" : "Column name",
             bold: title,
             fontSize: title ? CARD.titleFontSize : CARD.rowFontSize,
@@ -1823,17 +1829,35 @@ export class EerFigureSet implements IFigureSet {
                 // Another table has that name; two would be one.
                 return;
             }
-            const rename = (from: string, to: string): void => {
-                this.#renameTable(from, to);
+            const send = (from: string, to: string,
+                failed?: (message: string) => void): void => {
                 this.#options.onSchemaEdit?.([{
                     op: "rename_table", table: from, new_name: to,
-                }]);
+                }], undefined, failed);
             };
-            host.history.execute({
+            const action = {
                 label: `Rename Table ${tableName} to ${name}`,
-                undo: () => { rename(name, tableName); },
-                redo: () => { rename(tableName, name); },
+                undo: () => {
+                    this.#renameTable(name, tableName);
+                    send(name, tableName);
+                },
+                redo: () => {
+                    this.#renameTable(tableName, name);
+                    send(tableName, name);
+                },
+            };
+            this.#renameTable(tableName, name);
+            send(tableName, name, (message) => {
+                // Refused: the old name again, and the input over it with
+                // the name typed, to fix.
+                host.history.discard(action);
+                this.#renameTable(name, tableName);
+                host.hint(message);
+                this.#reopenRename(node.figure.id, (entry) => {
+                    return entry.kind === "title";
+                }, name);
             });
+            host.history.record(action);
         } else if (item.kind === "column") {
             const old = item.text;
             if (table.columns.some((column) => {
@@ -1844,20 +1868,51 @@ export class EerFigureSet implements IFigureSet {
             const figure = node.figure;
             // The table may have been renamed since; it is found through
             // the figure, which follows the table.
-            const rename = (from: string, to: string): void => {
+            const rename = (from: string, to: string,
+                failed?: (message: string) => void): void => {
                 const current = tableOf(figure);
                 this.#options.catalog.renameColumn(current, from, to);
                 this.#relayoutTable(current);
                 this.#options.onSchemaEdit?.([{
                     op: "rename_column", table: current, column: from,
                     new_name: to,
-                }]);
+                }], undefined, failed);
             };
-            host.history.execute({
+            const action = {
                 label: `Rename Column ${tableName}.${old} to ${name}`,
                 undo: () => { rename(name, old); },
                 redo: () => { rename(old, name); },
+            };
+            rename(old, name, (message) => {
+                host.history.discard(action);
+                const current = tableOf(figure);
+                this.#options.catalog.renameColumn(current, name, old);
+                this.#relayoutTable(current);
+                host.hint(message);
+                this.#reopenRename(figure.id, (entry) => {
+                    return entry.kind === "column" && entry.text === old;
+                }, name);
             });
+            host.history.record(action);
+        }
+    }
+
+    /**
+     * Opens a name's input again over its item, with a name msm refused.
+     *
+     * @param figureId The figure.
+     * @param find Finds the item.
+     * @param text The name refused.
+     */
+    #reopenRename(
+        figureId: string,
+        find: (item: ICardItem) => boolean,
+        text: string,
+    ): void {
+        const node = this.#figures.get(figureId);
+        const item = node?.layout.items.find(find);
+        if (node !== undefined && item !== undefined) {
+            this.#editCardItem(node, item, text);
         }
     }
 

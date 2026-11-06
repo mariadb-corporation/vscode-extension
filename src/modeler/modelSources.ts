@@ -538,6 +538,18 @@ export class ProjectModelSource implements IModelSource {
 }
 
 /**
+ * @param message Why msm refused a schema edit.
+ *
+ * @returns Whether the project changed since the snapshot the viewer
+ *          shows (msm's `StaleSchemaError`): then the viewer's copy is out
+ *          of date, and only reading the project again helps.
+ */
+export const isStaleSnapshot = (message: string): boolean => {
+    return /changed since the snapshot the edits were made against|has no schema snapshot yet/
+        .test(message);
+};
+
+/**
  * @param edit A schema edit.
  *
  * @returns It in a few words, for its Actions row.

@@ -605,14 +605,15 @@ export class DiagramTools {
      * @param change The change.
      * @param show Shows what the change places (its figures).
      * @param hide Takes that away.
-     * @param failed Takes the change back where msm refuses it (the
-     *               action is no longer in the history then).
+     * @param reopen Where msm refuses the change: takes what was typed up
+     *               again instead of just taking the change back (the
+     *               action is out of the history either way).
      */
     #recordSchemaChange(
         change: ISchemaChange,
         show: () => void,
         hide: () => void,
-        failed?: (message: string) => void,
+        reopen?: (message: string) => void,
     ): void {
         const target = this.#target;
         const action: IUndoableAction = {
@@ -630,12 +631,34 @@ export class DiagramTools {
                 target.schemaEdit(change.edits);
             },
         };
-        target.schemaEdit(change.edits, failed === undefined ? undefined
-            : (message) => {
-                target.history.discard(action);
-                failed(message);
-            });
+        // msm makes an edit whole or not at all: a refused one left the
+        // SQL as it was, which the viewer goes back to, its history and
+        // view kept.
+        target.schemaEdit(change.edits, (message) => {
+            target.history.discard(action);
+            if (reopen === undefined) {
+                this.#takeBack(change, hide, message);
+            } else {
+                reopen(message);
+            }
+        });
         target.history.record(action);
+    }
+
+    /**
+     * Takes back a schema change msm refused: what it showed goes, and the
+     * status line says why.
+     *
+     * @param change The change.
+     * @param hide Takes away what it placed.
+     * @param message msm's message.
+     */
+    #takeBack(change: ISchemaChange, hide: () => void, message: string): void {
+        const target = this.#target;
+        hide();
+        target.catalog.edit(change.inverse);
+        target.refresh();
+        target.hint(message);
     }
 
     /** @returns The names tables and views share, taken. */
@@ -872,7 +895,13 @@ export class DiagramTools {
         }
     }
 
-    #placeView(point: IPoint): void {
+    /**
+     * Places a view and opens its name.
+     *
+     * @param point Where.
+     * @param text The name to show in the editor: the one msm refused.
+     */
+    #placeView(point: IPoint, text?: string): void {
         const target = this.#target;
         const name = numberedName("view", this.#relationNames());
         const figure: IModelFigure = {
@@ -895,7 +924,7 @@ export class DiagramTools {
             target.hint("");
         };
         target.editItem(figure.id, (item) => { return item.kind === "title"; }, {
-            text: name,
+            text: text ?? name,
             label: "View name",
             commit: (text) => {
                 const entered = text.trim();
@@ -918,9 +947,20 @@ export class DiagramTools {
                 figure.name = entered;
                 figure.view = entered;
                 target.refresh();
+                const hide = (): void => { target.removeFigure(figure.id); };
                 this.#recordSchemaChange(change,
                     () => { target.addFigure(figure); },
-                    () => { target.removeFigure(figure.id); });
+                    hide,
+                    (message) => {
+                        // Placed again where it was, its name to fix.
+                        const rect = target.figureRect(figure.id);
+                        this.#takeBack(change, hide, message);
+                        if (rect !== undefined) {
+                            this.#placeView({ x: rect.left, y: rect.top },
+                                entered);
+                            target.hint(message);
+                        }
+                    });
                 target.hint(`View '${entered}' created; its SELECT is to be `
                     + "written in the SQL.");
             },
@@ -966,8 +1006,9 @@ export class DiagramTools {
      * then made in the SQL.
      *
      * @param figureId The routine group's figure.
+     * @param text The name to show in the editor: the one msm refused.
      */
-    public addRoutine(figureId: string): void {
+    public addRoutine(figureId: string, text?: string): void {
         const target = this.#target;
         const figure = target.figure(figureId);
         if (figure === undefined) {
@@ -988,7 +1029,7 @@ export class DiagramTools {
         target.editItem(figureId, (item) => {
             return item.kind === "routine" && item.text.startsWith(name);
         }, {
-            text: name,
+            text: text ?? name,
             label: "Routine name",
             commit: (text) => {
                 const entered = text.trim();
@@ -1008,7 +1049,12 @@ export class DiagramTools {
                 target.refresh();
                 this.#recordSchemaChange(change,
                     () => { show(entered); },
-                    hide);
+                    hide,
+                    (message) => {
+                        this.#takeBack(change, hide, message);
+                        this.addRoutine(figureId, entered);
+                        target.hint(message);
+                    });
                 target.hint(`Procedure '${entered}' created; its body is to `
                     + "be written in the SQL.");
             },

@@ -498,6 +498,28 @@ describe("diagram tools", () => {
             expect(target.ops).toEqual([["add_column", "add_foreign_key"]]);
         });
 
+        it("takes a relationship msm refused back where it stands", () => {
+            at("order");
+            tools.down("rel1nid", probe);
+            at("customer");
+            tools.down("rel1nid", probe);
+            expect(target.shown.connections).toHaveLength(1);
+
+            target.failures[0]?.("The edits could not be made (referenced): "
+                + "the key is needed");
+
+            expect(target.shown.connections).toEqual([]);
+            expect(target.catalog.table("order")?.columns.map((column) => {
+                return column.name;
+            })).toEqual(["id", "buyer", "seller"]);
+            expect(target.catalog.table("order")?.indexes).toEqual([
+                { name: null, kind: "primary", columns: ["id"] }]);
+            expect(target.history.entries).toEqual([]);
+            // Nothing sent to take it back: the SQL never had it.
+            expect(target.sent).toHaveLength(1);
+            expect(target.hints.at(-1)).toContain("the key is needed");
+        });
+
         it("says it is cancelled once the tool is put down half-way", () => {
             at("order");
             tools.down("rel1n", probe);
@@ -588,6 +610,42 @@ describe("diagram tools", () => {
                 name: "charge", kind: "procedure", parameters: [],
                 body: "BEGIN\nEND" } }]]);
             expect(target.catalog.routine("charge")).toBeDefined();
+        });
+
+        it("takes a refused view's name up again, as typed", () => {
+            tools.down("view", probe);
+            target.edit.commit("open_orders", "enter");
+            const placed = target.shown.figures[0]!;
+
+            target.failures[0]?.("The edits could not be made (name-taken): "
+                + "`open_orders` is a table");
+
+            expect(target.figure(placed.id)).toBeUndefined();
+            expect(target.catalog.view("open_orders")).toBeUndefined();
+            expect(target.history.entries).toEqual([]);
+            expect(target.shown.figures).toHaveLength(1);
+            expect(target.edit.label).toBe("View name");
+            expect(target.edit.text).toBe("open_orders");
+            expect(target.hints.at(-1)).toContain("is a table");
+
+            target.edit.commit("pending_orders", "enter");
+            expect(target.sent[1]).toEqual([{ op: "add_view", view: {
+                name: "pending_orders", definition: "SELECT 1" } }]);
+        });
+
+        it("takes a refused routine's name up again, as typed", () => {
+            target.shown.figures.push({ id: "g", type: "RoutineGroupFigure",
+                name: "billing", routines: [], left: 0, top: 0 });
+            tools.addRoutine("g");
+            target.edit.commit("charge", "enter");
+
+            target.failures[0]?.("The edits could not be made (name-taken): "
+                + "a function `charge` exists");
+
+            expect(target.catalog.routine("charge")).toBeUndefined();
+            expect(target.history.entries).toEqual([]);
+            expect(target.edit.label).toBe("Routine name");
+            expect(target.edit.text).toBe("charge");
         });
 
         it("places a view named as entered, with a placeholder SELECT", () => {

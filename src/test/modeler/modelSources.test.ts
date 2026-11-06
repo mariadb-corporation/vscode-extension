@@ -37,6 +37,7 @@ import type { SaveState } from "../../modeler/modelerProtocol.js";
 import {
     ConnectionModelSource,
     describeEdit,
+    isStaleSnapshot,
     type IModelSource,
     diagramHash,
     ProjectModelSource,
@@ -363,6 +364,17 @@ describe("diagramHash", () => {
             expect(diagramHash(diagram("Main", 11)))
                 .not.toBe(diagramHash(diagram("Main")));
         });
+});
+
+describe("isStaleSnapshot", () => {
+    it("tells msm's stale snapshot from the edits it refuses", () => {
+        expect(isStaleSnapshot("The project has no schema snapshot yet: make "
+            + "it with msm.updateSchemaDefinition")).toBe(true);
+        expect(isStaleSnapshot("The schema changed since the snapshot the edits "
+            + "were made against (`a`, now `b`)")).toBe(true);
+        expect(isStaleSnapshot("The edits could not be made (bad-request): "
+            + "column `price`: ...")).toBe(false);
+    });
 });
 
 describe("describeEdit", () => {
