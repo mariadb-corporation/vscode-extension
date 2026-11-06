@@ -23,7 +23,8 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   the server unless typed.
 - **After the deploy**, in this order: `restd.configure_restd` (which
   configures the REST metadata where there is none, installs mariadb-restd
-  where it is missing, sets the daemon up and starts it), then the MRS auth
+  where none at least `MINIMUM_RESTD_VERSION` is found, sets the daemon up
+  and starts it), then the MRS auth
   app, the REST user, and the REST service, published and linked to `MRS`.
   The REST SQL is the MRS dialogs' own builders
   (`defaultAuthAppStatements`, `serviceDefaults` / `serviceStatements`).
@@ -53,7 +54,11 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 ## Files
 
 - `src/mcp/restdApi.ts`: the `restd.*` tools; setup's timeout is 20 minutes
-  (an install), the others 2.
+  (an install), the others 2. `MINIMUM_RESTD_VERSION` (26.10.1, set by hand)
+  goes to every `restd.configure_restd` as `restd_version`, pinned as
+  `MINIMUM_SHELL_VERSION` pins the shell: an older daemon is passed over and
+  exactly `v<version>` installed (`MARIADB_RESTD_TAG`). The server ignores it
+  before the shell whose plugin knows it, and installs the newest release.
 - `src/restd/actionGroup.ts`: one action with a row per step.
 - `src/restd/sandboxRest.ts`: `deploySandboxWithRest`, `followSandbox`.
 - `src/restd/restdCommands.ts`: the view's and the connection menu's

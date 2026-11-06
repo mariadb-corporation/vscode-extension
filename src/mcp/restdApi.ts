@@ -88,6 +88,16 @@ export interface IRestdConfigureOptions {
 }
 
 /**
+ * The mariadb-restd release the extension needs, pinned as
+ * `MINIMUM_SHELL_VERSION` pins the shell: `restd.configure_restd` passes over
+ * an installed daemon older than this, and where there is none new enough it
+ * installs exactly this release (`MARIADB_RESTD_TAG=v<version>`), not the
+ * newest one. Raise it by hand when the extension comes to need a newer
+ * daemon; it has to name a published release.
+ */
+export const MINIMUM_RESTD_VERSION = "26.10.1";
+
+/**
  * How long a setup may take. Where mariadb-restd is not installed, it is
  * downloaded first, which takes far more than the transport's minute.
  */
@@ -133,8 +143,8 @@ export class RestdApi implements IRestdApi {
 
     /**
      * Sets a daemon up for a server and starts it: configuring the REST
-     * metadata where there is none, and installing mariadb-restd where it
-     * is missing.
+     * metadata where there is none, and installing mariadb-restd
+     * `MINIMUM_RESTD_VERSION` where none that new is installed.
      *
      * @param options What to set up.
      *
@@ -154,6 +164,7 @@ export class RestdApi implements IRestdApi {
             ...(options.port === undefined ? {} : { port: options.port }),
             ...(options.metadataSchema === undefined
                 ? {} : { metadata_schema: options.metadataSchema }),
+            restd_version: MINIMUM_RESTD_VERSION,
         }, RESTD_SETUP_TIMEOUT_MS));
     }
 
