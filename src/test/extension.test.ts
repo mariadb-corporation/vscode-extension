@@ -377,6 +377,7 @@ describe("activate", () => {
             "mariadb.msm.renameProjectFolder",
             "mariadb.msm.setProjectFolderColor",
             "mariadb.msm.showProjectInformation",
+            "mariadb.msm.updateSchemaSnapshot",
             "mariadb.newDeployment",
             "mariadb.newFolder",
             "mariadb.newFolderWithSelection",

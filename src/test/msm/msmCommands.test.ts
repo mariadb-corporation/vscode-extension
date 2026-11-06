@@ -155,6 +155,7 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         getSchemaDiagramImage: answer("getSchemaDiagramImage", ""),
         setSchemaDiagram: answer("setSchemaDiagram", []),
         createEmptySchemaDiagram: answer("createEmptySchemaDiagram", undefined),
+        updateSchemaDefinition: answer("updateSchemaDefinition", undefined),
         editSchema: answer("editSchema", {
             rows: [], files: [], migration: [], notes: [],
         }),

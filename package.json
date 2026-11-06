@@ -1200,6 +1200,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "mariadb.msm.updateSchemaSnapshot",
+        "title": "Update Schema Snapshot",
+        "category": "MariaDB",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "mariadb.msm.prepareRelease",
         "title": "Prepare MSM Release...",
         "category": "MariaDB",
@@ -1869,6 +1875,21 @@
           "group": "inline@0"
         },
         {
+          "command": "mariadb.msm.updateSchemaSnapshot",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.updateSchemaSnapshot",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.msm.newSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "0_msm@1"
+        },
+        {
           "command": "mariadb.msm.openSchemaDiagram",
           "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagrams?$/",
           "group": "inline@1"
@@ -1979,6 +2000,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "mariadb.msm.updateSchemaSnapshot",
+          "when": "false"
+        },
         {
           "command": "mariadb.selectRows",
           "when": "false"

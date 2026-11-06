@@ -325,6 +325,24 @@ export const documentOf = (row: IDiagramRow): Record<string, unknown> => {
 };
 
 /**
+ * @param rows The rows of a `msm_schema_diagrams` view.
+ *
+ * @returns Its schema snapshot (`msm-schema/1`), where it has one.
+ * @throws If the snapshot's document is not a JSON object.
+ */
+export const schemaDefinitionOf = (
+    rows: readonly IDiagramRow[],
+): ISchemaDefinition | undefined => {
+    const row = rows.find((entry) => {
+        return entry.format === SCHEMA_DEFINITION_FORMAT;
+    });
+
+    return row === undefined
+        ? undefined
+        : documentOf(row) as unknown as ISchemaDefinition;
+};
+
+/**
  * Puts a schema model together out of the rows of its `msm_schema_diagrams`
  * view: the one snapshot (`msm-schema/1`), and every diagram
  * (`msm-diagram/1`) in the order the view has them. Rows of another format

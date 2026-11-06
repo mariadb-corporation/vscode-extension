@@ -47,7 +47,16 @@ import {
     errorMessages,
     resetVscodeMock,
     TreeItemCollapsibleState,
+    Uri,
 } from "../mocks/vscode.js";
+
+/** Resolves an icon name to a recognisable pair of paths. */
+const resolveIcon = (name: string) => {
+    return {
+        light: Uri.file(`/ext/images/light/${name}`),
+        dark: Uri.file(`/ext/images/dark/${name}`),
+    } as never;
+};
 
 /** A project folder on disk, with a file and a folder in it. */
 const makeProject = (root: string, name: string): string => {
@@ -80,11 +89,28 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
     const api = {
         listProjects: () => { return Promise.resolve(projects); },
         listSchemaDiagrams: (path: string) => {
-            return Promise.resolve({
-                diagrams: path.endsWith("shop.msm.project")
-                    ? [{ name: "Main", figures: 3, connections: 1 }]
-                    : [],
-            });
+            return Promise.resolve(path.endsWith("shop.msm.project")
+                ? { schemaDefinition: { tables: 2, current: false },
+                    diagrams: [{ name: "Main", figures: 3, connections: 1 }] }
+                : { diagrams: [] });
+        },
+        getSchemaDiagrams: () => {
+            return Promise.resolve([{
+                name: "schema_definition", format: "msm-schema/1",
+                document: JSON.stringify({
+                    format: "msm-schema/1", schema: "shop",
+                    tables: [
+                        { name: "orders", columns: [] },
+                        { name: "Customer", columns: [],
+                            options: { comment: "Who buys" } },
+                    ],
+                    views: [{ name: "customer_ids" }],
+                    routines: [
+                        { name: "count_orders", kind: "function" },
+                        { name: "tidy" },
+                    ],
+                }),
+            }]);
         },
         // The listing carries the versions: no project is read for them.
         projectInformation: () => {
@@ -101,6 +127,7 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
         },
     } as unknown as IMsmApi;
     const tree = new MsmProjectsTreeProvider({
+        resolveIcon,
         msmApi: () => { return Promise.resolve(api); },
         log: () => { /* not looked at */ },
     });
@@ -115,6 +142,7 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
  */
 const treeFailing = (error: Error): MsmProjectsTreeProvider => {
     return new MsmProjectsTreeProvider({
+        resolveIcon,
         msmApi: () => {
             return Promise.resolve({
                 listProjects: () => { return Promise.reject(error); },
@@ -248,12 +276,63 @@ describe("the MSM Projects view", () => {
                 .toEqual(["shop_next.sql"]);
         });
 
-    it("lists a project's diagrams first, which open on a double-click",
+    it("shows a project's schema first, with the Connections view's rows",
         async () => {
             const project = makeProject(root, "shop");
             const fake = setUp([listed(project)]);
             const [node] = await fake.tree.getChildren();
-            const [diagrams] = await fake.tree.getChildren(node);
+            const [schema] = await fake.tree.getChildren(node);
+
+            const item = fake.tree.getTreeItem(schema);
+            expect(item.label).toBe("shop");
+            expect(item.contextValue).toBe("mariadbMsmSchema");
+            expect(String((item.iconPath as { light: Uri }).light.path))
+                .toBe("/ext/images/light/schema.svg");
+            expect(item.description).toBe("snapshot older than the script");
+            const rows = await fake.tree.getChildren(schema);
+            expect(rows.map((row) => {
+                return fake.tree.getTreeItem(row).label;
+            })).toEqual(["Diagrams", "Tables", "Views", "Functions",
+                "Procedures"]);
+            expect(fake.tree.getTreeItem(rows[1]).contextValue)
+                .toBe("mariadbMsmObjectGroup.table");
+        });
+
+    it("lists the script's objects as msm's snapshot has them, by name",
+        async () => {
+            const project = makeProject(root, "shop");
+            const fake = setUp([listed(project)]);
+            const [node] = await fake.tree.getChildren();
+            const [schema] = await fake.tree.getChildren(node);
+            const [, tables, views, functions, procedures] =
+                await fake.tree.getChildren(schema);
+            const names = async (group: MsmProjectsNode) => {
+                return (await fake.tree.getChildren(group)).map((row) => {
+                    return fake.tree.getTreeItem(row).label;
+                });
+            };
+
+            expect(await names(tables)).toEqual(["Customer", "orders"]);
+            expect(await names(views)).toEqual(["customer_ids"]);
+            expect(await names(functions)).toEqual(["count_orders"]);
+            // A routine without a kind is a procedure.
+            expect(await names(procedures)).toEqual(["tidy"]);
+            const [customer] = await fake.tree.getChildren(tables);
+            expect(customer).toMatchObject({ kind: "object", projectPath:
+                project, schema: "shop", objectType: "table",
+                name: "Customer", comment: "Who buys" });
+            const item = fake.tree.getTreeItem(customer);
+            expect(item.contextValue).toBe("mariadbMsmObject.table");
+            expect(item.tooltip).toBe("Who buys");
+        });
+
+    it("lists a project's diagrams first in its schema, which open on a "
+        + "double-click", async () => {
+            const project = makeProject(root, "shop");
+            const fake = setUp([listed(project)]);
+            const [node] = await fake.tree.getChildren();
+            const [schema] = await fake.tree.getChildren(node);
+            const [diagrams] = await fake.tree.getChildren(schema);
 
             const folder = fake.tree.getTreeItem(diagrams);
             expect(folder.label).toBe("Diagrams");
@@ -276,6 +355,7 @@ describe("the MSM Projects view", () => {
     it("shows no diagrams where the MariaDB Shell has none", async () => {
         const logs: string[] = [];
         const tree = new MsmProjectsTreeProvider({
+        resolveIcon,
             msmApi: () => {
                 return Promise.resolve({
                     listSchemaDiagrams: () => {
@@ -417,6 +497,7 @@ describe("the MSM Projects view", () => {
 
     it("waits for the MariaDB Shell's startup in its welcome content", () => {
         const tree = new MsmProjectsTreeProvider({
+        resolveIcon,
             msmApi: () => { return new Promise(() => { /* never */ }); },
             status: {
                 phase: "installing",

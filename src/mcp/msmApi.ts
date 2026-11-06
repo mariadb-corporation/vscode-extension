@@ -226,6 +226,7 @@ export interface IMsmApi {
     setSchemaDiagram(projectPath: string,
         document: IDiagramDocument): Promise<string[]>;
     createEmptySchemaDiagram(projectPath: string, name: string): Promise<void>;
+    updateSchemaDefinition(projectPath: string): Promise<void>;
     editSchema(projectPath: string, edits: IMsmSchemaEdit[],
         baseHash: string): Promise<IMsmSchemaEditResult>;
 }
@@ -710,6 +711,20 @@ export class MsmApi implements IMsmApi {
         const tool = "msm.create_schema_diagram";
         decodeObject<object>(tool, await this.caller.callTool(tool,
             msmToolArgs.createEmptySchemaDiagram(projectPath, name)));
+    }
+
+    /**
+     * Makes the project's schema snapshot again from its development
+     * script, as the diagrams and the MSM Projects view read it.
+     *
+     * @param projectPath The project folder.
+     *
+     * @returns Nothing.
+     */
+    public async updateSchemaDefinition(projectPath: string): Promise<void> {
+        const tool = "msm.update_schema_definition";
+        decodeObject<object>(tool, await this.caller.callTool(tool,
+            msmToolArgs.project(projectPath)));
     }
 
     /**

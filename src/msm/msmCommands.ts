@@ -187,8 +187,13 @@ export const projectPathOf = (arg: unknown): string | undefined => {
     }
     const row = arg as MsmProjectsNode | undefined;
 
-    return row?.kind === "project" ? row.project.projectPath
-        : row?.kind === "diagrams" ? row.projectPath : undefined;
+    if (row?.kind === "project") {
+        return row.project.projectPath;
+    }
+
+    // The rows of a project's schema carry their project.
+    return row !== undefined && row.kind !== "folder" && row.kind !== "file"
+        ? row.projectPath : undefined;
 };
 
 /**

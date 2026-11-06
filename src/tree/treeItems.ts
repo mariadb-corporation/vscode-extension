@@ -18,71 +18,35 @@
 import * as vscode from "vscode";
 
 import { connectionLabel, schemeOf } from "../connections/connectionUri.js";
-import type { ConnectionColor, ObjectType } from "../mcp/types.js";
+import type { ConnectionColor } from "../mcp/types.js";
 import { colorUriOf } from "./connectionColors.js";
 import { isMrsNode } from "./mrsModel.js";
 import { MrsTreeItem } from "./mrsTreeItems.js";
 import {
-    OBJECT_GROUP_LABELS,
     type ConnectionsNode,
     type IConnectionNode,
     type IConnectionStatusNode,
-    type IDiagramNode,
-    type IDiagramsNode,
     type IFolderNode,
-    type IObjectGroupNode,
-    type IObjectNode,
-    type ISchemaNode,
 } from "./connectionsModel.js";
 
-/** Resolves an icon name to the light and dark files to show for it. */
-export type IconResolver = (name: string) => {
-    light: vscode.Uri;
-    dark: vscode.Uri;
-};
+import {
+    DiagramsTreeItem,
+    DiagramTreeItem,
+    ObjectGroupTreeItem,
+    ObjectTreeItem,
+    SchemaTreeItem,
+    type IconResolver,
+} from "./schemaTree.js";
 
-/**
- * Builds an icon resolver over the extension's `images` folder, which holds
- * a `light` and a `dark` variant of every icon.
- *
- * @param extensionUri The root of the installed extension.
- *
- * @returns The resolver.
- */
-export const createIconResolver = (
-    extensionUri: vscode.Uri,
-): IconResolver => {
-    return (name: string) => {
-        return {
-            light: vscode.Uri.joinPath(extensionUri, "images", "light", name),
-            dark: vscode.Uri.joinPath(extensionUri, "images", "dark", name),
-        };
-    };
-};
-
-/** The icon shown for a group of objects of one type. */
-const GROUP_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
-    table: "schemaTables.svg",
-    view: "schemaViews.svg",
-    function: "schemaFunctions.svg",
-    procedure: "schemaProcedures.svg",
-    // The upstream icon set has no sequence icon, so this one falls back to
-    // a codicon rather than borrowing an unrelated picture.
-    sequence: new vscode.ThemeIcon("symbol-numeric"),
-    trigger: "schemaTableTriggers.svg",
-    event: "schemaEvents.svg",
-};
-
-/** The icon shown for a single object. */
-const OBJECT_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
-    table: "schemaTable.svg",
-    view: "schemaView.svg",
-    function: "schemaFunction.svg",
-    procedure: "schemaProcedure.svg",
-    sequence: new vscode.ThemeIcon("symbol-numeric"),
-    trigger: "schemaTableTrigger.svg",
-    event: "schemaEvent.svg",
-};
+export {
+    createIconResolver,
+    DiagramsTreeItem,
+    DiagramTreeItem,
+    ObjectGroupTreeItem,
+    ObjectTreeItem,
+    SchemaTreeItem,
+    type IconResolver,
+} from "./schemaTree.js";
 
 /**
  * The icon shown for a connection, by the scheme of its URI, without its
@@ -281,85 +245,8 @@ export class ConnectionStatusTreeItem
     }
 }
 
-/**
- * What `db.list_schemas` calls a schema that is none of the server's own.
- * It is what nearly every row is, so it is the one type left unsaid.
- */
-const USER_SCHEMA = "User Schema";
-
-/** A schema of an open connection. */
-export class SchemaTreeItem extends ConnectionBaseTreeItem<ISchemaNode> {
-    public override contextValue = "mariadbSchema";
-
-    public constructor(node: ISchemaNode, resolveIcon: IconResolver) {
-        super(node, node.schema, "schema.svg", true, resolveIcon);
-
-        // Only a system schema says what it is: a column of "User Schema"
-        // down the tree is what the user came for and tells them nothing.
-        this.description = node.schemaType === USER_SCHEMA
-            ? undefined
-            : node.schemaType;
-        this.tooltip = node.comment || `${node.schema} (${node.schemaType})`;
-    }
-}
-
 /** The command a click on a diagram runs: two quick ones open it. */
 export const DIAGRAM_CLICK_COMMAND = "mariadb.diagramClicked";
-
-/** The folder of a schema's diagrams, first among its children. */
-export class DiagramsTreeItem extends ConnectionBaseTreeItem<IDiagramsNode> {
-    public override contextValue = "mariadbDiagrams";
-
-    public constructor(node: IDiagramsNode, resolveIcon: IconResolver) {
-        super(node, "Diagrams", new vscode.ThemeIcon("type-hierarchy-sub"),
-            true, resolveIcon);
-        this.tooltip = `The diagrams of ${node.schema}, from its `
-            + "msm_schema_diagrams view";
-    }
-}
-
-/**
- * A diagram of a schema. Opened by its inline button, its menu, or a
- * double-click: VS Code has no double-click on tree rows, so every click
- * runs a command that opens on the second within a moment.
- */
-export class DiagramTreeItem extends ConnectionBaseTreeItem<IDiagramNode> {
-    public override contextValue = "mariadbDiagram";
-
-    public constructor(node: IDiagramNode, resolveIcon: IconResolver) {
-        // The Diagrams folder's icon, until a diagram has one of its own.
-        super(node, node.name, new vscode.ThemeIcon("type-hierarchy-sub"),
-            false, resolveIcon);
-        this.command = {
-            command: DIAGRAM_CLICK_COMMAND,
-            title: "Open Diagram",
-            arguments: [node],
-        };
-    }
-}
-
-/** The folder holding all objects of one type in a schema. */
-export class ObjectGroupTreeItem
-    extends ConnectionBaseTreeItem<IObjectGroupNode> {
-
-    public constructor(node: IObjectGroupNode, resolveIcon: IconResolver) {
-        super(node, OBJECT_GROUP_LABELS[node.objectType],
-            GROUP_ICONS[node.objectType], true, resolveIcon);
-
-        this.contextValue = `mariadbObjectGroup.${node.objectType}`;
-    }
-}
-
-/** A single database object. */
-export class ObjectTreeItem extends ConnectionBaseTreeItem<IObjectNode> {
-    public constructor(node: IObjectNode, resolveIcon: IconResolver) {
-        super(node, node.name, OBJECT_ICONS[node.objectType], false,
-            resolveIcon);
-
-        this.contextValue = `mariadbObject.${node.objectType}`;
-        this.tooltip = node.comment || undefined;
-    }
-}
 
 /**
  * Builds the tree item for a node.
@@ -395,11 +282,14 @@ export const createTreeItem = (
         }
 
         case "diagrams": {
-            return new DiagramsTreeItem(node, resolveIcon);
+            return new DiagramsTreeItem(node, resolveIcon, "mariadb",
+                `The diagrams of ${node.schema}, from its `
+                + "msm_schema_diagrams view");
         }
 
         case "diagram": {
-            return new DiagramTreeItem(node, resolveIcon);
+            return new DiagramTreeItem(node, resolveIcon, "mariadb",
+                DIAGRAM_CLICK_COMMAND);
         }
 
         case "objectGroup": {

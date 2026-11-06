@@ -41,6 +41,11 @@ import { DEFAULT_PAGE_SETTINGS } from "./pageSettings.js";
 /** What a panel needs from the outside, so a test can supply its own. */
 export interface IModelerHost {
     log(message: string): void;
+    /**
+     * Called once msm made a schema edit: the trees drawing the schema's
+     * objects read them again.
+     */
+    schemaChanged?(): void;
 }
 
 /** The view type the panels are registered under. */
@@ -292,6 +297,7 @@ export class ModelerPanel {
             const { model, notes } = await this.source.edit(edits,
                 this.#sourceHash, documents);
             this.#sourceHash = model.sourceHash;
+            this.host.schemaChanged?.();
             this.#post({
                 type: "schemaEdited",
                 objects: {
@@ -318,6 +324,22 @@ export class ModelerPanel {
             if (!recover || isStaleSnapshot(text)) {
                 await this.#load();
             }
+        }
+    }
+
+    /**
+     * Reads the model again in the source's panel, where one is up: after
+     * its schema snapshot was made again, which edits made against the old
+     * one would be refused for.
+     *
+     * @param source Where the model comes from.
+     *
+     * @returns Once the panel has it.
+     */
+    public static async reload(source: IModelSource): Promise<void> {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel !== undefined) {
+            await panel.#load();
         }
     }
 

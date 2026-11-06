@@ -163,6 +163,7 @@ import {
 import {
     MSM_DIAGRAM_CLICK_COMMAND,
     MSM_DIAGRAM_COMMANDS,
+    MSM_SCHEMA_COMMANDS,
     MSM_PROJECTS_VIEW_ID,
     MsmProjectsTreeProvider,
     type IMsmDiagramNode,
@@ -836,6 +837,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         msmApi: () => { return serverApi(() => { return session.msmApi; }); },
         status: starter,
         memento: context.globalState,
+        resolveIcon: createIconResolver(context.extensionUri),
         log,
     });
     const msmProjectsView = vscode.window.createTreeView<MsmProjectsNode>(
@@ -1015,7 +1017,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
     };
     const openProjectDiagram = (projectPath: string, name: string): void => {
         ModelerPanel.show(context.extensionUri, projectDiagrams(projectPath),
-            name, { log });
+            name, { log, schemaChanged: () => { msmProjects.refresh(); } });
     };
     /**
      * Opens a diagram of a project, asking which where the project has
@@ -1078,7 +1080,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return Promise.resolve();
                 }
                 ModelerPanel.revive(context.extensionUri, panel,
-                    sourceOf(target), target.diagram, { log });
+                    sourceOf(target), target.diagram, { log,
+                        schemaChanged: () => { msmProjects.refresh(); } });
 
                 return Promise.resolve();
             },
@@ -1137,6 +1140,25 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     openProjectDiagram(projectPath, name);
                 } catch (error) {
                     reportError(log, error, "create the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_SCHEMA_COMMANDS.updateSnapshot,
+            async (arg?: unknown) => {
+                const projectPath = projectPathOf(arg);
+                if (projectPath === undefined) {
+                    return;
+                }
+                try {
+                    await vscode.window.withProgress({
+                        location: { viewId: "mariadb.msmProjects" },
+                    }, async () => {
+                        await (await msmApi()).updateSchemaDefinition(
+                            projectPath);
+                    });
+                    msmProjects.refresh();
+                    await ModelerPanel.reload(projectDiagrams(projectPath));
+                } catch (error) {
+                    reportError(log, error, "update the schema snapshot");
                 }
             }),
         vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,

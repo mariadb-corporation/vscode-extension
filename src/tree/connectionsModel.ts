@@ -27,6 +27,7 @@ import {
 } from "../connections/connectionFolders.js";
 import type { IStoredConnection } from "../connections/connectionStore.js";
 import { hasDiagrams, hasDiagramsSql } from "../modeler/diagramQueries.js";
+import { objectGroupsOf, objectsOf } from "./schemaTree.js";
 import type { DiagramService } from "../modeler/diagramService.js";
 import { isDefaultConnection } from "../connections/connectionUri.js";
 import {
@@ -199,16 +200,7 @@ export const folderOf = (
     }
 };
 
-/** The caption each object group is shown under. */
-export const OBJECT_GROUP_LABELS: Record<ObjectType, string> = {
-    table: "Tables",
-    view: "Views",
-    function: "Functions",
-    procedure: "Procedures",
-    sequence: "Sequences",
-    trigger: "Triggers",
-    event: "Events",
-};
+export { OBJECT_GROUP_LABELS } from "./schemaTree.js";
 
 /**
  * The contents of the Connections view, as plain data.
@@ -462,14 +454,7 @@ export class ConnectionsModel {
      * @returns One group node per object type.
      */
     #groupsOf(node: ISchemaNode): IObjectGroupNode[] {
-        return OBJECT_TYPES.map((objectType) => {
-            return {
-                kind: "objectGroup",
-                uri: node.uri,
-                schema: node.schema,
-                objectType,
-            };
-        });
+        return objectGroupsOf({ uri: node.uri }, node.schema, OBJECT_TYPES);
     }
 
     /**
@@ -541,16 +526,7 @@ export class ConnectionsModel {
             node.objectType,
         );
 
-        return objects.map((object) => {
-            return {
-                kind: "object",
-                uri: node.uri,
-                schema: node.schema,
-                objectType: node.objectType,
-                name: object.name,
-                comment: object.comment,
-            };
-        });
+        return objectsOf({ uri: node.uri }, node, objects);
     }
 
 }

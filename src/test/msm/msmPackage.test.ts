@@ -23,7 +23,10 @@ import { describe, expect, it } from "vitest";
 
 import { MSM_COMMANDS, MSM_LIST_COMMANDS } from "../../msm/msmCommands.js";
 import { MSM_FOLDER_COMMANDS } from "../../msm/msmProjectsCommands.js";
-import { MSM_DIAGRAM_COMMANDS } from "../../tree/msmProjectsTreeProvider.js";
+import {
+    MSM_DIAGRAM_COMMANDS,
+    MSM_SCHEMA_COMMANDS,
+} from "../../tree/msmProjectsTreeProvider.js";
 
 const EXTENSION_ROOT = join(
     dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -81,7 +84,8 @@ describe("the MariaDB Schema Management menu", () => {
         const all = [...Object.values(MSM_COMMANDS),
             ...Object.values(MSM_LIST_COMMANDS),
             ...Object.values(MSM_FOLDER_COMMANDS),
-            ...Object.values(MSM_DIAGRAM_COMMANDS)];
+            ...Object.values(MSM_DIAGRAM_COMMANDS),
+            ...Object.values(MSM_SCHEMA_COMMANDS)];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
         }).map((entry) => { return entry.command; }).sort())
@@ -221,6 +225,13 @@ describe("the MSM Projects view's menus", () => {
             .toEqual([MSM_DIAGRAM_COMMANDS.open]);
         expect(onRow("mariadbMsmDiagram", false))
             .toEqual([MSM_DIAGRAM_COMMANDS.open]);
+    });
+
+    it("makes a project's schema snapshot again from its schema row", () => {
+        expect(onRow("mariadbMsmSchema", true))
+            .toEqual([MSM_SCHEMA_COMMANDS.updateSnapshot]);
+        expect(onRow("mariadbMsmSchema", false)).toEqual([
+            MSM_SCHEMA_COMMANDS.updateSnapshot, MSM_DIAGRAM_COMMANDS.create]);
     });
 
     it("adds an empty diagram from the Diagrams folder's + and its menu, "

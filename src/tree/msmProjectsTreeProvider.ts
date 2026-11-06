@@ -31,9 +31,14 @@ import {
 import { reportError } from "../errorMessages.js";
 import { McpToolError } from "../mcp/protocol.js";
 import type { IServerStatus } from "../mcp/serverStarter.js";
-import type { IMsmApi, IMsmListedProject } from "../mcp/msmApi.js";
+import type {
+    IMsmApi, IMsmDiagramListing, IMsmListedProject,
+} from "../mcp/msmApi.js";
 import type { ConnectionColor } from "../mcp/types.js";
 import { schemaNameOfFolder } from "../msm/msmFields.js";
+import {
+    schemaDefinitionOf, type ISchemaDefinition,
+} from "../modeler/modelFormat.js";
 import { colorUriOf } from "./connectionColors.js";
 import type { IFolderNode } from "./connectionsModel.js";
 import {
@@ -44,9 +49,26 @@ import {
     rebase,
     type IFolderMemento,
 } from "./customFolders.js";
+import {
+    DiagramsTreeItem,
+    DiagramTreeItem,
+    ObjectGroupTreeItem,
+    objectGroupsOf,
+    objectsOf,
+    ObjectTreeItem,
+    outlineObjects,
+    OUTLINE_OBJECT_TYPES,
+    SchemaTreeItem,
+    type IconResolver,
+    type IDiagramEntryRow,
+    type IDiagramsRow,
+    type IObjectGroupRow,
+    type IObjectRow,
+    type ISchemaRow,
+} from "./schemaTree.js";
 import { FolderTreeItem } from "./treeItems.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
-import { counted, errorText } from "../text.js";
+import { errorText } from "../text.js";
 
 /** The id the MSM Projects view is contributed under. */
 export const MSM_PROJECTS_VIEW_ID = "mariadb.msmProjects";
@@ -109,22 +131,43 @@ export interface IMsmFileNode {
     directory: boolean;
 }
 
-/** The folder of a project's schema diagrams, first among its rows. */
-export interface IMsmDiagramsNode {
-    kind: "diagrams";
+/** Where a row of a project's schema is: the project folder. */
+export interface IMsmProjectPlace {
     projectPath: string;
 }
 
+/**
+ * A project's schema, first among its rows, as the Connections view draws
+ * a live one: its objects are those of the development script, as msm's
+ * schema snapshot has them.
+ */
+export interface IMsmSchemaNode extends IMsmProjectPlace, ISchemaRow {
+    /**
+     * Whether the snapshot was made from the script as it is; undefined
+     * where the project has none yet, or the shell cannot say.
+     */
+    current?: boolean;
+    /** Whether the project has a snapshot at all. */
+    snapshot: boolean;
+}
+
+/** The folder of a project's schema diagrams, first in its schema. */
+export interface IMsmDiagramsNode extends IMsmProjectPlace, IDiagramsRow {}
+
 /** A schema diagram of a project. */
-export interface IMsmDiagramNode {
-    kind: "diagram";
-    projectPath: string;
-    name: string;
+export interface IMsmDiagramNode extends IMsmProjectPlace, IDiagramEntryRow {
     figures: number;
 }
 
+/** The folder of one type of the project's schema objects. */
+export interface IMsmObjectGroupNode extends IMsmProjectPlace, IObjectGroupRow {}
+
+/** A table, view or routine of the project's development script. */
+export interface IMsmObjectNode extends IMsmProjectPlace, IObjectRow {}
+
 export type MsmProjectsNode = IMsmFolderNode | IMsmProjectNode | IMsmFileNode
-    | IMsmDiagramsNode | IMsmDiagramNode;
+    | IMsmSchemaNode | IMsmDiagramsNode | IMsmDiagramNode
+    | IMsmObjectGroupNode | IMsmObjectNode;
 
 /**
  * The command a click on a project's diagram runs: VS Code has no
@@ -143,9 +186,17 @@ export const MSM_DIAGRAM_COMMANDS = {
     create: "mariadb.msm.newSchemaDiagram",
 } as const;
 
+/** The commands on a project's schema row. */
+export const MSM_SCHEMA_COMMANDS = {
+    /** Makes msm's snapshot of the development script again. */
+    updateSnapshot: "mariadb.msm.updateSchemaSnapshot",
+} as const;
+
 /** What the view needs from the extension. */
 export interface IMsmProjectsHost {
     msmApi(): Promise<IMsmApi>;
+    /** The icons of a schema's rows, as the Connections view has them. */
+    resolveIcon: IconResolver;
     /** How the server's startup is going, which the welcome content says. */
     status?: IServerStatus;
     /** Where the folders, collapsed folders and colors persist. */
@@ -239,6 +290,12 @@ export class MsmProjectsTreeProvider
 
     /** The projects the rows were drawn from, until the next refresh. */
     #listing: Promise<IMsmProjectNode[]> | undefined;
+    /** Each project's diagrams and snapshot state, until the next refresh. */
+    readonly #listings =
+        new Map<string, Promise<IMsmDiagramListing | undefined>>();
+    /** Each project's schema snapshot, until the next refresh. */
+    readonly #snapshots =
+        new Map<string, Promise<ISchemaDefinition | undefined>>();
     readonly #viewState: ViewStateTracker;
 
     public readonly customFolders: FolderSet;
@@ -267,6 +324,8 @@ export class MsmProjectsTreeProvider
      */
     public refresh(): void {
         this.#listing = undefined;
+        this.#listings.clear();
+        this.#snapshots.clear();
         this.#onDidChangeTreeData.fire(undefined);
     }
 
@@ -337,12 +396,33 @@ export class MsmProjectsTreeProvider
                 return projectItem(node);
             }
 
+            case "schema": {
+                return schemaItem(node, this.host.resolveIcon);
+            }
+
             case "diagrams": {
-                return diagramsItem(node);
+                return diagramsItem(node, this.host.resolveIcon);
             }
 
             case "diagram": {
-                return diagramItem(node);
+                return diagramItem(node, this.host.resolveIcon);
+            }
+
+            case "objectGroup": {
+                const item = new ObjectGroupTreeItem(node, this.host.resolveIcon,
+                    "mariadbMsm");
+                item.id = `msmGroup:${node.projectPath}:${node.objectType}`;
+
+                return item;
+            }
+
+            case "object": {
+                const item = new ObjectTreeItem(node, this.host.resolveIcon,
+                    "mariadbMsm");
+                item.id = `msmObject:${node.projectPath}:${node.objectType}:`
+                    + node.name;
+
+                return item;
             }
 
             default: {
@@ -367,18 +447,36 @@ export class MsmProjectsTreeProvider
                 case "project": {
                     return node.project.exists
                         ? [
-                            { kind: "diagrams",
-                                projectPath: node.project.projectPath },
+                            await this.#schemaOf(node.project),
                             ...await filesIn(node.project.projectPath),
                         ]
                         : [];
+                }
+
+                case "schema": {
+                    const place = { projectPath: node.projectPath };
+
+                    return [
+                        { ...place, kind: "diagrams", schema: node.schema },
+                        ...objectGroupsOf(place, node.schema,
+                            OUTLINE_OBJECT_TYPES),
+                    ];
                 }
 
                 case "diagrams": {
                     return await this.#diagramsOf(node.projectPath);
                 }
 
-                case "diagram": {
+                case "objectGroup": {
+                    const definition = await this.#snapshotOf(node.projectPath);
+
+                    return definition === undefined ? [] : objectsOf(
+                        { projectPath: node.projectPath }, node,
+                        outlineObjects(definition, node.objectType));
+                }
+
+                case "diagram":
+                case "object": {
                     return [];
                 }
 
@@ -397,32 +495,105 @@ export class MsmProjectsTreeProvider
     /**
      * @param projectPath A project folder.
      *
-     * @returns Its schema diagrams, as msm lists them; none from a MariaDB
-     *          Shell too old to have them, which is logged, not notified
-     *          on every expand.
+     * @returns Its diagrams and its snapshot's state, as msm lists them,
+     *          read once until the next refresh; nothing from a MariaDB
+     *          Shell too old to have them, which is logged, not notified on
+     *          every expand.
+     */
+    #listingOf(projectPath: string): Promise<IMsmDiagramListing | undefined> {
+        return this.#cached(this.#listings, projectPath, async () => {
+            try {
+                return await (await this.host.msmApi())
+                    .listSchemaDiagrams(projectPath);
+            } catch (error) {
+                if (isUnsupportedShell(error)) {
+                    this.host.log("The MariaDB Shell has no schema diagrams "
+                        + "for MSM projects; a newer version is needed.");
+
+                    return undefined;
+                }
+                throw error;
+            }
+        });
+    }
+
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns msm's schema snapshot of its development script, read once
+     *          until the next refresh; nothing where it has none.
+     */
+    #snapshotOf(projectPath: string): Promise<ISchemaDefinition | undefined> {
+        return this.#cached(this.#snapshots, projectPath, async () => {
+            if (!(await this.#listingOf(projectPath))?.schemaDefinition) {
+                return undefined;
+            }
+
+            return schemaDefinitionOf(await (await this.host.msmApi())
+                .getSchemaDiagrams(projectPath));
+        });
+    }
+
+    /**
+     * @param cache Where answers are kept until the next refresh.
+     * @param key What is asked about.
+     * @param read Reads the answer.
+     *
+     * @returns The kept answer, read where there is none; a failed read is
+     *          not kept, so the next draw tries again.
+     */
+    #cached<T>(cache: Map<string, Promise<T>>, key: string,
+        read: () => Promise<T>): Promise<T> {
+        let answer = cache.get(key);
+        if (answer === undefined) {
+            const reading = read();
+            answer = reading;
+            cache.set(key, reading);
+            reading.catch(() => {
+                if (cache.get(key) === reading) {
+                    cache.delete(key);
+                }
+            });
+        }
+
+        return answer;
+    }
+
+    /**
+     * @param project A listed project.
+     *
+     * @returns Its schema row: named as the project's schema, saying
+     *          whether msm's snapshot is the script's as it is.
+     */
+    async #schemaOf(project: IMsmListedProject): Promise<IMsmSchemaNode> {
+        const listing = await this.#listingOf(project.projectPath);
+
+        return {
+            kind: "schema",
+            projectPath: project.projectPath,
+            schema: project.schemaName
+                ?? schemaNameOfFolder(basename(project.projectPath)),
+            snapshot: listing?.schemaDefinition !== undefined,
+            current: listing?.schemaDefinition?.current,
+        };
+    }
+
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns Its schema diagrams, as msm lists them.
      */
     async #diagramsOf(projectPath: string): Promise<IMsmDiagramNode[]> {
-        try {
-            const listing = await (await this.host.msmApi())
-                .listSchemaDiagrams(projectPath);
+        const listing = await this.#listingOf(projectPath);
 
-            return listing.diagrams.map((diagram) => {
-                return {
-                    kind: "diagram",
-                    projectPath,
-                    name: diagram.name,
-                    figures: diagram.figures,
-                };
-            });
-        } catch (error) {
-            if (isUnsupportedShell(error)) {
-                this.host.log("The MariaDB Shell has no schema diagrams "
-                    + "for MSM projects; a newer version is needed.");
-
-                return [];
-            }
-            throw error;
-        }
+        return (listing?.diagrams ?? []).map((diagram) => {
+            return {
+                kind: "diagram",
+                projectPath,
+                name: diagram.name,
+                figures: diagram.figures,
+            };
+        });
     }
 
     /**
@@ -771,41 +942,67 @@ const projectItem = (node: IMsmProjectNode): vscode.TreeItem => {
 };
 
 /**
- * @param node A project's Diagrams folder.
+ * @param node A project's schema.
+ * @param resolveIcon The icons' lookup.
  *
- * @returns Its row, first among the project's.
+ * @returns Its row, first among the project's, with the Connections view's
+ *          schema icon; it says where msm's snapshot is not the script's.
  */
-const diagramsItem = (node: IMsmDiagramsNode): vscode.TreeItem => {
-    const item = new vscode.TreeItem("Diagrams",
-        vscode.TreeItemCollapsibleState.Collapsed);
+const schemaItem = (
+    node: IMsmSchemaNode,
+    resolveIcon: IconResolver,
+): vscode.TreeItem => {
+    const item = new SchemaTreeItem(node, resolveIcon, "mariadbMsm");
+    item.id = `msmSchema:${node.projectPath}`;
+    if (!node.snapshot) {
+        item.description = "no snapshot yet";
+        item.tooltip = `The schema ${node.schema} has no snapshot yet: `
+            + "Update Schema Snapshot makes it from the development script.";
+    } else if (node.current === false) {
+        item.description = "snapshot older than the script";
+        item.tooltip = `The objects of ${node.schema} as msm's snapshot `
+            + "has them, which the development script changed since: Update "
+            + "Schema Snapshot makes it again.";
+    } else {
+        item.tooltip = `The objects of ${node.schema}, as the development `
+            + "script has them";
+    }
+
+    return item;
+};
+
+/**
+ * @param node A project's Diagrams folder.
+ * @param resolveIcon The icons' lookup.
+ *
+ * @returns Its row, first in the project's schema.
+ */
+const diagramsItem = (
+    node: IMsmDiagramsNode,
+    resolveIcon: IconResolver,
+): vscode.TreeItem => {
+    const item = new DiagramsTreeItem(node, resolveIcon, "mariadbMsm",
+        "The schema diagrams of the project, kept in MSM Section 160 of its "
+        + "development script");
     item.id = `msmDiagrams:${node.projectPath}`;
-    item.contextValue = "mariadbMsmDiagrams";
-    item.iconPath = new vscode.ThemeIcon("type-hierarchy-sub");
-    item.tooltip = "The schema diagrams of the project, kept in MSM "
-        + "Section 160 of its development script";
 
     return item;
 };
 
 /**
  * @param node A project's diagram.
+ * @param resolveIcon The icons' lookup.
  *
  * @returns Its row: opened by its inline button, its menu, or a
  *          double-click.
  */
-const diagramItem = (node: IMsmDiagramNode): vscode.TreeItem => {
-    const item = new vscode.TreeItem(node.name,
-        vscode.TreeItemCollapsibleState.None);
+const diagramItem = (
+    node: IMsmDiagramNode,
+    resolveIcon: IconResolver,
+): vscode.TreeItem => {
+    const item = new DiagramTreeItem(node, resolveIcon, "mariadbMsm",
+        MSM_DIAGRAM_CLICK_COMMAND);
     item.id = `msmDiagram:${node.projectPath}:${node.name}`;
-    item.contextValue = "mariadbMsmDiagram";
-    // The Diagrams folder's icon, as the Connections view's diagrams have.
-    item.iconPath = new vscode.ThemeIcon("type-hierarchy-sub");
-    item.description = counted(node.figures, "figure");
-    item.command = {
-        command: MSM_DIAGRAM_CLICK_COMMAND,
-        title: "Open Diagram",
-        arguments: [node],
-    };
 
     return item;
 };
