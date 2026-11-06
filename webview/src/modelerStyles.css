@@ -75,7 +75,10 @@ body,
 
 /*
  * The MySQL Shell's schema diagram designer's icons, drawn as masks over
- * the button's colour; the light files serve every theme.
+ * the button's colour; the light files serve every theme. The palette's
+ * table, view and routine group tools use the schema trees' icons
+ * (schemaTable, schemaView, schemaProcedures), so they look like the
+ * objects they place.
  */
 body {
     --icon-tool-pointer: url("../../images/light/toolbar-tool-pointer.svg");
@@ -89,9 +92,9 @@ body {
     --icon-diagram-layer: url("../../images/light/toolbar-diagram-layer.svg");
     --icon-diagram-note: url("../../images/light/toolbar-diagram-note.svg");
     --icon-diagram-image: url("../../images/light/toolbar-diagram-image.svg");
-    --icon-diagram-table: url("../../images/light/toolbar-diagram-table.svg");
-    --icon-diagram-view: url("../../images/light/toolbar-diagram-view.svg");
-    --icon-diagram-routines: url("../../images/light/toolbar-diagram-routines.svg");
+    --icon-diagram-table: url("../../images/light/schemaTable.svg");
+    --icon-diagram-view: url("../../images/light/schemaView.svg");
+    --icon-diagram-routines: url("../../images/light/schemaProcedures.svg");
     --icon-diagram-rel11: url("../../images/light/toolbar-diagram-rel11.svg");
     --icon-diagram-rel1n: url("../../images/light/toolbar-diagram-rel1n.svg");
     --icon-diagram-rel11id: url("../../images/light/toolbar-diagram-rel11id.svg");
