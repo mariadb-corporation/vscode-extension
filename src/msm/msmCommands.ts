@@ -191,6 +191,22 @@ export const projectPathOf = (arg: unknown): string | undefined => {
         : row?.kind === "diagrams" ? row.projectPath : undefined;
 };
 
+/**
+ * @param taken The names of the project's diagrams.
+ *
+ * @returns The name a new diagram is offered: "Diagram 1", numbered past
+ *          the ones in use, in any case.
+ */
+export const newDiagramName = (taken: readonly string[]): string => {
+    const used = new Set(taken.map((name) => { return name.toLowerCase(); }));
+    let number = 1;
+    while (used.has(`diagram ${number}`)) {
+        number += 1;
+    }
+
+    return `Diagram ${number}`;
+};
+
 /** The commands, by the dialog each opens. */
 export const MSM_COMMANDS: Record<MsmDialogKind, string> = {
     create: "mariadb.msm.createProject",

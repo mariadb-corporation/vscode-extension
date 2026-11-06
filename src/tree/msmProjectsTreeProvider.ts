@@ -139,6 +139,8 @@ export const MSM_DIAGRAM_COMMANDS = {
      * Explorer folder's, or one picked), asking which where it has several.
      */
     open: "mariadb.msm.openSchemaDiagram",
+    /** Adds an empty diagram to a project and opens it, to model on. */
+    create: "mariadb.msm.newSchemaDiagram",
 } as const;
 
 /** What the view needs from the extension. */

@@ -225,6 +225,7 @@ export interface IMsmApi {
         figureId: string): Promise<string>;
     setSchemaDiagram(projectPath: string,
         document: IDiagramDocument): Promise<string[]>;
+    createEmptySchemaDiagram(projectPath: string, name: string): Promise<void>;
     editSchema(projectPath: string, edits: IMsmSchemaEdit[],
         baseHash: string): Promise<IMsmSchemaEditResult>;
 }
@@ -398,6 +399,13 @@ export const msmToolArgs = {
         document: IDiagramDocument,
     ): Record<string, unknown> => {
         return { document, schema_project_path: projectPath };
+    },
+    createEmptySchemaDiagram: (
+        projectPath: string,
+        name: string,
+    ): Record<string, unknown> => {
+        // No tables: msm's default is every one of the schema's.
+        return { name, tables: [], schema_project_path: projectPath };
     },
     editSchema: (
         projectPath: string,
@@ -683,6 +691,25 @@ export class MsmApi implements IMsmApi {
 
         return decodeList<string>(name, await this.caller.callTool(name,
             msmToolArgs.setSchemaDiagram(projectPath, document)));
+    }
+
+    /**
+     * Adds an empty diagram to a project, to model on. msm makes the
+     * schema snapshot again first where the script changed since, so the
+     * diagram's tools edit against the current one.
+     *
+     * @param projectPath The project folder.
+     * @param name The new diagram's name; msm refuses one that is taken.
+     *
+     * @returns Nothing.
+     */
+    public async createEmptySchemaDiagram(
+        projectPath: string,
+        name: string,
+    ): Promise<void> {
+        const tool = "msm.create_schema_diagram";
+        decodeObject<object>(tool, await this.caller.callTool(tool,
+            msmToolArgs.createEmptySchemaDiagram(projectPath, name)));
     }
 
     /**

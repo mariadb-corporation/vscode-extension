@@ -206,7 +206,8 @@ describe("the MSM Projects view's menus", () => {
             MSM_COMMANDS.deploymentScript, MSM_COMMANDS.deploy];
         expect(onRow("mariadbMsmProject", true)).toEqual(operations);
         expect(onRow("mariadbMsmProject", false)).toEqual([...operations,
-            MSM_DIAGRAM_COMMANDS.open, MSM_COMMANDS.edit,
+            MSM_DIAGRAM_COMMANDS.open, MSM_DIAGRAM_COMMANDS.create,
+            MSM_COMMANDS.edit,
             MSM_LIST_COMMANDS.removeFromProjects]);
         for (const id of operations) {
             expect(commands.find((entry) => {
@@ -216,10 +217,22 @@ describe("the MSM Projects view's menus", () => {
     });
 
     it("opens a project's diagrams from their folder and their rows", () => {
-        for (const row of ["mariadbMsmDiagrams", "mariadbMsmDiagram"]) {
-            expect(onRow(row, true), row).toEqual([MSM_DIAGRAM_COMMANDS.open]);
-            expect(onRow(row, false), row).toEqual([MSM_DIAGRAM_COMMANDS.open]);
-        }
+        expect(onRow("mariadbMsmDiagram", true))
+            .toEqual([MSM_DIAGRAM_COMMANDS.open]);
+        expect(onRow("mariadbMsmDiagram", false))
+            .toEqual([MSM_DIAGRAM_COMMANDS.open]);
+    });
+
+    it("adds an empty diagram from the Diagrams folder's + and its menu, "
+        + "and from the project's menu", () => {
+        // The + first, then open.
+        expect(onRow("mariadbMsmDiagrams", true)).toEqual([
+            MSM_DIAGRAM_COMMANDS.create, MSM_DIAGRAM_COMMANDS.open]);
+        expect(onRow("mariadbMsmDiagrams", false)).toEqual([
+            MSM_DIAGRAM_COMMANDS.open, MSM_DIAGRAM_COMMANDS.create]);
+        expect(commands.find((entry) => {
+            return entry.command === MSM_DIAGRAM_COMMANDS.create;
+        })?.icon).toBe("$(add)");
     });
 
     it("only offers removing a project whose folder is gone", () => {
