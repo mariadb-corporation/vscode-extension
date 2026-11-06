@@ -870,7 +870,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         void msmProjects.collapsed(event.element);
     });
 
-    // The object selected - on a diagram, or in either tree - in full,
+    // The object selected - on a diagram, or in either tree - read only,
     // below MSM Projects and below Connections.
     const objectDetails = new ObjectDetailsProvider({
         extensionUri: context.extensionUri,
@@ -887,20 +887,6 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 schema, ref.name, ref.type);
         },
         connectionLabel,
-        change: async (projectPath, change, baseHash) => {
-            const source = projectDiagrams(projectPath);
-            // In the open diagram, where it joins the history.
-            if (ModelerPanel.applySchemaChange(source, change)) {
-                return "viewer";
-            }
-            if (baseHash === undefined) {
-                throw new Error("The project has no schema snapshot yet.");
-            }
-            await source.edit(change.edits, baseHash);
-            msmProjects.refresh();
-
-            return "made";
-        },
     });
     context.subscriptions.push(objectDetails,
         ...OBJECT_DETAILS_VIEWS.map((id) => {
@@ -929,7 +915,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
             msmProjects.refresh();
             objectDetails.refreshed();
         },
-        schemaEditFailed: (message) => { objectDetails.failed(message); },
+        // The project is read again; what Object Details shows with it.
+        schemaEditFailed: () => { objectDetails.refreshed(); },
         draggedObjects: () => { return draggedObjects.take(); },
         selected: (target, objects) => {
             const [first] = objects;

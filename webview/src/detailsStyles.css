@@ -15,7 +15,10 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-/* The Object Details view, in the sidebar's colours. */
+/*
+ * The Object Details view, in the sidebar's colours: compressed and read
+ * only, a row a line, as the tree rows above it are.
+ */
 
 body {
     padding: 0;
@@ -26,15 +29,15 @@ body {
 }
 
 .objectDetails {
-    padding: 6px 12px 12px;
+    padding: 4px 8px 8px 12px;
 }
 
 .objectDetails section {
-    margin-top: 10px;
+    margin-top: 6px;
 }
 
 .objectDetails h3 {
-    margin: 0 0 4px;
+    margin: 0 0 1px;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
@@ -46,10 +49,13 @@ body {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 6px;
+    column-gap: 6px;
 }
 
-.detailsType {
+.detailsKind,
+.detailsWhere,
+.detailsMuted,
+.detailsDataType {
     color: var(--vscode-descriptionForeground);
 }
 
@@ -57,131 +63,106 @@ body {
     font-weight: 600;
 }
 
-.detailsHeader .detailsInput {
-    font-weight: 600;
-}
-
 .detailsWhere {
     flex-basis: 100%;
+    font-size: 0.92em;
+}
+
+.detailsComment {
+    margin-top: 2px;
+    font-style: italic;
     color: var(--vscode-descriptionForeground);
 }
 
-.detailsInput {
-    box-sizing: border-box;
-    width: 100%;
-    min-width: 3em;
-    padding: 1px 4px;
-    color: var(--vscode-input-foreground);
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border, transparent);
-    font: inherit;
+/*
+ * A row a line, as a row of a diagram's table card: icon, name, then what
+ * it is in dimmed italics, cut short where narrow.
+ */
+.detailsList {
+    margin: 0;
+    padding: 0;
+    list-style: none;
 }
 
-.detailsInput:focus {
-    outline: 1px solid var(--vscode-focusBorder);
-    outline-offset: -1px;
-}
-
-.detailsInput:disabled {
-    background: transparent;
-    border-color: transparent;
-    color: inherit;
-}
-
-.detailsField {
-    display: flex;
+.detailsList li {
+    display: grid;
+    grid-template-columns: 14px minmax(0, max-content) minmax(0, 1fr);
     align-items: center;
-    gap: 6px;
+    column-gap: 6px;
+    height: 20px;
+    white-space: nowrap;
 }
 
-/* An input beside a label takes what is left of the row. */
-.detailsField .detailsInput,
-.detailsHeader .detailsInput {
-    flex: 1 1 0;
-    width: auto;
-    min-width: 0;
+.detailsIcon {
+    width: 14px;
+    height: 14px;
+    background-color: var(--vscode-icon-foreground,
+        var(--vscode-foreground));
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    -webkit-mask-size: contain;
 }
 
-.detailsScroll {
-    overflow-x: auto;
+/* A row without an icon still lines its name up with the others. */
+.detailsList li > .detailsItem:first-child {
+    grid-column: 2;
+}
+
+.detailsItem,
+.detailsDataType {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* As a row of a diagram's table card: the type right after the name. */
+.detailsDataType {
+    font-style: italic;
 }
 
 .detailsGrid {
-    width: 100%;
     border-collapse: collapse;
 }
 
-/* Wide enough to read; the grid scrolls sideways in a narrow sidebar. */
-.detailsGrid .detailsInput {
-    min-width: 6em;
-}
-
-.detailsGrid td:nth-child(3) .detailsInput {
-    min-width: 8.5em;
-}
-
-.detailsGrid td:nth-child(6) .detailsInput {
-    min-width: 4em;
-}
-
-.detailsGrid td:nth-child(7) .detailsInput {
-    min-width: 9em;
-}
-
-.objectDetails select {
-    padding: 1px 2px;
-    color: var(--vscode-dropdown-foreground);
-    background: var(--vscode-dropdown-background);
-    border: 1px solid var(--vscode-dropdown-border, transparent);
-    font: inherit;
-}
-
 .detailsGrid th {
+    padding: 1px 8px 1px 0;
     text-align: left;
     font-weight: normal;
     color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
 }
 
-.detailsGrid td,
-.detailsGrid th {
-    padding: 1px 2px;
-    vertical-align: middle;
+.detailsGrid td {
+    padding: 1px 0;
 }
 
-.detailsDrop {
-    padding: 0 4px;
-    color: var(--vscode-foreground);
-    background: transparent;
-    border: none;
+/* SQL folded away; a click opens it. */
+.detailsFold {
+    margin-top: 6px;
+}
+
+.detailsFold summary {
     cursor: pointer;
-}
-
-.detailsDrop:hover {
-    background: var(--vscode-toolbar-hoverBackground);
-}
-
-.detailsAdd .detailsInput::placeholder {
-    color: var(--vscode-input-placeholderForeground);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--vscode-sideBarSectionHeader-foreground,
+        var(--vscode-foreground));
 }
 
 .detailsCode {
-    margin: 0;
-    padding: 4px 6px;
+    margin: 2px 0 0;
+    padding: 3px 5px;
     overflow-x: auto;
     background: var(--vscode-textCodeBlock-background);
     font-family: var(--vscode-editor-font-family);
-    white-space: pre-wrap;
+    font-size: var(--vscode-editor-font-size);
+    white-space: pre;
 }
 
 .detailsNote {
-    margin-top: 6px;
+    margin-top: 4px;
     color: var(--vscode-descriptionForeground);
-}
-
-.detailsError {
-    margin-bottom: 6px;
-    padding: 4px 6px;
-    color: var(--vscode-errorForeground);
-    background: var(--vscode-inputValidation-errorBackground);
-    border: 1px solid var(--vscode-inputValidation-errorBorder, transparent);
 }

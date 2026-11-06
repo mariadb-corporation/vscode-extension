@@ -16,17 +16,17 @@
  */
 
 /**
- * The Object Details view's page: a table's columns, keys, indexes,
- * foreign keys and comment, a view's columns and SELECT, a routine's
- * parameters. A project's table is changed in place: each field sends its
- * change once it is left or Enter is pressed, and the view shows what msm
- * made of it.
+ * The Object Details view's page: the object selected, compressed for a
+ * side bar and read only - a table's columns (one line each, with the
+ * diagram card's icons), indexes, foreign keys and comment; a view's
+ * columns; a routine's parameters; a trigger's, an event's and a
+ * sequence's settings; SQL folded away. Changing an object is the object
+ * editor's.
  */
 
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
-import type { TableDetailChange } from "../../../src/details/detailEdits.js";
 import type {
     DetailsHostMessage,
     IObjectDetailsView,
@@ -41,14 +41,39 @@ import type {
     IOutlineTrigger,
     IOutlineView,
 } from "../../../src/modeler/modelFormat.js";
-import {
-    COLUMN_TYPES,
-    DEFAULT_COLUMN_TYPE,
-} from "../../../src/sql/columnTypes.js";
+import columnSvg from "../assets/modeler/schemaTableColumn.svg?raw";
+import notNullSvg from "../assets/modeler/schemaTableColumnNN.svg?raw";
+import keySvg from "../assets/modeler/schemaTableColumnPK.svg?raw";
+import foreignKeySvg from "../assets/modeler/schemaTableForeignKey.svg?raw";
+import indexSvg from "../assets/modeler/schemaTableIndex.svg?raw";
 import { post } from "../vscodeApi.js";
 
-/** The id of the list of column types the type inputs offer. */
-const TYPES_LIST = "objectDetailsTypes";
+/**
+ * @param svg An icon's markup.
+ *
+ * @returns It as an image's source.
+ */
+const iconSource = (svg: string): string => {
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+};
+
+/** The diagram card's icons, as the rows of a table's card have them. */
+const COLUMN_ICON = iconSource(columnSvg);
+const NOT_NULL_ICON = iconSource(notNullSvg);
+const KEY_ICON = iconSource(keySvg);
+const FOREIGN_KEY_ICON = iconSource(foreignKeySvg);
+const INDEX_ICON = iconSource(indexSvg);
+
+/**
+ * An icon of a row, in the theme's colour: the card's icons are drawn in
+ * black, which a dark side bar would swallow, so each is a mask.
+ */
+const Icon = ({ src, label }: { src: string; label?: string }):
+    JSX.Element => {
+    return <span className="detailsIcon" role={label ? "img" : undefined}
+        aria-label={label} style={{ maskImage: `url("${src}")`,
+            WebkitMaskImage: `url("${src}")` }} />;
+};
 
 /** What each object type is called. */
 const TYPE_LABELS: Record<string, string> = {
@@ -61,256 +86,83 @@ const TYPE_LABELS: Record<string, string> = {
     sequence: "Sequence",
 };
 
-interface IEditableTextProps {
-    value: string;
-    disabled: boolean;
-    label: string;
-    placeholder?: string;
-    list?: string;
-    /** Called with the text once it is left or Enter is pressed, changed. */
-    onCommit: (text: string) => void;
-}
-
 /**
- * A text field that sends its change when it is left or Enter is pressed,
- * and goes back to the value on Escape.
+ * @param column A column.
+ *
+ * @returns What its row says beyond its name and type: the flags and the
+ *          default, in a few characters.
  */
-const EditableText = (props: IEditableTextProps): JSX.Element => {
-    const [text, setText] = useState(props.value);
-    useEffect(() => { setText(props.value); }, [props.value]);
-    const commit = (): void => {
-        if (text !== props.value) {
-            props.onCommit(text);
-        }
-    };
-
-    return <input
-        className="detailsInput"
-        value={text}
-        disabled={props.disabled}
-        aria-label={props.label}
-        title={props.label}
-        placeholder={props.placeholder}
-        list={props.list}
-        onInput={(event) => { setText(event.currentTarget.value); }}
-        onBlur={commit}
-        onKeyDown={(event) => {
-            if (event.key === "Enter") {
-                event.currentTarget.blur();
-            } else if (event.key === "Escape") {
-                setText(props.value);
-            }
-        }}
-    />;
+const columnFlags = (column: IOutlineColumn): string => {
+    return [
+        column.auto_increment === true ? "AI" : "",
+        column.default === null || column.default === undefined
+            ? "" : `= ${column.default}`,
+    ].filter((part) => { return part !== ""; }).join(" ");
 };
 
-interface ITableProps {
-    table: IOutlineTable;
-    disabled: boolean;
-    change: (change: TableDetailChange) => void;
-}
-
-/** A table's columns, with its primary key marked. */
-const ColumnsSection = ({ table, disabled, change }: ITableProps):
-    JSX.Element => {
+/** A table's columns, one line each, its primary key marked. */
+const ColumnsSection = ({ table }: { table: IOutlineTable }): JSX.Element => {
     const key = table.indexes?.find((index) => {
         return index.kind === "primary";
     })?.columns ?? [];
-    const [newName, setNewName] = useState("");
-    const [newType, setNewType] = useState(DEFAULT_COLUMN_TYPE);
-    const modify = (column: IOutlineColumn,
-        changed: Partial<IOutlineColumn>): void => {
-        change({ kind: "modifyColumn", column: column.name,
-            definition: { ...column, ...changed } });
-    };
-    const add = (): void => {
-        if (newName.trim() !== "" && newType.trim() !== "") {
-            change({ kind: "addColumn", definition: { name: newName.trim(),
-                type: newType.trim() } });
-            setNewName("");
-        }
-    };
 
     return <section>
         <h3>Columns</h3>
-        <div className="detailsScroll"><table className="detailsGrid">
-            <thead>
-                <tr>
-                    <th title="Primary key">PK</th>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th title="Not null">NN</th>
-                    <th title="Auto increment">AI</th>
-                    <th>Default</th>
-                    <th>Comment</th>
-                    {disabled ? null : <th />}
-                </tr>
-            </thead>
-            <tbody>
-                {table.columns.map((column) => {
-                    const inKey = key.includes(column.name);
+        <ul className="detailsList">
+            {table.columns.map((column) => {
+                const inKey = key.includes(column.name);
+                const flags = columnFlags(column);
 
-                    return <tr key={column.name}>
-                        <td><input type="checkbox" checked={inKey}
-                            disabled={disabled} aria-label="Primary key"
-                            onChange={() => {
-                                change({ kind: "setPrimaryKey",
-                                    columns: table.columns.filter((entry) => {
-                                        return entry.name === column.name
-                                            ? !inKey : key.includes(entry.name);
-                                    }).map((entry) => { return entry.name; }) });
-                            }} /></td>
-                        <td><EditableText value={column.name} label="Name"
-                            disabled={disabled} onCommit={(name) => {
-                                change({ kind: "renameColumn",
-                                    column: column.name, name: name.trim() });
-                            }} /></td>
-                        <td><EditableText value={column.type} label="Type"
-                            list={TYPES_LIST} disabled={disabled}
-                            onCommit={(type) => {
-                                modify(column, { type: type.trim() });
-                            }} /></td>
-                        <td><input type="checkbox"
-                            checked={column.nullable === false}
-                            disabled={disabled} aria-label="Not null"
-                            onChange={(event) => {
-                                modify(column,
-                                    { nullable: !event.currentTarget.checked });
-                            }} /></td>
-                        <td><input type="checkbox"
-                            checked={column.auto_increment === true}
-                            disabled={disabled} aria-label="Auto increment"
-                            onChange={(event) => {
-                                modify(column, { auto_increment:
-                                    event.currentTarget.checked });
-                            }} /></td>
-                        <td><EditableText value={column.default ?? ""}
-                            label="Default" placeholder="NULL"
-                            disabled={disabled} onCommit={(value) => {
-                                modify(column,
-                                    { default: value === "" ? null : value });
-                            }} /></td>
-                        <td><EditableText value={column.comment ?? ""}
-                            label="Comment" disabled={disabled}
-                            onCommit={(value) => {
-                                modify(column,
-                                    { comment: value === "" ? null : value });
-                            }} /></td>
-                        {disabled ? null : <td><button className="detailsDrop"
-                            title={`Drop ${column.name}`}
-                            onClick={() => {
-                                change({ kind: "dropColumn",
-                                    column: column.name });
-                            }}>✕</button></td>}
-                    </tr>;
-                })}
-                {disabled ? null : <tr className="detailsAdd">
-                    <td />
-                    <td><input className="detailsInput" value={newName}
-                        placeholder="New column" aria-label="New column's name"
-                        onInput={(event) => {
-                            setNewName(event.currentTarget.value);
-                        }}
-                        onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                                add();
-                            }
-                        }} /></td>
-                    <td><input className="detailsInput" value={newType}
-                        list={TYPES_LIST} aria-label="New column's type"
-                        onInput={(event) => {
-                            setNewType(event.currentTarget.value);
-                        }}
-                        onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                                add();
-                            }
-                        }} /></td>
-                    <td colSpan={4} />
-                    <td><button className="detailsDrop" title="Add the column"
-                        onClick={add}>+</button></td>
-                </tr>}
-            </tbody>
-        </table></div>
+                return <li key={column.name} title={[`${column.name} ${column.type}`,
+                    flags, column.comment ?? ""].filter((part) => {
+                    return part !== "";
+                }).join(" · ")}>
+                    <Icon label={inKey ? "Primary key"
+                        : column.nullable === false ? "Not null" : undefined}
+                        src={inKey ? KEY_ICON : column.nullable === false
+                            ? NOT_NULL_ICON : COLUMN_ICON} />
+                    <span className="detailsItem">{column.name}</span>
+                    <span className="detailsDataType">{column.type}
+                        {flags === "" ? null
+                            : <span className="detailsMuted"> {flags}</span>}
+                    </span>
+                </li>;
+            })}
+        </ul>
     </section>;
 };
 
 /** A table's indexes other than its primary key. */
-const IndexesSection = ({ table, disabled, change }: ITableProps):
+const IndexesSection = ({ table }: { table: IOutlineTable }):
     JSX.Element | null => {
-    const [name, setName] = useState("");
-    const [kind, setKind] = useState("index");
-    const [columns, setColumns] = useState("");
     const indexes = (table.indexes ?? []).filter((index) => {
         return index.kind !== "primary";
     });
-    const add = (): void => {
-        const list = columns.split(",").map((entry) => {
-            return entry.trim();
-        }).filter((entry) => { return entry !== ""; });
-        if (name.trim() !== "" && list.length > 0) {
-            change({ kind: "addIndex", index: { name: name.trim(), kind,
-                columns: list } });
-            setName("");
-            setColumns("");
-        }
-    };
-    if (indexes.length === 0 && disabled) {
+    if (indexes.length === 0) {
         return null;
     }
 
     return <section>
         <h3>Indexes</h3>
-        <div className="detailsScroll"><table className="detailsGrid">
-            <tbody>
-                {indexes.map((index, at) => {
-                    return <tr key={index.name ?? at}>
-                        <td>{index.name ?? "(unnamed)"}</td>
-                        <td>{index.kind.toUpperCase()}</td>
-                        <td>{index.columns.join(", ")}</td>
-                        {disabled || index.name === null ? <td /> : <td>
-                            <button className="detailsDrop"
-                                title={`Drop ${index.name}`} onClick={() => {
-                                    change({ kind: "dropIndex",
-                                        name: index.name! });
-                                }}>✕</button></td>}
-                    </tr>;
-                })}
-                {disabled ? null : <tr className="detailsAdd">
-                    <td><input className="detailsInput" value={name}
-                        placeholder="New index" aria-label="New index's name"
-                        onInput={(event) => {
-                            setName(event.currentTarget.value);
-                        }} /></td>
-                    <td><select value={kind} aria-label="New index's kind"
-                        onChange={(event) => {
-                            setKind(event.currentTarget.value);
-                        }}>
-                        <option value="index">INDEX</option>
-                        <option value="unique">UNIQUE</option>
-                        <option value="fulltext">FULLTEXT</option>
-                    </select></td>
-                    <td><input className="detailsInput" value={columns}
-                        placeholder="column, column"
-                        aria-label="New index's columns"
-                        onInput={(event) => {
-                            setColumns(event.currentTarget.value);
-                        }}
-                        onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                                add();
-                            }
-                        }} /></td>
-                    <td><button className="detailsDrop" title="Add the index"
-                        onClick={add}>+</button></td>
-                </tr>}
-            </tbody>
-        </table></div>
+        <ul className="detailsList">
+            {indexes.map((index, at) => {
+                return <li key={index.name ?? at} title={`${index.kind
+                    .toUpperCase()} (${index.columns.join(", ")})`}>
+                    <Icon src={INDEX_ICON} />
+                    <span className="detailsItem">
+                        {index.name ?? index.columns.join("_")}</span>
+                    <span className="detailsDataType">
+                        {index.kind === "index" ? "" : `${index.kind
+                            .toUpperCase()} `}({index.columns.join(", ")})
+                    </span>
+                </li>;
+            })}
+        </ul>
     </section>;
 };
 
 /** A table's foreign keys. */
-const ForeignKeysSection = ({ table, disabled, change }: ITableProps):
+const ForeignKeysSection = ({ table }: { table: IOutlineTable }):
     JSX.Element | null => {
     const keys = table.foreign_keys ?? [];
     if (keys.length === 0) {
@@ -319,50 +171,39 @@ const ForeignKeysSection = ({ table, disabled, change }: ITableProps):
 
     return <section>
         <h3>Foreign Keys</h3>
-        <div className="detailsScroll"><table className="detailsGrid">
-            <tbody>
-                {keys.map((key) => {
-                    const actions = [
-                        key.on_delete ? `ON DELETE ${key.on_delete}` : "",
-                        key.on_update ? `ON UPDATE ${key.on_update}` : "",
-                    ].filter((entry) => { return entry !== ""; }).join(" ");
+        <ul className="detailsList">
+            {keys.map((key) => {
+                const actions = [
+                    key.on_delete ? `ON DELETE ${key.on_delete}` : "",
+                    key.on_update ? `ON UPDATE ${key.on_update}` : "",
+                ].filter((entry) => { return entry !== ""; }).join(", ");
 
-                    return <tr key={key.name}>
-                        <td>{key.name}</td>
-                        <td>{key.columns.join(", ")} → {key.references.table}
-                            ({key.references.columns.join(", ")})
-                            {actions === "" ? null : <div className="detailsNote">
-                                {actions}</div>}</td>
-                        {disabled ? <td /> : <td><button className="detailsDrop"
-                            title={`Drop ${key.name}`} onClick={() => {
-                                change({ kind: "dropForeignKey",
-                                    name: key.name });
-                            }}>✕</button></td>}
-                    </tr>;
-                })}
-            </tbody>
-        </table></div>
+                return <li key={key.name} title={[`${key.name}: (${key.columns
+                    .join(", ")}) → ${key.references.table}(${key.references
+                    .columns.join(", ")})`, actions].filter((part) => {
+                    return part !== "";
+                }).join(" · ")}>
+                    <Icon src={FOREIGN_KEY_ICON} />
+                    <span className="detailsItem">{key.name}</span>
+                    <span className="detailsDataType">({key.columns.join(", ")})
+                        {" → "}{key.references.table}
+                        ({key.references.columns.join(", ")})</span>
+                </li>;
+            })}
+        </ul>
     </section>;
 };
 
 /** A table in full. */
-const TableDetails = (props: ITableProps): JSX.Element => {
-    const comment = props.table.options?.comment;
+const TableDetails = ({ table }: { table: IOutlineTable }): JSX.Element => {
+    const comment = table.options?.comment;
 
     return <>
-        <section>
-            <label className="detailsField">
-                <span>Comment</span>
-                <EditableText value={typeof comment === "string" ? comment : ""}
-                    label="Comment" disabled={props.disabled}
-                    onCommit={(text) => {
-                        props.change({ kind: "setComment", comment: text });
-                    }} />
-            </label>
-        </section>
-        <ColumnsSection {...props} />
-        <IndexesSection {...props} />
-        <ForeignKeysSection {...props} />
+        {typeof comment === "string" && comment !== ""
+            ? <div className="detailsComment">{comment}</div> : null}
+        <ColumnsSection table={table} />
+        <IndexesSection table={table} />
+        <ForeignKeysSection table={table} />
     </>;
 };
 
@@ -371,12 +212,16 @@ const ViewDetails = ({ view }: { view: IOutlineView }): JSX.Element => {
     return <>
         {(view.columns ?? []).length === 0 ? null : <section>
             <h3>Columns</h3>
-            <div>{view.columns?.join(", ")}</div>
+            <ul className="detailsList">
+                {view.columns!.map((column) => {
+                    return <li key={column}>
+                        <Icon src={COLUMN_ICON} />
+                        <span className="detailsItem">{column}</span>
+                    </li>;
+                })}
+            </ul>
         </section>}
-        {view.definition === undefined ? null : <section>
-            <h3>Definition</h3>
-            <pre className="detailsCode">{view.definition}</pre>
-        </section>}
+        <Code title="Definition" text={view.definition} />
     </>;
 };
 
@@ -389,19 +234,21 @@ const RoutineDetails = ({ routine }: { routine: IOutlineRoutine }):
         <section>
             <h3>Parameters</h3>
             {parameters.length === 0 ? <div className="detailsNote">None</div>
-                : <div className="detailsScroll"><table className="detailsGrid"><tbody>
+                : <ul className="detailsList">
                     {parameters.map((parameter) => {
-                        return <tr key={parameter.name}>
-                            <td>{parameter.mode ?? ""}</td>
-                            <td>{parameter.name}</td>
-                            <td>{parameter.type ?? ""}</td>
-                        </tr>;
+                        return <li key={parameter.name}>
+                            <span className="detailsItem">
+                                {parameter.mode ? <span className="detailsMuted">
+                                    {parameter.mode} </span> : null}
+                                {parameter.name}</span>
+                            <span className="detailsDataType">
+                                {parameter.type ?? ""}</span>
+                        </li>;
                     })}
-                </tbody></table></div>}
+                </ul>}
         </section>
         {routine.returns ? <section>
-            <h3>Returns</h3>
-            <div>{routine.returns}</div>
+            <Fields fields={[["Returns", routine.returns]]} />
         </section> : null}
     </>;
 };
@@ -474,13 +321,13 @@ const Fields = ({ fields }: { fields: Array<[string, string]> }):
     </tbody></table>;
 };
 
-/** SQL as written. */
+/** SQL as written, folded away until asked for. */
 const Code = ({ title, text }: { title: string; text?: string }):
     JSX.Element | null => {
-    return text === undefined ? null : <section>
-        <h3>{title}</h3>
+    return text === undefined ? null : <details className="detailsFold">
+        <summary>{title}</summary>
         <pre className="detailsCode">{text}</pre>
-    </section>;
+    </details>;
 };
 
 /**
@@ -500,14 +347,9 @@ const objectName = (object: ObjectDetailsBody): string => {
 };
 
 /** What is shown of the object, by its type. */
-const Body = ({ object, disabled, change }: { object: ObjectDetailsBody;
-    disabled: boolean; change: (change: TableDetailChange) => void }):
-    JSX.Element => {
+const Body = ({ object }: { object: ObjectDetailsBody }): JSX.Element => {
     switch (object.type) {
-        case "table": {
-            return <TableDetails table={object.table} disabled={disabled}
-                change={change} />;
-        }
+        case "table": { return <TableDetails table={object.table} />; }
         case "view": { return <ViewDetails view={object.view} />; }
         case "trigger": { return <TriggerDetails trigger={object.trigger} />; }
         case "event": { return <EventDetails event={object.event} />; }
@@ -519,28 +361,18 @@ const Body = ({ object, disabled, change }: { object: ObjectDetailsBody;
 };
 
 /** The whole object. */
-const Details = ({ details, busy }: { details: IObjectDetailsView;
-    busy: boolean }): JSX.Element => {
+const Details = ({ details }: { details: IObjectDetailsView }):
+    JSX.Element => {
     const object = details.object;
-    const disabled = !details.editable || busy;
-    const change = (next: TableDetailChange): void => {
-        post({ type: "change", change: next });
-    };
-    const name = objectName(object);
 
     return <>
         <header className="detailsHeader">
-            <span className="detailsType">{TYPE_LABELS[object.type]}</span>
-            {object.type === "table" && details.editable
-                ? <EditableText value={name} label="Table name"
-                    disabled={disabled} onCommit={(text) => {
-                        change({ kind: "renameTable", name: text.trim() });
-                    }} />
-                : <span className="detailsName">{name}</span>}
+            <span className="detailsKind">{TYPE_LABELS[object.type]}</span>
+            <span className="detailsName">{objectName(object)}</span>
             <span className="detailsWhere">
                 {details.schema} · {details.where}</span>
         </header>
-        <Body object={object} disabled={disabled} change={change} />
+        <Body object={object} />
         {details.partial === undefined ? null
             : <div className="detailsNote">{details.partial}</div>}
     </>;
@@ -548,21 +380,11 @@ const Details = ({ details, busy }: { details: IObjectDetailsView;
 
 /** The view's page. */
 export const ObjectDetails = (): JSX.Element => {
-    const [shown, setShown] = useState<Extract<DetailsHostMessage,
-        { type: "show" }>>();
-    const [error, setError] = useState<string>();
-    const [busy, setBusy] = useState(false);
+    const [shown, setShown] = useState<DetailsHostMessage>();
 
     useEffect(() => {
         const onMessage = (event: MessageEvent<DetailsHostMessage>): void => {
-            const message = event.data;
-            if (message.type === "show") {
-                setShown(message);
-                setBusy(false);
-            } else {
-                setError(message.error);
-                setBusy(message.busy === true);
-            }
+            setShown(event.data);
         };
         window.addEventListener("message", onMessage);
         post({ type: "ready" });
@@ -571,15 +393,8 @@ export const ObjectDetails = (): JSX.Element => {
     }, []);
 
     return <div className="objectDetails">
-        <datalist id={TYPES_LIST}>
-            {COLUMN_TYPES.map((type) => {
-                return <option key={type.label} value={type.insert} />;
-            })}
-        </datalist>
-        {error === undefined ? null
-            : <div className="detailsError" role="alert">{error}</div>}
         {shown?.details === undefined
             ? <div className="detailsNote">{shown?.message ?? ""}</div>
-            : <Details details={shown.details} busy={busy} />}
+            : <Details details={shown.details} />}
     </div>;
 };

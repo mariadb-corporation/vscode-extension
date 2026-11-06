@@ -17,7 +17,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { IDetailEdits } from "../../details/detailEdits.js";
 import type {
     DetailsHostMessage,
     DetailsWebviewMessage,
@@ -73,8 +72,7 @@ const settle = async (): Promise<void> => {
     }
 };
 
-const setUp = (how: "viewer" | "made") => {
-    const changes: Array<[string, IDetailEdits, string | undefined]> = [];
+const setUp = () => {
     let reads = 0;
     const host: IObjectDetailsHost = {
         extensionUri: Uri.file("/ext") as never,
@@ -87,23 +85,17 @@ const setUp = (how: "viewer" | "made") => {
             });
         },
         connectionLabel: () => { return "local"; },
-        change: (projectPath, change, baseHash) => {
-            changes.push([projectPath, change, baseHash]);
-
-            return Promise.resolve(how);
-        },
     };
     const provider = new ObjectDetailsProvider(host);
     const fake = fakeView();
     provider.resolveWebviewView(fake.view as never);
 
-    return { provider, fake, changes, reads: () => { return reads; } };
+    return { provider, fake, reads: () => { return reads; } };
 };
 
 describe("the Object Details view", () => {
-    it("shows a project's table, to be changed, and a live one only",
-        async () => {
-        const { provider, fake } = setUp("made");
+    it("shows a project's table and a live one, read only", async () => {
+        const { provider, fake } = setUp();
         fake.send({ type: "ready" });
         expect(fake.posted[0]).toMatchObject({ type: "show",
             message: expect.stringContaining("Select") });
@@ -112,60 +104,28 @@ describe("the Object Details view", () => {
             { type: "table", name: "orders" });
         await settle();
         expect(fake.posted.at(-1)).toMatchObject({ type: "show", details: {
-            schema: "shop", where: "Project", editable: true,
+            schema: "shop", where: "Project",
             object: { type: "table", table: { name: "orders" } } } });
 
         provider.show({ connection: "mariadb://localhost", schema: "shop" },
             { type: "table", name: "orders" });
         await settle();
         expect(fake.posted.at(-1)).toMatchObject({ type: "show", details: {
-            where: "local", editable: false,
-            partial: expect.stringContaining("Indexes") } });
+            where: "local", partial: expect.stringContaining("Indexes") } });
     });
 
-    it("makes a change against the snapshot's hash, then reads again",
-        async () => {
-        const { provider, fake, changes, reads } = setUp("made");
+    it("reads the object again once the schema changed, and not the same "
+        + "selection twice", async () => {
+        const { provider, reads } = setUp();
+        provider.show({ projectPath: "/p/shop.msm.project" },
+            { type: "table", name: "orders" });
         provider.show({ projectPath: "/p/shop.msm.project" },
             { type: "table", name: "orders" });
         await settle();
-        const before = reads();
+        expect(reads()).toBe(1);
 
-        fake.send({ type: "change", change: { kind: "addColumn",
-            definition: { name: "note", type: "TEXT" } } });
+        provider.refreshed();
         await settle();
-
-        expect(changes).toEqual([["/p/shop.msm.project", {
-            label: "Add Column orders.note",
-            edits: [{ op: "add_column", table: "orders",
-                column: { name: "note", type: "TEXT" } }],
-            inverse: [{ op: "drop_column", table: "orders",
-                column: "note" }],
-        }, "sha256:a"]]);
-        expect(fake.posted).toContainEqual({ type: "status", busy: true });
-        // The change's snapshot read, and the read after it.
-        expect(reads()).toBe(before + 2);
-    });
-
-    it("follows a table renamed in the open diagram, and takes the name "
-        + "back where msm refused it", async () => {
-        const { provider, fake, changes } = setUp("viewer");
-        provider.show({ projectPath: "/p/shop.msm.project" },
-            { type: "table", name: "orders" });
-        await settle();
-
-        fake.send({ type: "change", change: { kind: "renameTable",
-            name: "purchase" } });
-        await settle();
-        expect(changes[0]?.[1].edits).toEqual([{ op: "rename_table",
-            table: "orders", new_name: "purchase" }]);
-
-        provider.failed("The name is taken.");
-        await settle();
-        expect(fake.posted).toContainEqual({ type: "status",
-            error: "The name is taken." });
-        // Shown under its old name again.
-        expect(fake.posted.at(-1)).toMatchObject({ type: "show", details: {
-            object: { table: { name: "orders" } } } });
+        expect(reads()).toBe(2);
     });
 });

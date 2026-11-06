@@ -34,7 +34,6 @@ import type {
     IOutlineView,
     ISchemaDefinition,
 } from "../modeler/modelFormat.js";
-import type { TableDetailChange } from "./detailEdits.js";
 
 /** The object itself, as the outline writes it. */
 export type ObjectDetailsBody =
@@ -50,8 +49,6 @@ export interface IObjectDetailsView {
     schema: string;
     /** Where the object is: "project shop" or the connection's caption. */
     where: string;
-    /** Whether it can be changed here: a project's object. */
-    editable: boolean;
     /**
      * What the source cannot tell: a live table's indexes and foreign
      * keys, say.
@@ -60,17 +57,20 @@ export interface IObjectDetailsView {
     object: ObjectDetailsBody;
 }
 
-/** Messages from the extension to the view. */
-export type DetailsHostMessage =
-    /** The object to show; nothing, with why, where there is none. */
-    | { type: "show"; details?: IObjectDetailsView; message?: string }
-    /** A change was refused, with why; or one is being made. */
-    | { type: "status"; error?: string; busy?: boolean };
+/**
+ * What the extension sends the view: the object to show; nothing, with
+ * why, where there is none.
+ */
+export interface DetailsHostMessage {
+    type: "show";
+    details?: IObjectDetailsView;
+    message?: string;
+}
 
-/** Messages from the view to the extension. */
-export type DetailsWebviewMessage =
-    | { type: "ready" }
-    | { type: "change"; change: TableDetailChange };
+/** What the view sends: that it is listening. */
+export interface DetailsWebviewMessage {
+    type: "ready";
+}
 
 /**
  * @param definition msm's snapshot of a project's script.
