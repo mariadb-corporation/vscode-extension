@@ -223,11 +223,19 @@ describe("ProjectModelSource", () => {
     it("keeps a change at once, saves it once settled, then drops it",
         async () => {
             await fake.source.read();
-            fake.source.changed(diagram("Main", 50));
+            // The save waits until the draft is read: with the test's
+            // 0 ms delay it would otherwise drop the draft meanwhile.
+            vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+            try {
+                fake.source.changed(diagram("Main", 50));
 
-            const [kept] = await fake.drafts.list(PROJECT);
-            expect(kept.document.figures[0].left).toBe(50);
-            expect(kept.base).toBe(diagramHash(diagram("Main")));
+                const [kept] = await fake.drafts.list(PROJECT);
+                expect(kept.document.figures[0].left).toBe(50);
+                expect(kept.base).toBe(diagramHash(diagram("Main")));
+                vi.runOnlyPendingTimers();
+            } finally {
+                vi.useRealTimers();
+            }
             await settle(fake);
 
             expect(fake.calls.at(-1)).toEqual(["set", "Main"]);
