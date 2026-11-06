@@ -17,8 +17,11 @@
 
 import type {
     IOutlineForeignKey,
+    IOutlineEvent,
     IOutlineRoutine,
+    IOutlineSequence,
     IOutlineTable,
+    IOutlineTrigger,
     IOutlineView,
     ISchemaModel,
 } from "../../../src/modeler/modelFormat.js";
@@ -42,6 +45,10 @@ export interface ISchemaCatalog {
     table(name: string): IOutlineTable | undefined;
     view(name: string): IOutlineView | undefined;
     routine(name: string): IOutlineRoutine | undefined;
+    event(name: string): IOutlineEvent | undefined;
+    sequence(name: string): IOutlineSequence | undefined;
+    /** @returns The triggers on a table, in the snapshot's order. */
+    triggersOf(table: string): IOutlineTrigger[];
     /** @returns Every table, view and routine, as the snapshot has them. */
     objects(): ISchemaObjectLists;
     /**
@@ -106,20 +113,28 @@ export const catalogFromModel = (model: ISchemaModel): ISchemaCatalog => {
     let tables = byName(model.tables);
     let views = byName(model.views);
     let routines = byName(model.routines);
+    let events = byName(model.events);
+    let sequences = byName(model.sequences);
     const index = (): void => {
         tables = byName(model.tables);
         views = byName(model.views);
         routines = byName(model.routines);
+        events = byName(model.events);
+        sequences = byName(model.sequences);
     };
 
     return {
         table: (name) => { return tables.get(name.toLowerCase()); },
         view: (name) => { return views.get(name.toLowerCase()); },
         routine: (name) => { return routines.get(name.toLowerCase()); },
-        objects: () => {
-            return { tables: model.tables, views: model.views,
-                routines: model.routines };
+        event: (name) => { return events.get(name.toLowerCase()); },
+        sequence: (name) => { return sequences.get(name.toLowerCase()); },
+        triggersOf: (table) => {
+            return model.triggers.filter((trigger) => {
+                return sameName(trigger.table, table);
+            });
         },
+        objects: () => { return model; },
         renameTable: (name, newName) => {
             const table = tables.get(name.toLowerCase());
             if (table === undefined || newName === name) {
@@ -128,7 +143,13 @@ export const catalogFromModel = (model: ISchemaModel): ISchemaCatalog => {
             tables.delete(name.toLowerCase());
             table.name = newName;
             tables.set(newName.toLowerCase(), table);
-            // The other tables' foreign keys point at it by name too.
+            // Its triggers, and the other tables' foreign keys, point at
+            // it by name too.
+            for (const trigger of model.triggers) {
+                if (sameName(trigger.table, name)) {
+                    trigger.table = newName;
+                }
+            }
             for (const other of model.tables) {
                 for (const foreignKey of other.foreign_keys ?? []) {
                     if (sameName(foreignKey.references.table, name)) {
@@ -170,6 +191,9 @@ export const catalogFromModel = (model: ISchemaModel): ISchemaCatalog => {
             model.tables = objects.tables;
             model.views = objects.views;
             model.routines = objects.routines;
+            model.triggers = objects.triggers;
+            model.events = objects.events;
+            model.sequences = objects.sequences;
             if (objects.sourceHash !== undefined) {
                 model.sourceHash = objects.sourceHash;
             }

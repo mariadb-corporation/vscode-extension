@@ -32,6 +32,9 @@ import foreignKeyIcon from "../assets/modeler/schemaTableForeignKey.svg?raw";
 import indexIcon from "../assets/modeler/schemaTableIndex.svg?raw";
 import viewIcon from "../assets/modeler/schemaView.svg?raw";
 import routineIcon from "../assets/modeler/schemaRoutine.svg?raw";
+import triggerIcon from "../assets/modeler/schemaTrigger.svg?raw";
+import eventIcon from "../assets/modeler/schemaEvent.svg?raw";
+import sequenceIcon from "../assets/modeler/schemaSequence.svg?raw";
 
 import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
 import {
@@ -40,10 +43,12 @@ import {
     type ISchemaModel,
 } from "../../../src/modeler/modelFormat.js";
 import { matchingTypes } from "../../../src/sql/columnTypes.js";
-import type {
-    ModelerHostMessage,
-    ModelerTarget,
-    SaveState,
+import {
+    isPlaceOf,
+    parseSchemaObjectUris,
+    type ModelerHostMessage,
+    type ModelerTarget,
+    type SaveState,
 } from "../../../src/modeler/modelerProtocol.js";
 import type { IPageSettings } from "../../../src/modeler/pageSettings.js";
 import { Canvas, ZOOM_RANGE } from "../canvas/Canvas.js";
@@ -82,6 +87,7 @@ import {
 } from "./diagramTools.js";
 import { DiagramToolbar, ToolPanel } from "./DiagramToolbar.js";
 import { EerFigureSet } from "./EerFigureSet.js";
+import { objectsOfFigures } from "./placeObjects.js";
 import { svgImage, type CardIcons } from "./tableCard.js";
 
 /**
@@ -99,7 +105,7 @@ import { svgImage, type CardIcons } from "./tableCard.js";
  */
 const loadIcons = async (color: string): Promise<CardIcons> => {
     const [table, primaryKey, notNull, nullable, index, foreignKey, view,
-        routine] = await Promise.all([
+        routine, trigger, event, sequence] = await Promise.all([
         svgImage(tableIcon, color),
         svgImage(columnPrimaryKeyIcon, color),
         svgImage(columnNotNullIcon, color),
@@ -108,10 +114,13 @@ const loadIcons = async (color: string): Promise<CardIcons> => {
         svgImage(foreignKeyIcon, color),
         svgImage(viewIcon, color),
         svgImage(routineIcon, color),
+        svgImage(triggerIcon, color),
+        svgImage(eventIcon, color),
+        svgImage(sequenceIcon, color),
     ]);
 
     return { table, primaryKey, notNull, nullable, index, foreignKey, view,
-        routine };
+        routine, trigger, event, sequence };
 };
 
 /** What the viewer keeps across a reload of the webview. */
@@ -162,6 +171,8 @@ interface ILoaded {
     editable: boolean;
     /** Each diagram's document as last sent to be saved, by name. */
     sent: Map<string, string>;
+    /** What the viewer shows: a dropped object has to be of its schema. */
+    target: ModelerTarget;
 }
 
 /**
@@ -234,6 +245,12 @@ const SPINNER_DELAY_MS = 300;
 
 /** The size a picture without one of its own (an SVG) is placed at. */
 const DEFAULT_PICTURE = { width: 160, height: 120 };
+
+/**
+ * How long the pointer has to have been still or away before a move counts
+ * as its coming back: after a drag, which the page sees none of.
+ */
+const ARRIVAL_PAUSE_MS = 400;
 
 /**
  * Reads a picture file picked for the image tool.
@@ -330,6 +347,62 @@ export const ModelViewer = (): JSX.Element => {
     const loadedRef = useRef<ILoaded>();
     loadedRef.current = loaded;
     const closeMenu = useCallback(() => { setMenu(undefined); }, []);
+    /**
+     * Places the objects of a drop's `text/uri-list` that are of this
+     * diagram's schema, at a point of the page; says why where none is.
+     * Reads refs only: the host's answer to a tree drop calls it too.
+     */
+    const placeDropped = (uriList: string, x: number, y: number): void => {
+        const shown = loadedRef.current;
+        if (shown === undefined) {
+            return;
+        }
+        const dropped = parseSchemaObjectUris(uriList);
+        const ours = dropped.filter(({ place }) => {
+            return isPlaceOf(place, shown.target);
+        });
+        const point = canvasRef.current?.pageAt(x, y);
+        if (ours.length === 0) {
+            setHint(dropped.length === 0
+                ? "Only tables, views, routines, triggers, events and "
+                    + "sequences can be placed on a diagram."
+                : "Only objects of this diagram's schema can be placed on it.");
+
+            return;
+        }
+        if (point !== undefined) {
+            shown.set.placeObjects(ours.map(({ ref }) => { return ref; }),
+                point);
+        }
+    };
+    // VS Code drops nothing dragged from a tree into a webview, Shift or
+    // not. The page gets no pointer events while a drag is on, so its
+    // first move after a pause, which is where a drag over it ended, asks
+    // the extension for the objects of a drag that has just ended; it
+    // answers only then (treeDropped).
+    useEffect(() => {
+        let last = 0;
+        const moved = (event: MouseEvent): void => {
+            const now = Date.now();
+            const paused = now - last > ARRIVAL_PAUSE_MS;
+            last = now;
+            if (paused && event.type === "mousemove"
+                && loadedRef.current !== undefined) {
+                post({ type: "pointerArrived", x: event.clientX,
+                    y: event.clientY });
+            }
+        };
+        const types = ["mousemove", "mousedown", "wheel"] as const;
+        for (const type of types) {
+            window.addEventListener(type, moved as EventListener, true);
+        }
+
+        return () => {
+            for (const type of types) {
+                window.removeEventListener(type, moved as EventListener, true);
+            }
+        };
+    }, []);
     const diagramIndex = Math.max(0, loaded?.model.diagrams.findIndex(
         (diagram) => { return diagram.name === diagramName; }) ?? 0);
 
@@ -396,6 +469,15 @@ export const ModelViewer = (): JSX.Element => {
             },
             onTool: (next) => { setTool(next); },
             onHint: setHint,
+            onSelection: (ids) => {
+                const shown = loadedRef.current;
+                if (shown === undefined || ids.length === 0) {
+                    return;
+                }
+                // What the figures show, for the Object Details view.
+                post({ type: "selection", objects: objectsOfFigures(
+                    shown.set.diagram, ids, shown.set.objects()) });
+            },
             onEditPlacement: (placement) => {
                 // The input follows its text as the view pans, zooms or
                 // turns; nothing else of the edit changes.
@@ -525,6 +607,7 @@ export const ModelViewer = (): JSX.Element => {
                         pageSettings: message.pageSettings,
                         editable: message.editable,
                         sent: documentsOf(message),
+                        target: message.target,
                     });
                     break;
                 }
@@ -556,6 +639,25 @@ export const ModelViewer = (): JSX.Element => {
 
                 case "showDiagram": {
                     setDiagramName(message.name);
+                    break;
+                }
+
+                case "applySchemaChange": {
+                    loadedRef.current?.set.applySchemaChange(message.change);
+                    break;
+                }
+
+                case "placeObjects": {
+                    const point = canvas.viewCenter();
+                    if (point !== undefined) {
+                        loadedRef.current?.set.placeObjects(message.objects,
+                            point);
+                    }
+                    break;
+                }
+
+                case "treeDropped": {
+                    placeDropped(message.uriList, message.x, message.y);
                     break;
                 }
 
@@ -802,6 +904,37 @@ export const ModelViewer = (): JSX.Element => {
         return diagram.name;
     }) ?? [];
 
+    /**
+     * Lets tables, views and routines dragged from a tree be dropped. VS
+     * Code lets a drag into a webview only with Shift held, and hands it
+     * none of what the tree set (its `text/uri-list` is empty), so any
+     * drag is taken.
+     */
+    const onDragOver = (event: DragEvent): void => {
+        if (loaded !== undefined && event.dataTransfer !== null) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+        }
+    };
+    /**
+     * Places the schema's objects dropped where the pointer is; for a drop
+     * without any the page can read (rows of a tree), asks the extension
+     * for the objects last dragged.
+     */
+    const onDrop = (event: DragEvent): void => {
+        if (loaded === undefined || event.dataTransfer === null) {
+            return;
+        }
+        event.preventDefault();
+        const list = event.dataTransfer.getData("text/uri-list");
+        if (parseSchemaObjectUris(list).length > 0) {
+            placeDropped(list, event.clientX, event.clientY);
+        } else {
+            post({ type: "treeDrop", x: event.clientX, y: event.clientY,
+                types: [...event.dataTransfer.types] });
+        }
+    };
+
     return <div className="modelViewer">
         <CanvasToolbar
             view={view}
@@ -872,7 +1005,8 @@ export const ModelViewer = (): JSX.Element => {
                 </select>
             </ToolbarSection>
         </CanvasToolbar>
-        <div className="modelCanvasHost" ref={hostRef}>
+        <div className="modelCanvasHost" ref={hostRef}
+            onDragOver={onDragOver} onDrop={onDrop}>
             {overlays.map((overlay) => {
                 return <MenuButton
                     key={overlay.id}
@@ -886,6 +1020,7 @@ export const ModelViewer = (): JSX.Element => {
                 zoom={zoom}
                 zoomRange={ZOOM_RANGE}
                 onZoom={(next) => { canvasRef.current?.zoomTo(next); }}
+                onFit={() => { canvasRef.current?.fit(); }}
                 onArea={(area, panel) => {
                     canvasRef.current?.setNavigatorArea(area, panel);
                 }}

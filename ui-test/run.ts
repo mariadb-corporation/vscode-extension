@@ -110,7 +110,9 @@ const SUITES: Record<string, string[]> = {
     "dump-load": [SETUP, "06-dump-load", CLEANUP],
     restd: [SETUP, "07-restd", CLEANUP],
     lsp: [SETUP, "08-lsp", CLEANUP],
-    msm: [SETUP, "10-msm-projects", "09-msm", CLEANUP],
+    msm: [SETUP, "10-msm-projects", "11-msm-diagrams", "09-msm", CLEANUP],
+    // The MSM Projects view and schema diagrams alone: no sandbox needed.
+    "msm-diagrams": ["10-msm-projects", "11-msm-diagrams"],
 };
 
 /**
@@ -119,7 +121,7 @@ const SUITES: Record<string, string[]> = {
  * without. A run of one of them opens it at the start, as opening a folder
  * later reloads the window.
  */
-const WORKSPACE_FILES = ["09-msm", "10-msm-projects"];
+const WORKSPACE_FILES = ["09-msm", "10-msm-projects", "11-msm-diagrams"];
 
 /**
  * @param testFiles A run's test files, or the glob naming them.

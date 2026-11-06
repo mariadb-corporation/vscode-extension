@@ -20,8 +20,11 @@ import type {
     IOutlineColumn,
     IOutlineForeignKey,
     IOutlineIndex,
+    IOutlineEvent,
     IOutlineRoutine,
+    IOutlineSequence,
     IOutlineTable,
+    IOutlineTrigger,
     IOutlineView,
 } from "../../../src/modeler/modelFormat.js";
 import { primaryKeyColumns, sameName } from "./catalog.js";
@@ -52,6 +55,9 @@ export interface ISchemaObjectLists {
     tables: IOutlineTable[];
     views: IOutlineView[];
     routines: IOutlineRoutine[];
+    triggers: IOutlineTrigger[];
+    events: IOutlineEvent[];
+    sequences: IOutlineSequence[];
 }
 
 /** What a relationship tool makes. */
@@ -309,6 +315,55 @@ export const newRoutineChange = (name: string): ISchemaChange => {
     };
 };
 
+/**
+ * A new trigger with an empty body, BEFORE INSERT as Workbench's new
+ * trigger is.
+ *
+ * @param table The table it is on.
+ * @param name The trigger's name.
+ *
+ * @returns The change.
+ */
+export const newTriggerChange = (table: string, name: string): ISchemaChange => {
+    return {
+        label: `Add Trigger ${name} to ${table}`,
+        edits: [{ op: "add_trigger", trigger: { name, timing: "BEFORE",
+            events: "INSERT", table, body: "BEGIN\nEND" } }],
+        inverse: [{ op: "drop_trigger", trigger: name, table }],
+    };
+};
+
+/**
+ * A new event, run every day, with an empty body.
+ *
+ * @param name The event's name.
+ *
+ * @returns The change.
+ */
+export const newEventChange = (name: string): ISchemaChange => {
+    return {
+        label: `Add Event ${name}`,
+        edits: [{ op: "add_event", event: { name, schedule: "EVERY 1 DAY",
+            body: "BEGIN\nEND" } }],
+        inverse: [{ op: "drop_event", event: name }],
+    };
+};
+
+/**
+ * A new sequence, with the server's defaults.
+ *
+ * @param name The sequence's name.
+ *
+ * @returns The change.
+ */
+export const newSequenceChange = (name: string): ISchemaChange => {
+    return {
+        label: `Place Sequence ${name}`,
+        edits: [{ op: "add_sequence", sequence: { name } }],
+        inverse: [{ op: "drop_sequence", sequence: name }],
+    };
+};
+
 /** A relationship worked out, or why there can be none. */
 export type RelationshipResult =
     | { change: ISchemaChange; foreignKey: IOutlineForeignKey }
@@ -561,12 +616,56 @@ export const applyEdits = (
 
             case "drop_table": {
                 objects.tables = without(objects.tables, text(edit, "table"));
+                // Its triggers go with it.
+                objects.triggers = objects.triggers.filter(
+                    (trigger) => {
+                        return !sameName(trigger.table, text(edit, "table"));
+                    });
                 break;
             }
 
             case "add_column": {
-                table?.columns.push(
-                    structuredClone(edit.column) as IOutlineColumn);
+                if (table !== undefined) {
+                    const added = structuredClone(edit.column) as IOutlineColumn;
+                    // Where it is asked for: first, after a column, else last.
+                    const after = typeof edit.after === "string"
+                        ? table.columns.findIndex((column) => {
+                            return sameName(column.name, text(edit, "after"));
+                        }) : -1;
+                    const at = edit.first === true ? 0
+                        : after >= 0 ? after + 1 : table.columns.length;
+                    table.columns.splice(at, 0, added);
+                }
+                break;
+            }
+
+            case "modify_column": {
+                if (table !== undefined) {
+                    const at = table.columns.findIndex((column) => {
+                        return sameName(column.name, text(edit, "column"));
+                    });
+                    if (at >= 0) {
+                        table.columns[at] = structuredClone(
+                            edit.new_column) as IOutlineColumn;
+                    }
+                }
+                break;
+            }
+
+            case "set_table_options": {
+                if (table !== undefined) {
+                    const options: Record<string, unknown> =
+                        { ...table.options };
+                    for (const [key, value] of Object.entries(
+                        edit.options as Record<string, unknown>)) {
+                        if (value === null) {
+                            delete options[key];
+                        } else {
+                            options[key] = value;
+                        }
+                    }
+                    table.options = options;
+                }
                 break;
             }
 
@@ -662,6 +761,42 @@ export const applyEdits = (
             case "drop_routine": {
                 objects.routines = without(objects.routines,
                     text(edit, "routine"));
+                break;
+            }
+
+            case "add_trigger": {
+                objects.triggers.push(
+                    structuredClone(edit.trigger) as IOutlineTrigger);
+                break;
+            }
+
+            case "drop_trigger": {
+                objects.triggers = without(objects.triggers,
+                    text(edit, "trigger"));
+                break;
+            }
+
+            case "add_event": {
+                objects.events.push(
+                    structuredClone(edit.event) as IOutlineEvent);
+                break;
+            }
+
+            case "drop_event": {
+                objects.events = without(objects.events,
+                    text(edit, "event"));
+                break;
+            }
+
+            case "add_sequence": {
+                objects.sequences.push(
+                    structuredClone(edit.sequence) as IOutlineSequence);
+                break;
+            }
+
+            case "drop_sequence": {
+                objects.sequences = without(objects.sequences,
+                    text(edit, "sequence"));
                 break;
             }
 

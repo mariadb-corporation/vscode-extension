@@ -31,9 +31,14 @@ import {
 import { reportError } from "../errorMessages.js";
 import { McpToolError } from "../mcp/protocol.js";
 import type { IServerStatus } from "../mcp/serverStarter.js";
-import type { IMsmApi, IMsmListedProject } from "../mcp/msmApi.js";
-import type { ConnectionColor } from "../mcp/types.js";
+import type {
+    IMsmApi, IMsmDiagramListing, IMsmListedProject,
+} from "../mcp/msmApi.js";
+import { OBJECT_TYPES, type ConnectionColor } from "../mcp/types.js";
 import { schemaNameOfFolder } from "../msm/msmFields.js";
+import {
+    schemaDefinitionOf, type ISchemaDefinition,
+} from "../modeler/modelFormat.js";
 import { colorUriOf } from "./connectionColors.js";
 import type { IFolderNode } from "./connectionsModel.js";
 import {
@@ -44,9 +49,28 @@ import {
     rebase,
     type IFolderMemento,
 } from "./customFolders.js";
+import { ExpandedRows } from "./expandedRows.js";
+import {
+    DiagramsTreeItem,
+    DiagramTreeItem,
+    ObjectGroupTreeItem,
+    objectGroupsOf,
+    objectsOf,
+    draggedObjects,
+    objectUriList,
+    ObjectTreeItem,
+    outlineObjects,
+    SchemaTreeItem,
+    type IconResolver,
+    type IDiagramEntryRow,
+    type IDiagramsRow,
+    type IObjectGroupRow,
+    type IObjectRow,
+    type ISchemaRow,
+} from "./schemaTree.js";
 import { FolderTreeItem } from "./treeItems.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
-import { counted, errorText } from "../text.js";
+import { errorText } from "../text.js";
 
 /** The id the MSM Projects view is contributed under. */
 export const MSM_PROJECTS_VIEW_ID = "mariadb.msmProjects";
@@ -81,6 +105,8 @@ export const MSM_PROJECTS_DRAG_MIME = "application/vnd.mariadb.msmprojects";
  */
 export const MSM_FOLDERS_KEY = "mariadb.msmProjects.folders";
 export const MSM_COLLAPSED_FOLDERS_KEY = "mariadb.msmProjects.collapsedFolders";
+/** Where the rows left expanded (projects, schemas, groups, ...) are kept. */
+export const MSM_EXPANDED_ROWS_KEY = "mariadb.msmProjects.expandedRows";
 export const MSM_FOLDER_COLORS_KEY = "mariadb.msmProjects.folderColors";
 
 /** A folder of the list, as the Connections view's folders are. */
@@ -109,22 +135,43 @@ export interface IMsmFileNode {
     directory: boolean;
 }
 
-/** The folder of a project's schema diagrams, first among its rows. */
-export interface IMsmDiagramsNode {
-    kind: "diagrams";
+/** Where a row of a project's schema is: the project folder. */
+export interface IMsmProjectPlace {
     projectPath: string;
 }
 
+/**
+ * A project's schema, first among its rows, as the Connections view draws
+ * a live one: its objects are those of the development script, as msm's
+ * schema snapshot has them.
+ */
+export interface IMsmSchemaNode extends IMsmProjectPlace, ISchemaRow {
+    /**
+     * Whether the snapshot was made from the script as it is; undefined
+     * where the project has none yet, or the shell cannot say.
+     */
+    current?: boolean;
+    /** Whether the project has a snapshot at all. */
+    snapshot: boolean;
+}
+
+/** The folder of a project's schema diagrams, first in its schema. */
+export interface IMsmDiagramsNode extends IMsmProjectPlace, IDiagramsRow {}
+
 /** A schema diagram of a project. */
-export interface IMsmDiagramNode {
-    kind: "diagram";
-    projectPath: string;
-    name: string;
+export interface IMsmDiagramNode extends IMsmProjectPlace, IDiagramEntryRow {
     figures: number;
 }
 
+/** The folder of one type of the project's schema objects. */
+export interface IMsmObjectGroupNode extends IMsmProjectPlace, IObjectGroupRow {}
+
+/** A table, view or routine of the project's development script. */
+export interface IMsmObjectNode extends IMsmProjectPlace, IObjectRow {}
+
 export type MsmProjectsNode = IMsmFolderNode | IMsmProjectNode | IMsmFileNode
-    | IMsmDiagramsNode | IMsmDiagramNode;
+    | IMsmSchemaNode | IMsmDiagramsNode | IMsmDiagramNode
+    | IMsmObjectGroupNode | IMsmObjectNode;
 
 /**
  * The command a click on a project's diagram runs: VS Code has no
@@ -143,9 +190,17 @@ export const MSM_DIAGRAM_COMMANDS = {
     create: "mariadb.msm.newSchemaDiagram",
 } as const;
 
+/** The commands on a project's schema row. */
+export const MSM_SCHEMA_COMMANDS = {
+    /** Makes msm's snapshot of the development script again. */
+    updateSnapshot: "mariadb.msm.updateSchemaSnapshot",
+} as const;
+
 /** What the view needs from the extension. */
 export interface IMsmProjectsHost {
     msmApi(): Promise<IMsmApi>;
+    /** The icons of a schema's rows, as the Connections view has them. */
+    resolveIcon: IconResolver;
     /** How the server's startup is going, which the welcome content says. */
     status?: IServerStatus;
     /** Where the folders, collapsed folders and colors persist. */
@@ -230,6 +285,10 @@ export class MsmProjectsTreeProvider
     implements vscode.TreeDataProvider<MsmProjectsNode>,
     vscode.TreeDragAndDropController<MsmProjectsNode>, vscode.Disposable {
 
+    // Not text/uri-list: VS Code then marks the drag as one of resources,
+    // and the editor area lays its drop overlay over a diagram's webview,
+    // which takes the drop even with Shift held. A diagram asks for the
+    // objects dragged instead (draggedObjects).
     public readonly dragMimeTypes = [MSM_PROJECTS_DRAG_MIME];
     public readonly dropMimeTypes = [MSM_PROJECTS_DRAG_MIME];
 
@@ -239,16 +298,26 @@ export class MsmProjectsTreeProvider
 
     /** The projects the rows were drawn from, until the next refresh. */
     #listing: Promise<IMsmProjectNode[]> | undefined;
+    /** Each project's diagrams and snapshot state, until the next refresh. */
+    readonly #listings =
+        new Map<string, Promise<IMsmDiagramListing | undefined>>();
+    /** Each project's schema snapshot, until the next refresh. */
+    readonly #snapshots =
+        new Map<string, Promise<ISchemaDefinition | undefined>>();
     readonly #viewState: ViewStateTracker;
 
     public readonly customFolders: FolderSet;
     public readonly collapsedFolders: FolderSet;
+    /** Every other row left expanded; folders are open unless collapsed. */
+    public readonly expandedRows: ExpandedRows;
     public readonly folderColors: FolderColors;
 
     public constructor(private readonly host: IMsmProjectsHost) {
         this.customFolders = new FolderSet(host.memento, MSM_FOLDERS_KEY);
         this.collapsedFolders = new FolderSet(host.memento,
             MSM_COLLAPSED_FOLDERS_KEY);
+        this.expandedRows = new ExpandedRows(host.memento,
+            MSM_EXPANDED_ROWS_KEY);
         this.folderColors = new FolderColors(host.memento,
             MSM_FOLDER_COLORS_KEY);
         this.#viewState = new ViewStateTracker(
@@ -267,6 +336,22 @@ export class MsmProjectsTreeProvider
      */
     public refresh(): void {
         this.#listing = undefined;
+        this.#listings.clear();
+        this.#snapshots.clear();
+        this.#onDidChangeTreeData.fire(undefined);
+    }
+
+    /**
+     * Reads a project's diagrams and snapshot again and redraws the view;
+     * the list of projects is kept.
+     *
+     * @param projectPath The project whose schema changed.
+     *
+     * @returns Nothing.
+     */
+    public refreshProject(projectPath: string): void {
+        this.#listings.delete(projectPath);
+        this.#snapshots.delete(projectPath);
         this.#onDidChangeTreeData.fire(undefined);
     }
 
@@ -328,6 +413,24 @@ export class MsmProjectsTreeProvider
     }
 
     public getTreeItem(node: MsmProjectsNode): vscode.TreeItem {
+        const item = this.#itemOf(node);
+        // VS Code reopens none of an extension's rows after a restart.
+        if (node.kind !== "folder" && item.id !== undefined
+            && item.collapsibleState
+                === vscode.TreeItemCollapsibleState.Collapsed
+            && this.expandedRows.has(item.id)) {
+            item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        }
+
+        return item;
+    }
+
+    /**
+     * @param node A row.
+     *
+     * @returns Its item, as it is drawn before the rows left expanded.
+     */
+    #itemOf(node: MsmProjectsNode): vscode.TreeItem {
         switch (node.kind) {
             case "folder": {
                 return this.#folderItem(node);
@@ -337,12 +440,32 @@ export class MsmProjectsTreeProvider
                 return projectItem(node);
             }
 
+            case "schema": {
+                return schemaItem(node, this.host.resolveIcon);
+            }
+
             case "diagrams": {
-                return diagramsItem(node);
+                return diagramsItem(node, this.host.resolveIcon);
             }
 
             case "diagram": {
-                return diagramItem(node);
+                return diagramItem(node, this.host.resolveIcon);
+            }
+
+            case "objectGroup": {
+                const item = new ObjectGroupTreeItem(node, this.host.resolveIcon,
+                    "mariadbMsm");
+                item.id = rowIdOf(node);
+
+                return item;
+            }
+
+            case "object": {
+                const item = new ObjectTreeItem(node, this.host.resolveIcon,
+                    "mariadbMsm");
+                item.id = rowIdOf(node);
+
+                return item;
             }
 
             default: {
@@ -365,20 +488,41 @@ export class MsmProjectsTreeProvider
                 }
 
                 case "project": {
-                    return node.project.exists
-                        ? [
-                            { kind: "diagrams",
-                                projectPath: node.project.projectPath },
-                            ...await filesIn(node.project.projectPath),
-                        ]
-                        : [];
+                    if (!node.project.exists) {
+                        return [];
+                    }
+                    const [schema, files] = await Promise.all([
+                        this.#schemaOf(node.project),
+                        filesIn(node.project.projectPath),
+                    ]);
+
+                    return [schema, ...files];
+                }
+
+                case "schema": {
+                    const place = { projectPath: node.projectPath };
+
+                    return [
+                        { ...place, kind: "diagrams", schema: node.schema },
+                        ...objectGroupsOf(place, node.schema,
+                            OBJECT_TYPES),
+                    ];
                 }
 
                 case "diagrams": {
                     return await this.#diagramsOf(node.projectPath);
                 }
 
-                case "diagram": {
+                case "objectGroup": {
+                    const definition = await this.snapshot(node.projectPath);
+
+                    return definition === undefined ? [] : objectsOf(
+                        { projectPath: node.projectPath }, node,
+                        outlineObjects(definition, node.objectType));
+                }
+
+                case "diagram":
+                case "object": {
                     return [];
                 }
 
@@ -397,32 +541,107 @@ export class MsmProjectsTreeProvider
     /**
      * @param projectPath A project folder.
      *
-     * @returns Its schema diagrams, as msm lists them; none from a MariaDB
-     *          Shell too old to have them, which is logged, not notified
-     *          on every expand.
+     * @returns Its diagrams and its snapshot's state, as msm lists them,
+     *          read once until the next refresh; nothing from a MariaDB
+     *          Shell too old to have them, which is logged, not notified on
+     *          every expand.
+     */
+    #listingOf(projectPath: string): Promise<IMsmDiagramListing | undefined> {
+        return this.#cached(this.#listings, projectPath, async () => {
+            try {
+                return await (await this.host.msmApi())
+                    .listSchemaDiagrams(projectPath);
+            } catch (error) {
+                if (isUnsupportedShell(error)) {
+                    this.host.log("The MariaDB Shell has no schema diagrams "
+                        + "for MSM projects; a newer version is needed.");
+
+                    return undefined;
+                }
+                throw error;
+            }
+        });
+    }
+
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns msm's schema snapshot of its development script, read once
+     *          until the next refresh; nothing where it has none.
+     */
+    public snapshot(projectPath: string): Promise<ISchemaDefinition | undefined> {
+        return this.#cached(this.#snapshots, projectPath, async () => {
+            const listing = await this.#listingOf(projectPath);
+            if (!listing?.schemaDefinition) {
+                return undefined;
+            }
+
+            // One diagram's row at most comes with the snapshot, not all.
+            return schemaDefinitionOf(await (await this.host.msmApi())
+                .getSchemaDiagrams(projectPath, listing.diagrams[0]?.name));
+        });
+    }
+
+    /**
+     * @param cache Where answers are kept until the next refresh.
+     * @param key What is asked about.
+     * @param read Reads the answer.
+     *
+     * @returns The kept answer, read where there is none; a failed read is
+     *          not kept, so the next draw tries again.
+     */
+    #cached<T>(cache: Map<string, Promise<T>>, key: string,
+        read: () => Promise<T>): Promise<T> {
+        const kept = cache.get(key);
+        if (kept !== undefined) {
+            return kept;
+        }
+        const reading = read();
+        cache.set(key, reading);
+        reading.catch(() => {
+            if (cache.get(key) === reading) {
+                cache.delete(key);
+            }
+        });
+
+        return reading;
+    }
+
+    /**
+     * @param project A listed project.
+     *
+     * @returns Its schema row: named as the project's schema, saying
+     *          whether msm's snapshot is the script's as it is.
+     */
+    async #schemaOf(project: IMsmListedProject): Promise<IMsmSchemaNode> {
+        const listing = await this.#listingOf(project.projectPath);
+
+        return {
+            kind: "schema",
+            projectPath: project.projectPath,
+            schema: project.schemaName
+                ?? schemaNameOfFolder(basename(project.projectPath)),
+            snapshot: listing?.schemaDefinition !== undefined,
+            current: listing?.schemaDefinition?.current,
+        };
+    }
+
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns Its schema diagrams, as msm lists them.
      */
     async #diagramsOf(projectPath: string): Promise<IMsmDiagramNode[]> {
-        try {
-            const listing = await (await this.host.msmApi())
-                .listSchemaDiagrams(projectPath);
+        const listing = await this.#listingOf(projectPath);
 
-            return listing.diagrams.map((diagram) => {
-                return {
-                    kind: "diagram",
-                    projectPath,
-                    name: diagram.name,
-                    figures: diagram.figures,
-                };
-            });
-        } catch (error) {
-            if (isUnsupportedShell(error)) {
-                this.host.log("The MariaDB Shell has no schema diagrams "
-                    + "for MSM projects; a newer version is needed.");
-
-                return [];
-            }
-            throw error;
-        }
+        return (listing?.diagrams ?? []).map((diagram) => {
+            return {
+                kind: "diagram",
+                projectPath,
+                name: diagram.name,
+                figures: diagram.figures,
+            };
+        });
     }
 
     /**
@@ -469,7 +688,8 @@ export class MsmProjectsTreeProvider
     }
 
     /**
-     * Notes a folder the user collapsed, and redraws it closed.
+     * Notes a row the user collapsed: a folder is redrawn closed, any other
+ * row is drawn closed after a restart.
      *
      * @param node The row collapsed.
      *
@@ -479,20 +699,26 @@ export class MsmProjectsTreeProvider
         if (node.kind === "folder") {
             await this.collapsedFolders.add(node.path);
             this.#onDidChangeTreeData.fire(node);
+        } else {
+            await this.expandedRows.delete(rowIdOf(node));
         }
     }
 
     /**
-     * Notes a folder the user expanded, and redraws it open.
+     * Notes a row the user expanded: a folder is redrawn open, any other row
+ * is drawn open again after a restart.
      *
      * @param node The row expanded.
      *
      * @returns Nothing.
      */
     public async expanded(node: MsmProjectsNode): Promise<void> {
-        if (node.kind === "folder"
-            && await this.collapsedFolders.delete(node.path)) {
-            this.#onDidChangeTreeData.fire(node);
+        if (node.kind === "folder") {
+            if (await this.collapsedFolders.delete(node.path)) {
+                this.#onDidChangeTreeData.fire(node);
+            }
+        } else {
+            await this.expandedRows.add(rowIdOf(node));
         }
     }
 
@@ -572,13 +798,23 @@ export class MsmProjectsTreeProvider
         source: readonly MsmProjectsNode[],
         dataTransfer: vscode.DataTransfer,
     ): void {
+        // Folders and projects are filed elsewhere in the view.
         const dragged = source.filter((node) => {
-            return node.kind !== "file";
+            return node.kind === "folder" || node.kind === "project";
         });
         if (dragged.length > 0) {
             dataTransfer.set(MSM_PROJECTS_DRAG_MIME,
                 new vscode.DataTransferItem(dragged));
         }
+        // Tables, views and routines go onto a diagram of the project.
+        const uris = objectUriList(source.flatMap((node) => {
+            return node.kind === "object"
+                ? [{ place: { projectPath: node.projectPath }, row: node }]
+                : [];
+        }));
+        // A webview gets nothing a tree sets: a diagram asks for them on
+        // the drop.
+        draggedObjects.remember(uris);
     }
 
     /**
@@ -595,6 +831,8 @@ export class MsmProjectsTreeProvider
         target: MsmProjectsNode | undefined,
         dataTransfer: vscode.DataTransfer,
     ): Promise<void> {
+        // A drag that ended here is not one for a diagram.
+        draggedObjects.take();
         const carried: unknown = dataTransfer.get(MSM_PROJECTS_DRAG_MIME)
             ?.value;
         const rows = Array.isArray(carried)
@@ -683,6 +921,12 @@ export class MsmProjectsTreeProvider
      */
     async #list(): Promise<IMsmProjectNode[]> {
         const listed = await (await this.host.msmApi()).listProjects();
+        // The rows of projects no longer listed are not kept open.
+        void this.expandedRows.prune((id) => {
+            return listed.some((project) => {
+                return isRowOf(id, project.projectPath);
+            });
+        });
 
         return listed.map((project) => {
             // In the one spelling the folder rows are drawn from, whatever
@@ -735,6 +979,61 @@ export class MsmProjectsTreeProvider
 }
 
 /**
+ * @param node A row other than a folder.
+ *
+ * @returns Its id: the same across refreshes and restarts, so the rows
+ *          left expanded are drawn so again.
+ */
+const rowIdOf = (node: Exclude<MsmProjectsNode, IMsmFolderNode>): string => {
+    switch (node.kind) {
+        case "project": {
+            return `msmProject:${node.project.projectPath}`;
+        }
+
+        case "schema": {
+            return `msmSchema:${node.projectPath}`;
+        }
+
+        case "diagrams": {
+            return `msmDiagrams:${node.projectPath}`;
+        }
+
+        case "diagram": {
+            return `msmDiagram:${node.projectPath}:${node.name}`;
+        }
+
+        case "objectGroup": {
+            return `msmGroup:${node.projectPath}:${node.objectType}`;
+        }
+
+        case "object": {
+            return `msmObject:${node.projectPath}:${node.objectType}:`
+                + node.name;
+        }
+
+        default: {
+            return `msmFile:${node.path}`;
+        }
+    }
+};
+
+/**
+ * @param id A row's id, as `rowIdOf` makes it.
+ * @param projectPath A project folder.
+ *
+ * @returns Whether the row is the project's or one of its rows: the path
+ *          ends there or goes on into it, so `/a/p` is not taken for
+ *          `/a/p2`.
+ */
+const isRowOf = (id: string, projectPath: string): boolean => {
+    const at = id.indexOf(":") + 1;
+
+    return id.startsWith(projectPath, at)
+        && ["", ":", "/", "\\"].includes(
+            id.charAt(at + projectPath.length));
+};
+
+/**
  * @param node A project.
  *
  * @returns Its row: expandable to its files, colored as the user chose,
@@ -745,7 +1044,7 @@ const projectItem = (node: IMsmProjectNode): vscode.TreeItem => {
     const item = new vscode.TreeItem(projectLabel(project), project.exists
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None);
-    item.id = `msmProject:${project.projectPath}`;
+    item.id = rowIdOf(node);
     item.description = projectDescription(node);
     item.contextValue = project.exists
         ? "mariadbMsmProject" : "mariadbMsmProject.missing";
@@ -771,41 +1070,67 @@ const projectItem = (node: IMsmProjectNode): vscode.TreeItem => {
 };
 
 /**
- * @param node A project's Diagrams folder.
+ * @param node A project's schema.
+ * @param resolveIcon The icons' lookup.
  *
- * @returns Its row, first among the project's.
+ * @returns Its row, first among the project's, with the Connections view's
+ *          schema icon; it says where msm's snapshot is not the script's.
  */
-const diagramsItem = (node: IMsmDiagramsNode): vscode.TreeItem => {
-    const item = new vscode.TreeItem("Diagrams",
-        vscode.TreeItemCollapsibleState.Collapsed);
-    item.id = `msmDiagrams:${node.projectPath}`;
-    item.contextValue = "mariadbMsmDiagrams";
-    item.iconPath = new vscode.ThemeIcon("type-hierarchy-sub");
-    item.tooltip = "The schema diagrams of the project, kept in MSM "
-        + "Section 160 of its development script";
+const schemaItem = (
+    node: IMsmSchemaNode,
+    resolveIcon: IconResolver,
+): vscode.TreeItem => {
+    const item = new SchemaTreeItem(node, resolveIcon, "mariadbMsm");
+    item.id = rowIdOf(node);
+    if (!node.snapshot) {
+        item.description = "no snapshot yet";
+        item.tooltip = `The schema ${node.schema} has no snapshot yet: `
+            + "Update Schema Snapshot makes it from the development script.";
+    } else if (node.current === false) {
+        item.description = "snapshot older than the script";
+        item.tooltip = `The objects of ${node.schema} as msm's snapshot `
+            + "has them, which the development script changed since: Update "
+            + "Schema Snapshot makes it again.";
+    } else {
+        item.tooltip = `The objects of ${node.schema}, as the development `
+            + "script has them";
+    }
+
+    return item;
+};
+
+/**
+ * @param node A project's Diagrams folder.
+ * @param resolveIcon The icons' lookup.
+ *
+ * @returns Its row, first in the project's schema.
+ */
+const diagramsItem = (
+    node: IMsmDiagramsNode,
+    resolveIcon: IconResolver,
+): vscode.TreeItem => {
+    const item = new DiagramsTreeItem(node, resolveIcon, "mariadbMsm",
+        "The schema diagrams of the project, kept in MSM Section 160 of its "
+        + "development script");
+    item.id = rowIdOf(node);
 
     return item;
 };
 
 /**
  * @param node A project's diagram.
+ * @param resolveIcon The icons' lookup.
  *
  * @returns Its row: opened by its inline button, its menu, or a
  *          double-click.
  */
-const diagramItem = (node: IMsmDiagramNode): vscode.TreeItem => {
-    const item = new vscode.TreeItem(node.name,
-        vscode.TreeItemCollapsibleState.None);
-    item.id = `msmDiagram:${node.projectPath}:${node.name}`;
-    item.contextValue = "mariadbMsmDiagram";
-    // The Diagrams folder's icon, as the Connections view's diagrams have.
-    item.iconPath = new vscode.ThemeIcon("type-hierarchy-sub");
-    item.description = counted(node.figures, "figure");
-    item.command = {
-        command: MSM_DIAGRAM_CLICK_COMMAND,
-        title: "Open Diagram",
-        arguments: [node],
-    };
+const diagramItem = (
+    node: IMsmDiagramNode,
+    resolveIcon: IconResolver,
+): vscode.TreeItem => {
+    const item = new DiagramTreeItem(node, resolveIcon, "mariadbMsm",
+        MSM_DIAGRAM_CLICK_COMMAND);
+    item.id = rowIdOf(node);
 
     return item;
 };
@@ -821,7 +1146,7 @@ const fileItem = (node: IMsmFileNode): vscode.TreeItem => {
     const item = new vscode.TreeItem(basename(node.path), node.directory
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None);
-    item.id = `msmFile:${node.path}`;
+    item.id = rowIdOf(node);
     item.resourceUri = uri;
     item.iconPath = node.directory ? vscode.ThemeIcon.Folder
         : vscode.ThemeIcon.File;

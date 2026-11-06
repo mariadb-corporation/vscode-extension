@@ -29,7 +29,10 @@ import {
     associativeTableChange,
     existingColumnsChange,
     freeName,
+    newEventChange,
+    newSequenceChange,
     newTableChange,
+    newTriggerChange,
     newViewChange,
     numberedName,
     relationshipChange,
@@ -58,7 +61,8 @@ const order = (): IOutlineTable => {
 };
 
 const objects = (...tables: IOutlineTable[]): ISchemaObjectLists => {
-    return { tables, views: [], routines: [] };
+    return { tables, views: [], routines: [], triggers: [], events: [],
+        sequences: [] };
 };
 
 describe("names", () => {
@@ -268,9 +272,40 @@ describe("the snapshot meanwhile", () => {
         expect(lists.views.map((view) => { return view.name; })).toEqual(["v"]);
         expect(lists.routines[0]).toMatchObject({ name: "r", kind: "procedure" });
 
+        applyEdits(lists, [...newTriggerChange("t", "t_bi").edits,
+            ...newEventChange("e").edits, ...newSequenceChange("s").edits]);
+        expect(lists.triggers).toEqual([{ name: "t_bi", timing: "BEFORE",
+            events: "INSERT", table: "t", body: "BEGIN\nEND" }]);
+        expect(lists.events?.map((event) => { return event.schedule; }))
+            .toEqual(["EVERY 1 DAY"]);
+        expect(lists.sequences).toEqual([{ name: "s" }]);
+
+        // A table's triggers go with it.
         applyEdits(lists, [{ op: "drop_table", table: "T" },
-            { op: "drop_view", view: "v" }, { op: "drop_routine", routine: "r" }]);
+            { op: "drop_view", view: "v" }, { op: "drop_routine", routine: "r" },
+            ...newEventChange("e").inverse, ...newSequenceChange("s").inverse]);
         expect(lists).toEqual(objects());
+    });
+
+    it("changes a column and a table's options, and adds a column where "
+        + "it is asked for", () => {
+        const lists = objects(customer());
+        applyEdits(lists, [
+            { op: "modify_column", table: "customer", column: "name",
+                new_column: { name: "name", type: "TEXT" } },
+            { op: "set_table_options", table: "customer",
+                options: { comment: "Buyers", engine: null } },
+            { op: "add_column", table: "customer",
+                column: { name: "code", type: "INT" }, first: true },
+            { op: "add_column", table: "customer",
+                column: { name: "email", type: "TEXT" }, after: "code" },
+        ]);
+
+        const table = lists.tables[0]!;
+        expect(table.columns.map((column) => {
+            return `${column.name} ${column.type}`;
+        })).toEqual(["code INT", "email TEXT", "id UUID", "name TEXT"]);
+        expect(table.options).toEqual({ comment: "Buyers" });
     });
 
     it("makes a 1:1 foreign key over a unique key one", () => {

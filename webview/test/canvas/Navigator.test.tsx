@@ -15,10 +15,17 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import { render } from "preact";
+import { act } from "preact/test-utils";
 import { describe, expect, it } from "vitest";
 
 import { ZOOM_RANGE } from "../../src/canvas/Canvas.js";
-import { sliderToZoom, zoomToSlider } from "../../src/canvas/Navigator.js";
+import {
+    Navigator,
+    sliderToZoom,
+    zoomToSlider,
+} from "../../src/canvas/Navigator.js";
+import { installLayoutStubs } from "../setup.js";
 
 describe("the Navigator's zoom slider", () => {
     it("spans the zoom range on a log scale", () => {
@@ -37,4 +44,49 @@ describe("the Navigator's zoom slider", () => {
                 .toBeCloseTo(zoom, 1);
         }
     });
+});
+
+describe("the Navigator", () => {
+    it("has its zoom below the overview, and fits the pages from the list",
+        () => {
+            installLayoutStubs();
+            const host = document.createElement("div");
+            document.body.appendChild(host);
+            const zooms: number[] = [];
+            let fits = 0;
+            act(() => {
+                render(<Navigator zoom={0.5} zoomRange={ZOOM_RANGE}
+                    onZoom={(zoom) => { zooms.push(zoom); }}
+                    onFit={() => { fits += 1; }}
+                    onArea={() => { /* not looked at */ }}
+                    onPan={() => { /* not looked at */ }}
+                    onCenter={() => { /* not looked at */ }}
+                    onMenu={() => { /* not looked at */ }}
+                    menuOpen={false} />, host);
+            });
+            const parts = [...host.querySelector(".navigator")!.children]
+                .map((part) => { return part.className; });
+            expect(parts).toEqual(["navigatorTitle", "navigatorArea",
+                "navigatorZoom"]);
+
+            act(() => {
+                host.querySelector<HTMLButtonElement>(".splitChevron")!.click();
+            });
+            const fit = [...host.querySelectorAll<HTMLElement>(
+                ".splitMenu [role^=menuitem]")].find((item) => {
+                return item.textContent === "Fit the Pages";
+            });
+            act(() => { fit!.click(); });
+            expect(fits).toBe(1);
+
+            // The value's button does it again.
+            act(() => {
+                host.querySelector<HTMLButtonElement>(".splitMain")!.click();
+            });
+            expect(fits).toBe(2);
+            expect(zooms).toEqual([]);
+
+            render(null, host);
+            host.remove();
+        });
 });

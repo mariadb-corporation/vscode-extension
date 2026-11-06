@@ -127,6 +127,12 @@
           "icon": "images/light/connectionMariaDB.svg"
         },
         {
+          "id": "mariadb.objectDetails",
+          "name": "Object Details",
+          "type": "webview",
+          "initialSize": 40
+        },
+        {
           "id": "mariadb.sandboxes",
           "name": "Sandboxes",
           "initialSize": 16
@@ -160,6 +166,11 @@
         {
           "id": "mariadb.msmProjects",
           "name": "MSM Projects"
+        },
+        {
+          "id": "mariadb.msmObjectDetails",
+          "name": "Object Details",
+          "type": "webview"
         }
       ],
       "mariadb-panel": [
@@ -1200,6 +1211,18 @@
         "icon": "$(add)"
       },
       {
+        "command": "mariadb.addToDiagram",
+        "title": "Add to Diagram",
+        "category": "MariaDB",
+        "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "mariadb.msm.updateSchemaSnapshot",
+        "title": "Update Schema Snapshot",
+        "category": "MariaDB",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "mariadb.msm.prepareRelease",
         "title": "Prepare MSM Release...",
         "category": "MariaDB",
@@ -1869,6 +1892,31 @@
           "group": "inline@0"
         },
         {
+          "command": "mariadb.msm.updateSchemaSnapshot",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.addToDiagram",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObject\\.(table|view|procedure|function|sequence|trigger|event)$/",
+          "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.addToDiagram",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view|procedure|function|sequence|trigger|event)$/",
+          "group": "0_diagram@0"
+        },
+        {
+          "command": "mariadb.msm.updateSchemaSnapshot",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.msm.newSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "0_msm@1"
+        },
+        {
           "command": "mariadb.msm.openSchemaDiagram",
           "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagrams?$/",
           "group": "inline@1"
@@ -1979,6 +2027,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "mariadb.addToDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.updateSchemaSnapshot",
+          "when": "false"
+        },
         {
           "command": "mariadb.selectRows",
           "when": "false"
@@ -3081,7 +3137,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "build:extension": "vite build && vite build --config vite.worker.config.ts",
-    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.overview.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.modeler.config.ts && vite build --config vite.notebook.config.ts",
+    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.overview.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.details.config.ts && vite build --config vite.modeler.config.ts && vite build --config vite.notebook.config.ts",
     "watch:webview": "vite build --config vite.webview.config.ts --watch",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "grammar:sync": "node tools/grammar.mts sync",
@@ -3094,7 +3150,8 @@
     "ui-test:dump-load": "npm run ui-test -- dump-load",
     "ui-test:restd": "npm run ui-test -- restd",
     "ui-test:lsp": "npm run ui-test -- lsp",
-    "ui-test:msm": "npm run ui-test -- msm"
+    "ui-test:msm": "npm run ui-test -- msm",
+    "ui-test:msm-diagrams": "npm run ui-test -- msm-diagrams"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",

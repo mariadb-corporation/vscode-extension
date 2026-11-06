@@ -33,9 +33,18 @@ and Enter moves on to a chain of column editors.
   as in Workbench. The exception is a layer area too small to count
   (under 5 units: "Please select a larger area."), which keeps the tool.
   Keys, no modifier, never while typing: Esc pointer, H hand, D eraser,
-  L layer, N text, I image, T table, V view, G routine group, 1 to 5 the
-  relationships, 6 existing columns. Zoom has no key; Z held still zooms.
+  L layer, N text, I image, T table, V view, G routine group, R trigger,
+  E event group, Q sequence, 1 to 5 the relationships, 6 existing
+  columns. Zoom has no key; Z held still zooms.
   The hints go to the start of the status line.
+- **The relationship icons** (`images/light/toolbar-diagram-rel*.svg`,
+  used as CSS masks) use Workbench's notation, drawn anew at 16 px: the
+  relationship's line across the top, dashed where it does not identify,
+  a crow's foot at a many end, and the cardinality written below,
+  right-aligned (`1:1`, `1:n`, `n:m`); Existing Columns (`relpick`) adds a
+  pipette. The characters are strokes, not SVG text, as a mask image
+  cannot count on a font. Two tables joined by an elbow line, with crow's
+  feet, read worse at 16 px.
 - **Diagram-only tools** (eraser, layer, note, image, routine group) are
   history actions saved like any change. The eraser removes a figure (and
   its connections) or a layer from the diagram, never the object from
@@ -82,6 +91,25 @@ and Enter moves on to a chain of column editors.
   wording), and for a refused undo or redo, which carries no `recover`.
   The viewer matches each `schemaEdited` to its request by order, since
   the panel answers them one at a time.
+- **Triggers, events and sequences** (not Workbench's; the user's
+  choices): a trigger is a "Triggers" section of its table's card (shown
+  unless `triggersExpanded` is false; the table menu's Show Triggers).
+  The Trigger tool is clicked on a table: `<table>_BEFORE_INSERT`, named
+  in place in that section, then `add_trigger` (BEFORE INSERT, body
+  `BEGIN\nEND`). Events are listed on an `EventGroupFigure` (`events`,
+  #F5C39A) like routines on a routine group, placed empty and filled from
+  its menu's Add Event (`add_event`, EVERY 1 DAY). A sequence is a
+  `SequenceFigure` (`sequence`, #C9B8E8) placed and named like a view
+  (`add_sequence`), its name free of tables' and views'. Its card shows
+  msm's three rows (`diagrams.sequence_rows`): the type (BIGINT where none
+  is written), `START WITH n`, `INCREMENT BY n` (1 where not written), so
+  msm's layout and pictures size it as the viewer draws it. The ops are
+  lsp-server's, the figure kinds and the Triggers section's count msm's
+  (both agreed with those repos' sessions; see the ops below). Where a
+  binary or a shell lacks them, msm refuses and the viewer takes the
+  change back.
+  The sequence icon `schemaSequence.svg` is the extension's own (the
+  upstream set has none).
 - **A new view** is named in place, then made with `add_view` and the
   placeholder `SELECT 1`: the SELECT is the user's to write in the SQL.
 - **Relationships** (Workbench's): pick the table that receives the
@@ -112,8 +140,13 @@ are added), then `IToolTarget.schemaEdit` posts `schemaEdit` with
 as sent, so `onHistory` does not post them again as `diagramChanged`.
 `ProjectModelSource.edit` saves what waits, makes the edit, and only then
 saves the documents (unless newer changes of that diagram wait). If the
-edit fails, it drops their pending changes and drafts: a figure of a table
-that was never made is not saved, nor taken up again from a draft. Undo
+edit fails, it drops their pending changes, drafts and save timers: a
+figure of a table that was never made is not saved, nor taken up again
+from a draft. Where msm made the edit but saving the documents then
+fails, that is a failed save (the save state says so); the edit counts as
+made, so the viewer keeps it and the next edit is made against its
+snapshot. The viewer matches each `schemaEdited` to its request by order,
+and keeps a slot for every request still waiting across a reload. Undo
 sends the inverse with the
 documents again: drop the foreign key first, then restore the primary
 key, then drop the columns (the server refuses to change a key a foreign
@@ -139,7 +172,28 @@ Shapes are the outline's structs: `add_table {table}`, `add_column
 {view: {name, definition}}` (the SELECT alone), `add_routine {routine}`,
 `drop_table {table}`, `drop_column {table, column}`, `drop_foreign_key
 {table, name}`, `drop_index {table, name}` or `{table, kind: "primary"}`,
-`drop_view {view}`, `drop_routine {routine, kind?}`. A binary lists the
+`drop_view {view}`, `drop_routine {routine, kind?}`. For triggers, events
+and sequences: `add_trigger {trigger}` (`name`, `timing`, `events`,
+`table`, `body`; `events` is one string as the outline writes it,
+`"INSERT"` or `"UPDATE OR DELETE"`, an array is refused), `drop_trigger
+{trigger, table?}`, `rename_trigger {trigger, new_name}`; `add_event
+{event}` (`name`, `schedule`, `body`), `drop_event {event}`,
+`rename_event`; `add_sequence {sequence}` (`name`), `drop_sequence
+{sequence}`, `rename_sequence`; a rename takes `{<kind>: old, new_name}`
+and each op refuses any other member (`bad-request`). `add_sequence`
+places the CREATE after the last sequence, else before the first table
+(Section 140), so a column's `DEFAULT NEXT VALUE FOR` can use it; tables,
+views and sequences share one namespace (`name-taken`). A trigger goes in
+Section 150 after the last trigger (never after the first event), else
+the last routine or view; an event after the last event, trigger, routine
+or view. `drop_trigger` is refused (`referenced`) while another trigger
+FOLLOWS or PRECEDES it, `drop_sequence` while a column default uses it;
+`drop_trigger`'s `table` is only checked. A trigger's or event's CREATE
+cannot run inside the update procedure (MariaDB 1303 / 1576): the binary
+notes `trigger-created`, `trigger-recreated` (a rename is a drop and a
+create) and `event-created`, and msm leaves those CREATEs to Section 150.
+A table's triggers go with `drop_table`; undoing that needs
+`add_trigger` for each. A binary lists the
 ops it has on an `edit ops:` line of `--help`. The viewer does not read
 it yet: msm does not pass it on, so every tool is offered in a project.
 
@@ -167,3 +221,19 @@ pointer capture refuses synthetic ones. Checked that way: the palette,
 placing a table with its name, columns and the type list, a 1:n
 relationship with its hover outline, the existing-columns floater and
 row marks, a layer dragged around two tables.
+
+## Known gaps
+
+Found by the code reviews, each left open as it needs a decision:
+
+- A redraw of the figures (a reload) while a new table's column editor is
+  open runs the editor's `cancel`, which ends the table and can send
+  `add_table` from figures being thrown away: `cancel` means both Esc and
+  "the figures went away".
+- Undoing a change before msm answers, then msm refusing it, takes it back
+  twice: no rule yet for undo while an edit waits on msm.
+- Leaving the new table's name editor (a click elsewhere) still opens the
+  first column's editor, which takes the focus back.
+- Removing a figure clears the whole selection.
+- A refused edit drops its diagrams' changes made while it ran (a figure
+  moved meanwhile), with the figures of objects msm did not make.

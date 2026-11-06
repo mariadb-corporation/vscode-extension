@@ -44,6 +44,12 @@ in `syntaxes/words.json`, a case per lexer token class, and snapshots of
 real SQL corpora (`corpus/*.tokens`, rewritten with `vitest -u` after a
 deliberate change). See [sql-grammar.md](sql-grammar.md).
 
+`ProjectModelSource` is built with a 0 ms save delay in
+`src/test/modeler/modelSources.test.ts`: a test that reads the draft
+before the save holds the timer with `vi.useFakeTimers({ toFake:
+["setTimeout", "clearTimeout"] })`, else under load the save drops the
+draft while `drafts.list()` is still reading the folder.
+
 ## UI tests (ExTester)
 
 `MARIADB_SHELL=<path to mariadb-shell> npm run ui-test [suite...]`
@@ -66,6 +72,7 @@ should not need the full run). `SUITES` in `ui-test/run.ts`:
 | `dump-load` | `06-dump-load` | `ui-test:dump-load` |
 | `lsp` | `08-lsp`: a syntax error in the Problems view until it is fixed, completion of the sandbox's tables, which `mariadb-lsp` reads through the extension's MCP server (`mariadb/dbCall`), the walk from `SELECT ` through schema, table and column to the FROM clause and a foreign-key join (`pickCompletion` opens the list and clicks an item; a dotted item reopens it by itself), and of a catalog file named in `mariadb.lsp.catalogFiles` while the server runs (`updateUserSettings` writes the test instance's settings.json, which VS Code watches); Format Document and the toolbar's format button with and without a selection; the Explorer's Outline (schema > table > columns and key, a view, a function) and a click on a symbol moving the cursor; an MSM script's `SOURCE` section in the Outline and in path completion. Needs a `mariadb-lsp` on the PATH, or `MARIADB_LSP=<path>` | `ui-test:lsp` |
 | `msm` | `10-msm-projects` first, as a project created in the Explorer is listed in the view: the MSM Projects view - empty with its New / Open buttons, a project created from the toolbar (the save dialog names it, New MSM Project files and captions it), its files opened with a click, the Explorer's operations on its row (the information from its inline icon), Edit MSM Project (version, folder, MCP access: the row then says `0.1.0 · MCP`), removed and added back from the Explorer, removed and opened with the open dialog. Then `09-msm`: MariaDB Schema Management from the Explorer, a project created (the side bar staying on the Explorer), released, scripted and deployed onto the sandbox, through the dialogs (see [msm.md](msm.md)). Its VS Code opens `files/workspace` (`WORKSPACE_FILES`, `--open_resource`); `UI_TEST_WORKSPACE` names it | `ui-test:msm` |
+| `msm-diagrams` | `10-msm-projects` then `11-msm-diagrams`, without the sandbox: the project's snapshot from tables written into its script, New Schema Diagram, Add to Diagram, and a table dragged from the tree placed where the pointer comes back (the figures checked in the saved script). `11-msm-diagrams` also runs in `msm`, after `10-msm-projects` | `ui-test:msm-diagrams` |
 | `restd` | `07-restd`: a second sandbox with the REST Service, its daemon serving and following it, Set Up MariaDB REST Daemon on the suite's sandbox, both deleted. Needs a mariadb-restd in the PATH, `~/.local/bin` or `~/.local/share/mariadb-restd` | `ui-test:restd` |
 
 Each suite is one `extest setup-and-run` of its own: a fresh VS Code
@@ -151,6 +158,16 @@ runner end anyway. A spawn that fails is reported with its error.
   area or the bottom panel (`frameShownIn`). ExTester's choice went into
   the MariaDB Overview (see overview.md), which `ui-test/settings.json`
   now keeps from opening with the view; `00-startup` opens it by command.
+- **Drags go through the DevTools protocol** (`ui-test/lib/cdp.ts`):
+  ChromeDriver's pointer actions start no HTML5 drag. `shiftDrag` presses
+  and moves the mouse on the row with `Input.setInterceptDrags` on, takes
+  the drag Chromium hands back (`Input.dragIntercepted`, the data VS Code
+  put on it) and moves and drops it with `Input.dispatchDragEvent`;
+  `moveMouse` moves the pointer. It talks to the workbench page found at
+  ChromeDriver's `debuggerAddress` (`/json/list`) with Node's own
+  `WebSocket`; Selenium's `createCDPConnection` takes the first page
+  target, which need not be the workbench. After such a drag the test VS
+  Code may not open views any more, so a drag test goes last.
 - Helpers live in `ui-test/lib/ui.ts`. `openSection` collapses the
   other MariaDB views and expands the one asked for: with three views
   sharing the side bar, deep Connections rows were out of sight (and

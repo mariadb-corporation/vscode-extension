@@ -95,6 +95,48 @@ export interface IOutlineRoutine {
     returns?: string | null;
 }
 
+/** A trigger of the snapshot, on its table. */
+export interface IOutlineTrigger {
+    name: string;
+    /** `BEFORE` or `AFTER`. */
+    timing: string;
+    /** `INSERT`, or `UPDATE OR DELETE` for several, as the outline writes it. */
+    events: string;
+    /** The table it is on, without its schema. */
+    table: string;
+    /** The columns of `UPDATE OF a, b`. */
+    update_columns?: string[];
+    body?: string;
+    order?: { kind: string; trigger: string } | null;
+    definer?: string | null;
+}
+
+/** An event of the snapshot. */
+export interface IOutlineEvent {
+    name: string;
+    /** `AT ...` or `EVERY ... [STARTS ...] [ENDS ...]`, as written. */
+    schedule?: string;
+    on_completion_preserve?: boolean | null;
+    /** `ENABLE`, `DISABLE`, `DISABLE ON SLAVE`. */
+    status?: string | null;
+    comment?: string | null;
+    body?: string;
+    definer?: string | null;
+}
+
+/** A sequence of the snapshot; its numbers as written. */
+export interface IOutlineSequence {
+    name: string;
+    type?: string | null;
+    start?: string | null;
+    increment?: string | null;
+    minvalue?: string | null;
+    maxvalue?: string | null;
+    cache?: string | null;
+    cycle?: boolean | null;
+    options?: Record<string, unknown>;
+}
+
 /** A layer of a diagram: a coloured area grouping figures. */
 export interface IModelLayer {
     id: string;
@@ -118,6 +160,9 @@ export interface IModelLayer {
 export const TABLE_FIGURE = "TableFigure";
 export const VIEW_FIGURE = "ViewFigure";
 export const ROUTINE_GROUP_FIGURE = "RoutineGroupFigure";
+/** A group of events, listed as a routine group lists routines. */
+export const EVENT_GROUP_FIGURE = "EventGroupFigure";
+export const SEQUENCE_FIGURE = "SequenceFigure";
 export const NOTE_FIGURE = "NoteFigure";
 export const IMAGE_FIGURE = "ImageFigure";
 
@@ -126,6 +171,8 @@ export const FIGURE_COLORS: Record<string, string> = {
     [TABLE_FIGURE]: "#98BFDA",
     [VIEW_FIGURE]: "#FEDE58",
     [ROUTINE_GROUP_FIGURE]: "#98D8A5",
+    [EVENT_GROUP_FIGURE]: "#F5C39A",
+    [SEQUENCE_FIGURE]: "#C9B8E8",
     [NOTE_FIGURE]: "#FEFDED",
     [IMAGE_FIGURE]: "#FFFFFF",
 };
@@ -153,6 +200,10 @@ export interface IModelFigure {
     view?: string;
     /** A RoutineGroupFigure's routines, by name. */
     routines?: string[];
+    /** An EventGroupFigure's events, by name. */
+    events?: string[];
+    /** A SequenceFigure's sequence. */
+    sequence?: string;
     /** A NoteFigure's text, its font (`Helvetica Bold 12`) and colour. */
     text?: string;
     font?: string;
@@ -218,6 +269,9 @@ export interface ISchemaModel {
     tables: IOutlineTable[];
     views: IOutlineView[];
     routines: IOutlineRoutine[];
+    triggers: IOutlineTrigger[];
+    events: IOutlineEvent[];
+    sequences: IOutlineSequence[];
     diagrams: IModelDiagram[];
 }
 
@@ -235,6 +289,9 @@ export interface ISchemaDefinition {
     tables: IOutlineTable[];
     views?: IOutlineView[];
     routines?: IOutlineRoutine[];
+    triggers?: IOutlineTrigger[];
+    events?: IOutlineEvent[];
+    sequences?: IOutlineSequence[];
 }
 
 /** A diagram's document: one EER diagram, in a notation. */
@@ -325,6 +382,24 @@ export const documentOf = (row: IDiagramRow): Record<string, unknown> => {
 };
 
 /**
+ * @param rows The rows of a `msm_schema_diagrams` view.
+ *
+ * @returns Its schema snapshot (`msm-schema/1`), where it has one.
+ * @throws If the snapshot's document is not a JSON object.
+ */
+export const schemaDefinitionOf = (
+    rows: readonly IDiagramRow[],
+): ISchemaDefinition | undefined => {
+    const row = rows.find((entry) => {
+        return entry.format === SCHEMA_DEFINITION_FORMAT;
+    });
+
+    return row === undefined
+        ? undefined
+        : documentOf(row) as unknown as ISchemaDefinition;
+};
+
+/**
  * Puts a schema model together out of the rows of its `msm_schema_diagrams`
  * view: the one snapshot (`msm-schema/1`), and every diagram
  * (`msm-diagram/1`) in the order the view has them. Rows of another format
@@ -385,6 +460,9 @@ export const assembleSchemaModel = (rows: readonly IDiagramRow[]): ISchemaModel 
         tables: definition.tables,
         views: definition.views ?? [],
         routines: definition.routines ?? [],
+        triggers: definition.triggers ?? [],
+        events: definition.events ?? [],
+        sequences: definition.sequences ?? [],
         diagrams,
     };
 };

@@ -17,6 +17,8 @@
 
 import type { DeploymentWebviewMessage }
     from "../../src/deployments/deploymentProtocol.js";
+import type { DetailsWebviewMessage }
+    from "../../src/details/objectDetails.js";
 import type { EditorWebviewMessage }
     from "../../src/connections/editorProtocol.js";
 import type { MrsWebviewMessage } from "../../src/mrs/mrsDialogProtocol.js";
@@ -71,7 +73,8 @@ const vscodeApi = (): IVsCodeApi => {
 export const post = <
     T extends WebviewMessage | EditorWebviewMessage | SandboxWebviewMessage
     | MrsWebviewMessage | UtilWebviewMessage | ModelerWebviewMessage
-    | MsmWebviewMessage | DeploymentWebviewMessage | OverviewWebviewMessage,
+    | MsmWebviewMessage | DeploymentWebviewMessage | OverviewWebviewMessage
+    | DetailsWebviewMessage,
 >(
     message: T,
 ): void => {

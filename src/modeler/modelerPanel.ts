@@ -20,10 +20,13 @@ import * as vscode from "vscode";
 import { reportError } from "../errorMessages.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { errorText } from "../text.js";
+import type { IDetailEdits } from "../details/detailEdits.js";
 import type { IDiagramDocument } from "./modelFormat.js";
 import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
+    ISchemaObjectRef,
     ModelerHostMessage,
+    ModelerTarget,
     ModelerWebviewMessage,
 } from "./modelerProtocol.js";
 import { DEFAULT_PAGE_SETTINGS } from "./pageSettings.js";
@@ -41,6 +44,22 @@ import { DEFAULT_PAGE_SETTINGS } from "./pageSettings.js";
 /** What a panel needs from the outside, so a test can supply its own. */
 export interface IModelerHost {
     log(message: string): void;
+    /**
+     * Called once msm made a schema edit, or refused one as the project
+     * changed meanwhile: the trees drawing the schema's objects read them
+     * again.
+     */
+    schemaChanged?(target: ModelerTarget): void;
+    /**
+     * Called as the figures selected change: the schema objects they
+     * show, and what the viewer shows (whose schema they are of).
+     */
+    selected?(target: ModelerTarget, objects: ISchemaObjectRef[]): void;
+    /**
+     * The objects of the last drag from a tree, as `text/uri-list`, once:
+     * what rows dropped on the page were.
+     */
+    draggedObjects?(): string | undefined;
 }
 
 /** The view type the panels are registered under. */
@@ -70,6 +89,10 @@ export class ModelerPanel {
     #sourceHash?: string;
     /** The schema edits under way, which run one at a time. */
     #editing: Promise<void> = Promise.resolve();
+    /** Whether the page has the model: objects to place wait until then. */
+    #loaded = false;
+    /** Objects to place once the page has the model. */
+    #toPlace: ISchemaObjectRef[] = [];
     #schema: string;
 
     private constructor(
@@ -218,6 +241,37 @@ export class ModelerPanel {
                 break;
             }
 
+            case "selection": {
+                this.host.selected?.(this.source.target(this.#diagram),
+                    message.objects);
+                break;
+            }
+
+            case "pointerArrived": {
+                // Only right after a drag from a tree; otherwise nothing.
+                const uriList = this.host.draggedObjects?.();
+                if (uriList !== undefined) {
+                    this.host.log("Placing the objects dragged from a tree "
+                        + "where the pointer came back into the diagram.");
+                    this.#post({ type: "treeDropped", uriList,
+                        x: message.x, y: message.y });
+                }
+                break;
+            }
+
+            case "treeDrop": {
+                const uriList = this.host.draggedObjects?.() ?? "";
+                // What reached the page, should a drop place nothing.
+                this.host.log(`A drop on the diagram carried `
+                    + `${message.types.join(", ") || "no types"}; `
+                    + (uriList === "" ? "no objects were dragged from a tree"
+                        : `objects dragged from a tree: `
+                            + uriList.split(/\r?\n/u).length));
+                this.#post({ type: "treeDropped", uriList,
+                    x: message.x, y: message.y });
+                break;
+            }
+
             case "schemaEdit": {
                 // One after the other: each is made against the snapshot
                 // the one before it left.
@@ -236,6 +290,7 @@ export class ModelerPanel {
 
     /** Reads the model, and sends it to the page. */
     async #load(): Promise<void> {
+        this.#loaded = false;
         try {
             // Started as the panel opened, alongside the page's own start;
             // a reload of the page reads again.
@@ -256,6 +311,11 @@ export class ModelerPanel {
                 editable: this.source.editable,
                 target: this.source.target(this.#diagram),
             });
+            this.#loaded = true;
+            if (this.#toPlace.length > 0) {
+                this.#post({ type: "placeObjects", objects: this.#toPlace });
+                this.#toPlace = [];
+            }
         } catch (error) {
             const text = errorText(error);
             this.host.log(`Could not read the diagrams of `
@@ -292,6 +352,7 @@ export class ModelerPanel {
             const { model, notes } = await this.source.edit(edits,
                 this.#sourceHash, documents);
             this.#sourceHash = model.sourceHash;
+            this.host.schemaChanged?.(this.source.target(this.#diagram));
             this.#post({
                 type: "schemaEdited",
                 objects: {
@@ -300,6 +361,9 @@ export class ModelerPanel {
                     tables: model.tables,
                     views: model.views,
                     routines: model.routines,
+                    triggers: model.triggers,
+                    events: model.events,
+                    sequences: model.sequences,
                 },
             });
             if (notes.length > 0) {
@@ -315,9 +379,80 @@ export class ModelerPanel {
             // itself where it can (the SQL is as it was: msm edits whole
             // or not at all), else it goes back to what the project says -
             // always where the project changed since the viewer read it.
-            if (!recover || isStaleSnapshot(text)) {
+            const stale = isStaleSnapshot(text);
+            if (!recover || stale) {
                 await this.#load();
             }
+            // The project changed meanwhile: the trees and Object Details
+            // read it again too.
+            if (stale) {
+                this.host.schemaChanged?.(this.source.target(this.#diagram));
+            }
+        }
+    }
+
+    /**
+     * Places objects of the schema on the diagram the source's panel
+     * shows, once it has the model, and brings the panel forward.
+     *
+     * @param source Where the model comes from.
+     * @param objects The objects.
+     *
+     * @returns Whether a panel of the source is up to place them.
+     */
+    public static place(
+        source: IModelSource,
+        objects: ISchemaObjectRef[],
+    ): boolean {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined) {
+            return false;
+        }
+        panel.#panel.reveal(undefined, false);
+        if (panel.#loaded) {
+            panel.#post({ type: "placeObjects", objects });
+        } else {
+            panel.#toPlace.push(...objects);
+        }
+
+        return true;
+    }
+
+    /**
+     * Makes a change of the Object Details view in the source's panel,
+     * where one is up and has the model: there it joins the history.
+     *
+     * @param source Where the model comes from.
+     * @param change The change.
+     *
+     * @returns Whether a panel took it.
+     */
+    public static applySchemaChange(
+        source: IModelSource,
+        change: IDetailEdits,
+    ): boolean {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined || !panel.#loaded) {
+            return false;
+        }
+        panel.#post({ type: "applySchemaChange", change });
+
+        return true;
+    }
+
+    /**
+     * Reads the model again in the source's panel, where one is up: after
+     * its schema snapshot was made again, which edits made against the old
+     * one would be refused for.
+     *
+     * @param source Where the model comes from.
+     *
+     * @returns Once the panel has it.
+     */
+    public static async reload(source: IModelSource): Promise<void> {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel !== undefined) {
+            await panel.#load();
         }
     }
 

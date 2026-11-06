@@ -46,6 +46,8 @@ import type { IMsmApi } from "./mcp/msmApi.js";
 import {
     diagramNameTaken, MsmCommands, newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
+import { projectOfScriptFile } from "./msm/msmFields.js";
+import { SettledSaves } from "./msm/settledSaves.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
 import { reportError } from "./errorMessages.js";
@@ -80,6 +82,11 @@ import {
 } from "./tree/connectionsTreeProvider.js";
 import { createIconResolver } from "./tree/treeItems.js";
 import {
+    ADD_TO_DIAGRAM_COMMAND,
+    draggedObjects,
+    objectRefOf,
+} from "./tree/schemaTree.js";
+import {
     COLLAPSED_FOLDERS_KEY,
     FolderColors,
     FolderSet,
@@ -89,7 +96,14 @@ import {
     commonFolder,
 } from "./connections/connectionFolders.js";
 import { ConnectionEditorPanel } from "./connections/connectionEditorPanel.js";
-import { withDefaultScheme } from "./connections/connectionUri.js";
+import {
+    connectionLabel,
+    withDefaultScheme,
+} from "./connections/connectionUri.js";
+import {
+    OBJECT_DETAILS_VIEWS,
+    ObjectDetailsProvider,
+} from "./details/objectDetailsProvider.js";
 import type {
     ISandboxApi,
     ISandboxChange,
@@ -103,6 +117,7 @@ import { DiagramDrafts } from "./modeler/diagramDrafts.js";
 import {
     MODELER_VIEW_TYPE,
     ModelerPanel,
+    type IModelerHost,
 } from "./modeler/modelerPanel.js";
 import type { ModelerTarget } from "./modeler/modelerProtocol.js";
 import {
@@ -163,6 +178,7 @@ import {
 import {
     MSM_DIAGRAM_CLICK_COMMAND,
     MSM_DIAGRAM_COMMANDS,
+    MSM_SCHEMA_COMMANDS,
     MSM_PROJECTS_VIEW_ID,
     MsmProjectsTreeProvider,
     type IMsmDiagramNode,
@@ -494,7 +510,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
      */
     const openSchemaDiagram = (node: IDiagramNode): void => {
         ModelerPanel.show(context.extensionUri,
-            connectionDiagrams(node.uri, node.schema), node.name, { log });
+            connectionDiagrams(node.uri, node.schema), node.name, modelerHost);
     };
 
     // Where every call is logged, the listings and reads are too, and the
@@ -836,6 +852,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         msmApi: () => { return serverApi(() => { return session.msmApi; }); },
         status: starter,
         memento: context.globalState,
+        resolveIcon: createIconResolver(context.extensionUri),
         log,
     });
     const msmProjectsView = vscode.window.createTreeView<MsmProjectsNode>(
@@ -852,6 +869,64 @@ export const activate = (context: vscode.ExtensionContext): void => {
     msmProjectsView.onDidCollapseElement((event) => {
         void msmProjects.collapsed(event.element);
     });
+
+    // The object selected - on a diagram, or in either tree - read only,
+    // below MSM Projects and below Connections.
+    const objectDetails = new ObjectDetailsProvider({
+        extensionUri: context.extensionUri,
+        log,
+        snapshot: (projectPath) => { return msmProjects.snapshot(projectPath); },
+        liveDetails: async (connection, schema, ref) => {
+            const connectionId = connections.connectionIdFor(connection,
+                UI_BACKEND_SESSION);
+            if (connectionId === undefined) {
+                throw new Error("The connection is not open.");
+            }
+
+            return (await connections.api()).getObjectDetails(connectionId,
+                schema, ref.name, ref.type);
+        },
+        connectionLabel,
+    });
+    context.subscriptions.push(objectDetails,
+        ...OBJECT_DETAILS_VIEWS.map((id) => {
+            return vscode.window.registerWebviewViewProvider(id,
+                objectDetails);
+        }),
+        msmProjectsView.onDidChangeSelection((event) => {
+            const [node] = event.selection;
+            if (node?.kind === "object") {
+                objectDetails.show({ projectPath: node.projectPath },
+                    objectRefOf(node));
+            }
+        }),
+        connectionsView.onDidChangeSelection((event) => {
+            const [node] = event.selection;
+            if (node?.kind === "object") {
+                objectDetails.show({ connection: node.uri,
+                    schema: node.schema }, objectRefOf(node));
+            }
+        }));
+    /** What a diagram viewer tells the views around it. */
+    const modelerHost: IModelerHost = {
+        log,
+        schemaChanged: (target) => {
+            if (target.kind === "project") {
+                msmProjects.refreshProject(target.projectPath);
+            }
+            objectDetails.refreshed();
+        },
+        draggedObjects: () => { return draggedObjects.take(); },
+        selected: (target, objects) => {
+            const [first] = objects;
+            if (first !== undefined) {
+                objectDetails.show(target.kind === "project"
+                    ? { projectPath: target.projectPath }
+                    : { connection: target.connection,
+                        schema: target.schema }, first);
+            }
+        },
+    };
     const restdCommands = new RestdCommands({
         extensionUri: context.extensionUri,
         connect: (uri) => {
@@ -1013,9 +1088,29 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
         return source;
     };
+    /** Shows a project's snapshot made again: trees, details, its viewer. */
+    const snapshotUpdated = async (projectPath: string): Promise<void> => {
+        msmProjects.refreshProject(projectPath);
+        objectDetails.refreshed();
+        await ModelerPanel.reload(projectDiagrams(projectPath));
+    };
+    const scriptSaves = new SettledSaves(async (projectPath) => {
+        try {
+            if (await projectDiagrams(projectPath).updateSnapshot(true)) {
+                await snapshotUpdated(projectPath);
+            }
+        } catch (error) {
+            // Not a notification on every save: the schema row says the
+            // snapshot is older than the script, the Actions tab why.
+            log(`Could not update the schema snapshot of '${projectPath}' `
+                + `after a save: ${errorText(error)}`);
+            msmProjects.refreshProject(projectPath);
+        }
+    });
+    context.subscriptions.push(scriptSaves);
     const openProjectDiagram = (projectPath: string, name: string): void => {
         ModelerPanel.show(context.extensionUri, projectDiagrams(projectPath),
-            name, { log });
+            name, modelerHost);
     };
     /**
      * Opens a diagram of a project, asking which where the project has
@@ -1053,6 +1148,40 @@ export const activate = (context: vscode.ExtensionContext): void => {
             openProjectDiagram(projectPath, picked.name);
         }
     };
+    /**
+     * Places tables, views and routines of a tree on the diagram of their
+     * schema that is open, opening one of a project's where none is.
+     *
+     * @param arg The row the command was run on.
+     * @param selected Every row selected, where several are.
+     */
+    const addToDiagram = async (arg: unknown, selected: unknown):
+        Promise<void> => {
+        const rows = (Array.isArray(selected) && selected.length > 0
+            ? selected : [arg]) as Array<MsmProjectsNode | ConnectionsNode>;
+        const first = rows[0];
+        if (first?.kind !== "object") {
+            return;
+        }
+        const refs = rows.flatMap((row) => {
+            return row.kind === "object" ? [objectRefOf(row)] : [];
+        });
+        if ("projectPath" in first) {
+            const source = projectDiagrams(first.projectPath);
+            if (!ModelerPanel.place(source, refs)) {
+                await pickProjectDiagram(first.projectPath);
+                ModelerPanel.place(source, refs);
+            }
+
+            return;
+        }
+        if (!ModelerPanel.place(connectionDiagrams(first.uri, first.schema),
+            refs)) {
+            void vscode.window.showInformationMessage(
+                `Open a diagram of ${first.schema} first: its objects are `
+                + "placed on the diagram shown.");
+        }
+    };
     /** Two quick clicks on a project's diagram open it. */
     const projectDiagramClicks = new DoubleClick();
     /**
@@ -1078,7 +1207,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return Promise.resolve();
                 }
                 ModelerPanel.revive(context.extensionUri, panel,
-                    sourceOf(target), target.diagram, { log });
+                    sourceOf(target), target.diagram, modelerHost);
 
                 return Promise.resolve();
             },
@@ -1137,6 +1266,42 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     openProjectDiagram(projectPath, name);
                 } catch (error) {
                     reportError(log, error, "create the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_SCHEMA_COMMANDS.updateSnapshot,
+            async (arg?: unknown) => {
+                const projectPath = projectPathOf(arg);
+                if (projectPath === undefined) {
+                    return;
+                }
+                try {
+                    await vscode.window.withProgress({
+                        location: { viewId: MSM_PROJECTS_VIEW_ID },
+                    }, async () => {
+                        await projectDiagrams(projectPath).updateSnapshot();
+                    });
+                    await snapshotUpdated(projectPath);
+                } catch (error) {
+                    reportError(log, error, "update the schema snapshot");
+                }
+            }),
+        // A script saved in an editor makes the snapshot the trees and
+        // diagrams show again. Only a save in VS Code does: msm writes the
+        // script on disk for every diagram edit and for the snapshot
+        // itself (Section 160), which fires no save, so neither comes back
+        // here; and only a stale snapshot is made again.
+        vscode.workspace.onDidSaveTextDocument((document) => {
+            const projectPath = projectOfScriptFile(document.uri.fsPath);
+            if (projectPath !== undefined) {
+                scriptSaves.run(projectPath);
+            }
+        }),
+        vscode.commands.registerCommand(ADD_TO_DIAGRAM_COMMAND,
+            async (arg?: unknown, selected?: unknown) => {
+                try {
+                    await addToDiagram(arg, selected);
+                } catch (error) {
+                    reportError(log, error, "add the objects to the diagram");
                 }
             }),
         vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,

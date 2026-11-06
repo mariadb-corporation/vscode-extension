@@ -54,6 +54,9 @@ const model: ISchemaModel = {
     tables: [],
     views: [],
     routines: [],
+    triggers: [],
+    events: [],
+    sequences: [],
     diagrams: [],
 };
 
@@ -213,6 +216,55 @@ describe("ModelerPanel", () => {
             panel.dispose();
         });
 
+    it("answers a drop of tree rows with the objects last dragged, once",
+        async () => {
+            const dragged = ["mariadb-schema-object:/table/city?project=%2Fp"];
+            ModelerPanel.show(extensionUri as never, source(), "MRS", {
+                ...host(),
+                draggedObjects: () => { return dragged.shift(); },
+            });
+            const panel = lastPanel();
+            await ready(panel);
+            const webview = panel.webview as MockWebview;
+
+            webview.receive({ type: "treeDrop", x: 10, y: 20,
+                types: ["text/uri-list"] });
+            webview.receive({ type: "treeDrop", x: 30, y: 40, types: [] });
+            await flush();
+
+            expect(posted().slice(1)).toEqual([
+                { type: "treeDropped", x: 10, y: 20,
+                    uriList: "mariadb-schema-object:/table/city?project=%2Fp" },
+                { type: "treeDropped", uriList: "", x: 30, y: 40 },
+            ]);
+
+            panel.dispose();
+        });
+
+    it("places what a tree's drag carried where the pointer comes back, "
+        + "and nothing otherwise", async () => {
+            const dragged = ["mariadb-schema-object:/table/city?project=%2Fp"];
+            const logs: string[] = [];
+            ModelerPanel.show(extensionUri as never, source(), "MRS", {
+                ...host(logs),
+                draggedObjects: () => { return dragged.shift(); },
+            });
+            const panel = lastPanel();
+            await ready(panel);
+            const webview = panel.webview as MockWebview;
+
+            webview.receive({ type: "pointerArrived", x: 5, y: 6 });
+            webview.receive({ type: "pointerArrived", x: 7, y: 8 });
+            await flush();
+
+            expect(posted().slice(1)).toEqual([{ type: "treeDropped",
+                uriList: "mariadb-schema-object:/table/city?project=%2Fp",
+                x: 5, y: 6 }]);
+            expect(logs.at(-1)).toContain("dragged from a tree");
+
+            panel.dispose();
+        });
+
     it("titles itself by the diagram the page shows", () => {
         const panel = show("MRS");
 
@@ -299,7 +351,7 @@ describe("ModelerPanel", () => {
         expect(posted(panel).at(-1)).toEqual({
             type: "schemaEdited",
             objects: { sourceHash: "sha256:one++", tables: [], views: [],
-                routines: [] },
+                routines: [], triggers: [], events: [], sequences: [] },
         });
         panel.dispose();
     });

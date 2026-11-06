@@ -1,0 +1,168 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+/*
+ * The Object Details view, in the sidebar's colours: compressed and read
+ * only, a row a line, as the tree rows above it are.
+ */
+
+body {
+    padding: 0;
+    color: var(--vscode-foreground);
+    background: var(--vscode-sideBar-background);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+}
+
+.objectDetails {
+    padding: 4px 8px 8px 12px;
+}
+
+.objectDetails section {
+    margin-top: 6px;
+}
+
+.objectDetails h3 {
+    margin: 0 0 1px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--vscode-sideBarSectionHeader-foreground,
+        var(--vscode-foreground));
+}
+
+.detailsHeader {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 6px;
+}
+
+.detailsKind,
+.detailsWhere,
+.detailsMuted,
+.detailsDataType {
+    color: var(--vscode-descriptionForeground);
+}
+
+.detailsName {
+    font-weight: 600;
+}
+
+.detailsWhere {
+    flex-basis: 100%;
+    font-size: 0.92em;
+}
+
+.detailsComment {
+    margin-top: 2px;
+    font-style: italic;
+    color: var(--vscode-descriptionForeground);
+}
+
+/*
+ * A row a line, as a row of a diagram's table card: icon, name, then what
+ * it is in dimmed italics, cut short where narrow.
+ */
+.detailsList {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.detailsList li {
+    display: grid;
+    grid-template-columns: 14px minmax(0, max-content) minmax(0, 1fr);
+    align-items: center;
+    column-gap: 6px;
+    height: 20px;
+    white-space: nowrap;
+}
+
+.detailsIcon {
+    width: 14px;
+    height: 14px;
+    background-color: var(--vscode-icon-foreground,
+        var(--vscode-foreground));
+    mask-repeat: no-repeat;
+    mask-position: center;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    -webkit-mask-size: contain;
+}
+
+/* A row without an icon still lines its name up with the others. */
+.detailsList li > .detailsItem:first-child {
+    grid-column: 2;
+}
+
+.detailsItem,
+.detailsDataType {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* As a row of a diagram's table card: the type right after the name. */
+.detailsDataType {
+    font-style: italic;
+}
+
+.detailsGrid {
+    border-collapse: collapse;
+}
+
+.detailsGrid th {
+    padding: 1px 8px 1px 0;
+    text-align: left;
+    font-weight: normal;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+}
+
+.detailsGrid td {
+    padding: 1px 0;
+}
+
+/* SQL folded away; a click opens it. */
+.detailsFold {
+    margin-top: 6px;
+}
+
+.detailsFold summary {
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--vscode-sideBarSectionHeader-foreground,
+        var(--vscode-foreground));
+}
+
+.detailsCode {
+    margin: 2px 0 0;
+    padding: 3px 5px;
+    overflow-x: auto;
+    background: var(--vscode-textCodeBlock-background);
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    white-space: pre;
+}
+
+.detailsNote {
+    margin-top: 4px;
+    color: var(--vscode-descriptionForeground);
+}

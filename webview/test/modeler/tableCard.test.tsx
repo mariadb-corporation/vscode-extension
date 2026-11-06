@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 
 import type {
     IModelFigure,
+    IOutlineSequence,
     IOutlineTable,
     ISchemaModel,
 } from "../../../src/modeler/modelFormat.js";
@@ -34,11 +35,13 @@ import {
     contrastingText,
     editRect,
     estimateText,
+    eventCardContent,
     layoutCard,
     layoutTableCard,
     MAX_AUTO_WIDTH,
     MIN_AUTO_WIDTH,
     routineCardContent,
+    sequenceCardContent,
     tableCardContent,
     TITLE_RESERVE,
     viewCardContent,
@@ -248,6 +251,58 @@ describe("the other cards", () => {
         expect(layout.items[2].icon).toBe("routine");
     });
 
+    it("lists a table's triggers unless hidden", () => {
+        const triggers = [{ name: "actor_bi", timing: "BEFORE",
+            events: "INSERT OR UPDATE", table: "actor" }];
+        const shown = layoutCard(tableCardContent(table, figure, false,
+            triggers), figure);
+        const trigger = shown.items.find((item) => {
+            return item.kind === "trigger";
+        });
+
+        expect(trigger).toMatchObject({ text: "actor_bi",
+            detail: "BEFORE INSERT OR UPDATE", icon: "trigger" });
+        expect(tableCardContent(table, { ...figure, triggersExpanded: false },
+            false, triggers).sections.map((section) => {
+            return section.heading;
+        })).not.toContain("Triggers");
+    });
+
+    it("lists a group's events with their schedules, and a sequence's "
+        + "numbers", () => {
+        const group = { ...figure, type: "EventGroupFigure", name: "Nightly",
+            events: ["purge"] };
+        const events = layoutCard(eventCardContent([{ name: "purge",
+            schedule: "EVERY 1 DAY" }], group), group);
+        expect(events.items[0]).toMatchObject({ text: "Nightly",
+            icon: "event" });
+        expect(events.items[2]).toMatchObject({ text: "purge",
+            detail: "EVERY 1 DAY", icon: "event" });
+
+        const sequence = { ...figure, type: "SequenceFigure", name: "no",
+            sequence: "no" };
+        const content = sequenceCardContent({ name: "no", type: "BIGINT",
+            start: "1000", increment: null, cycle: true }, sequence);
+        expect(content.icon).toBe("sequence");
+        const texts = (written: IOutlineSequence): string[] => {
+            return sequenceCardContent(written, sequence).sections
+                .flatMap((section) => {
+                    return section.lines.map((line) => { return line.text; });
+                });
+        };
+        // msm's three rows (diagrams.sequence_rows), which it sizes by.
+        expect(texts({ name: "no", type: "INT", start: "1000",
+            increment: null, cycle: true })).toEqual(
+            ["INT", "START WITH 1000", "INCREMENT BY 1"]);
+        expect(texts({ name: "no" })).toEqual(
+            ["BIGINT", "START WITH 1", "INCREMENT BY 1"]);
+        expect(layoutCard(content, { ...sequence, height: undefined }).height)
+            .toBe(CARD.headerHeight + 2 * CARD.padding + CARD.headingHeight
+                + 3 * CARD.rowHeight);
+        expect(sequenceCardContent({ name: "no" },
+            { ...sequence, expanded: false }).sections).toEqual([]);
+    });
+
     it("sizes a figure without a width to its content, as msm does", () => {
         const content = tableCardContent(table, figure);
         const width = cardWidth(content);
@@ -276,6 +331,9 @@ describe("catalogFromModel", () => {
             }],
             views: [{ name: "Totals" }],
             routines: [{ name: "f" }],
+            triggers: [],
+            events: [],
+            sequences: [],
             diagrams: [],
         };
     };
@@ -321,7 +379,8 @@ describe("catalogFromModel", () => {
         const catalog = catalogFromModel(shown);
 
         catalog.replace({ sourceHash: "sha256:new",
-            tables: [{ name: "client", columns: [] }], views: [], routines: [] });
+            tables: [{ name: "client", columns: [] }], views: [], routines: [],
+            triggers: [], events: [], sequences: [] });
         expect(catalog.table("actor")).toBeUndefined();
         expect(catalog.table("client")?.name).toBe("client");
         expect(shown.sourceHash).toBe("sha256:new");

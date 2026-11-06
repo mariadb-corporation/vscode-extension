@@ -192,6 +192,9 @@ const model = (): ISchemaModel => {
         ],
         views: [],
         routines: [],
+        triggers: [],
+        events: [],
+        sequences: [],
         diagrams: [],
     };
 };
@@ -536,6 +539,33 @@ describe("diagram tools", () => {
     });
 
     describe("diagram objects", () => {
+        it("places objects the schema has as one action, undone whole", () => {
+            tools.placeObjects([{ type: "table", name: "customer" },
+                { type: "table", name: "order" },
+                { type: "table", name: "nope" }], { x: 10, y: 20 });
+
+            expect(target.shown.figures.map((figure) => {
+                return [figure.table, figure.left, figure.top];
+            })).toEqual([["customer", 10, 20], ["order", 250, 20]]);
+            expect(target.history.entries.map((entry) => {
+                return entry.label;
+            })).toEqual(["Place 2 Objects"]);
+            expect(target.hints.at(-1)).toBe("Placed customer, order. Not "
+                + "placed: nope is not a table of the schema.");
+            expect(target.sent).toEqual([]);
+
+            target.history.undo();
+            expect(target.shown.figures).toEqual([]);
+        });
+
+        it("says why nothing was placed", () => {
+            tools.placeObjects([{ type: "view", name: "v" }], { x: 0, y: 0 });
+
+            expect(target.history.entries).toEqual([]);
+            expect(target.hints.at(-1)).toBe("Not placed: v is not a view of "
+                + "the schema.");
+        });
+
         it("places a text object, and goes back to the pointer", () => {
             tools.down("note", probe);
 
@@ -680,6 +710,68 @@ describe("diagram tools", () => {
             expect(target.history.entries).toEqual([]);
             expect(target.edit.label).toBe("Routine name");
             expect(target.edit.text).toBe("charge");
+        });
+
+        it("adds a trigger to the table clicked, named in its card", () => {
+            figuresOfTables();
+            at("order");
+            tools.down("trigger", probe);
+
+            expect(target.edit.label).toBe("Trigger name");
+            expect(target.edit.text).toBe("order_BEFORE_INSERT");
+            target.edit.commit("order_audit", "enter");
+
+            expect(target.sent).toEqual([[{ op: "add_trigger", trigger: {
+                name: "order_audit", timing: "BEFORE", events: "INSERT",
+                table: "order", body: "BEGIN\nEND" } }]]);
+            expect(target.catalog.triggersOf("order").map((trigger) => {
+                return trigger.name;
+            })).toEqual(["order_audit"]);
+
+            target.history.undo();
+            expect(target.sent[1]).toEqual([{ op: "drop_trigger",
+                trigger: "order_audit", table: "order" }]);
+            expect(target.catalog.triggersOf("order")).toEqual([]);
+        });
+
+        it("asks for a table where the trigger tool misses one", () => {
+            tools.down("trigger", probe);
+
+            expect(target.hints.at(-1)).toBe("Select a table to add a trigger "
+                + "to.");
+            expect(target.sent).toEqual([]);
+        });
+
+        it("places an event group, and adds an event to it", () => {
+            tools.down("eventGroup", probe);
+            target.edit.commit("nightly", "enter");
+            const group = target.shown.figures[0]!;
+            expect(group).toMatchObject({ type: "EventGroupFigure",
+                name: "nightly", events: [] });
+
+            tools.addEvent(group.id);
+            target.edit.commit("purge", "enter");
+            expect(target.figure(group.id)?.events).toEqual(["purge"]);
+            expect(target.sent).toEqual([[{ op: "add_event", event: {
+                name: "purge", schedule: "EVERY 1 DAY",
+                body: "BEGIN\nEND" } }]]);
+        });
+
+        it("places a sequence named as entered, its name free of tables'",
+            () => {
+            tools.down("sequence", probe);
+            target.edit.commit("customer", "enter");
+            expect(target.shown.figures).toEqual([]);
+            expect(target.hints.at(-1)).toContain("exists already");
+
+            tools.down("sequence", probe);
+            target.edit.commit("order_no", "enter");
+            expect(target.shown.figures[0]).toMatchObject({
+                type: "SequenceFigure", name: "order_no",
+                sequence: "order_no" });
+            expect(target.sent).toEqual([[{ op: "add_sequence",
+                sequence: { name: "order_no" } }]]);
+            expect(target.catalog.sequence("sequence1")).toBeUndefined();
         });
 
         it("places a view named as entered, with a placeholder SELECT", () => {

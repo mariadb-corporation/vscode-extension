@@ -96,14 +96,15 @@ const waitForDescription = async (
 };
 
 /**
- * Presses a button of the view's toolbar. The view is alone in its
- * container, so VS Code draws its toolbar in the side bar's title, and
- * the section's own header, with its buttons, stays hidden.
+ * Presses a button of the view's toolbar: in the side bar's title, where
+ * the view is alone in its container (its section's header is there but
+ * hidden); in its section's header, should another view join it.
  */
 const toolbar = async (label: string): Promise<void> => {
-    await view();
+    const section = await view();
     const action = await waitFor(async () => {
-        return await new SideBarView().getTitlePart().getAction(label);
+        return await new SideBarView().getTitlePart().getAction(label)
+            ?? await section.getAction(label);
     }, `the toolbar button ${label}`);
     await action!.click();
 };
@@ -120,11 +121,17 @@ describe("MSM Projects view", () => {
 
     it("starts empty, offering New and Open", async () => {
         const section = await view();
-        const welcome = await waitFor(async () => {
-            return await section.findWelcomeContent();
-        }, "the view's welcome content", SERVER_TIMEOUT);
-        const buttons = await Promise.all((await welcome!.getButtons())
-            .map(async (button) => { return await button.getTitle(); }));
+        // "Looking for MSM projects..." comes first, without buttons, while
+        // the shell starts: a run without the sandbox's setup starts it here.
+        const buttons = await waitFor(async () => {
+            const welcome = await section.findWelcomeContent();
+            const titles = await Promise.all((await welcome?.getButtons()
+                ?? []).map(async (button) => {
+                return await button.getTitle();
+            }));
+
+            return titles.length > 0 ? titles : undefined;
+        }, "the view's welcome content with its buttons", 60_000);
         assert.deepEqual(buttons,
             ["New MSM Project...", "Open MSM Project..."]);
     });

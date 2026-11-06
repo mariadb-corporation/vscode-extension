@@ -20,7 +20,9 @@
  * Shared by both sides, so free of `vscode`.
  */
 
+import type { IDetailEdits } from "../details/detailEdits.js";
 import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
+import { OBJECT_TYPES, type ObjectType } from "../mcp/types.js";
 import type {
     IDiagramDocument,
     ISchemaModel,
@@ -35,6 +37,99 @@ export type ModelerTarget =
     | { kind: "connection"; connection: string; schema: string; diagram: string }
     | { kind: "project"; projectPath: string; diagram: string };
 
+/** An object of a diagram's schema, by name. */
+export interface ISchemaObjectRef {
+    type: ObjectType;
+    name: string;
+}
+
+/**
+ * The scheme of the URIs a tree's rows carry in a drag's `text/uri-list`:
+ * `mariadb-schema-object:/table/customer?project=<path>`, or
+ * `?connection=<uri>&schema=<schema>` for a live schema's row. A drop on
+ * a diagram reads them back.
+ */
+export const SCHEMA_OBJECT_SCHEME = "mariadb-schema-object";
+
+/** Where a schema object is: a project's script, or a live schema. */
+export type SchemaObjectPlace =
+    | { projectPath: string }
+    | { connection: string; schema: string };
+
+/**
+ * @param place Where the object is.
+ * @param ref The object.
+ *
+ * @returns Its URI for a drag.
+ */
+export const schemaObjectUri = (
+    place: SchemaObjectPlace,
+    ref: ISchemaObjectRef,
+): string => {
+    const query = "projectPath" in place
+        ? `project=${encodeURIComponent(place.projectPath)}`
+        : `connection=${encodeURIComponent(place.connection)}`
+            + `&schema=${encodeURIComponent(place.schema)}`;
+
+    return `${SCHEMA_OBJECT_SCHEME}:/${ref.type}/`
+        + `${encodeURIComponent(ref.name)}?${query}`;
+};
+
+const OBJECT_TYPE_NAMES = new Set<string>(OBJECT_TYPES);
+
+/**
+ * @param uriList A drag's `text/uri-list`: URIs, one a line (`#` lines
+ *                are comments).
+ *
+ * @returns The schema objects among them, with where each is; other URIs
+ *          are left out.
+ */
+export const parseSchemaObjectUris = (
+    uriList: string,
+): Array<{ place: SchemaObjectPlace; ref: ISchemaObjectRef }> => {
+    const found: Array<{ place: SchemaObjectPlace; ref: ISchemaObjectRef }> = [];
+    const pattern = new RegExp(`^${SCHEMA_OBJECT_SCHEME}:/([a-z]+)/([^?]+)`
+        + "\\?(.*)$", "u");
+    for (const line of uriList.split(/\r?\n/u)) {
+        const match = pattern.exec(line.trim());
+        if (match === null || !OBJECT_TYPE_NAMES.has(match[1])) {
+            continue;
+        }
+        const query = new URLSearchParams(match[3]);
+        const project = query.get("project");
+        const connection = query.get("connection");
+        const schema = query.get("schema");
+        const place: SchemaObjectPlace | undefined = project !== null
+            ? { projectPath: project }
+            : connection !== null && schema !== null
+                ? { connection, schema } : undefined;
+        if (place !== undefined) {
+            found.push({ place, ref: {
+                type: match[1] as ObjectType,
+                name: decodeURIComponent(match[2]),
+            } });
+        }
+    }
+
+    return found;
+};
+
+/**
+ * @param place Where dropped objects are.
+ * @param target What a viewer shows.
+ *
+ * @returns Whether they are of its schema.
+ */
+export const isPlaceOf = (
+    place: SchemaObjectPlace,
+    target: ModelerTarget,
+): boolean => {
+    return "projectPath" in place
+        ? target.kind === "project" && target.projectPath === place.projectPath
+        : target.kind === "connection" && target.connection === place.connection
+            && target.schema === place.schema;
+};
+
 /** Where a project's saves stand. */
 export type SaveState =
     | { state: "pending" | "saving" | "saved" }
@@ -42,7 +137,8 @@ export type SaveState =
 
 /** The snapshot's objects, as a schema edit leaves them. */
 export type ISchemaObjects = Pick<ISchemaModel,
-    "sourceHash" | "tables" | "views" | "routines">;
+    "sourceHash" | "tables" | "views" | "routines" | "triggers" | "events"
+    | "sequences">;
 
 /** Messages from the viewer to the extension. */
 export type ModelerWebviewMessage =
@@ -66,7 +162,26 @@ export type ModelerWebviewMessage =
          * refuses it (a new table, its columns kept to fix), rather than
          * the project being read again.
          */
-        recover?: boolean };
+        recover?: boolean }
+    /**
+     * The schema objects the selected figures show, for the Object Details
+     * view: tables, views, and a routine group's routines.
+     */
+    | { type: "selection"; objects: ISchemaObjectRef[] }
+    /**
+     * Something without schema objects the page can read was dropped at
+     * this point of the page (client coordinates): rows of a tree, whose
+     * objects VS Code keeps from the page and the extension knows. With
+     * the drop's types, for the log.
+     */
+    | { type: "treeDrop"; x: number; y: number; types: string[] }
+    /**
+     * The pointer moved in the page after a pause, at this point (client
+     * coordinates): where the rows of a drag from a tree go, should one
+     * have just ended. VS Code drops none into a webview, so the pointer's
+     * coming back after the drag stands in for the drop.
+     */
+    | { type: "pointerArrived"; x: number; y: number };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =
@@ -102,4 +217,20 @@ export type ModelerHostMessage =
         error?: string;
     }
     /** Where the saves stand. */
-    | { type: "saveState"; save: SaveState };
+    | { type: "saveState"; save: SaveState }
+    /**
+     * Places objects the schema has on the diagram shown: Add to Diagram
+     * on a tree's rows, in the middle of the view.
+     */
+    | { type: "placeObjects"; objects: ISchemaObjectRef[] }
+    /**
+     * The answer to a `treeDrop`, or to a `pointerArrived` after a drag
+     * from a tree: the dragged rows' `text/uri-list` (for a `treeDrop`,
+     * empty where the drag had no objects), and where they go.
+     */
+    | { type: "treeDropped"; uriList: string; x: number; y: number }
+    /**
+     * A change made in the Object Details view: shown, put in the
+     * history, sent as a `schemaEdit` and taken back where msm refuses it.
+     */
+    | { type: "applySchemaChange"; change: IDetailEdits };

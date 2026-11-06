@@ -27,17 +27,25 @@ import {
     figureType,
     IMAGE_FIGURE,
     NOTE_FIGURE,
+    EVENT_GROUP_FIGURE,
     ROUTINE_GROUP_FIGURE,
+    SEQUENCE_FIGURE,
     TABLE_FIGURE,
     VIEW_FIGURE,
     type IModelConnection,
     type IModelDiagram,
     type IModelFigure,
     type IModelLayer,
+    type IOutlineEvent,
     type IOutlineRoutine,
 } from "../../../src/modeler/modelFormat.js";
-import type { ISchemaObjects } from "../../../src/modeler/modelerProtocol.js";
+import type {
+    ISchemaObjectRef,
+    ISchemaObjects,
+} from "../../../src/modeler/modelerProtocol.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
+import type { IDetailEdits } from "../../../src/details/detailEdits.js";
+import type { ISchemaObjectLists } from "./schemaEdits.js";
 import type {
     ICanvasHost,
     ICanvasItem,
@@ -106,7 +114,10 @@ import {
     editRect,
     layoutCard,
     MIN_FIGURE_WIDTH,
+    eventCardContent,
     routineCardContent,
+    sequenceCardContent,
+    sequenceOf,
     tableCardContent,
     tableOf,
     viewCardContent,
@@ -274,7 +285,7 @@ const sloped = (
 /** What a user can change of a table figure. */
 type FigureState = Pick<IModelFigure, "left" | "top" | "width" | "height"
     | "manualSizing" | "expanded" | "indicesExpanded"
-    | "foreignKeysExpanded" | "layer">;
+    | "foreignKeysExpanded" | "triggersExpanded" | "layer">;
 
 /** What a user can change of a layer. */
 type LayerState = Pick<IModelLayer, "left" | "top" | "width" | "height"
@@ -296,6 +307,7 @@ const figureState = (figure: IModelFigure): FigureState => {
         expanded: figure.expanded,
         indicesExpanded: figure.indicesExpanded,
         foreignKeysExpanded: figure.foreignKeysExpanded,
+        triggersExpanded: figure.triggersExpanded,
         layer: figure.layer,
     };
 };
@@ -328,7 +340,8 @@ const sameState = <T extends object>(a: T, b: T): boolean => {
  * a note, or a picture (an image; a figure of a type the viewer does not
  * know is a frame saying so).
  */
-type FigureKind = "table" | "view" | "routines" | "note" | "picture";
+type FigureKind = "table" | "view" | "routines" | "events" | "sequence"
+    | "note" | "picture";
 
 /** A figure on the canvas. */
 interface IFigureNode {
@@ -424,6 +437,14 @@ const kindOf = (figure: IModelFigure): FigureKind => {
             return "routines";
         }
 
+        case EVENT_GROUP_FIGURE: {
+            return "events";
+        }
+
+        case SEQUENCE_FIGURE: {
+            return "sequence";
+        }
+
         case NOTE_FIGURE: {
             return "note";
         }
@@ -507,6 +528,11 @@ export class EerFigureSet implements IFigureSet {
     /** The diagram shown. */
     public get diagram(): IModelDiagram {
         return this.#diagram;
+    }
+
+    /** @returns The schema's objects, as the viewer has them now. */
+    public objects(): ISchemaObjectLists {
+        return this.#options.catalog.objects();
     }
 
     /**
@@ -913,9 +939,27 @@ export class EerFigureSet implements IFigureSet {
                 return routineCardContent(routines, figure);
             }
 
+            case "events": {
+                const events = (figure.events ?? []).map((name) => {
+                    return catalog.event(name);
+                }).filter((event): event is IOutlineEvent => {
+                    return event !== undefined;
+                });
+
+                return eventCardContent(events, figure);
+            }
+
+            case "sequence": {
+                return sequenceCardContent(
+                    catalog.sequence(sequenceOf(figure)), figure);
+            }
+
             default: {
-                return tableCardContent(catalog.table(tableOf(figure)), figure,
-                    this.#options.editable === true);
+                const table = tableOf(figure);
+
+                return tableCardContent(catalog.table(table), figure,
+                    this.#options.editable === true,
+                    catalog.triggersOf(table));
             }
         }
     }
@@ -1567,7 +1611,13 @@ export class EerFigureSet implements IFigureSet {
                     { id: "separator1" }, autoSize]
                 : [autoSize];
         }
-        if (node.kind === "view") {
+        if (node.kind === "events") {
+            return this.#options.editable === true
+                ? [{ id: "addEvent", caption: "Add Event" },
+                    { id: "separator1" }, autoSize]
+                : [autoSize];
+        }
+        if (node.kind === "view" || node.kind === "sequence") {
             return [
                 { id: "toggleExpanded",
                     caption: expanded ? "Collapse" : "Expand" },
@@ -1597,6 +1647,12 @@ export class EerFigureSet implements IFigureSet {
                 id: "toggleForeignKeys",
                 caption: "Show Foreign Keys",
                 checked: figure.foreignKeysExpanded === true,
+                disabled: !expanded,
+            },
+            {
+                id: "toggleTriggers",
+                caption: "Show Triggers",
+                checked: figure.triggersExpanded !== false,
                 disabled: !expanded,
             },
             { id: "separator2" },
@@ -1650,6 +1706,13 @@ export class EerFigureSet implements IFigureSet {
                 break;
             }
 
+            case "toggleTriggers": {
+                const shown = node.figure.triggersExpanded !== false;
+                change(`${shown ? "Hide" : "Show"} Triggers of ${name}`,
+                    (figure) => { figure.triggersExpanded = !shown; });
+                break;
+            }
+
             case "autoSize": {
                 change(`Auto-Size ${name}`,
                     (figure) => { figure.manualSizing = false; });
@@ -1658,6 +1721,11 @@ export class EerFigureSet implements IFigureSet {
 
             case "addRoutine": {
                 this.#tools.addRoutine(node.figure.id);
+                break;
+            }
+
+            case "addEvent": {
+                this.#tools.addEvent(node.figure.id);
                 break;
             }
 
@@ -1994,6 +2062,64 @@ export class EerFigureSet implements IFigureSet {
      */
     public pickReferenced(): void {
         this.#tools.pickReferenced();
+    }
+
+    /**
+     * Makes a change asked for elsewhere (the Object Details view), as one
+     * action of the history: shown at once, sent to msm, and taken back
+     * where msm refuses it, as a rename typed on a card is.
+     *
+     * @param change The change: its edits and the edits that undo them.
+     *
+     * @returns Nothing.
+     */
+    public applySchemaChange(change: IDetailEdits): void {
+        const host = this.#host;
+        if (host === undefined || this.#options.editable !== true) {
+            return;
+        }
+        const apply = (edits: readonly IMsmSchemaEdit[]): void => {
+            for (const edit of edits) {
+                if (edit.op === "rename_table") {
+                    this.#renameTable(String(edit.table),
+                        String(edit.new_name));
+                } else if (edit.op === "rename_column") {
+                    this.#options.catalog.renameColumn(String(edit.table),
+                        String(edit.column), String(edit.new_name));
+                } else {
+                    this.#options.catalog.edit([edit]);
+                }
+            }
+            this.#refresh();
+        };
+        const send = (edits: IMsmSchemaEdit[],
+            failed?: (message: string) => void): void => {
+            this.#options.onSchemaEdit?.(edits, undefined, failed);
+        };
+        const action = {
+            label: change.label,
+            undo: () => { apply(change.inverse); send(change.inverse); },
+            redo: () => { apply(change.edits); send(change.edits); },
+        };
+        apply(change.edits);
+        send(change.edits, (message) => {
+            host.history.discard(action);
+            apply(change.inverse);
+            host.hint(message);
+        });
+        host.history.record(action);
+    }
+
+    /**
+     * Places objects the schema has on the diagram shown.
+     *
+     * @param refs The objects.
+     * @param point Where the first goes.
+     *
+     * @returns Nothing.
+     */
+    public placeObjects(refs: readonly ISchemaObjectRef[], point: IPoint): void {
+        this.#tools.placeObjects(refs, point);
     }
 
     /** @returns The set as the tools see it. */

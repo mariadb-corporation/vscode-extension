@@ -763,6 +763,7 @@ const visibleEditorListeners =
     new Set<(editors: MockTextEditor[]) => void>();
 const changeDocumentListeners = new Set<(event: unknown) => void>();
 const closeDocumentListeners = new Set<(document: unknown) => void>();
+const saveDocumentListeners = new Set<(document: unknown) => void>();
 const openDocumentListeners = new Set<(document: unknown) => void>();
 
 /**
@@ -885,6 +886,19 @@ export const fireDocumentClose = (document: MockTextDocument): void => {
 };
 
 /**
+ * Fires the event of a document saved in an editor.
+ *
+ * @param document The document saved.
+ *
+ * @returns Nothing.
+ */
+export const fireDocumentSave = (document: unknown): void => {
+    for (const listener of saveDocumentListeners) {
+        listener(document);
+    }
+};
+
+/**
  * Fires the active editor change event.
  *
  * @param editor The editor that became active.
@@ -973,6 +987,7 @@ export const window = {
         const expanded = new EventEmitter<{ element: unknown }>();
         const collapsed = new EventEmitter<{ element: unknown }>();
         const visibility = new EventEmitter<{ visible: boolean }>();
+        const selected = new EventEmitter<{ selection: unknown[] }>();
         const view = {
             // What the user has selected; set through `select` below.
             selection: [] as unknown[],
@@ -981,10 +996,12 @@ export const window = {
             onDidExpandElement: expanded.event,
             onDidCollapseElement: collapsed.event,
             onDidChangeVisibility: visibility.event,
+            onDidChangeSelection: selected.event,
             dispose: () => {
                 expanded.dispose();
                 collapsed.dispose();
                 visibility.dispose();
+                selected.dispose();
             },
         };
         treeViews.push({
@@ -998,6 +1015,7 @@ export const window = {
             },
             select: (rows: unknown[]) => {
                 view.selection = rows;
+                selected.fire({ selection: rows });
             },
             setVisible: (visible: boolean) => {
                 view.visible = visible;
@@ -1302,6 +1320,18 @@ export const workspace = {
         return {
             dispose: () => {
                 closeDocumentListeners.delete(listener);
+            },
+        };
+    },
+
+    onDidSaveTextDocument: (
+        listener: (document: unknown) => void,
+    ): Disposable => {
+        saveDocumentListeners.add(listener);
+
+        return {
+            dispose: () => {
+                saveDocumentListeners.delete(listener);
             },
         };
     },
@@ -1976,6 +2006,7 @@ export const resetVscodeMock = (): void => {
     configuration.clear();
     activeEditorListeners.clear();
     closeDocumentListeners.clear();
+    saveDocumentListeners.clear();
     openDocumentListeners.clear();
     textDocuments.length = 0;
     configurationListeners.clear();

@@ -58,6 +58,10 @@ import {
     type IconResolver,
 } from "./treeItems.js";
 import { isMrsNode, type MrsModel } from "./mrsModel.js";
+import {
+    draggedObjects,
+    objectUriList,
+} from "./schemaTree.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
 import { errorText } from "../text.js";
 
@@ -109,6 +113,10 @@ export class ConnectionsTreeProvider
     vscode.TreeDragAndDropController<ConnectionsNode>,
     vscode.Disposable {
 
+    // Not text/uri-list: VS Code then marks the drag as one of resources,
+    // and the editor area lays its drop overlay over a diagram's webview,
+    // which takes the drop even with Shift held. A diagram asks for the
+    // objects dragged instead (draggedObjects).
     public readonly dragMimeTypes = [CONNECTIONS_DRAG_MIME];
     public readonly dropMimeTypes = [CONNECTIONS_DRAG_MIME];
 
@@ -476,6 +484,16 @@ export class ConnectionsTreeProvider
             dataTransfer.set(CONNECTIONS_DRAG_MIME,
                 new vscode.DataTransferItem(dragged));
         }
+        // Tables, views and routines go onto a diagram of their schema.
+        const uris = objectUriList(source.flatMap((node) => {
+            return node.kind === "object"
+                ? [{ place: { connection: node.uri, schema: node.schema },
+                    row: node }]
+                : [];
+        }));
+        // A webview gets nothing a tree sets: a diagram asks for them on
+        // the drop.
+        draggedObjects.remember(uris);
     }
 
     /**
@@ -498,6 +516,8 @@ export class ConnectionsTreeProvider
         target: ConnectionsNode | undefined,
         dataTransfer: vscode.DataTransfer,
     ): Promise<void> {
+        // A drag that ended here is not one for a diagram.
+        draggedObjects.take();
         // Checked rather than trusted: anything this did not put there
         // carries no rows, and nothing then moves.
         const carried: unknown = dataTransfer.get(CONNECTIONS_DRAG_MIME)?.value;

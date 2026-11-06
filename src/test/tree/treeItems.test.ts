@@ -336,8 +336,7 @@ describe("createTreeItem for an object group", () => {
         });
     });
 
-    it("falls back to a codicon where there is no icon", () => {
-        // The upstream icon set has no sequence icon.
+    it("draws sequences with an icon of their own", () => {
         const item = createTreeItem({
             kind: "objectGroup",
             uri: "dba@h",
@@ -345,7 +344,8 @@ describe("createTreeItem for an object group", () => {
             objectType: "sequence",
         }, resolveIcon);
 
-        expect(item.iconPath).toBeInstanceOf(ThemeIcon);
+        expect(String((item.iconPath as { light: Uri }).light.path))
+            .toBe("/ext/images/light/schemaSequence.svg");
     });
 });
 
