@@ -92,7 +92,10 @@ and Enter moves on to a chain of column editors.
   #F5C39A) like routines on a routine group, placed empty and filled from
   its menu's Add Event (`add_event`, EVERY 1 DAY). A sequence is a
   `SequenceFigure` (`sequence`, #C9B8E8) placed and named like a view
-  (`add_sequence`), its name free of tables' and views'. The ops are
+  (`add_sequence`), its name free of tables' and views'. Its card shows
+  msm's three rows (`diagrams.sequence_rows`): the type (BIGINT where none
+  is written), `START WITH n`, `INCREMENT BY n` (1 where not written), so
+  msm's layout and pictures size it as the viewer draws it. The ops are
   lsp-server's, the figure kinds and the Triggers section's count msm's
   (both agreed with those repos' sessions; see the ops below). Where a
   binary or a shell lacks them, msm refuses and the viewer takes the

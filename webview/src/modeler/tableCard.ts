@@ -275,8 +275,8 @@ export const sequenceOf = (figure: IModelFigure): string => {
  * @param sequence The sequence; undefined where the snapshot has none.
  * @param figure The figure.
  *
- * @returns What the sequence's card shows: its type and numbers, those
- *          written.
+ * @returns What the sequence's card shows: its type, start and
+ *          increment, as msm counts them.
  */
 export const sequenceCardContent = (
     sequence: IOutlineSequence | undefined,
@@ -291,23 +291,16 @@ export const sequenceCardContent = (
     if (sequence === undefined || figure.expanded === false) {
         return content;
     }
-    const lines = ([
-        ["type", sequence.type],
-        ["start", sequence.start],
-        ["increment", sequence.increment],
-        ["min", sequence.minvalue],
-        ["max", sequence.maxvalue],
-        ["cache", sequence.cache],
-        ["cycle", sequence.cycle === true ? "yes" : undefined],
-    ] as Array<[string, string | null | undefined]>).filter(([, value]) => {
-        return value !== undefined && value !== null && value !== "";
-    }).map(([label, value]) => {
-        return { kind: "property" as const, text: label, detail: value!,
-            editable: false };
+    // msm's three rows (diagrams.sequence_rows), the server's defaults
+    // where nothing is written: msm sizes and lays the card out by them.
+    const lines = [
+        sequence.type || "BIGINT",
+        `START WITH ${sequence.start || "1"}`,
+        `INCREMENT BY ${sequence.increment || "1"}`,
+    ].map((text) => {
+        return { kind: "property" as const, text, editable: false };
     });
-    if (lines.length > 0) {
-        content.sections.push({ heading: "Sequence", lines });
-    }
+    content.sections.push({ heading: "Sequence", lines });
 
     return content;
 };
