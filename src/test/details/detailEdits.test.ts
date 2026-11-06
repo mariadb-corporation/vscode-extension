@@ -133,7 +133,7 @@ describe("what the view shows", () => {
         const definition = { format: "msm-schema/1" as const, schema: "shop",
             tables: [orders()],
             triggers: [{ name: "orders_bi", timing: "BEFORE",
-                events: ["INSERT"], table: "orders" }],
+                events: "INSERT", table: "orders" }],
             events: [{ name: "purge", schedule: "EVERY 1 DAY" }],
             sequences: [{ name: "order_no", start: "1000" }] };
 

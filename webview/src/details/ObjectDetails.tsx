@@ -413,7 +413,7 @@ const TriggerDetails = ({ trigger }: { trigger: IOutlineTrigger }):
         {trigger.table === "" ? null : <section>
             <Fields fields={[
                 ["Table", trigger.table],
-                ["Fires", `${trigger.timing} ${trigger.events.join(" OR ")}`
+                ["Fires", `${trigger.timing} ${trigger.events}`
                     + ((trigger.update_columns ?? []).length > 0
                         ? ` OF ${trigger.update_columns!.join(", ")}` : "")],
                 ["Order", trigger.order

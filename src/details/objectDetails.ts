@@ -189,7 +189,7 @@ export const liveDetails = (
         // The server tells their names and comments only.
         case "trigger": {
             return { type: "trigger", trigger: { name: details.basic.name,
-                timing: "", events: [], table: "" } };
+                timing: "", events: "", table: "" } };
         }
 
         case "event": {

@@ -275,7 +275,7 @@ describe("the snapshot meanwhile", () => {
         applyEdits(lists, [...newTriggerChange("t", "t_bi").edits,
             ...newEventChange("e").edits, ...newSequenceChange("s").edits]);
         expect(lists.triggers).toEqual([{ name: "t_bi", timing: "BEFORE",
-            events: ["INSERT"], table: "t", body: "BEGIN\nEND" }]);
+            events: "INSERT", table: "t", body: "BEGIN\nEND" }]);
         expect(lists.events?.map((event) => { return event.schedule; }))
             .toEqual(["EVERY 1 DAY"]);
         expect(lists.sequences).toEqual([{ name: "s" }]);

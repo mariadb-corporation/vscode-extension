@@ -222,7 +222,7 @@ export const tableCardContent = (
                 return {
                     kind: "trigger" as const,
                     text: trigger.name,
-                    detail: `${trigger.timing} ${trigger.events.join(" OR ")}`,
+                    detail: `${trigger.timing} ${trigger.events}`,
                     icon: "trigger" as const,
                     editable: false,
                 };

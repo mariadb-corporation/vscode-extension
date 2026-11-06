@@ -252,7 +252,7 @@ describe("the other cards", () => {
 
     it("lists a table's triggers unless hidden", () => {
         const triggers = [{ name: "actor_bi", timing: "BEFORE",
-            events: ["INSERT", "UPDATE"], table: "actor" }];
+            events: "INSERT OR UPDATE", table: "actor" }];
         const shown = layoutCard(tableCardContent(table, figure, false,
             triggers), figure);
         const trigger = shown.items.find((item) => {

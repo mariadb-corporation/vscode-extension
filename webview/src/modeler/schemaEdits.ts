@@ -328,7 +328,7 @@ export const newTriggerChange = (table: string, name: string): ISchemaChange => 
     return {
         label: `Add Trigger ${name} to ${table}`,
         edits: [{ op: "add_trigger", trigger: { name, timing: "BEFORE",
-            events: ["INSERT"], table, body: "BEGIN\nEND" } }],
+            events: "INSERT", table, body: "BEGIN\nEND" } }],
         inverse: [{ op: "drop_trigger", trigger: name, table }],
     };
 };

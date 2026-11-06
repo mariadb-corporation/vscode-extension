@@ -139,8 +139,8 @@ describe("placing sequences, events and triggers", () => {
             sequences: [{ name: "order_no" }],
             events: [{ name: "purge" }, { name: "report" }],
             triggers: [{ name: "orders_bi", timing: "BEFORE",
-                events: ["INSERT"], table: "orders" },
-            { name: "customer_bi", timing: "BEFORE", events: ["INSERT"],
+                events: "INSERT", table: "orders" },
+            { name: "customer_bi", timing: "BEFORE", events: "INSERT",
                 table: "customer" }] };
         const placed = placementOf([
             { type: "sequence", name: "order_no" },

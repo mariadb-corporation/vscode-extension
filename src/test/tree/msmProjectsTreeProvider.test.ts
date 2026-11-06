@@ -111,7 +111,7 @@ const setUp = (projects: IMsmListedProject[]): IFake => {
                         { name: "tidy" },
                     ],
                     triggers: [{ name: "orders_bi", timing: "BEFORE",
-                        events: ["INSERT"], table: "orders" }],
+                        events: "INSERT", table: "orders" }],
                     events: [{ name: "purge", schedule: "EVERY 1 DAY",
                         comment: "Old rows" }],
                     sequences: [{ name: "order_no" }],

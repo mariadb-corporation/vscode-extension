@@ -100,8 +100,8 @@ export interface IOutlineTrigger {
     name: string;
     /** `BEFORE` or `AFTER`. */
     timing: string;
-    /** `INSERT`, `UPDATE`, `DELETE`. */
-    events: string[];
+    /** `INSERT`, or `UPDATE OR DELETE` for several, as the outline writes it. */
+    events: string;
     /** The table it is on, without its schema. */
     table: string;
     /** The columns of `UPDATE OF a, b`. */

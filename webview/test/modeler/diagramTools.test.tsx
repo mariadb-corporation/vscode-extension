@@ -722,7 +722,7 @@ describe("diagram tools", () => {
             target.edit.commit("order_audit", "enter");
 
             expect(target.sent).toEqual([[{ op: "add_trigger", trigger: {
-                name: "order_audit", timing: "BEFORE", events: ["INSERT"],
+                name: "order_audit", timing: "BEFORE", events: "INSERT",
                 table: "order", body: "BEGIN\nEND" } }]]);
             expect(target.catalog.triggersOf("order").map((trigger) => {
                 return trigger.name;
