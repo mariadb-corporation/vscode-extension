@@ -73,8 +73,16 @@ export interface IModelSource {
     image?(diagram: string, figureId: string): Promise<string>;
     /** A diagram changed in the viewer: kept, then saved. */
     changed?(document: IDiagramDocument): void;
-    /** Makes schema edits in the project's SQL. */
-    edit?(edits: IMsmSchemaEdit[], baseHash: string): Promise<ISchemaEditOutcome>;
+    /**
+     * Makes schema edits in the project's SQL.
+     *
+     * @param edits The edits.
+     * @param baseHash The snapshot they are made against.
+     * @param documents Diagrams the change changed too: saved once the
+     *                  edit is made, dropped where it fails.
+     */
+    edit?(edits: IMsmSchemaEdit[], baseHash: string,
+        documents?: IDiagramDocument[]): Promise<ISchemaEditOutcome>;
     /** Saves what is waiting to be saved, now. */
     flush?(): Promise<void>;
     /** Where the saves stand, for the viewer to show. */
@@ -432,11 +440,55 @@ export class ProjectModelSource implements IModelSource {
     public async edit(
         edits: IMsmSchemaEdit[],
         baseHash: string,
+        documents: IDiagramDocument[] = [],
     ): Promise<ISchemaEditOutcome> {
         // msm makes the diagrams follow a rename from what it has stored:
         // the viewer's changes go first.
         await this.flush();
-        const result = await this.#enqueuedAction({
+        let result: Awaited<ReturnType<IMsmApi["editSchema"]>>;
+        try {
+            result = await this.#editAction(edits, baseHash);
+        } catch (error) {
+            // A figure of an object that was not made goes with it.
+            for (const document of documents) {
+                const pending = this.#pending.get(document.name);
+                if (pending?.timer !== undefined) {
+                    clearTimeout(pending.timer);
+                }
+                this.#pending.delete(document.name);
+                this.host.drafts.remove(this.projectPath, document.name);
+            }
+            if (documents.length > 0 && this.#pending.size === 0) {
+                this.onSaveState?.({ state: "saved" });
+            }
+            throw error;
+        }
+        this.#bases = hashesOf(result.rows);
+        for (const document of documents) {
+            // Changes made since are newer, and saved in their turn.
+            if (!this.#pending.has(document.name)) {
+                this.#version += 1;
+                this.#pending.set(document.name,
+                    { document, version: this.#version });
+                // The edit is made either way: a failed save is reported
+                // by the save, not as a refused edit.
+                await this.#enqueue(() => { return this.#save(document.name); })
+                    .catch(() => { /* reported by the save */ });
+            }
+        }
+
+        return {
+            model: assembleSchemaModel(result.rows),
+            notes: result.notes.map((note) => { return note.message; }),
+        };
+    }
+
+    /** Makes schema edits through msm, as an action of the queue. */
+    #editAction(
+        edits: IMsmSchemaEdit[],
+        baseHash: string,
+    ): ReturnType<IMsmApi["editSchema"]> {
+        return this.#enqueuedAction({
             doing: `Editing the schema of ${this.#schema}`,
             done: `Edited the schema of ${this.#schema}`,
         }, "msm.edit_schema", { edits: edits.map(describeEdit).join("; ") },
@@ -445,12 +497,6 @@ export class ProjectModelSource implements IModelSource {
         }, (edited) => {
             return counted(edited.files.length, "file");
         });
-        this.#bases = hashesOf(result.rows);
-
-        return {
-            model: assembleSchemaModel(result.rows),
-            notes: result.notes.map((note) => { return note.message; }),
-        };
     }
 
     /** Runs work after everything queued before it. */
@@ -502,13 +548,31 @@ export class ProjectModelSource implements IModelSource {
 }
 
 /**
+ * @param message Why msm refused a schema edit.
+ *
+ * @returns Whether the project changed since the snapshot the viewer
+ *          shows (msm's `StaleSchemaError`): then the viewer's copy is out
+ *          of date, and only reading the project again helps.
+ */
+export const isStaleSnapshot = (message: string): boolean => {
+    return /changed since the snapshot the edits were made against|has no schema snapshot yet/
+        .test(message);
+};
+
+/**
  * @param edit A schema edit.
  *
  * @returns It in a few words, for its Actions row.
  */
 export const describeEdit = (edit: IMsmSchemaEdit): string => {
-    const names = ["table", "view", "routine", "column"].map((key) => {
-        return edit[key];
+    // A name, or an object named: `add_table`'s table.
+    const names = ["table", "view", "routine", "column", "foreign_key",
+        "index", "name"].map((key) => {
+        const value = edit[key];
+
+        return typeof value === "object" && value !== null
+            ? (value as { name?: unknown }).name
+            : value;
     }).filter((value): value is string => { return typeof value === "string"; });
     const renamed = typeof edit.new_name === "string"
         ? [`-> ${edit.new_name}`] : [];

@@ -54,8 +54,19 @@ export type ModelerWebviewMessage =
     | { type: "diagramChanged"; document: IDiagramDocument }
     /** The picture of an image figure that came without one. */
     | { type: "imageWanted"; diagram: string; figureId: string }
-    /** Schema objects to change in the project's SQL. */
-    | { type: "schemaEdit"; edits: IMsmSchemaEdit[] };
+    /**
+     * Schema objects to change in the project's SQL; with the diagrams the
+     * change also changed (a figure placed for a new table), which are
+     * saved once the edit is made, and not at all where it fails.
+     */
+    | { type: "schemaEdit"; edits: IMsmSchemaEdit[];
+        documents?: IDiagramDocument[];
+        /**
+         * Whether the viewer takes the change back itself where msm
+         * refuses it (a new table, its columns kept to fix), rather than
+         * the project being read again.
+         */
+        recover?: boolean };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =

@@ -37,6 +37,7 @@ import type { SaveState } from "../../modeler/modelerProtocol.js";
 import {
     ConnectionModelSource,
     describeEdit,
+    isStaleSnapshot,
     type IModelSource,
     diagramHash,
     ProjectModelSource,
@@ -96,6 +97,8 @@ interface IFake {
     asked: string[];
     /** Makes the next save fail. */
     failSave: (error?: Error) => void;
+    /** Makes the next schema edit fail. */
+    failEdit: (error?: Error) => void;
 }
 
 /**
@@ -116,6 +119,7 @@ const setUp = (keep = false): IFake => {
     const rows: IDiagramRow[] = [snapshot(),
         { name: "Main", format: DIAGRAM_FORMAT, document: diagram("Main") }];
     let saveError: Error | undefined;
+    let editError: Error | undefined;
     const api = {
         getSchemaDiagrams: (path: string) => {
             calls.push(["get", path]);
@@ -144,6 +148,12 @@ const setUp = (keep = false): IFake => {
             base: string,
         ): Promise<IMsmSchemaEditResult> => {
             calls.push(["edit", base]);
+            if (editError !== undefined) {
+                const error = editError;
+                editError = undefined;
+
+                return Promise.reject(error);
+            }
 
             return Promise.resolve({
                 rows: [snapshot("sha256:two"), rows[1]],
@@ -172,6 +182,7 @@ const setUp = (keep = false): IFake => {
     return {
         source, calls, rows, drafts, states, actions, asked,
         failSave: (error = new Error("disk full")) => { saveError = error; },
+        failEdit: (error = new Error("unsupported")) => { editError = error; },
     };
 };
 
@@ -287,6 +298,57 @@ describe("ProjectModelSource", () => {
             "edits=rename_table customer -> client"));
     });
 
+    it("saves the diagrams a schema edit placed figures on once it is made",
+        async () => {
+            await fake.source.read();
+            await fake.source.edit([{ op: "add_table", table: { name: "t" } }],
+                "sha256:one", [diagram("Main", 70)]);
+
+            expect(fake.calls.slice(-2)).toEqual([["edit", "sha256:one"],
+                ["set", "Main"]]);
+            expect(await fake.drafts.list(PROJECT)).toEqual([]);
+            expect(calls(fake)).toContainEqual(expect.stringContaining(
+                "edits=add_table t"));
+        });
+
+    it("drops those diagrams where the edit fails, and saves nothing",
+        async () => {
+            await fake.source.read();
+            fake.failEdit();
+
+            await expect(fake.source.edit([{ op: "add_table",
+                table: { name: "t" } }], "sha256:one", [diagram("Main", 70)]))
+                .rejects.toThrow("unsupported");
+            expect(fake.calls.filter((call) => { return call[0] === "set"; }))
+                .toEqual([]);
+            expect(await fake.drafts.list(PROJECT)).toEqual([]);
+        });
+
+    it("says nothing waits once a failed edit dropped the changes made "
+        + "meanwhile", async () => {
+        await fake.source.read();
+        fake.failEdit();
+        const editing = fake.source.edit([{ op: "add_table",
+            table: { name: "t" } }], "sha256:one", [diagram("Main", 70)]);
+        fake.source.changed(diagram("Main", 80));
+
+        await expect(editing).rejects.toThrow("unsupported");
+        expect(fake.states.at(-1)).toEqual({ state: "saved" });
+    });
+
+    it("counts an edit as made when the save of its diagrams fails",
+        async () => {
+            await fake.source.read();
+            fake.failSave();
+            const outcome = await fake.source.edit([{ op: "add_table",
+                table: { name: "t" } }], "sha256:one", [diagram("Main", 70)]);
+
+            expect(outcome.model.sourceHash).toBe("sha256:two");
+            expect(fake.calls.slice(-2)).toEqual([["edit", "sha256:one"],
+                ["set", "Main"]]);
+            expect(fake.states.at(-1)?.state).toBe("failed");
+        });
+
     it("reads a picture msm left out", async () => {
         expect(await fake.source.image("Main", "logo"))
             .toBe("data:image/png;base64,AAAA");
@@ -329,12 +391,25 @@ describe("diagramHash", () => {
         });
 });
 
+describe("isStaleSnapshot", () => {
+    it("tells msm's stale snapshot from the edits it refuses", () => {
+        expect(isStaleSnapshot("The project has no schema snapshot yet: make "
+            + "it with msm.updateSchemaDefinition")).toBe(true);
+        expect(isStaleSnapshot("The schema changed since the snapshot the edits "
+            + "were made against (`a`, now `b`)")).toBe(true);
+        expect(isStaleSnapshot("The edits could not be made (bad-request): "
+            + "column `price`: ...")).toBe(false);
+    });
+});
+
 describe("describeEdit", () => {
     it("names an edit in a few words", () => {
         expect(describeEdit({ op: "rename_column", table: "t", column: "c",
             new_name: "d" })).toBe("rename_column t c -> d");
         expect(describeEdit({ op: "drop_table", table: "t" }))
             .toBe("drop_table t");
+        expect(describeEdit({ op: "add_foreign_key", table: "t",
+            foreign_key: { name: "fk_t_u" } })).toBe("add_foreign_key t fk_t_u");
     });
 });
 

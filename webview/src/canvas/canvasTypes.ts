@@ -151,9 +151,36 @@ export interface IMenuEntry {
     disabled?: boolean;
 }
 
+/** How an edit in place was ended with its text. */
+export type EditCommit = "enter" | "blur";
+
+/** A choice an edit in place offers for the text after its first word. */
+export interface IEditChoice {
+    /** What the list shows, and what is matched against what is typed. */
+    label: string;
+    /** What picking it writes. */
+    insert: string;
+    /** Whether picking it ends the edit; false where more is to be typed. */
+    complete: boolean;
+}
+
+/**
+ * Choices for the second part of an edit's text, as for a column's
+ * `name TYPE`: listed once a space follows the first word.
+ */
+export interface IEditChoices {
+    items: readonly IEditChoice[];
+    /** The label of the one picked while nothing is typed yet. */
+    preferred?: string;
+}
+
 /** Text to edit in place, as a figure set asks for it. */
 export interface IEditSpec {
     text: string;
+    /** What the empty input says. */
+    placeholder?: string;
+    /** Choices for what follows the first word. */
+    choices?: IEditChoices;
     /** What the input is called, for its accessible name. */
     label: string;
     bold: boolean;
@@ -171,8 +198,27 @@ export interface IEditSpec {
      * Makes the edit.
      *
      * @param text The text typed.
+     * @param how By Enter, or by leaving the input.
      */
-    commit(text: string): void;
+    commit(text: string, how: EditCommit): void;
+    /** The edit was dropped: Escape, or what it edits went away. */
+    cancel?(): void;
+}
+
+/** What a tool of the figure set does with a press, until released. */
+export interface IToolSession {
+    /**
+     * The pointer moved, pressed.
+     *
+     * @param probe Where it is now.
+     */
+    move?(probe: IProbe): void;
+    /**
+     * The pointer was released.
+     *
+     * @param probe Where.
+     */
+    finish?(probe: IProbe): void;
 }
 
 /** What the canvas gives the figure set it shows. */
@@ -212,6 +258,14 @@ export interface ICanvasHost {
      * @param ids The items.
      */
     select(ids: readonly string[]): void;
+    /** Hands the pointer back to the pointer tool: a tool is done. */
+    toolDone(): void;
+    /**
+     * Says what a tool expects next, or that it could not do something.
+     *
+     * @param text The hint; empty for none.
+     */
+    hint(text: string): void;
     /**
      * Makes a change and records it, as one action that puts back
      * everything the figure set's snapshot holds.
@@ -311,6 +365,25 @@ export interface IFigureSet {
     viewChanged?(): void;
     /** The zoom settled: textures may be drawn again at the new scale. */
     zoomSettled?(): void;
+    /**
+     * A press with one of the set's own tools (any but the canvas's
+     * pointer, hand and zoom).
+     *
+     * @param tool The tool.
+     * @param probe Where.
+     *
+     * @returns What follows the press until it is released, if anything.
+     */
+    toolDown?(tool: string, probe: IProbe): IToolSession | undefined;
+    /**
+     * The pointer moved, not pressed, with one of the set's own tools.
+     *
+     * @param tool The tool.
+     * @param probe Where it is.
+     */
+    toolHover?(tool: string, probe: IProbe): void;
+    /** The tool was put down: whatever it was in the middle of ends. */
+    toolCancel?(): void;
 }
 
 /** Where an item's menu button goes. */
@@ -344,10 +417,20 @@ export interface IEditRequest {
     label: string;
     bold: boolean;
     placement: IEditPlacement;
+    placeholder?: string;
+    choices?: IEditChoices;
+    /** Counts the requests: a new one, even over the same text. */
+    serial: number;
 }
 
-/** The tool the pointer works as. */
-export type Tool = "pointer" | "hand" | "zoom";
+/** The tools the canvas itself knows. */
+export const CANVAS_TOOLS = ["pointer", "hand", "zoom"] as const;
+
+/**
+ * The tool the pointer works as: one of the canvas's, or one of the
+ * figure set's own (`IFigureSet.toolDown`).
+ */
+export type Tool = typeof CANVAS_TOOLS[number] | (string & {});
 
 /** Which way the page is looked at. */
 export type ViewMode = "2d" | "iso";
@@ -367,6 +450,10 @@ export interface ICanvasEvents {
     onEditPlacement(placement: IEditPlacement): void;
     /** The canvas dropped the edit itself: the input is to close. */
     onEditEnd?(): void;
+    /** The tool changed without the toolbar: a figure set's tool is done. */
+    onTool?(tool: Tool): void;
+    /** What the tool expects next; empty for nothing. */
+    onHint?(text: string): void;
     /** The view changed without the toolbar: an orbit left the 2D view. */
     onViewMode?(mode: ViewMode): void;
     /**

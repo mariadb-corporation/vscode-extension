@@ -20,7 +20,8 @@ import * as vscode from "vscode";
 import { reportError } from "../errorMessages.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { errorText } from "../text.js";
-import type { IModelSource } from "./modelSources.js";
+import type { IDiagramDocument } from "./modelFormat.js";
+import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
     ModelerHostMessage,
     ModelerWebviewMessage,
@@ -221,7 +222,8 @@ export class ModelerPanel {
                 // One after the other: each is made against the snapshot
                 // the one before it left.
                 const edit = this.#editing.then(() => {
-                    return this.#editSchema(message.edits);
+                    return this.#editSchema(message.edits, message.documents,
+                        message.recover === true);
                 });
                 this.#editing = edit;
                 await edit;
@@ -277,6 +279,8 @@ export class ModelerPanel {
 
     async #editSchema(
         edits: Parameters<NonNullable<IModelSource["edit"]>>[0],
+        documents?: IDiagramDocument[],
+        recover = false,
     ): Promise<void> {
         if (this.source.edit === undefined || this.#sourceHash === undefined) {
             this.#post({ type: "schemaEdited",
@@ -286,7 +290,7 @@ export class ModelerPanel {
         }
         try {
             const { model, notes } = await this.source.edit(edits,
-                this.#sourceHash);
+                this.#sourceHash, documents);
             this.#sourceHash = model.sourceHash;
             this.#post({
                 type: "schemaEdited",
@@ -307,9 +311,13 @@ export class ModelerPanel {
             const text = reportError(this.host.log, error,
                 `change the schema ${this.#schema}`);
             this.#post({ type: "schemaEdited", error: text });
-            // The viewer showed the change already: it goes back to what
-            // the project says.
-            await this.#load();
+            // The viewer showed the change already: it takes it back
+            // itself where it can (the SQL is as it was: msm edits whole
+            // or not at all), else it goes back to what the project says -
+            // always where the project changed since the viewer read it.
+            if (!recover || isStaleSnapshot(text)) {
+                await this.#load();
+            }
         }
     }
 

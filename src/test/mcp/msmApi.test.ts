@@ -452,7 +452,8 @@ describe("MsmApi", () => {
             ]);
     });
 
-    it("reads a project without diagrams, and a schema edit's result",
+    it("reads a project without diagrams, a schema edit's result, and "
+        + "makes an empty diagram",
         async () => {
             const structured = (result: unknown): IToolResult => {
                 return {
@@ -463,6 +464,10 @@ describe("MsmApi", () => {
             const caller = createCaller({
                 "msm.list_schema_diagrams": structured({
                     schema_definition: null, diagrams: [],
+                }),
+                "msm.create_schema_diagram": structured({
+                    name: "Diagram 1", figures: 0, connections: 0,
+                    files: ["/p/a.sql"],
                 }),
                 "msm.edit_schema": structured({
                     rows: [], files: ["/p/a.sql"],
@@ -483,6 +488,13 @@ describe("MsmApi", () => {
             });
             expect(caller.calls[1]).toEqual({ name: "msm.edit_schema",
                 args: { edits, base_hash: "sha256:x",
+                    schema_project_path: PROJECT } });
+
+            // An empty diagram: no tables, which msm would default to all.
+            await api.createEmptySchemaDiagram(PROJECT, "Diagram 1");
+            expect(caller.calls[2]).toEqual({
+                name: "msm.create_schema_diagram",
+                args: { name: "Diagram 1", tables: [],
                     schema_project_path: PROJECT } });
         });
 

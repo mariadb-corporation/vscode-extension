@@ -162,8 +162,10 @@ figure sets, so the canvas knows nothing of tables or layers:
   (`mysql-shell-plugins/gui/frontend/src/modules/db-editor/DiagramDesigner`):
   header strip in the figure's colour with the table icon and name,
   columns with key / not-null / nullable icons and italic dimmed types,
-  Indexes and Foreign Keys where expanded; Tools (pointer, hand, zoom) and
-  View (reset, grid, rulers = pages, lock, Navigator) with the same icons.
+  Indexes and Foreign Keys where expanded; View (reset, grid, rulers =
+  pages, lock, the Tools and Navigator switches) with the same icons. The
+  tools (pointer, hand, zoom and Workbench's EER tools) are on a floating
+  palette at the top left (see [`modeler-tools.md`](modeler-tools.md)).
 - **Names are edited in place on a double-click** (table, column, layer).
   The input is sized as the text is in 2D at the zoom and laid onto its
   plane by one CSS `matrix()` (`affineTransform`; the camera is
@@ -197,15 +199,17 @@ figure sets, so the canvas knows nothing of tables or layers:
   (after saving what waits, as msm renames the stored diagrams), and
   sends the new snapshot back (`schemaEdited.objects`, `replaceObjects`:
   the catalog replaced, every card laid out again). Undo sends the
-  reverse rename. A failed edit is notified and the panel reads the
-  project again (the viewer showed the change already). Notes msm
+  reverse rename. A failed edit is notified and taken back where it
+  stands, its name opened again as typed (see
+  [`modeler-tools.md`](modeler-tools.md)); a stale snapshot, or a refused
+  undo or redo, has the panel read the project again. Notes msm
   returns (what the binary could not rewrite) are a warning. Renames are
   offered in projects only (`editable`): a live schema's VIEW is msm's.
   msm keeps each edit's migration for the next release's update script
   (mariadb-shell-plugins #86). msm has the binary's `mariadb-lsp edit`
   (lsp-server) work the edits out; a shell whose binary lacks it refuses
   the edit ("Update the MariaDB Shell"), which the viewer reports and
-  then reloads.
+  takes back like any refusal.
 
 ## Figure kinds
 
@@ -361,10 +365,13 @@ are dropped when Cmd goes up, on blur and when hidden.
 - A diagram row has the Diagrams folder's icon (`type-hierarchy-sub`)
   until the user designs one of its own.
 - A project's diagrams are saved; a live schema's never are (their
-  changes last the panel). The history is not shown anywhere yet. Only
-  tables and columns are renamed; adding columns or tables, foreign keys
-  drawn as connections, notes edited in place are for later (the edit
-  ops are in msm's and the language server's format already).
+  changes last the panel). The history is not shown anywhere yet. Tables
+  and columns are renamed; new tables, views, procedures and foreign keys
+  come from the palette (`modeler-tools.md`), through `mariadb-lsp
+  edit`'s ops; an empty diagram to start from comes from the `+` on a
+  project's Diagrams folder in the MSM Projects view (`msm.md`). Adding a
+  column to an existing table, editing a column's type and editing notes
+  in place are for later.
 - No rubber-band selection, no connection captions, no mark on a card
   that cuts content off.
 - PDF export / printing per page: the page model is there, nothing

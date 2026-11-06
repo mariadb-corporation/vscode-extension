@@ -43,7 +43,9 @@ import {
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
 import type { IMsmApi } from "./mcp/msmApi.js";
-import { MsmCommands, projectPathOf } from "./msm/msmCommands.js";
+import {
+    diagramNameTaken, MsmCommands, newDiagramName, projectPathOf,
+} from "./msm/msmCommands.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
 import { reportError } from "./errorMessages.js";
@@ -332,6 +334,25 @@ const guard = async (
     } catch (error) {
         reportError(log, error);
     }
+};
+
+/**
+ * @param arg What a command was invoked on: an MSM project's node, or
+ *            nothing.
+ * @param title The title of the folder picker.
+ *
+ * @returns The MSM project's folder: the one invoked on, or one picked;
+ *          none where the picker was closed.
+ */
+const projectPathOrPick = async (
+    arg: unknown,
+    title: string,
+): Promise<string | undefined> => {
+    return projectPathOf(arg) ?? (await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        title,
+    }))?.[0]?.fsPath;
 };
 
 /**
@@ -1006,8 +1027,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
         const listing = await (await msmApi()).listSchemaDiagrams(
             projectPath);
         if (listing.diagrams.length === 0) {
+            const create = "New Schema Diagram...";
             void vscode.window.showInformationMessage(
-                `${path.basename(projectPath)} has no schema diagrams yet.`);
+                `${path.basename(projectPath)} has no schema diagrams yet.`,
+                create).then((answer) => {
+                if (answer === create) {
+                    void vscode.commands.executeCommand(
+                        MSM_DIAGRAM_COMMANDS.create, vscode.Uri.file(projectPath));
+                }
+            });
 
             return;
         }
@@ -1064,17 +1092,51 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
                         return;
                     }
-                    const projectPath = projectPathOf(arg)
-                        ?? (await vscode.window.showOpenDialog({
-                            canSelectFolders: true,
-                            canSelectFiles: false,
-                            title: "Open Schema Diagram of an MSM Project",
-                        }))?.[0]?.fsPath;
+                    const projectPath = await projectPathOrPick(arg,
+                        "Open Schema Diagram of an MSM Project");
                     if (projectPath !== undefined) {
                         await pickProjectDiagram(projectPath);
                     }
                 } catch (error) {
                     reportError(log, error, "open the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.create,
+            async (arg?: unknown) => {
+                try {
+                    const projectPath = await projectPathOrPick(arg,
+                        "New Schema Diagram in an MSM Project");
+                    if (projectPath === undefined) {
+                        return;
+                    }
+                    const api = await msmApi();
+                    const taken = (await api.listSchemaDiagrams(projectPath))
+                        .diagrams.map((diagram) => { return diagram.name; });
+                    const name = (await vscode.window.showInputBox({
+                        title: "New Schema Diagram",
+                        prompt: `The new diagram's name in `
+                            + `${path.basename(projectPath)}`,
+                        value: newDiagramName(taken),
+                        validateInput: (value) => {
+                            const trimmed = value.trim();
+                            if (trimmed === "") {
+                                return "Enter a name.";
+                            }
+
+                            return diagramNameTaken(taken, trimmed)
+                                ? `The project has a diagram ${trimmed} `
+                                    + "already."
+                                : undefined;
+                        },
+                    }))?.trim();
+                    if (name === undefined) {
+                        return;
+                    }
+                    await api.createEmptySchemaDiagram(projectPath, name);
+                    msmProjects.refresh();
+                    openProjectDiagram(projectPath, name);
+                } catch (error) {
+                    reportError(log, error, "create the schema diagram");
                 }
             }),
         vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,

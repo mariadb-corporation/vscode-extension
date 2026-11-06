@@ -23,6 +23,8 @@ import type {
     ISchemaModel,
 } from "../../../src/modeler/modelFormat.js";
 import type { ISchemaObjects } from "../../../src/modeler/modelerProtocol.js";
+import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
+import { applyEdits, type ISchemaObjectLists } from "./schemaEdits.js";
 
 /**
  * Where the diagrams' figures get their database objects from: the schema
@@ -40,6 +42,8 @@ export interface ISchemaCatalog {
     table(name: string): IOutlineTable | undefined;
     view(name: string): IOutlineView | undefined;
     routine(name: string): IOutlineRoutine | undefined;
+    /** @returns Every table, view and routine, as the snapshot has them. */
+    objects(): ISchemaObjectLists;
     /**
      * Renames a table, here and in the other tables' foreign keys: what
      * the viewer shows at once, while msm makes the change in the SQL.
@@ -63,6 +67,13 @@ export interface ISchemaCatalog {
      * @param objects The snapshot's objects.
      */
     replace(objects: ISchemaObjects): void;
+    /**
+     * Makes schema edits, as the SQL will have them once msm made them:
+     * what the viewer shows until msm sends its snapshot.
+     *
+     * @param edits The edits, in order.
+     */
+    edit(edits: readonly IMsmSchemaEdit[]): void;
 }
 
 /**
@@ -95,11 +106,20 @@ export const catalogFromModel = (model: ISchemaModel): ISchemaCatalog => {
     let tables = byName(model.tables);
     let views = byName(model.views);
     let routines = byName(model.routines);
+    const index = (): void => {
+        tables = byName(model.tables);
+        views = byName(model.views);
+        routines = byName(model.routines);
+    };
 
     return {
         table: (name) => { return tables.get(name.toLowerCase()); },
         view: (name) => { return views.get(name.toLowerCase()); },
         routine: (name) => { return routines.get(name.toLowerCase()); },
+        objects: () => {
+            return { tables: model.tables, views: model.views,
+                routines: model.routines };
+        },
         renameTable: (name, newName) => {
             const table = tables.get(name.toLowerCase());
             if (table === undefined || newName === name) {
@@ -153,9 +173,11 @@ export const catalogFromModel = (model: ISchemaModel): ISchemaCatalog => {
             if (objects.sourceHash !== undefined) {
                 model.sourceHash = objects.sourceHash;
             }
-            tables = byName(model.tables);
-            views = byName(model.views);
-            routines = byName(model.routines);
+            index();
+        },
+        edit: (edits) => {
+            applyEdits(model, edits);
+            index();
         },
     };
 };

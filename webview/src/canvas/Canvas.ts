@@ -39,10 +39,13 @@ import type {
     INavigatorState,
     IProbe,
     IResizeSession,
+    IToolSession,
+    EditCommit,
     ItemPlane,
     Tool,
     ViewMode,
 } from "./canvasTypes.js";
+import { CANVAS_TOOLS } from "./canvasTypes.js";
 import {
     affineTransform,
     boundsOf,
@@ -209,6 +212,7 @@ type PointerState =
         session: IElevateSession;
         before: unknown;
     }
+    | { kind: "tool"; session: IToolSession }
     | {
         kind: "resize";
         handle: IHandle;
@@ -281,6 +285,8 @@ export class Canvas {
     /** The last report of each kind, as text, to skip one that repeats it. */
     #reported = new Map<string, string>();
     #edit?: IEditSpec;
+    /** Counts the edits opened, so that each new one is told apart. */
+    #editSerial = 0;
 
     /**
      * The keys held that are not modifiers: Space and Z. Only their own
@@ -370,6 +376,27 @@ export class Canvas {
     }
 
     public set tool(tool: Tool) {
+        this.#switchTool(tool, true);
+    }
+
+    /**
+     * Switches the tool; what the figure set's tool was in the middle of
+     * ends with it.
+     *
+     * @param tool The tool.
+     * @param clearHint Whether the old tool's hint goes: not where the
+     *                  tool is done, and says so.
+     */
+    #switchTool(tool: Tool, clearHint: boolean): void {
+        if (tool === this.#tool) {
+            return;
+        }
+        if (this.#figureTool()) {
+            this.#set?.toolCancel?.();
+            if (clearHint) {
+                this.#events.onHint?.("");
+            }
+        }
         this.#tool = tool;
         this.#updateCursor();
     }
@@ -612,10 +639,11 @@ export class Canvas {
      *
      * @returns Nothing.
      */
-    public commitEdit(text: string): void {
+    public commitEdit(text: string, how: EditCommit = "enter"): void {
         const edit = this.#edit;
         this.#edit = undefined;
-        edit?.commit(text);
+        // The commit may open the next edit at once (a table's columns).
+        edit?.commit(text, how);
     }
 
     /**
@@ -624,7 +652,9 @@ export class Canvas {
      * @returns Nothing.
      */
     public cancelEdit(): void {
+        const edit = this.#edit;
         this.#edit = undefined;
+        edit?.cancel?.();
     }
 
     /**
@@ -811,6 +841,13 @@ export class Canvas {
             invalidate: () => { this.#invalidate(); },
             startEdit: (spec) => { this.#startEdit(spec); },
             select: (ids) => { this.#select(ids, false); },
+            toolDone: () => {
+                if (this.#tool !== "pointer") {
+                    this.#switchTool("pointer", false);
+                    this.#events.onTool?.("pointer");
+                }
+            },
+            hint: (text) => { this.#events.onHint?.(text); },
             change: (label, change) => {
                 const set = this.#set;
                 if (set === undefined) {
@@ -850,14 +887,19 @@ export class Canvas {
         // A drag under way works on what is unmounted: dropped with it.
         this.#pointer = undefined;
         this.#lastView = undefined;
-        this.#set?.unmount();
-        this.#set = undefined;
         if (this.#edit !== undefined) {
             // What it edits is gone (a theme change draws it all again):
-            // the input over it goes too.
+            // the input over it goes too, before the figures do.
+            const edit = this.#edit;
             this.#edit = undefined;
+            edit.cancel?.();
             this.#events.onEditEnd?.();
         }
+        if (this.#figureTool()) {
+            this.#set?.toolCancel?.();
+        }
+        this.#set?.unmount();
+        this.#set = undefined;
         this.#hover = undefined;
         this.#selected.clear();
         for (const decoration of this.#decorations.values()) {
@@ -1562,11 +1604,15 @@ export class Canvas {
         }
         this.#edit = spec;
         this.#reported.set("placement", JSON.stringify(placement));
+        this.#editSerial += 1;
         this.#events.onEditRequest({
             text: spec.text,
             label: spec.label,
             bold: spec.bold,
             placement,
+            placeholder: spec.placeholder,
+            choices: spec.choices,
+            serial: this.#editSerial,
         });
     }
 
@@ -1608,6 +1654,11 @@ export class Canvas {
         return this.#set?.itemAt(this.#probe(screen));
     }
 
+    /** Whether the tool is one of the figure set's own. */
+    #figureTool(): boolean {
+        return !(CANVAS_TOOLS as readonly string[]).includes(this.#tool);
+    }
+
     #panning(): boolean {
         return this.#tool === "hand" || this.#keys.has(" ");
     }
@@ -1634,6 +1685,8 @@ export class Canvas {
             canvas.style.cursor = "grab";
         } else if (pointer?.kind === "resize") {
             canvas.style.cursor = pointer.handle.cursor;
+        } else if (this.#figureTool()) {
+            canvas.style.cursor = "crosshair";
         } else {
             canvas.style.cursor = this.#hoverCursor ?? "default";
         }
@@ -1674,6 +1727,23 @@ export class Canvas {
         if (this.#panning()) {
             this.#pointer = { kind: "pan", last: screen };
             this.#updateCursor();
+
+            return;
+        }
+
+        // The figure set's own tools: placing, connecting.
+        if (this.#figureTool()) {
+            if (this.#locked) {
+                this.#events.onHint?.("The diagram is locked.");
+
+                return;
+            }
+            const session = this.#set?.toolDown?.(this.#tool,
+                this.#probe(screen));
+            if (session !== undefined) {
+                this.#pointer = { kind: "tool", session };
+            }
+            this.#invalidate();
 
             return;
         }
@@ -1753,6 +1823,11 @@ export class Canvas {
         this.#syncModifiers(event);
         const pointer = this.#pointer;
         const screen = this.#canvasPoint(event);
+        if (pointer === undefined && this.#figureTool()) {
+            this.#set?.toolHover?.(this.#tool, this.#probe(screen));
+
+            return;
+        }
         if (pointer === undefined) {
             const cursor = this.#handleAt(screen)?.handle.cursor;
             if (cursor !== this.#hoverCursor) {
@@ -1788,6 +1863,12 @@ export class Canvas {
 
             case "elevate": {
                 this.#elevateTo(pointer, screen);
+                break;
+            }
+
+            case "tool": {
+                pointer.session.move?.(this.#probe(screen));
+                this.#invalidate();
                 break;
             }
 
@@ -1938,6 +2019,11 @@ export class Canvas {
             case "resize":
             case "elevate": {
                 this.#recordSnapshot(pointer.session.finish(), pointer.before);
+                break;
+            }
+
+            case "tool": {
+                pointer.session.finish?.(this.#probe(this.#canvasPoint(event)));
                 break;
             }
 
