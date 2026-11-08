@@ -1,0 +1,455 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+/**
+ * Where a table editor's table comes from, and where its changes go.
+ *
+ * - A live table is read as its `SHOW CREATE TABLE`, the tables a foreign
+ *   key joins it to and its triggers, which `mariadb-lsp edit` reads into
+ *   the outline the editor works on. Save gives the same script and the
+ *   edits to the binary and runs the migration it answers with on the
+ *   connection, one statement at a time: the other tables are in the
+ *   script so a column their foreign keys use is changed as MariaDB needs
+ *   (the key dropped and added back, error 1833).
+ * - A project's table is msm's schema snapshot's, the editor's edits made
+ *   by `msm.edit_schema` in the project's queue (the diagrams' source).
+ *   The binary reads the development script for the DDL tab and previews
+ *   the migration msm will keep; it writes nothing.
+ */
+
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
+import type {
+    IOutlineTable,
+    IOutlineTrigger,
+    ISchemaDefinition,
+} from "../modeler/modelFormat.js";
+import {
+    type LspEdit,
+    type LspScript,
+    sliceText,
+    tableOfOutline,
+} from "./lspEdit.js";
+import type {
+    ICollationChoice,
+    ITableEditorData,
+} from "./tableEditorProtocol.js";
+
+/** What a Save previews. */
+export interface ITablePreview {
+    statements: string[];
+    notes: string[];
+}
+
+/** What a Save came to. */
+export interface ITableApplied {
+    notes: string[];
+}
+
+/** A table editor's table: where it is read and changed. */
+export interface ITableSource {
+    /** The table's name now: a Save may rename it. */
+    readonly table: string;
+    read(): Promise<ITableEditorData>;
+    preview(edits: IMsmSchemaEdit[]): Promise<ITablePreview>;
+    apply(edits: IMsmSchemaEdit[]): Promise<ITableApplied>;
+}
+
+/** Raised when a live Save stopped part way: what ran stays run. */
+export class PartlyAppliedError extends Error {
+    public constructor(message: string, public readonly done: string[]) {
+        super(message);
+    }
+}
+
+/**
+ * @param name An identifier.
+ *
+ * @returns It in backticks.
+ */
+export const quoteName = (name: string): string => {
+    return `\`${name.replaceAll("`", "``")}\``;
+};
+
+/**
+ * @param text A text.
+ *
+ * @returns It as an SQL string literal.
+ */
+export const quoteString = (text: string): string => {
+    return `'${text.replaceAll("\\", "\\\\").replaceAll("'", "''")}'`;
+};
+
+/**
+ * @param edits Edits.
+ *
+ * @returns The table's name after them, where one renames it.
+ */
+const renamedTo = (edits: IMsmSchemaEdit[]): string | undefined => {
+    const rename = edits.find((edit) => {
+        return edit.op === "rename_table";
+    });
+
+    return typeof rename?.new_name === "string" ? rename.new_name : undefined;
+};
+
+/**
+ * @param row A result row.
+ * @param name A column of it, looked up without regard to case.
+ *
+ * @returns The value as text; empty where it has none.
+ */
+const field = (row: Record<string, unknown>, name: string): string => {
+    const key = Object.keys(row).find((candidate) => {
+        return candidate.toLowerCase() === name.toLowerCase();
+    });
+    const value = key === undefined ? undefined : row[key];
+
+    return value === undefined || value === null ? "" : String(value);
+};
+
+/** What a live table is read and changed through. */
+export interface ILiveTableDeps {
+    /** Runs a query on the connection, its rows as objects. */
+    query(sql: string): Promise<Array<Record<string, unknown>>>;
+    /** Runs a statement that returns no rows. */
+    execute(sql: string): Promise<void>;
+    lsp: LspEdit;
+    /** The connection's caption, for the path bar. */
+    where: string;
+}
+
+/** A table of a live connection. */
+export class LiveTableSource implements ITableSource {
+    #table: string;
+    /** The script last read: what the edits are worked out against. */
+    #script = "";
+
+    public constructor(
+        private readonly schema: string,
+        table: string,
+        private readonly deps: ILiveTableDeps,
+    ) {
+        this.#table = table;
+    }
+
+    public get table(): string {
+        return this.#table;
+    }
+
+    /**
+     * @param table A table of the schema.
+     *
+     * @returns Its CREATE TABLE.
+     */
+    async #showCreate(table: string): Promise<string> {
+        const [row] = await this.deps.query(`SHOW CREATE TABLE ${
+            quoteName(this.schema)}.${quoteName(table)}`);
+        const ddl = row === undefined ? "" : field(row, "Create Table");
+        if (ddl === "") {
+            throw new Error(`${this.schema}.${table} is not a table.`);
+        }
+
+        return ddl;
+    }
+
+    public async read(): Promise<ITableEditorData> {
+        const schema = quoteString(this.schema);
+        const table = quoteString(this.#table);
+        const ddl = await this.#showCreate(this.#table);
+        const related = await this.deps.query("SELECT DISTINCT TABLE_NAME, "
+            + "REFERENCED_TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE "
+            + `WHERE TABLE_SCHEMA = ${schema} AND REFERENCED_TABLE_SCHEMA = `
+            + `${schema} AND (TABLE_NAME = ${table} OR REFERENCED_TABLE_NAME = `
+            + `${table})`);
+        const others = new Set<string>();
+        for (const row of related) {
+            for (const name of [field(row, "TABLE_NAME"),
+                field(row, "REFERENCED_TABLE_NAME")]) {
+                if (name !== "" && name.toLowerCase()
+                    !== this.#table.toLowerCase()) {
+                    others.add(name);
+                }
+            }
+        }
+        const otherDdl = await Promise.all([...others].map((name) => {
+            return this.#showCreate(name);
+        }));
+        const triggerRows = await this.deps.query("SELECT TRIGGER_NAME FROM "
+            + `information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA = ${schema}`
+            + ` AND EVENT_OBJECT_TABLE = ${table} ORDER BY ACTION_ORDER`);
+        const triggerDdl = await Promise.all(triggerRows.map(async (row) => {
+            const [created] = await this.deps.query(`SHOW CREATE TRIGGER ${
+                quoteName(this.schema)}.${quoteName(field(row,
+                "TRIGGER_NAME"))}`);
+
+            return created === undefined
+                ? "" : field(created, "SQL Original Statement");
+        }));
+        this.#script = [
+            ...[ddl, ...otherDdl].map((statement) => {
+                return `${statement};\n`;
+            }),
+            ...triggerDdl.filter((statement) => {
+                return statement !== "";
+            }).map((statement) => {
+                return `DELIMITER $$\n${statement}$$\nDELIMITER ;\n`;
+            }),
+        ].join("\n");
+        const result = await this.deps.lsp.edit({ text: this.#script }, null);
+        const found = tableOfOutline(result.outline, null, this.#table);
+        if (found === undefined) {
+            throw new Error(`The SQL language server could not read the `
+                + `table ${this.#table}.`);
+        }
+
+        const columns = await this.deps.query("SELECT TABLE_NAME, COLUMN_NAME "
+            + `FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ${schema} `
+            + "ORDER BY TABLE_NAME, ORDINAL_POSITION");
+        const tables: Record<string, string[]> = {};
+        for (const row of columns) {
+            (tables[field(row, "TABLE_NAME")] ??= []).push(
+                field(row, "COLUMN_NAME"));
+        }
+        const collations = (await this.deps.query("SELECT CHARACTER_SET_NAME, "
+            + "COLLATION_NAME FROM information_schema.COLLATIONS ORDER BY "
+            + "CHARACTER_SET_NAME, COLLATION_NAME")).map((row) => {
+            return { charset: field(row, "CHARACTER_SET_NAME"),
+                collation: field(row, "COLLATION_NAME") };
+        });
+        const [version] = await this.deps.query("SELECT VERSION() AS v");
+
+        return {
+            path: `${this.deps.where} / ${this.schema} / ${this.#table}`,
+            badge: `MariaDB ${version === undefined ? ""
+                : field(version, "v").replace(/-.*$/, "")}`.trim(),
+            live: true,
+            table: withoutPlaces(found.table),
+            triggers: found.triggers.map(withoutPlaces),
+            ddl,
+            tables,
+            collations,
+        };
+    }
+
+    public async preview(edits: IMsmSchemaEdit[]): Promise<ITablePreview> {
+        const result = await this.deps.lsp.edit({ text: this.#script }, null,
+            edits);
+
+        return {
+            statements: result.migration.map((statement) => {
+                return statement.sql;
+            }),
+            // msm's notes are for its update scripts: run here, a trigger's
+            // CREATE needs nothing more.
+            notes: result.notes.filter((note) => {
+                return note.kind !== "trigger-created"
+                    && note.kind !== "trigger-recreated";
+            }).map((note) => { return note.message; }),
+        };
+    }
+
+    public async apply(edits: IMsmSchemaEdit[]): Promise<ITableApplied> {
+        const preview = await this.preview(edits);
+        const done: string[] = [];
+        // The statements carry no schema: the session's may be another.
+        await this.deps.execute(`USE ${quoteName(this.schema)}`);
+        for (const statement of preview.statements) {
+            try {
+                await this.deps.execute(statement);
+            } catch (error) {
+                throw new PartlyAppliedError(error instanceof Error
+                    ? error.message : String(error), done);
+            }
+            done.push(statement);
+        }
+        this.#table = renamedTo(edits) ?? this.#table;
+
+        return { notes: preview.notes };
+    }
+}
+
+/** What a project's table is read and changed through. */
+export interface IProjectTableDeps {
+    /** msm's snapshot of the development script. */
+    snapshot(): Promise<ISchemaDefinition | undefined>;
+    /** Makes the edits through msm (`msm.edit_schema`). */
+    edit(edits: IMsmSchemaEdit[], baseHash: string): Promise<string[]>;
+    /** The development script, `development/<schema>_next.sql`. */
+    scriptFile(): Promise<string | undefined>;
+    lsp: LspEdit;
+    /** The project's name, for the path bar. */
+    where: string;
+    readText?(file: string): Promise<string>;
+}
+
+/** The character sets and collations offered where no server is asked. */
+export const COMMON_COLLATIONS: readonly ICollationChoice[] = [
+    ["armscii8", "armscii8_general_ci"], ["ascii", "ascii_general_ci"],
+    ["ascii", "ascii_bin"], ["binary", "binary"],
+    ["latin1", "latin1_swedish_ci"], ["latin1", "latin1_general_ci"],
+    ["latin1", "latin1_bin"], ["ucs2", "ucs2_general_ci"],
+    ["utf16", "utf16_general_ci"], ["utf32", "utf32_general_ci"],
+    ["utf8mb3", "utf8mb3_general_ci"], ["utf8mb3", "utf8mb3_unicode_ci"],
+    ["utf8mb3", "utf8mb3_bin"], ["utf8mb4", "utf8mb4_general_ci"],
+    ["utf8mb4", "utf8mb4_unicode_ci"], ["utf8mb4", "utf8mb4_unicode_520_ci"],
+    ["utf8mb4", "utf8mb4_uca1400_ai_ci"], ["utf8mb4", "utf8mb4_uca1400_as_cs"],
+    ["utf8mb4", "utf8mb4_bin"],
+].map(([charset, collation]) => { return { charset, collation }; });
+
+/** A table of an MSM project. */
+export class ProjectTableSource implements ITableSource {
+    #table: string;
+
+    public constructor(
+        private readonly schema: string,
+        table: string,
+        private readonly deps: IProjectTableDeps,
+    ) {
+        this.#table = table;
+    }
+
+    public get table(): string {
+        return this.#table;
+    }
+
+    async #definition(): Promise<ISchemaDefinition> {
+        const definition = await this.deps.snapshot();
+        if (definition === undefined) {
+            throw new Error("The project has no schema snapshot: run Update "
+                + "Schema Snapshot on its schema row first.");
+        }
+
+        return definition;
+    }
+
+    async #script(): Promise<LspScript> {
+        const file = await this.deps.scriptFile();
+        if (file === undefined) {
+            throw new Error("The project has no development script.");
+        }
+
+        return { file };
+    }
+
+    public async read(): Promise<ITableEditorData> {
+        const definition = await this.#definition();
+        const lower = this.#table.toLowerCase();
+        const table = definition.tables.find((entry) => {
+            return entry.name.toLowerCase() === lower;
+        });
+        if (table === undefined) {
+            throw new Error(`The project's schema has no table ${
+                this.#table}.`);
+        }
+        const tables: Record<string, string[]> = {};
+        for (const entry of definition.tables) {
+            tables[entry.name] = entry.columns.map((column) => {
+                return column.name;
+            });
+        }
+
+        return {
+            path: `${this.deps.where} / ${definition.schema} / ${table.name}`,
+            badge: "MSM Project",
+            live: false,
+            table,
+            triggers: (definition.triggers ?? []).filter((trigger) => {
+                return trigger.table.toLowerCase() === lower;
+            }),
+            ddl: await this.#ddl(table.name).catch((error: unknown) => {
+                return `-- The CREATE TABLE could not be read: ${
+                    error instanceof Error ? error.message : String(error)}`;
+            }),
+            tables,
+            collations: [...COMMON_COLLATIONS],
+        };
+    }
+
+    /**
+     * @param name The table.
+     *
+     * @returns Its CREATE TABLE as the project writes it.
+     */
+    async #ddl(name: string): Promise<string> {
+        const script = await this.#script();
+        const result = await this.deps.lsp.edit(script, this.schema);
+        const found = tableOfOutline(result.outline, this.schema, name);
+        const range = found?.table.range;
+        if (found === undefined || range === undefined || !("file" in script)) {
+            return "";
+        }
+        const include = found.table.source === undefined
+            ? undefined : result.outline.includes?.[found.table.source];
+        const relative = include?.path ?? include?.file;
+        const file = relative === undefined ? script.file
+            : path.resolve(path.dirname(script.file), relative);
+        const text = await (this.deps.readText ?? ((where: string) => {
+            return readFile(where, "utf8");
+        }))(file);
+
+        return sliceText(text, range.start, range.end);
+    }
+
+    public async preview(edits: IMsmSchemaEdit[]): Promise<ITablePreview> {
+        const result = await this.deps.lsp.edit(await this.#script(),
+            this.schema, edits);
+
+        return {
+            statements: result.migration.map((statement) => {
+                return statement.sql;
+            }),
+            notes: result.notes.map((note) => { return note.message; }),
+        };
+    }
+
+    public async apply(edits: IMsmSchemaEdit[]): Promise<ITableApplied> {
+        const definition = await this.#definition();
+        if (definition.source_hash === undefined) {
+            throw new Error("The project's schema snapshot has no hash to "
+                + "edit against: run Update Schema Snapshot first.");
+        }
+        const notes = await this.deps.edit(edits, definition.source_hash);
+        this.#table = renamedTo(edits) ?? this.#table;
+
+        return { notes };
+    }
+}
+
+/**
+ * @param object An object of the outline.
+ *
+ * @returns It without where it is written, which edits do not take.
+ */
+const withoutPlaces = <T extends object>(object: T): T => {
+    const copy = { ...object } as Record<string, unknown>;
+    delete copy.range;
+    delete copy.selection_range;
+    delete copy.source;
+    if (Array.isArray(copy.columns)) {
+        copy.columns = (copy.columns as unknown[]).map((column) => {
+            return typeof column === "object" && column !== null
+                ? withoutPlaces(column) : column;
+        });
+    }
+
+    return copy as T;
+};
+
+export type { IOutlineTable, IOutlineTrigger };

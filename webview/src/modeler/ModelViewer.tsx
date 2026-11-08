@@ -551,6 +551,9 @@ export const ModelViewer = (): JSX.Element => {
                         diagrams: message.model.diagrams,
                         loadIcons,
                         editable: message.editable,
+                        onEditTable: (table: string) => {
+                            post({ type: "editTable", table });
+                        },
                         onSchemaEdit: (schemaEdits: IMsmSchemaEdit[],
                             changed?: IModelDiagram[],
                             failed?: (message: string) => void) => {

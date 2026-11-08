@@ -221,6 +221,15 @@ import {
     NotebookSdk,
     publishSdkTypings,
 } from "./notebook/notebookSdk.js";
+import { locateLanguageServer } from "./lsp/locator.js";
+import { LspEdit } from "./tableEditor/lspEdit.js";
+import type { TableEditorTarget } from "./tableEditor/tableEditorProtocol.js";
+import { TableEditorPanel } from "./tableEditor/tableEditorPanel.js";
+import {
+    LiveTableSource,
+    ProjectTableSource,
+    type ITableSource,
+} from "./tableEditor/tableSources.js";
 
 /**
  * Everything the extension builds on activation, kept together so
@@ -1182,6 +1191,125 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 + "placed on the diagram shown.");
         }
     };
+    // The table editor: Edit Table on a table of either tree or of a
+    // diagram. It runs mariadb-lsp itself, found as the language server is.
+    let lspBinary: Promise<string | undefined> | undefined;
+    const lspEdit = new LspEdit(() => {
+        const found = lspBinary ?? locateLanguageServer(
+            createNodeShellEnvironment(log),
+            vscode.workspace.getConfiguration("mariadb.lsp")
+                .get<string>("path", ""), log).then((location) => {
+            // None found is looked for again next time: one may be
+            // installed meanwhile.
+            if (location === undefined) {
+                lspBinary = undefined;
+            }
+
+            return location?.binaryPath;
+        });
+        lspBinary = found;
+
+        return found;
+    });
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns Its development script, as msm names it.
+     */
+    const developmentScript = async (projectPath: string):
+        Promise<string | undefined> => {
+        try {
+            const settings = JSON.parse(await fs.promises.readFile(
+                path.join(projectPath, "msm.project.json"), "utf8")) as
+                { schemaFileName?: string };
+            if (settings.schemaFileName === undefined) {
+                return undefined;
+            }
+
+            return path.join(projectPath, "development",
+                `${settings.schemaFileName}_next.sql`);
+        } catch {
+            return undefined;
+        }
+    };
+    const tableSource = (target: TableEditorTarget): ITableSource => {
+        if (target.kind === "project") {
+            const projectPath = target.projectPath;
+
+            return new ProjectTableSource(target.schema, target.table, {
+                snapshot: () => { return msmProjects.snapshot(projectPath); },
+                edit: async (edits, baseHash) => {
+                    return (await projectDiagrams(projectPath)
+                        .edit(edits, baseHash)).notes;
+                },
+                scriptFile: () => { return developmentScript(projectPath); },
+                lsp: lspEdit,
+                where: path.basename(projectPath).replace(/\.msm\.project$/,
+                    ""),
+            });
+        }
+        const uri = target.connection;
+        const connectionId = async (): Promise<string> => {
+            return await connections.connect(uri, UI_BACKEND_SESSION);
+        };
+
+        return new LiveTableSource(target.schema, target.table, {
+            query: async (sql) => {
+                const result = await (await connections.api()).executeSql(
+                    await connectionId(), sql, { limit: 100000, offset: 0 });
+                if (result.error !== undefined) {
+                    throw new Error(result.error);
+                }
+
+                return (result.result_sets?.[0]?.rows ?? []) as
+                    Array<Record<string, unknown>>;
+            },
+            execute: async (sql) => {
+                const result = await (await connections.api()).executeSql(
+                    await connectionId(), sql);
+                if (result.error !== undefined) {
+                    throw new Error(result.error);
+                }
+            },
+            lsp: lspEdit,
+            where: connectionLabel(uri),
+        });
+    };
+    const editTable = (target: TableEditorTarget): void => {
+        void TableEditorPanel.show(target, () => { return tableSource(target); },
+            {
+                extensionUri: context.extensionUri,
+                log,
+                changed: (changed) => {
+                    objectDetails.refreshed();
+                    if (changed.kind === "project") {
+                        msmProjects.refreshProject(changed.projectPath);
+                        void ModelerPanel.reload(
+                            projectDiagrams(changed.projectPath));
+                    } else {
+                        refreshServer(changed.connection);
+                        void ModelerPanel.reload(connectionDiagrams(
+                            changed.connection, changed.schema));
+                    }
+                },
+                viewData: (shown) => {
+                    if (shown.kind === "connection") {
+                        void editors.selectRows(shown.connection, shown.schema,
+                            shown.table);
+                    }
+                },
+            }).catch((error: unknown) => {
+            reportError(log, error, "open the table editor");
+        });
+    };
+    modelerHost.editTable = (target, table) => {
+        editTable(target.kind === "project"
+            ? { kind: "project", projectPath: target.projectPath,
+                schema: projectDiagrams(target.projectPath).schemaTitle,
+                table }
+            : { kind: "connection", connection: target.connection,
+                schema: target.schema, table });
+    };
     /** Two quick clicks on a project's diagram open it. */
     const projectDiagramClicks = new DoubleClick();
     /**
@@ -1303,6 +1431,17 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 } catch (error) {
                     reportError(log, error, "add the objects to the diagram");
                 }
+            }),
+        vscode.commands.registerCommand("mariadb.editTable",
+            (node?: MsmProjectsNode | ConnectionsNode) => {
+                if (node?.kind !== "object" || node.objectType !== "table") {
+                    return;
+                }
+                editTable("projectPath" in node
+                    ? { kind: "project", projectPath: node.projectPath,
+                        schema: node.schema, table: node.name }
+                    : { kind: "connection", connection: node.uri,
+                        schema: node.schema, table: node.name });
             }),
         vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,
             (node?: IMsmDiagramNode) => {

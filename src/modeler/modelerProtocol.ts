@@ -181,7 +181,9 @@ export type ModelerWebviewMessage =
      * have just ended. VS Code drops none into a webview, so the pointer's
      * coming back after the drag stands in for the drop.
      */
-    | { type: "pointerArrived"; x: number; y: number };
+    | { type: "pointerArrived"; x: number; y: number }
+    /** A table card's menu: Edit Table, in the table editor. */
+    | { type: "editTable"; table: string };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =

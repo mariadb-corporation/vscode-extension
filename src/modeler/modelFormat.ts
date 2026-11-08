@@ -38,6 +38,25 @@ export interface IOutlineColumn {
     default?: string | null;
     auto_increment?: boolean;
     comment?: string | null;
+    /** Lower-cased; null where the column has none of its own. */
+    charset?: string | null;
+    collation?: string | null;
+    /** A generated column's expression, parentheses included. */
+    generated?: string | null;
+    /** `VIRTUAL`, `PERSISTENT` or `STORED` as written. */
+    generated_storage?: string | null;
+    /** The `ON UPDATE` expression: `CURRENT_TIMESTAMP(6)`. */
+    on_update?: string | null;
+    invisible?: boolean;
+}
+
+/** A key part of an index, as the outline writes it. */
+export interface IOutlineKeyPart {
+    column: string;
+    /** The prefix length, `a(10)`. */
+    length?: number | null;
+    /** `ASC` or `DESC`; null where not written. */
+    order?: string | null;
 }
 
 /** An index of a table, as the outline writes it. */
@@ -47,6 +66,11 @@ export interface IOutlineIndex {
     /** `primary`, `unique`, `index`, `fulltext`, `spatial`, `vector`. */
     kind: string;
     columns: string[];
+    /** The columns with their prefix lengths and order. */
+    key_parts?: IOutlineKeyPart[];
+    /** `BTREE`, `HASH` or `RTREE`. */
+    using?: string | null;
+    comment?: string | null;
 }
 
 /** A foreign key of a table, as msm's snapshot has it. */

@@ -60,6 +60,8 @@ export interface IModelerHost {
      * what rows dropped on the page were.
      */
     draggedObjects?(): string | undefined;
+    /** Opens a table of the shown schema in the table editor. */
+    editTable?(target: ModelerTarget, table: string): void;
 }
 
 /** The view type the panels are registered under. */
@@ -244,6 +246,12 @@ export class ModelerPanel {
             case "selection": {
                 this.host.selected?.(this.source.target(this.#diagram),
                     message.objects);
+                break;
+            }
+
+            case "editTable": {
+                this.host.editTable?.(this.source.target(this.#diagram),
+                    message.table);
                 break;
             }
 

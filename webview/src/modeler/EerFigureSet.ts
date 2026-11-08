@@ -410,6 +410,8 @@ export interface IEerFigureSetOptions {
     onToolPanel?: (panel?: IToolPanel) => void;
     /** Asks for the picture msm left out of an image figure. */
     requestImage?: (diagram: string, figureId: string) => void;
+    /** A table card's Edit Table: the table editor opens on the table. */
+    onEditTable?: (table: string) => void;
 }
 
 /** A picture of an image figure, or why there is none yet. */
@@ -1633,8 +1635,12 @@ export class EerFigureSet implements IFigureSet {
                 disabled: node.layout.items[0]?.editable !== true,
             }]
             : [];
+        const editTable: IMenuEntry[] = this.#options.onEditTable === undefined
+            ? [] : [{ id: "editTable", caption: "Edit Table..." },
+                { id: "separator0" }];
 
         return [
+            ...editTable,
             { id: "toggleExpanded", caption: expanded ? "Collapse" : "Expand" },
             { id: "separator1" },
             {
@@ -1726,6 +1732,11 @@ export class EerFigureSet implements IFigureSet {
 
             case "addEvent": {
                 this.#tools.addEvent(node.figure.id);
+                break;
+            }
+
+            case "editTable": {
+                this.#options.onEditTable?.(tableOf(node.figure));
                 break;
             }
 

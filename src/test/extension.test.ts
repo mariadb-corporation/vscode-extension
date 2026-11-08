@@ -355,6 +355,7 @@ describe("activate", () => {
             "mariadb.dumpSchemas",
             "mariadb.dumpTables",
             "mariadb.editConnection",
+            "mariadb.editTable",
             "mariadb.exportTable",
             "mariadb.formatSql",
             "mariadb.importTable",
