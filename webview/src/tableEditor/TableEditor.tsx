@@ -72,6 +72,7 @@ import {
     selectInput,
     textInput,
     type IGridColumn,
+    type IGridFocus,
 } from "./ControlGrid.js";
 import { OnlineAlterTab } from "./OnlineAlterTab.js";
 
@@ -162,6 +163,8 @@ export const TableEditor = (): preact.JSX.Element => {
     const [tab, setTab] = useState<Tab>(kept.tab ?? "Columns");
     const [density, setDensity] = useState<Density>(kept.density ?? "Compact");
     const [search, setSearch] = useState("");
+    // A column control to focus once the Columns grid has built it.
+    const [columnFocus, setColumnFocus] = useState<IGridFocus>();
     const [preview, setPreview] = useState<{ statements: string[];
         notes: string[]; error?: string }>({ statements: [], notes: [] });
     const [busy, setBusy] = useState(false);
@@ -359,12 +362,16 @@ export const TableEditor = (): preact.JSX.Element => {
     const addColumn = (): void => {
         const column: IDraftColumn = { key: newRowKey("c"), name: "",
             type: "varchar(45)", nullable: true, primary: false };
-        change({ columns: [...draft.columns, column] });
-        setTab("Columns");
-        requestAnimationFrame(() => {
-            document.querySelector<HTMLInputElement>(
-                `[data-key="${column.key}"][data-field="name"]`)?.focus();
+        setOutcome(undefined);
+        // On the draft as it is by then: a commit of the input just left
+        // may come first.
+        setDraft((now) => {
+            return now === undefined ? now
+                : { ...now, columns: [...now.columns, column] };
         });
+        setSearch("");
+        setTab("Columns");
+        setColumnFocus({ key: column.key, field: "name" });
     };
 
     // -- Columns ------------------------------------------------------------
@@ -845,6 +852,27 @@ export const TableEditor = (): preact.JSX.Element => {
                     value={draft.name} spellcheck={false}
                     onChange={(event) => {
                         change({ name: event.currentTarget.value });
+                    }}
+                    onKeyDown={(event) => {
+                        // Down: to the first column's name, a new one
+                        // where there is none.
+                        if (event.key !== "ArrowDown" || event.altKey
+                            || event.ctrlKey || event.metaKey
+                            || event.shiftKey) {
+                            return;
+                        }
+                        event.preventDefault();
+                        event.currentTarget.dispatchEvent(new Event("change",
+                            { bubbles: true }));
+                        const first = visibleColumns.find((column) => {
+                            return column.dropped !== true;
+                        });
+                        if (first === undefined) {
+                            addColumn();
+                        } else {
+                            setTab("Columns");
+                            setColumnFocus({ key: first.key, field: "name" });
+                        }
                     }} />
                 <label class="field-label" for="table-comment">Comment</label>
                 <input id="table-comment" class="text-field table-comment"
@@ -949,6 +977,9 @@ export const TableEditor = (): preact.JSX.Element => {
                 {tab === "Columns" && (
                     <ControlGrid rows={visibleColumns} columns={columnGrid}
                         density={density} placeholder="The table has no columns."
+                        focus={columnFocus}
+                        onFocused={() => { setColumnFocus(undefined); }}
+                        onAddRow={addColumn}
                         rowClass={(column) => {
                             return [...(marks.get(column.key) ?? []).slice(0, 1),
                                 ...(column.dropped === true ? ["dropped"] : []),

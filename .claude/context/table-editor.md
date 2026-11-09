@@ -59,8 +59,23 @@ read-only Object Details view left editing to this editor.
   that always show (inputs, checkboxes, selects; a text input with a ▾
   of choices, `comboInput`), as DBX's. New rows `replaceData` the grid;
   the control that had the focus is found again by `data-key` /
-  `data-field`, so Tab survives the commit of the input left. Formatters
-  call the page's column specs of the latest render (not the first).
+  `data-field`, so Tab survives the commit of the input left (refocused
+  so, marked `data-refocus`: a combo opens no list). Formatters call the
+  page's column specs of the latest render (not the first). A text input
+  commits a value once, however often `change` comes.
+- **Keys**: Up/Down in a grid's text input move to the same field a row
+  up or down (a capture listener on the grid; disabled controls skipped;
+  the input left commits first); Down in the last row calls `onAddRow`
+  (Columns: Add Column). Down in the Table name goes to the first
+  column's name, or adds one. The page asks for a focus with the grid's
+  `focus` prop, honoured once `replaceData` built the row (Add Column
+  focuses the new name so); `addColumn` sets the draft functionally, as
+  the commit of the input just left lands first.
+- **`comboInput`** (the Type): focused, its text is selected and its own
+  list opens (on the body, `position: fixed`: a cell cuts off overflow;
+  one open at a time); typing narrows it to choices starting so, Up/Down
+  move through it putting the choice in the input, Enter or a mouse down
+  takes one, the ▾ toggles it.
 - **Column titles stay on one line**, cut short with an ellipsis, the
   whole title as the tooltip (`titleFormatter`).
 - **Row bars are index membership**, DBX's colours: primary amber, unique
