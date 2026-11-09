@@ -103,6 +103,8 @@ export interface IMsmCommandsHost {
     exists?(path: string): Promise<boolean>;
     /** The MSM Projects list changed: the view reads it again. */
     projectsChanged?(): void;
+    /** A project was taken off the MSM Projects list. */
+    projectRemoved?(projectPath: string): void;
     /** The folders of the MSM Projects view, which the dialogs offer. */
     projectFolders?(): Promise<string[]>;
     /** A project as the MSM Projects view last listed it, if it does. */
@@ -475,6 +477,7 @@ export class MsmCommands {
                 msmToolArgs.removeProject(projectPath)), (api) => {
                 return api.removeProject(projectPath);
             });
+            this.host.projectRemoved?.(projectPath);
         } finally {
             this.host.projectsChanged?.();
         }

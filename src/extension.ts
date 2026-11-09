@@ -126,7 +126,9 @@ import type {
 } from "./modeler/modelerProtocol.js";
 import {
     ConnectionModelSource,
+    isConnectionSourceKey,
     ProjectModelSource,
+    projectSourceKey,
     type IModelSource,
 } from "./modeler/modelSources.js";
 import { DiagramService } from "./modeler/diagramService.js";
@@ -920,10 +922,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     schema: node.schema }, objectRefOf(node));
             }
         }));
+    /** How each diagram was last looked at. */
+    const diagramViews = new DiagramViews(context.workspaceState);
     /** What a diagram viewer tells the views around it. */
     const modelerHost: IModelerHost = {
         log,
-        views: new DiagramViews(context.workspaceState),
+        views: diagramViews,
         schemaChanged: (target) => {
             if (target.kind === "project") {
                 msmProjects.refreshProject(target.projectPath);
@@ -1406,6 +1410,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         return;
                     }
                     await api.createEmptySchemaDiagram(projectPath, name);
+                    await diagramViews.forget(projectSourceKey(projectPath),
+                        name);
                     msmProjects.refresh();
                     openProjectDiagram(projectPath, name);
                 } catch (error) {
@@ -1489,6 +1495,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
         // A deployed schema is new to the tree and to completion.
         refresh: refreshServer,
         projectsChanged: () => { msmProjects.refresh(); },
+        projectRemoved: (projectPath) => {
+            void diagramViews.forgetSources((key) => {
+                return key === projectSourceKey(projectPath);
+            });
+        },
         projectFolders: () => { return msmProjects.folders(); },
         listedProject: async (projectPath) => {
             return (await msmProjects.projectAt(projectPath))?.project;
@@ -2031,6 +2042,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         kind: node.connectionKind,
                     });
                     log(`Deleted the connection '${node.uri}'.`);
+                    await diagramViews.forgetSources((key) => {
+                        return isConnectionSourceKey(key, node.uri);
+                    });
                     tree.refresh();
                 });
             },

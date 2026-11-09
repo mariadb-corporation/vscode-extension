@@ -317,6 +317,8 @@ export class ModelerPanel {
             this.#schema = model.schema;
             this.#sourceHash = model.sourceHash;
             this.#setDiagram(this.#diagram);
+            await this.host.views?.prune(this.source.key,
+                model.diagrams.map((diagram) => { return diagram.name; }));
             this.host.log(`Showing the diagrams of ${model.schema} `
                 + `from ${source}`);
             this.#post({

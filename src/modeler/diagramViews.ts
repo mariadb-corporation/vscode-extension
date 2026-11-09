@@ -18,7 +18,10 @@
 /**
  * How each diagram was last looked at - zoom, place, projection - kept by
  * VS Code in the workspace's state, not in the diagrams: looking at a
- * diagram changes no file. A diagram opens again as it was left.
+ * diagram changes no file. A diagram opens again as it was left. The
+ * views of diagrams that are gone (deleted or renamed in msm, a connection
+ * deleted, a project taken off the list) are dropped, so the state does
+ * not grow and a new diagram of an old name opens fitted.
  */
 
 import type { IFolderMemento } from "../tree/customFolders.js";
@@ -79,6 +82,91 @@ export class DiagramViews {
             ...all,
             [source]: { ...all[source], [diagram]: view },
         });
+    }
+
+    /**
+     * Drops the views of a source's diagrams it no longer has: called with
+     * its diagrams each time its model is read, which is where a diagram
+     * deleted or renamed outside the extension shows.
+     *
+     * @param source The model source's key.
+     * @param diagrams The names of the diagrams it has.
+     *
+     * @returns Once they are dropped.
+     */
+    public async prune(source: string,
+        diagrams: readonly string[]): Promise<void> {
+        const names = new Set(diagrams);
+        await this.#change(source, (kept) => {
+            return Object.keys(kept).filter((name) => {
+                return !names.has(name);
+            });
+        });
+    }
+
+    /**
+     * Drops one diagram's view: a new diagram that takes a name opens
+     * fitted, not as an old one of that name was left.
+     *
+     * @param source The model source's key.
+     * @param diagram The diagram's name.
+     *
+     * @returns Once it is dropped.
+     */
+    public async forget(source: string, diagram: string): Promise<void> {
+        await this.#change(source, (kept) => {
+            return diagram in kept ? [diagram] : [];
+        });
+    }
+
+    /**
+     * Drops the views of whole sources: a connection deleted, a project
+     * taken off the list.
+     *
+     * @param match Whether a source's key is one to drop.
+     *
+     * @returns Once they are dropped.
+     */
+    public async forgetSources(match: (source: string) => boolean):
+        Promise<void> {
+        const all = this.#all();
+        const left = Object.fromEntries(Object.entries(all).filter(([key]) => {
+            return !match(key);
+        }));
+        if (Object.keys(left).length !== Object.keys(all).length) {
+            await this.memento.update(DIAGRAM_VIEWS_KEY, left);
+        }
+    }
+
+    /**
+     * Drops some of a source's views, writing only where any go; a source
+     * left with none goes too.
+     *
+     * @param source The model source's key.
+     * @param dropped The names to drop, of the views it has.
+     *
+     * @returns Once they are dropped.
+     */
+    async #change(source: string,
+        dropped: (kept: Record<string, IDiagramView>) => string[]):
+        Promise<void> {
+        const all = this.#all();
+        const kept = all[source];
+        if (kept === undefined) {
+            return;
+        }
+        const names = dropped(kept);
+        if (names.length === 0) {
+            return;
+        }
+        const left = { ...kept };
+        for (const name of names) {
+            delete left[name];
+        }
+        const { [source]: _gone, ...others } = all;
+        await this.memento.update(DIAGRAM_VIEWS_KEY,
+            Object.keys(left).length === 0
+                ? others : { ...others, [source]: left });
     }
 
     #all(): KeptViews {

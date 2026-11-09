@@ -143,6 +143,44 @@ const hashesOf = (rows: readonly IDiagramRow[]): Map<string, string> => {
     }));
 };
 
+/**
+ * @param connection A connection's URI.
+ * @param schema One of its schemas.
+ *
+ * @returns The key of that schema's model source.
+ */
+export const connectionSourceKey = (connection: string,
+    schema: string): string => {
+    return JSON.stringify(["connection", connection, schema]);
+};
+
+/**
+ * @param key A model source's key.
+ * @param connection A connection's URI.
+ *
+ * @returns Whether it is one of that connection's schemas'.
+ */
+export const isConnectionSourceKey = (key: string,
+    connection: string): boolean => {
+    try {
+        const parsed: unknown = JSON.parse(key);
+
+        return Array.isArray(parsed) && parsed[0] === "connection"
+            && parsed[1] === connection;
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * @param projectPath An MSM project's folder.
+ *
+ * @returns The key of its model source.
+ */
+export const projectSourceKey = (projectPath: string): string => {
+    return JSON.stringify(["project", projectPath]);
+};
+
 /** The schema of a connection, read from its diagrams view. */
 export class ConnectionModelSource implements IModelSource {
     public readonly editable = false;
@@ -159,7 +197,7 @@ export class ConnectionModelSource implements IModelSource {
     ) { }
 
     public get key(): string {
-        return JSON.stringify(["connection", this.connection, this.schema]);
+        return connectionSourceKey(this.connection, this.schema);
     }
 
     public get schemaTitle(): string {
@@ -261,7 +299,7 @@ export class ProjectModelSource implements IModelSource {
     }
 
     public get key(): string {
-        return JSON.stringify(["project", this.projectPath]);
+        return projectSourceKey(this.projectPath);
     }
 
     public get schemaTitle(): string {

@@ -98,6 +98,8 @@ interface IRecorded {
     revealed: string[];
     /** How often the MSM Projects view was told to read the list again. */
     projectsChanged: number;
+    /** The projects taken off the list. */
+    removedProjects: string[];
     /** The projects shown in the MSM Projects view. */
     revealedProjects: string[];
 }
@@ -120,6 +122,7 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         calls: [], rows: [], connected: [], sessions: [], disconnected: [],
         shownActions: [], refreshed: [],
         logs: [], revealed: [], projectsChanged: 0, revealedProjects: [],
+        removedProjects: [],
     };
     const answer = <T>(name: keyof IMsmApi, value: T) => {
         return (...args: unknown[]): Promise<T> => {
@@ -193,6 +196,9 @@ const setUp = (options: ISetUp = {}): IRecorded => {
                 .includes(path));
         },
         projectsChanged: () => { recorded.projectsChanged += 1; },
+        projectRemoved: (projectPath) => {
+            recorded.removedProjects.push(projectPath);
+        },
         projectFolders: () => { return Promise.resolve(["/Shop"]); },
         listedProject: (projectPath) => {
             return Promise.resolve((options.listed ?? [LISTED]).find(
@@ -1141,7 +1147,18 @@ describe("the MSM Projects list", () => {
             { name: "removeProject", args: [PROJECT] },
         ]);
         expect(recorded.projectsChanged).toBe(1);
+        expect(recorded.removedProjects).toEqual([PROJECT]);
     });
+
+    it("keeps a project's diagram views where msm does not remove it",
+        async () => {
+            const recorded = setUp({ fail: ["removeProject", "locked"] });
+            await run(MSM_LIST_COMMANDS.removeFromProjects,
+                { kind: "project", project: LISTED });
+
+            expect(recorded.removedProjects).toEqual([]);
+            expect(recorded.projectsChanged).toBe(1);
+        });
 
     it("edits the development version and the list's settings, sending "
         + "only what changed", async () => {

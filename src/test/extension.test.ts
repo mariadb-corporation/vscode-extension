@@ -18,6 +18,7 @@
 import { readFileSync } from "node:fs";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { type IFolderMemento, memoryMemento } from "../tree/customFolders.js";
 
 import { MINIMUM_SHELL_VERSION } from "../shell/constants.js";
 import type { FakeEnvironmentOptions } from "./helpers.js";
@@ -266,6 +267,7 @@ interface FakeContext {
     subscriptions: { dispose(): unknown }[];
     extensionUri: unknown;
     globalStorageUri: unknown;
+    workspaceState: IFolderMemento;
 }
 
 /**
@@ -276,6 +278,7 @@ const createContext = (): FakeContext => {
         subscriptions: [], extensionUri: Uri.file("/ext"),
         // Nowhere real: no task runs here, so no log is written.
         globalStorageUri: Uri.file("/nonexistent/mariadb-test-storage"),
+        workspaceState: memoryMemento(),
     };
 };
 

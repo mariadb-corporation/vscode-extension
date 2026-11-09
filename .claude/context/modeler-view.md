@@ -40,9 +40,23 @@ restores one at once (`Canvas.load(set, settings, view)`, no turn
 animated), else fits the pages. A reload of the diagram shown (a
 schema edit) keeps the view it has. A renamed diagram starts fitted.
 
-Not done: the kept views are never pruned (a deleted or renamed
-diagram's view stays), and a view changed in the last 500 ms before the
-panel closes is not kept.
+Pruned, so the state does not grow and a new diagram of an old name
+starts fitted:
+- every model read (`ModelerPanel.#load`, `DiagramViews.prune`) drops
+  the views of diagrams the source no longer has - the extension has no
+  delete or rename of a diagram, so this is where one made in msm or on
+  disk shows;
+- New Schema Diagram drops any view kept under the new name (`forget`);
+- deleting a connection drops all its schemas' views, and taking a
+  project off the MSM Projects list (`MsmCommands` host
+  `projectRemoved`) drops the project's (`forgetSources`, with
+  `isConnectionSourceKey` / `projectSourceKey` from `modelSources.ts`,
+  which build the keys).
+
+A diagram deleted and made again under its name outside VS Code, while
+no viewer of its source reads the model, still opens as the old one was
+left. Not done: a view changed in the last 500 ms before the panel
+closes is not kept.
 
 ## Shortcuts
 

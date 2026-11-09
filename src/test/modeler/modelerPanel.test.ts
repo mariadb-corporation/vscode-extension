@@ -105,6 +105,16 @@ const source = (
     return fake;
 };
 
+/**
+ * @param name A diagram's name.
+ *
+ * @returns An empty diagram of that name.
+ */
+const diagramNamed = (name: string): ISchemaModel["diagrams"][number] => {
+    return { name, width: 100, height: 100, layers: [], figures: [],
+        connections: [] };
+};
+
 const flush = async (): Promise<void> => {
     await new Promise((resolve) => { setTimeout(resolve, 0); });
 };
@@ -169,7 +179,14 @@ describe("ModelerPanel", () => {
     it("opens each diagram as it was last looked at, kept by VS Code",
         async () => {
             const views = new DiagramViews(memoryMemento());
-            const from = source();
+            let diagrams = ["MRS"];
+            const from = source("world", {
+                read: () => {
+                    return Promise.resolve({ model: { ...model,
+                        diagrams: diagrams.map(diagramNamed) },
+                    source: "world.msm_schema_diagrams" });
+                },
+            });
             ModelerPanel.show(extensionUri as never, from, "MRS",
                 { ...host(), views });
             const panel = lastPanel();
@@ -187,6 +204,13 @@ describe("ModelerPanel", () => {
             await ModelerPanel.reload(from);
             expect(posted(panel).at(-1)).toMatchObject({ type: "load",
                 views: { MRS: view } });
+
+            // Deleted or renamed in msm: its view goes as the model is read.
+            diagrams = ["Renamed"];
+            await ModelerPanel.reload(from);
+            expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+                views: {} });
+            expect(views.of(from.key)).toEqual({});
         });
 
     it("tells the page when the model cannot be read", async () => {
