@@ -128,9 +128,10 @@ online-alter.md`). The tab sets it per table, agreed with the msm session:
   - Project table: `msm.get_online_alter_settings(table)`; inherited = the
     project's general values over msm's `defaults`. Save runs
     msm.edit_schema first, then `msm.set_online_alter_table` under the
-    name the Save leaves (`ProjectTableSource.#keepOnlineAlter`): msm does
-    not carry an entry over a `rename_table` yet, so the extension moves it
-    (set new, drop old) - to drop once msm does. Deployments use it.
+    name the Save leaves (`ProjectTableSource.#keepOnlineAlter`);
+    msm.edit_schema itself carries an entry over a `rename_table` and drops
+    it with a `drop_table`. Deployments use it. The SQL preview asks for
+    merged ALTERs, as msm.edit_schema does.
   - Live table: the workspace (`OnlineAlterStore`; user's decision);
     inherited = `msm.get_online_alter_defaults()`. An msm without these
     tools gives the tab `onlineAlterProblem` to show instead.
@@ -143,6 +144,8 @@ online-alter.md`). The tab sets it per table, agreed with the msm session:
   as before. NEEDS_EXTERNAL (`applied: false`) stops the Save with the
   reason, the statements before it kept (`PartlyAppliedError`); a
   binary without `merge_alters` gives no `spec`, so all runs as written.
+  Dropping and re-adding a foreign key of one name stays two statements
+  only with lsp-server #34: an older binary merges them.
 - Changing settings alone is a Save of its own (badge "Online ALTER
   settings"), which refreshes no tree or diagram.
 

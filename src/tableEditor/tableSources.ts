@@ -619,8 +619,9 @@ export class ProjectTableSource implements ITableSource {
     }
 
     public async preview(edits: IMsmSchemaEdit[]): Promise<ITablePreview> {
+        // Merged as msm.edit_schema merges them, where the binary does.
         const result = await this.deps.lsp.edit(await this.#script(),
-            this.schema, edits);
+            this.schema, edits, true);
 
         return {
             statements: result.migration.map((statement) => {
@@ -632,7 +633,6 @@ export class ProjectTableSource implements ITableSource {
 
     public async apply(edits: IMsmSchemaEdit[],
         onlineAlter?: IOnlineAlterEntry): Promise<ITableApplied> {
-        const before = this.#table;
         let notes: string[] = [];
         if (edits.length > 0) {
             const definition = await this.#definition();
@@ -643,37 +643,25 @@ export class ProjectTableSource implements ITableSource {
             notes = await this.deps.edit(edits, definition.source_hash);
             this.#table = renamedTo(edits) ?? this.#table;
         }
-        await this.#keepOnlineAlter(before, onlineAlter);
+        await this.#keepOnlineAlter(onlineAlter);
 
         return { notes };
     }
 
     /**
      * Writes the table's online ALTER entry after the edits, under the
-     * name they leave it: msm.edit_schema does not carry it over a rename,
-     * so a renamed table's entry is moved.
+     * name they leave it (msm.edit_schema carries an entry over a rename
+     * itself).
      *
-     * @param before The table's name before the edits.
-     * @param entry Its entry, where the tab changed it.
+     * @param entry Its entry, where the tab changed it; empty drops it.
      */
-    async #keepOnlineAlter(before: string,
-        entry: IOnlineAlterEntry | undefined): Promise<void> {
-        const online = this.deps.onlineAlter;
-        const renamed = before !== this.#table;
-        if (online === undefined || (entry === undefined && !renamed)) {
+    async #keepOnlineAlter(entry: IOnlineAlterEntry | undefined):
+        Promise<void> {
+        if (this.deps.onlineAlter === undefined || entry === undefined) {
             return;
         }
-        const kept = entry
-            ?? (await online.get(before)).setting.tables?.[before] ?? {};
-        if (renamed && entry === undefined
-            && Object.keys(kept).length === 0) {
-            return;
-        }
-        if (renamed) {
-            await online.set(before, null);
-        }
-        await online.set(this.#table,
-            Object.keys(kept).length === 0 ? null : kept);
+        await this.deps.onlineAlter.set(this.#table,
+            Object.keys(entry).length === 0 ? null : entry);
     }
 }
 

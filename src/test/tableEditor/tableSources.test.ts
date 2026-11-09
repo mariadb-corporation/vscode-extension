@@ -259,7 +259,7 @@ describe("ProjectTableSource, online ALTER TABLE", () => {
         return { source, calls };
     };
 
-    it("writes the entry after the edits, under the table's new name, and "
+    it("writes the entry after the edits, under the table's new name; msm "
         + "moves it on a rename", async () => {
         const changed = projectSetUp();
         await changed.source.apply([], { lockWait: 1 });
@@ -271,8 +271,11 @@ describe("ProjectTableSource, online ALTER TABLE", () => {
 
         const renamed = projectSetUp();
         await renamed.source.apply([RENAME]);
-        expect(renamed.calls).toEqual([["edit", 1], ["set", "orders", null],
-            ["set", "purchases", { maxCopyBytes: 0 }]]);
+        expect(renamed.calls).toEqual([["edit", 1]]);
+        const changedRenamed = projectSetUp();
+        await changedRenamed.source.apply([RENAME], { lockWait: 2 });
+        expect(changedRenamed.calls).toEqual([["edit", 1],
+            ["set", "purchases", { lockWait: 2 }]]);
 
         const untouched = projectSetUp();
         await untouched.source.apply([{ op: "add_column" }]);
