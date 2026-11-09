@@ -152,20 +152,22 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
         /**
          * @param state An online ALTER's task.
          *
-         * @returns Its stages' statuses: every one but an applied last one
-         *          skipped, or completed on a shell without the skipped
-         *          status (mariadb-shell #130).
+         * @returns Whether its stages are msm's: every step up to the one
+         *          that applied the change, that one completed and those
+         *          before it skipped (a refused step with its seconds, one
+         *          a limit ruled out without); all skipped where none
+         *          applied it. Needs mariadb-shell #130's skipped status.
          */
         const stagesOk = (state: ITaskState): boolean => {
             const applied = (state.result as { applied?: boolean }).applied;
             const before = applied === true
                 ? state.stages.slice(0, -1) : state.stages;
 
-            return before.every((stage) => {
-                return stage.status === "skipped"
-                    || stage.status === "completed";
+            return state.stages.length > 0 && before.every((stage) => {
+                return stage.status === "skipped";
             }) && (applied !== true
-                || state.stages.at(-1)?.status === "completed");
+                || (state.stages.at(-1)?.status === "completed"
+                    && state.stages.at(-1)?.seconds !== null));
         };
 
         /** The task to its end, as TaskMonitor.follow waits for it. */
@@ -174,7 +176,7 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
             while (!isFinished(state.status)) {
                 state = await tasks.getTask(taskId, state.next_since, WAIT_MS);
             }
-            expect(stagesOk(state)).toBe(true);
+            expect(stagesOk(state), JSON.stringify(state.stages)).toBe(true);
             followed.push(state);
 
             return state;

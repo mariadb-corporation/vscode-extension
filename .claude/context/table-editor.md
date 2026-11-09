@@ -215,7 +215,9 @@ table, agreed with the msm session:
   onlineAlter.e2e.test.ts` runs a live table's preview and Saves on a
   sandbox through the real MCP server and mariadb-lsp (INPLACE for an
   added column plus index, COPY for a type change, NEEDS_EXTERNAL with
-  the table unchanged, off, a rename). `MARIADB_SHELL_E2E=<mariadb-shell>
+  the table unchanged, off, a rename), and each task's stages: skipped
+  up to the step that applied it, that one completed (a shell with
+  mariadb-shell #130). `MARIADB_SHELL_E2E=<mariadb-shell>
   MARIADB_LSP=<mariadb-lsp> npx vitest run onlineAlter.e2e`, `mariadbd`
   on the PATH, the plugins from `MARIADB_SHELL_PLUGINS` or the checkout
   next to this repository. The project side (settings tools,
