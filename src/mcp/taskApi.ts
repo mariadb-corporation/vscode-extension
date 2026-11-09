@@ -29,7 +29,7 @@ export type TaskStatus =
     | "pending" | "running" | "completed" | "failed" | "cancelled";
 
 /** The tool group that started a task. */
-export type TaskType = "util" | "dba";
+export type TaskType = "util" | "dba" | "msm";
 
 /** The utilities a `util` task can run, as the server names them. */
 export type UtilTaskKind =
@@ -40,7 +40,10 @@ export type UtilTaskKind =
 /** What a `dba` task does with a cloud vendor's object. */
 export type DbaTaskKind = "deploy_object" | "delete_object";
 
-export type TaskKind = UtilTaskKind | DbaTaskKind;
+/** What an `msm` task does: an ALTER TABLE of a live table, run online. */
+export type MsmTaskKind = "online_alter_table";
+
+export type TaskKind = UtilTaskKind | DbaTaskKind | MsmTaskKind;
 
 /** The progress of a task's current stage. */
 export interface ITaskProgress {
@@ -57,9 +60,17 @@ export interface ITaskProgress {
     total_known?: boolean;
 }
 
+/**
+ * A stage's status: a task's, or skipped, a stage that did not do its
+ * work (an online ALTER's step the server refused or a limit ruled out).
+ * A shell without the skipped status (mariadb-shell #130) ends such a
+ * stage completed.
+ */
+export type StageStatus = TaskStatus | "skipped";
+
 export interface ITaskStage {
     name: string;
-    status: TaskStatus;
+    status: StageStatus;
     /** How long it took, once it finished. */
     seconds: number | null;
 }

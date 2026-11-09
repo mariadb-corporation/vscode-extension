@@ -229,10 +229,15 @@ import {
 } from "./notebook/notebookSdk.js";
 import { locateLanguageServer } from "./lsp/locator.js";
 import { LspEdit } from "./tableEditor/lspEdit.js";
+import {
+    type ILiveTable,
+    OnlineAlterStore,
+} from "./tableEditor/onlineAlterStore.js";
 import type { TableEditorTarget } from "./tableEditor/tableEditorProtocol.js";
 import { TableEditorPanel } from "./tableEditor/tableEditorPanel.js";
 import {
     LiveTableSource,
+    onlineAlterOutcome,
     ProjectTableSource,
     type ITableSource,
 } from "./tableEditor/tableSources.js";
@@ -1258,6 +1263,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             return undefined;
         }
     };
+    const onlineAlterStore = new OnlineAlterStore(context.workspaceState);
     const tableSource = (target: TableEditorTarget): ITableSource => {
         if (target.kind === "project") {
             const projectPath = target.projectPath;
@@ -1270,9 +1276,22 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 },
                 scriptFile: () => { return developmentScript(projectPath); },
                 lsp: lspEdit,
+                onlineAlter: {
+                    get: async (table) => {
+                        return await (await msmApi()).getOnlineAlterSettings(
+                            projectPath, table);
+                    },
+                    set: async (table, entry) => {
+                        await (await msmApi()).setOnlineAlterTable(
+                            projectPath, table, entry);
+                    },
+                },
             });
         }
         const uri = target.connection;
+        const live = (table: string): ILiveTable => {
+            return { connection: uri, schema: target.schema, table };
+        };
         const connectionId = async (): Promise<string> => {
             return await connections.connect(uri, UI_BACKEND_SESSION);
         };
@@ -1296,6 +1315,35 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 }
             },
             lsp: lspEdit,
+            onlineAlter: {
+                defaults: async () => {
+                    return await (await msmApi()).onlineAlterDefaults();
+                },
+                get: (table) => { return onlineAlterStore.get(live(table)); },
+                set: (table, entry) => {
+                    return onlineAlterStore.set(live(table), entry);
+                },
+                rename: (table, name) => {
+                    return onlineAlterStore.rename(live(table), name);
+                },
+                // A task of its own, in sessions msm opens: the Tasks view
+                // shows its steps, and Cancel stops the running statement.
+                run: async (table, spec, options) => {
+                    const started = await (await msmApi()).onlineAlterTable(
+                        await connectionId(), target.schema, table, spec,
+                        options);
+
+                    return onlineAlterOutcome(await taskMonitor.follow(
+                        started, {
+                            title: `ALTER TABLE ${target.schema}.${table} `
+                                + "online",
+                            connection: uri,
+                            call: `msm.online_alter_table(${target.schema}, `
+                                + `${table}, ${spec})`,
+                            percent: true,
+                        }));
+                },
+            },
         });
     };
     const editTable = (target: TableEditorTarget): void => {

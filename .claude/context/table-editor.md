@@ -20,9 +20,11 @@ read-only Object Details view left editing to this editor.
 | File | Role |
 | --- | --- |
 | `src/tableEditor/tableDraft.ts` | Pure, shared with the page: the draft (`draftOf`; each row's `origin`, its place in the table as read, so a rename is not a drop and an add, and an unnamed index can still be dropped; `dropped` rows), `tableEdits` (draft → ops), `draftProblems`, the type and key-part text helpers |
-| `src/tableEditor/lspEdit.ts` | `LspEdit`: `mariadb-lsp edit` on a script's text (stdin) or a file, the request in a temp file; no edits reads the outline |
+| `src/tableEditor/lspEdit.ts` | `LspEdit`: `mariadb-lsp edit` on a script's text (stdin) or a file, the request in a temp file; no edits reads the outline. `mergesAlters` asks `edit --ops` once whether the binary merges a table's ALTERs (`merge_alters`, lsp-server #33), then each ALTER TABLE has `table` and `spec` |
+| `src/tableEditor/onlineAlter.ts`, `onlineAlterStore.ts` | The Online Alter Table tab's model, pure, shared with the page (msm's camelCase option keys, sizes as `10 GiB` / `unlimited`, `textsOf` / `readTexts`, `entryKey`); `OnlineAlterStore`, a live table's entry in workspace state (`mariadb.onlineAlterTables`, by connection, schema and table; a rename moves it) |
 | `src/tableEditor/tableSources.ts` | `LiveTableSource`, `ProjectTableSource` (read, preview, apply), `COMMON_COLLATIONS` |
 | `src/tableEditor/tableEditorPanel.ts`, `tableEditorProtocol.ts` | The panel (one per table, `tableEditorKey`) and its messages |
+| `webview/src/tableEditor/OnlineAlterTab.tsx` | The Online Alter Table tab: on / off / inherited, the five limits and the NBO lock, each field empty = the inherited value shown as its placeholder |
 | `webview/src/tableEditor/TableEditor.tsx`, `ControlGrid.tsx`, `tableEditor.tsx`, `tableEditorStyles.css`, `vite.tableEditor.config.ts` | The page, its own build (`dist/webview/tableEditor.{js,css}`) |
 
 ## How it behaves
@@ -32,7 +34,9 @@ read-only Object Details view left editing to this editor.
   `vscode.getEditorLayout`): where that group is already in a stack (split
   top and bottom), the group under it, or the group itself if it is the
   lowest; only otherwise `workbench.action.newGroupBelow`, so splits do
-  not nest. View columns count the groups in the grid's order. In an empty
+  not nest. A group alone is always split: VS Code reports a single
+  group as a stack of one (its grid's root is a top and bottom branch).
+  View columns count the groups in the grid's order. In an empty
   editor area, the active group. Asking for an open table's editor
   reveals it.
 - **Layout (DBX's, without its path bar, for room)**: Table name and
@@ -55,8 +59,34 @@ read-only Object Details view left editing to this editor.
   that always show (inputs, checkboxes, selects; a text input with a ▾
   of choices, `comboInput`), as DBX's. New rows `replaceData` the grid;
   the control that had the focus is found again by `data-key` /
-  `data-field`, so Tab survives the commit of the input left. Formatters
-  call the page's column specs of the latest render (not the first).
+  `data-field`, so Tab survives the commit of the input left (refocused
+  so, marked `data-refocus`: a combo opens no list). Formatters call the
+  page's column specs of the latest render (not the first). A text input
+  commits a value once, however often `change` comes.
+- **Keys**: Up/Down in a grid's text input move to the same field a row
+  up or down, Enter (as in a spreadsheet) a row down (a capture listener
+  on the grid; disabled controls skipped; the input left commits first;
+  a combo keeps Up/Down, and Enter while its list is open); Down or
+  Enter in the last row calls `onAddRow` with the control left (Columns:
+  Add Column, but not from a new column whose name is still empty). Down in the Table name goes to the first
+  column's name, or adds one. The page asks for a focus with the grid's
+  `focus` prop, honoured once `replaceData` built the row (Add Column
+  focuses the new name so); `addColumn` sets the draft functionally, as
+  the commit of the input just left lands first.
+- **`comboInput`** (the Type): focused, its text is selected and its own
+  list opens (on the body, `position: fixed`: a cell cuts off overflow;
+  one open at a time); typing narrows it to choices starting so, Up/Down
+  move through it putting the choice in the input, Enter or a mouse down
+  takes one, the ▾ toggles it.
+- **Type and length**: a type taken in the Type field (`typeChanged` in
+  `tableDraft.ts`) keeps a length typed with it (`varchar(100)`); a
+  changed type gets its default length from `COLUMN_TYPES` (varchar 45,
+  char 1, decimal 10,2, ...), one without a default loses it; the same
+  type keeps its own. The Length/Values field holds all that goes between the
+  parentheses (`10,2`, ENUM's `'a','b'`), with a placeholder saying so
+  for such types (`M,D`, `'a','b'`, `fsp`); focused by the user it
+  selects its text (`selectOnFocus`). A redraw keeps a selection of a
+  whole field whole, so a default a commit just set is selected.
 - **Column titles stay on one line**, cut short with an ellipsis, the
   whole title as the tooltip (`titleFormatter`).
 - **Row bars are index membership**, DBX's colours: primary amber, unique
@@ -112,6 +142,56 @@ read-only Object Details view left editing to this editor.
 - The binary is found as the language server is (`mariadb.lsp.path`,
   PATH, the shell's installations), once; none found is looked for again.
 
+## Online Alter Table
+
+msm runs an ALTER TABLE the least disruptive way the server accepts
+(INSTANT, NOCOPY, INPLACE and COPY with LOCK=NONE, a Galera NBO,
+LOCK=SHARED, LOCK=EXCLUSIVE; mariadb-shell-plugins `msm_plugin/.claude/
+context/online-alter.md`). `maxRebuildBytes` bounds both online rebuilds
+(INPLACE, COPY). msm refuses a spec that changes the partitioning or names
+ALGORITHM/LOCK; the table editor makes neither. The tab sets it per
+table, agreed with the msm session:
+
+- **Settings**: `enabled` plus msm's limits (`maxRebuildBytes`,
+  `galeraMaxBytes`, `nboLock`, `maxLockedBytes`, `lockWait`,
+  `maxRetries`); a key left out takes the inherited value, a size of null
+  is no limit. On by default, live tables too (msm's decision). A field
+  whose inherited value msm left out shows "default".
+  - Project table: `msm.get_online_alter_settings(table)`; inherited = the
+    project's general values over msm's `defaults`. Save runs
+    msm.edit_schema first, then `msm.set_online_alter_table` under the
+    name the Save leaves (`ProjectTableSource.#keepOnlineAlter`);
+    msm.edit_schema itself carries an entry over a `rename_table` and drops
+    it with a `drop_table`. Deployments use it. The SQL preview asks for
+    merged ALTERs, as msm.edit_schema does. Where the settings write
+    fails after the edits were saved, the Save fails as a
+    `PartlyAppliedError` with `changed` set and no `done`: the panel
+    follows the rename and reads the table again.
+  - Live table: the workspace (`OnlineAlterStore`; user's decision);
+    inherited = `msm.get_online_alter_defaults()`. An msm without these
+    tools gives the tab `onlineAlterProblem` to show instead, and every
+    statement then runs as written. The defaults are asked once per
+    source.
+- **Live Apply** (`LiveTableSource.apply`): the migration is asked with
+  `merge_alters` (one ALTER per table). Each ALTER of this table (by its
+  `table`, under its old or new name) with a `spec` goes to
+  `msm.online_alter_table` with the entry's options, followed by
+  `TaskMonitor.follow(percent: true)` (the stages' percent moves the bar;
+  Cancel = KILL QUERY); everything else runs in order on the UI session
+  as before. NEEDS_EXTERNAL (`applied: false`) stops the Save with the
+  reason, the statements before it kept (`PartlyAppliedError`); a
+  binary without `merge_alters` gives no `spec`, so all runs as written.
+  Dropping and re-adding a foreign key of one name stays two statements
+  only with lsp-server #34: an older binary merges them.
+- **Live SQL Preview**: each statement Apply runs online gets
+  `ONLINE_ALTER_COMMENT` above it, a SQL comment saying msm runs it
+  through the steps and leaves the table as it is where none can.
+  `#runsOnline` is the one rule for the preview and Apply; the preview
+  request carries the tab's entry while it is changed and valid, so an
+  unsaved "Off" already shows the statements as written.
+- Changing settings alone is a Save of its own (badge "Online ALTER
+  settings"), which refreshes no tree or diagram.
+
 ## Not done yet
 
 - DBX's Copy Fields from Another Table, Paste fields, Insert Preset
@@ -139,6 +219,20 @@ read-only Object Details view left editing to this editor.
   unchanged columns. `ProjectTableSource`'s DDL and preview on a real
   project's script.
 - The page rendered in headless Chrome with a dark theme's variables.
+- Online ALTER: `src/test/tableEditor/onlineAlter.test.ts`,
+  `tableSources.test.ts` (fake binary and msm), the tab in
+  `webview/test/TableEditor.test.tsx`.
+- Online ALTER end to end, opt-in: `src/test/tableEditor/
+  onlineAlter.e2e.test.ts` runs a live table's preview and Saves on a
+  sandbox through the real MCP server and mariadb-lsp (INPLACE for an
+  added column plus index, COPY for a type change, NEEDS_EXTERNAL with
+  the table unchanged, off, a rename), and each task's stages: skipped
+  up to the step that applied it, that one completed (a shell with
+  mariadb-shell #130). `MARIADB_SHELL_E2E=<mariadb-shell>
+  MARIADB_LSP=<mariadb-lsp> npx vitest run onlineAlter.e2e`, `mariadbd`
+  on the PATH, the plugins from `MARIADB_SHELL_PLUGINS` or the checkout
+  next to this repository. The project side (settings tools,
+  msm.edit_schema moving an entry) has no end-to-end test.
 - **Not yet tried in a running VS Code**: opening below the editor, a
-  live Apply against a server, a project's Save through msm, the diagram
-  menu entry.
+  project's Save through msm, the diagram menu entry, the Online Alter
+  Table tab itself.

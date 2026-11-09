@@ -368,6 +368,18 @@ describe("the Tasks view", () => {
             "✓ Writing DDL (0.3 s)", "• Dumping data", "Disk full"].join("\n"));
     });
 
+    it("marks a skipped stage apart, with or without its seconds", () => {
+        const tracked = { connection: "root@h", cancelling: false,
+            state: finished("completed", {
+                stages: [{ name: "INSTANT", status: "skipped", seconds: 0.02 },
+                    { name: "INPLACE", status: "skipped", seconds: null },
+                    { name: "COPY", status: "completed", seconds: 1.5 }],
+            }) };
+        expect(taskTooltip(tracked).split("\n").slice(2)).toEqual([
+            "↷ INSTANT: skipped (0.0 s)", "↷ INPLACE: skipped",
+            "✓ COPY (1.5 s)"]);
+    });
+
     it("lists the monitor's tasks, the newest first", async () => {
         const output = new MockOutputChannel("t");
         const { api } = fakeApi([finished("completed"),

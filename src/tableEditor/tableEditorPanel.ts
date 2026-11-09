@@ -24,6 +24,7 @@
 import * as vscode from "vscode";
 
 import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
+import type { IOnlineAlterEntry } from "./onlineAlter.js";
 import { errorText } from "../text.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { belowActive, type IEditorLayout } from "./editorLayout.js";
@@ -187,7 +188,8 @@ export class TableEditorPanel {
 
             case "preview": {
                 try {
-                    const preview = await this.source.preview(message.edits);
+                    const preview = await this.source.preview(message.edits,
+                        message.onlineAlter);
                     this.#post({ type: "preview", request: message.request,
                         ...preview });
                 } catch (error) {
@@ -198,7 +200,7 @@ export class TableEditorPanel {
             }
 
             case "apply": {
-                await this.#apply(message.edits);
+                await this.#apply(message.edits, message.onlineAlter);
                 break;
             }
 
@@ -211,23 +213,31 @@ export class TableEditorPanel {
         }
     }
 
-    async #apply(edits: IMsmSchemaEdit[]): Promise<void> {
+    async #apply(edits: IMsmSchemaEdit[],
+        onlineAlter?: IOnlineAlterEntry): Promise<void> {
         this.#post({ type: "busy", busy: true });
         try {
-            const applied = await this.source.apply(edits);
+            const applied = await this.source.apply(edits, onlineAlter);
             this.host.log(`Changed the table ${this.#target.schema}.`
-                + `${this.#target.table}: ${edits.length} edit(s).`);
+                + `${this.#target.table}: ${edits.length} edit(s)`
+                + (onlineAlter === undefined ? "."
+                    : ", and its online ALTER TABLE settings."));
             const before = this.#target.table;
             this.#renamed();
-            this.host.changed(this.#target,
-                before === this.#target.table ? undefined : before);
+            // Settings alone change nothing the trees or diagrams show.
+            if (edits.length > 0) {
+                this.host.changed(this.#target,
+                    before === this.#target.table ? undefined : before);
+            }
             await this.#load();
             this.#post({ type: "applied", notes: applied.notes });
         } catch (error) {
-            const done = error instanceof PartlyAppliedError ? error.done : [];
+            const partly = error instanceof PartlyAppliedError
+                ? error : undefined;
+            const done = partly?.done ?? [];
             this.host.log(`Could not change the table ${this.#target.table}: `
                 + errorText(error));
-            if (done.length > 0) {
+            if (partly?.changed === true) {
                 // What ran stays run: the table is read again as it is,
                 // under its new name where the rename ran.
                 const before = this.#target.table;

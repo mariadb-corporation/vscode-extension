@@ -79,7 +79,10 @@ export const belowActive = (layout: IEditorLayout,
                 if (count > 1) {
                     return find(group.groups!, 1 - orientation, column);
                 }
-                if (orientation !== STACKED) {
+                // Alone, a group has none above or below it, whatever the
+                // orientation: VS Code's grid starts as a top and bottom
+                // branch, so a single group is reported stacked.
+                if (orientation !== STACKED || groups.length === 1) {
                     return "split";
                 }
 

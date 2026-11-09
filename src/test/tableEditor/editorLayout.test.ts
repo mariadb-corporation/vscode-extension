@@ -24,6 +24,9 @@ const STACKED = 1;
 
 describe("where a table editor goes below the active group", () => {
     it("splits a group alone, or one only beside others", () => {
+        // A group alone, as VS Code reports it: stacked.
+        expect(belowActive({ orientation: STACKED, groups: [{}] }, 1))
+            .toBe("split");
         expect(belowActive({ orientation: SIDE_BY_SIDE, groups: [{}] }, 1))
             .toBe("split");
         expect(belowActive({ orientation: SIDE_BY_SIDE,

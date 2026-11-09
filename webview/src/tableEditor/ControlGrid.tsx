@@ -27,6 +27,13 @@
  * is found again by its row key and field (`data-key`, `data-field`) and
  * focused, its caret where it was, so Tab from one input to the next
  * survives the commit the first one made on leaving.
+ *
+ * Up and Down in a text input move to the same field of the row above or
+ * below, Enter to the one below; Down or Enter in the last row asks the
+ * page for a new row, where it has one to give. A combo's input keeps Up
+ * and Down for its list of choices, and Enter while the list is open. The
+ * page asks for a control to be focused with `focus`, which the grid
+ * honours once the rows it is in are built.
  */
 
 import { useEffect, useRef } from "preact/hooks";
@@ -44,6 +51,12 @@ Tabulator.registerModule([FormatModule, InteractionModule,
 /** A row of a control grid: its key tells it from the others. */
 export interface IGridRow {
     key: string;
+}
+
+/** A control the page wants focused: its row and field. */
+export interface IGridFocus {
+    key: string;
+    field: string;
 }
 
 /** A column of a control grid. */
@@ -73,12 +86,113 @@ export const ControlGrid = <T extends IGridRow>(props: {
     density?: string;
     /** A click on a row outside its controls. */
     onRowClick?(row: T): void;
+    /** A control to focus, once it is built; `onFocused` clears it. */
+    focus?: IGridFocus;
+    onFocused?(): void;
+    /**
+     * Down or Enter in the last row: the page adds a row, and asks for a
+     * focus.
+     *
+     * @param from The control left: its row, field and value.
+     */
+    onAddRow?(from: IGridFocus & { value: string }): void;
 }): preact.JSX.Element => {
     const host = useRef<HTMLDivElement>(null);
     const table = useRef<Tabulator | undefined>(undefined);
     const built = useRef(false);
     const latest = useRef(props);
     latest.current = props;
+
+    /**
+     * @param target A row and field.
+     *
+     * @returns Its control, where it is built.
+     */
+    const controlOf = (target: IGridFocus): HTMLElement | null => {
+        return host.current?.querySelector<HTMLElement>(
+            `[data-key="${CSS.escape(target.key)}"][data-field="${
+                CSS.escape(target.field)}"]`) ?? null;
+    };
+
+    /**
+     * Focuses the control the page asked for, where it is built.
+     *
+     * @returns Whether it did.
+     */
+    const focusAsked = (): boolean => {
+        const asked = latest.current.focus;
+        const control = asked === undefined ? null : controlOf(asked);
+        if (control === null) {
+            return false;
+        }
+        control.focus();
+        if (control instanceof HTMLInputElement) {
+            control.setSelectionRange(control.value.length,
+                control.value.length);
+        }
+        latest.current.onFocused?.();
+
+        return true;
+    };
+
+    /**
+     * Up or Down in a text input: the same field a row up or down, the
+     * rows of dropped columns and the like skipped; Down past the last
+     * row asks for a new one.
+     *
+     * @param event The key.
+     */
+    const onArrow = (event: KeyboardEvent): void => {
+        const instance = table.current;
+        const input = event.target;
+        if (!["ArrowUp", "ArrowDown", "Enter"].includes(event.key)
+            || event.altKey || event.ctrlKey || event.metaKey
+            || event.shiftKey || instance === undefined
+            || !(input instanceof HTMLInputElement) || input.type !== "text") {
+            return;
+        }
+        // A combo keeps Up and Down for its list, and Enter while the list
+        // is open, to take a choice.
+        if (input.closest(".cell-combo") !== null && (event.key !== "Enter"
+            || input.getAttribute("aria-expanded") === "true")) {
+            return;
+        }
+        const { key, field } = input.dataset;
+        if (key === undefined || field === undefined) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const keys = instance.getRows("active").map((row) => {
+            return (row.getData() as IGridRow).key;
+        });
+        // Enter goes down, as in a spreadsheet.
+        const step = event.key === "ArrowUp" ? -1 : 1;
+        // Taken first: what the next control's commit sees includes it.
+        input.dispatchEvent(new Event("change"));
+        let at = keys.indexOf(key) + step;
+        while (at >= 0 && at < keys.length && (controlOf({ key: keys[at],
+            field }) as HTMLInputElement | null)?.disabled === true) {
+            at += step;
+        }
+        if (at < 0) {
+            return;
+        }
+        if (at >= keys.length) {
+            latest.current.onAddRow?.({ key, field, value: input.value });
+
+            return;
+        }
+        const next = { key: keys[at], field };
+        void instance.scrollToRow(next.key, "nearest", false).then(() => {
+            const control = controlOf(next);
+            if (control instanceof HTMLInputElement) {
+                control.focus();
+                control.setSelectionRange(control.value.length,
+                    control.value.length);
+            }
+        });
+    };
 
     useEffect(() => {
         if (host.current === null) {
@@ -142,7 +256,7 @@ export const ControlGrid = <T extends IGridRow>(props: {
         });
         instance.on("tableBuilt", () => {
             built.current = true;
-            void instance.replaceData(latest.current.rows);
+            void instance.replaceData(latest.current.rows).then(focusAsked);
         });
         instance.on("rowClick", (event, row) => {
             const target = event.target as HTMLElement;
@@ -151,8 +265,12 @@ export const ControlGrid = <T extends IGridRow>(props: {
             }
         });
         table.current = instance;
+        // Before the input's own keys, which keep Tabulator's out.
+        const element = host.current;
+        element.addEventListener("keydown", onArrow, true);
 
         return () => {
+            element.removeEventListener("keydown", onArrow, true);
             built.current = false;
             instance.destroy();
             table.current = undefined;
@@ -167,22 +285,48 @@ export const ControlGrid = <T extends IGridRow>(props: {
         const focused = document.activeElement as HTMLElement | null;
         const key = focused?.dataset.key;
         const field = focused?.dataset.field;
-        const caret = focused instanceof HTMLInputElement
-            ? focused.selectionStart : null;
+        // Its selection, not only the caret: a combo's text is selected
+        // when Tab comes to it, and the commit of the input left redraws.
+        const selection = focused instanceof HTMLInputElement
+            && focused.selectionStart !== null
+            ? [focused.selectionStart,
+                focused.selectionEnd ?? focused.selectionStart] as const
+            : undefined;
+        // All of it selected (or an empty one): all of what the redraw
+        // puts there is, so a default a commit just set can be typed over.
+        const whole = focused instanceof HTMLInputElement
+            && selection !== undefined && selection[0] === 0
+            && selection[1] === focused.value.length;
+        const listOpen = focused?.getAttribute("aria-expanded") === "true";
         void instance.replaceData(props.rows).then(() => {
-            if (key === undefined || field === undefined
-                || host.current === null) {
+            if (focusAsked() || key === undefined || field === undefined) {
                 return;
             }
-            const again = host.current.querySelector<HTMLElement>(
-                `[data-key="${CSS.escape(key)}"][data-field="${
-                    CSS.escape(field)}"]`);
-            again?.focus();
-            if (again instanceof HTMLInputElement && caret !== null) {
-                again.setSelectionRange(caret, caret);
+            const again = controlOf({ key, field });
+            if (again === null) {
+                return;
+            }
+            // Focused again, not by the user: a combo opens its list only
+            // where the one it replaces had it open.
+            again.dataset.refocus = listOpen ? "open" : "true";
+            again.focus();
+            delete again.dataset.refocus;
+            if (again instanceof HTMLInputElement && selection !== undefined) {
+                if (whole) {
+                    again.select();
+                } else {
+                    again.setSelectionRange(...selection);
+                }
             }
         });
     }, [props.rows]);
+
+    // A focus asked for a control built already: the rows did not change.
+    useEffect(() => {
+        if (built.current) {
+            focusAsked();
+        }
+    }, [props.focus]);
 
     useEffect(() => {
         if (built.current) {
@@ -221,7 +365,9 @@ const marked = <E extends HTMLElement>(target: IControlTarget,
  * @param value The text.
  * @param commit Takes a changed value, once the input is left or Enter
  *               is pressed.
- * @param options Its placeholder, class, and whether it is read only.
+ * @param options Its placeholder, class, whether it is read only, and
+ *                whether its text is selected when it is focused (by
+ *                the user, not by a redraw), to be typed over.
  *
  * @returns A text input.
  */
@@ -230,7 +376,7 @@ export const textInput = (
     value: string,
     commit: (value: string) => void,
     options: { placeholder?: string; className?: string;
-        disabled?: boolean; list?: string } = {},
+        disabled?: boolean; list?: string; selectOnFocus?: boolean } = {},
 ): HTMLInputElement => {
     const input = marked(target, document.createElement("input"));
     input.type = "text";
@@ -242,11 +388,18 @@ export const textInput = (
     if (options.list !== undefined) {
         input.setAttribute("list", options.list);
     }
+    // What was committed last: a change dispatched before the input is
+    // left is not committed again on leaving.
+    let committed = value;
     input.addEventListener("change", () => {
-        if (input.value !== value) {
+        if (input.value !== committed) {
+            committed = input.value;
             commit(input.value);
         }
     });
+    if (options.selectOnFocus === true) {
+        selectedWhenFocused(input);
+    }
     input.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
             input.dispatchEvent(new Event("change"));
@@ -294,12 +447,41 @@ export const checkBox = (
 };
 
 /**
- * A text input with a ▾ beside it that offers choices: picking one sets
- * the input. Typing stays free.
+ * Selects an input's text when the user focuses it, a click too (its
+ * mouseup would put the caret down); not when a redraw focuses it again.
+ *
+ * @param input The input.
+ */
+const selectedWhenFocused = (input: HTMLInputElement): void => {
+    let selectedOnFocus = false;
+    input.addEventListener("focus", () => {
+        if (input.dataset.refocus === undefined) {
+            input.select();
+            selectedOnFocus = true;
+        }
+    });
+    input.addEventListener("mouseup", (event) => {
+        if (selectedOnFocus) {
+            event.preventDefault();
+            selectedOnFocus = false;
+        }
+    });
+    input.addEventListener("blur", () => { selectedOnFocus = false; });
+    input.addEventListener("input", () => { selectedOnFocus = false; });
+};
+
+/** The one combo list open, if any: a combo's list lives on the body. */
+let openList: { close(): void } | undefined;
+
+/**
+ * A text input with a ▾ beside it that offers choices. Focused, its text
+ * is selected (typing replaces it) and the list opens; typing narrows it
+ * to the choices that start so, Up and Down move through it, putting the
+ * choice in the input, and Enter or a click takes one. Typing stays free.
  *
  * @param target The row and field.
  * @param value The text.
- * @param choices What the ▾ offers: a value and what is shown for it.
+ * @param choices What the list offers: a value and what is shown for it.
  * @param commit Takes a changed value.
  * @param options As for {@link textInput}.
  *
@@ -316,30 +498,144 @@ export const comboInput = (
     const wrapper = document.createElement("div");
     wrapper.className = "cell-combo";
     const input = textInput(target, value, commit, options);
-    const select = document.createElement("select");
-    select.className = "cell-combo-choices";
-    select.tabIndex = -1;
-    select.title = "Choose";
-    select.disabled = options.disabled === true;
-    const none = document.createElement("option");
-    none.value = "\u0000";
-    none.textContent = "";
-    none.hidden = true;
-    select.append(none, ...choices.map((choice) => {
-        const option = document.createElement("option");
-        option.value = choice.value;
-        option.textContent = choice.label;
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("aria-expanded", "false");
+    const chevron = document.createElement("button");
+    chevron.type = "button";
+    chevron.className = "cell-combo-choices";
+    chevron.tabIndex = -1;
+    chevron.title = "Choose";
+    chevron.disabled = options.disabled === true;
 
-        return option;
-    }));
-    select.value = "\u0000";
-    select.addEventListener("change", () => {
-        if (select.value !== "\u0000" && select.value !== value) {
-            commit(select.value);
+    let list: HTMLDivElement | undefined;
+    let shown: ReadonlyArray<{ value: string; label: string }> = [];
+    let active = -1;
+
+    const close = (): void => {
+        list?.remove();
+        list = undefined;
+        input.setAttribute("aria-expanded", "false");
+        if (openList === handle) {
+            openList = undefined;
         }
-        select.value = "\u0000";
+    };
+    const handle = { close };
+
+    const mark = (): void => {
+        list?.querySelectorAll(".cell-combo-option").forEach((item, at) => {
+            item.classList.toggle("active", at === active);
+            if (at === active) {
+                item.scrollIntoView({ block: "nearest" });
+            }
+        });
+    };
+
+    const take = (choice: string): void => {
+        input.value = choice;
+        close();
+        input.dispatchEvent(new Event("change"));
+    };
+
+    /** @param filter Narrows the list to choices starting with the text. */
+    const open = (filter: boolean): void => {
+        const typed = input.value.trim().toLowerCase();
+        shown = filter ? choices.filter((choice) => {
+            return choice.value.toLowerCase().startsWith(typed);
+        }) : choices;
+        active = shown.findIndex((choice) => {
+            return choice.value.toLowerCase() === typed;
+        });
+        if (filter && active < 0 && shown.length > 0) {
+            active = 0;
+        }
+        if (shown.length === 0) {
+            close();
+
+            return;
+        }
+        if (openList !== handle) {
+            openList?.close();
+        }
+        list?.remove();
+        list = document.createElement("div");
+        list.className = "cell-combo-list";
+        list.setAttribute("role", "listbox");
+        for (const choice of shown) {
+            const item = document.createElement("div");
+            item.className = "cell-combo-option";
+            item.setAttribute("role", "option");
+            item.textContent = choice.label;
+            // Down, not click: the input keeps the focus.
+            item.addEventListener("mousedown", (event) => {
+                event.preventDefault();
+                take(choice.value);
+            });
+            list.append(item);
+        }
+        const box = input.getBoundingClientRect();
+        list.style.left = `${box.left}px`;
+        list.style.top = `${box.bottom}px`;
+        list.style.minWidth = `${wrapper.getBoundingClientRect().width}px`;
+        document.body.append(list);
+        input.setAttribute("aria-expanded", "true");
+        openList = handle;
+        mark();
+    };
+
+    selectedWhenFocused(input);
+    input.addEventListener("focus", () => {
+        if (input.dataset.refocus !== undefined) {
+            // Built again under the focus: the list of the input it
+            // replaced goes, and opens again from this one where it was
+            // open.
+            openList?.close();
+            if (input.dataset.refocus === "open") {
+                open(false);
+            }
+
+            return;
+        }
+        open(false);
     });
-    wrapper.append(input, select);
+    input.addEventListener("blur", close);
+    input.addEventListener("input", () => { open(true); });
+    // Before the input's own keys: Enter takes the choice before the
+    // input commits.
+    wrapper.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            if (list === undefined) {
+                open(false);
+
+                return;
+            }
+            const step = event.key === "ArrowDown" ? 1 : -1;
+            active = Math.min(shown.length - 1, Math.max(0, active + step));
+            input.value = shown[active].value;
+            input.select();
+            mark();
+        } else if (event.key === "Enter" && list !== undefined
+            && active >= 0) {
+            input.value = shown[active].value;
+            close();
+        } else if (event.key === "Escape" || event.key === "Tab") {
+            close();
+        }
+    }, true);
+    chevron.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        if (list === undefined) {
+            if (document.activeElement === input) {
+                open(false);
+            } else {
+                input.focus();
+            }
+        } else {
+            close();
+        }
+    });
+    wrapper.append(input, chevron);
 
     return wrapper;
 };

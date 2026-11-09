@@ -17,7 +17,8 @@
 
 /**
  * The table editor, laid out as DBX's: the table's name and comment, then
- * tabs (DDL, Columns, Indexes, Foreign Keys, Triggers) with each tab's
+ * tabs (DDL, Columns, Indexes, Foreign Keys, Triggers, Online Alter Table)
+ * with each tab's
  * actions to their right (Refresh Structure and a menu last), and
  * below them the SQL preview of what Apply runs. In VS Code's colours.
  *
@@ -42,6 +43,7 @@ import {
     REFERENTIAL_ACTIONS,
     renameColumn,
     splitType,
+    typeChanged,
     tableEdits,
     type IDraftColumn,
     type IDraftForeignKey,
@@ -49,6 +51,12 @@ import {
     type IDraftTrigger,
     type ITableDraft,
 } from "../../../src/tableEditor/tableDraft.js";
+import {
+    entryKey,
+    readTexts,
+    textsOf,
+    type OnlineAlterTexts,
+} from "../../../src/tableEditor/onlineAlter.js";
 import type {
     ITableEditorData,
     TableEditorHostMessage,
@@ -65,9 +73,12 @@ import {
     selectInput,
     textInput,
     type IGridColumn,
+    type IGridFocus,
 } from "./ControlGrid.js";
+import { OnlineAlterTab } from "./OnlineAlterTab.js";
 
-const TABS = ["DDL", "Columns", "Indexes", "Foreign Keys", "Triggers"] as const;
+const TABS = ["DDL", "Columns", "Indexes", "Foreign Keys", "Triggers",
+    "Online Alter Table"] as const;
 type Tab = typeof TABS[number];
 
 const DENSITIES = ["Compact", "Standard", "Comfortable"] as const;
@@ -84,13 +95,16 @@ const TYPE_CHOICES = [...new Set(COLUMN_TYPES.map((choice) => {
     return splitType(choice.insert.replace(/\($/, "")).base.toLowerCase();
 }))].map((type) => { return { value: type, label: type }; });
 
-/** Default lengths, by type: what choosing one fills in. */
-const DEFAULT_LENGTHS = new Map(COLUMN_TYPES.flatMap((choice) => {
-    const parts = splitType(choice.insert);
-
-    return parts.length === "" ? []
-        : [[parts.base.toLowerCase(), parts.length] as const];
-}));
+/**
+ * What the Length field holds for a type that takes more than a length:
+ * its placeholder. Everything between the type's parentheses goes there.
+ */
+const LENGTH_HINTS = new Map([
+    ["decimal", "M,D"], ["numeric", "M,D"], ["float", "M,D"],
+    ["double", "M,D"], ["enum", "'a','b'"], ["set", "'a','b'"],
+    ["vector", "dimensions"], ["datetime", "fsp"], ["time", "fsp"],
+    ["timestamp", "fsp"],
+]);
 
 const DEFAULT_CHOICES = ["''", "NULL", "0", "1", "CURRENT_TIMESTAMP",
     "CURRENT_DATE", "CURRENT_TIME", "UUID()"].map((value) => {
@@ -148,9 +162,13 @@ export const TableEditor = (): preact.JSX.Element => {
     const [data, setData] = useState<ITableEditorData | undefined>();
     const [loadError, setLoadError] = useState<string | undefined>();
     const [draft, setDraft] = useState<ITableDraft | undefined>();
+    /** The Online Alter Table tab's fields, as typed. */
+    const [alterTexts, setAlterTexts] = useState<OnlineAlterTexts>();
     const [tab, setTab] = useState<Tab>(kept.tab ?? "Columns");
     const [density, setDensity] = useState<Density>(kept.density ?? "Compact");
     const [search, setSearch] = useState("");
+    // A column control to focus once the Columns grid has built it.
+    const [columnFocus, setColumnFocus] = useState<IGridFocus>();
     const [preview, setPreview] = useState<{ statements: string[];
         notes: string[]; error?: string }>({ statements: [], notes: [] });
     const [busy, setBusy] = useState(false);
@@ -177,6 +195,8 @@ export const TableEditor = (): preact.JSX.Element => {
                     setData(message.data);
                     setDraft(draftOf(message.data.table,
                         message.data.triggers));
+                    setAlterTexts(message.data.onlineAlter === undefined
+                        ? undefined : textsOf(message.data.onlineAlter.table));
                     setLoadError(undefined);
                     setConfirmRefresh(false);
                     break;
@@ -228,24 +248,46 @@ export const TableEditor = (): preact.JSX.Element => {
         return data === undefined || draft === undefined ? []
             : tableEdits(data.table, data.triggers, draft);
     }, [data, draft]);
-    const problems = useMemo(() => {
+    const alter = useMemo(() => {
+        return alterTexts === undefined ? undefined : readTexts(alterTexts);
+    }, [alterTexts]);
+    // Changed where its entry is another than the one read, or a field
+    // typed in is no value.
+    const alterChanged = alter !== undefined
+        && data?.onlineAlter !== undefined && (alter.problems.length > 0
+            || entryKey(alter.entry) !== entryKey(data.onlineAlter.table));
+    const draftProblemsOnly = useMemo(() => {
         return draft === undefined ? [] : draftProblems(draft);
     }, [draft]);
+    const problems = useMemo(() => {
+        return [...draftProblemsOnly, ...alter?.problems ?? []];
+    }, [draftProblemsOnly, alter]);
+
+    // The tab's entry where it changed it to a valid one: the preview
+    // marks the ALTERs it runs online.
+    const previewAlter = alterChanged && alter.problems.length === 0
+        ? alter.entry : undefined;
+    const previewAlterKey = previewAlter === undefined ? undefined
+        : entryKey(previewAlter);
 
     useEffect(() => {
         request.current += 1;
-        if (edits.length === 0 || problems.length > 0) {
+        if (edits.length === 0 || draftProblemsOnly.length > 0) {
             setPreview({ statements: [], notes: [] });
 
             return;
         }
         const asked = request.current;
         const timer = setTimeout(() => {
-            send({ type: "preview", request: asked, edits });
+            send({ type: "preview", request: asked, edits,
+                ...(previewAlter === undefined
+                    ? {} : { onlineAlter: previewAlter }) });
         }, 250);
 
         return () => { clearTimeout(timer); };
-    }, [edits, problems]);
+        // previewAlter by its key: an equal entry asks for no new preview.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [edits, draftProblemsOnly, previewAlterKey]);
 
     if (data === undefined || draft === undefined) {
         return (
@@ -280,7 +322,7 @@ export const TableEditor = (): preact.JSX.Element => {
         change({ triggers: patched(draft.triggers, key, patch) });
     };
 
-    const dirty = edits.length > 0;
+    const dirty = edits.length > 0 || alterChanged;
     const refresh = (): void => {
         if (dirty && !confirmRefresh) {
             setConfirmRefresh(true);
@@ -324,12 +366,16 @@ export const TableEditor = (): preact.JSX.Element => {
     const addColumn = (): void => {
         const column: IDraftColumn = { key: newRowKey("c"), name: "",
             type: "varchar(45)", nullable: true, primary: false };
-        change({ columns: [...draft.columns, column] });
-        setTab("Columns");
-        requestAnimationFrame(() => {
-            document.querySelector<HTMLInputElement>(
-                `[data-key="${column.key}"][data-field="name"]`)?.focus();
+        setOutcome(undefined);
+        // On the draft as it is by then: a commit of the input just left
+        // may come first.
+        setDraft((now) => {
+            return now === undefined ? now
+                : { ...now, columns: [...now.columns, column] };
         });
+        setSearch("");
+        setTab("Columns");
+        setColumnFocus({ key: column.key, field: "name" });
     };
 
     // -- Columns ------------------------------------------------------------
@@ -406,19 +452,14 @@ export const TableEditor = (): preact.JSX.Element => {
 
                 return comboInput({ key: column.key, field: "type" }, shown,
                     TYPE_CHOICES, (typed) => {
-                        const match = /^(.*?)\s*((?:\b(?:unsigned|signed|zerofill)\b\s*)*)$/i
-                            .exec(typed.trim());
-                        const base = match?.[1] ?? typed.trim();
-                        const length = parts.length !== "" ? parts.length
-                            : DEFAULT_LENGTHS.get(base.toLowerCase()) ?? "";
-                        changeColumn(column.key, { type: joinType({ base,
-                            length, rest: match?.[2] ?? "" }) });
+                        changeColumn(column.key,
+                            { type: typeChanged(parts, typed) });
                     }, { className: "type",
                         disabled: column.dropped === true });
             },
         },
         {
-            field: "length", title: "Length", width: 90,
+            field: "length", title: "Length/Values", width: 110,
             render: (column) => {
                 const parts = splitType(column.type);
 
@@ -426,7 +467,11 @@ export const TableEditor = (): preact.JSX.Element => {
                     parts.length, (length) => {
                         changeColumn(column.key,
                             { type: joinType({ ...parts, length }) });
-                    }, { disabled: column.dropped === true });
+                    }, { disabled: column.dropped === true,
+                        // Its default is there to be typed over.
+                        selectOnFocus: true,
+                        placeholder: LENGTH_HINTS.get(
+                            parts.base.toLowerCase()) ?? "" });
             },
         },
         {
@@ -810,6 +855,27 @@ export const TableEditor = (): preact.JSX.Element => {
                     value={draft.name} spellcheck={false}
                     onChange={(event) => {
                         change({ name: event.currentTarget.value });
+                    }}
+                    onKeyDown={(event) => {
+                        // Down: to the first column's name, a new one
+                        // where there is none.
+                        if (event.key !== "ArrowDown" || event.altKey
+                            || event.ctrlKey || event.metaKey
+                            || event.shiftKey) {
+                            return;
+                        }
+                        event.preventDefault();
+                        event.currentTarget.dispatchEvent(new Event("change",
+                            { bubbles: true }));
+                        const first = visibleColumns.find((column) => {
+                            return column.dropped !== true;
+                        });
+                        if (first === undefined) {
+                            addColumn();
+                        } else {
+                            setTab("Columns");
+                            setColumnFocus({ key: first.key, field: "name" });
+                        }
                     }} />
                 <label class="field-label" for="table-comment">Comment</label>
                 <input id="table-comment" class="text-field table-comment"
@@ -914,6 +980,21 @@ export const TableEditor = (): preact.JSX.Element => {
                 {tab === "Columns" && (
                     <ControlGrid rows={visibleColumns} columns={columnGrid}
                         density={density} placeholder="The table has no columns."
+                        focus={columnFocus}
+                        onFocused={() => { setColumnFocus(undefined); }}
+                        onAddRow={(from) => {
+                            // Not from a new column with no name yet: it is
+                            // the new one.
+                            const left = draft.columns.find((column) => {
+                                return column.key === from.key;
+                            });
+                            const name = from.field === "name" ? from.value
+                                : left?.name ?? "";
+                            if (left?.origin !== undefined
+                                || name.trim() !== "") {
+                                addColumn();
+                            }
+                        }}
                         rowClass={(column) => {
                             return [...(marks.get(column.key) ?? []).slice(0, 1),
                                 ...(column.dropped === true ? ["dropped"] : []),
@@ -936,6 +1017,14 @@ export const TableEditor = (): preact.JSX.Element => {
                         placeholder="The table has no foreign keys."
                         rowClass={(key) => {
                             return key.dropped === true ? ["dropped"] : [];
+                        }} />
+                )}
+                {tab === "Online Alter Table" && (
+                    <OnlineAlterTab data={data.onlineAlter}
+                        problem={data.onlineAlterProblem} texts={alterTexts}
+                        onChange={(texts) => {
+                            setOutcome(undefined);
+                            setAlterTexts(texts);
                         }} />
                 )}
                 {tab === "Triggers" && (
@@ -981,8 +1070,10 @@ export const TableEditor = (): preact.JSX.Element => {
                         && preview.error === undefined ? "badge ready"
                         : "badge"}>
                         {!dirty ? "No changes" : problems.length > 0
-                            ? "Not ready" : `${statements.length} statement${
-                                statements.length === 1 ? "" : "s"}`}
+                            ? "Not ready" : edits.length === 0
+                                ? "Online ALTER settings"
+                                : `${statements.length} statement${
+                                    statements.length === 1 ? "" : "s"}`}
                     </span>
                     <span class="spacer" />
                     <button type="button" class="ghost" disabled={sql === ""}
@@ -994,6 +1085,8 @@ export const TableEditor = (): preact.JSX.Element => {
                         onClick={() => {
                             setOutcome(undefined);
                             setDraft(draftOf(data.table, data.triggers));
+                            setAlterTexts(data.onlineAlter === undefined
+                                ? undefined : textsOf(data.onlineAlter.table));
                         }}>
                         Discard Changes
                     </button>
@@ -1005,7 +1098,9 @@ export const TableEditor = (): preact.JSX.Element => {
                             // Busy at once: a second click sends no second
                             // Save before the panel's busy comes back.
                             setBusy(true);
-                            send({ type: "apply", edits });
+                            send({ type: "apply", edits,
+                                ...(alterChanged
+                                    ? { onlineAlter: alter.entry } : {}) });
                         }}>
                         {busy ? "Applying…" : data.live ? "Apply Changes"
                             : "Save to Project"}

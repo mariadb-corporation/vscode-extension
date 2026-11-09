@@ -66,6 +66,11 @@ export interface IFollowOptions {
     /** The `util.*` call that started it, as the Actions tab shows it. */
     call?: string;
     resume?: IResumeLoad;
+    /**
+     * Whether a stage's percent alone moves the bar: an online ALTER's
+     * steps carry the server's progress, counting no items.
+     */
+    percent?: boolean;
     /** Called once it ended, whichever way. */
     onDone?(state: ITaskState): void;
 }
@@ -270,8 +275,8 @@ export class TaskMonitor {
                 const stage = current.stage ?? "Starting";
                 // The bar follows the stages that move data: the others are
                 // quick, and their counts are of other things.
-                const measured = current.progress?.items !== undefined
-                    && typeof percent === "number";
+                const measured = (current.progress?.items !== undefined
+                    || options.percent === true) && typeof percent === "number";
                 const increment = measured ? Math.max(0, percent - reported) : 0;
                 if (measured && increment > 0) {
                     reported = percent;

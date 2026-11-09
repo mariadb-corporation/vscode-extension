@@ -513,6 +513,50 @@ describe("MsmApi", () => {
                     schema_project_path: PROJECT } });
         });
 
+    it("reads and writes a table's online ALTER TABLE, and starts one",
+        async () => {
+            const structured = (result: unknown): IToolResult => {
+                return {
+                    content: [{ type: "text", text: JSON.stringify(result) }],
+                    structuredContent: { result }, isError: false,
+                };
+            };
+            const defaults = { maxRebuildBytes: 10, galeraMaxBytes: 5,
+                nboLock: null, maxLockedBytes: null, lockWait: 5,
+                maxRetries: 10 };
+            const caller = createCaller({
+                "msm.get_online_alter_settings": structured({ defaults,
+                    setting: { enabled: true }, table: "orders",
+                    enabled: true, options: defaults }),
+                "msm.set_online_alter_table": structured(["/p/msm.project.json"]),
+                "msm.get_online_alter_defaults": structured(defaults),
+                "msm.online_alter_table": structured({ task_id: "t1",
+                    status: "pending" }),
+            });
+            const api = new MsmApi(caller);
+
+            expect((await api.getOnlineAlterSettings(PROJECT, "orders"))
+                .defaults).toEqual(defaults);
+            expect(await api.setOnlineAlterTable(PROJECT, "orders", null))
+                .toEqual(["/p/msm.project.json"]);
+            expect(await api.onlineAlterDefaults()).toEqual(defaults);
+            expect(await api.onlineAlterTable("c1", "shop", "orders",
+                "ADD COLUMN `q` INT", { lockWait: 9 }))
+                .toEqual({ task_id: "t1", status: "pending" });
+            expect(caller.calls.map((call) => {
+                return [call.name, call.args];
+            })).toEqual([
+                ["msm.get_online_alter_settings", { table: "orders",
+                    schema_project_path: PROJECT }],
+                ["msm.set_online_alter_table", { table: "orders",
+                    settings: null, schema_project_path: PROJECT }],
+                ["msm.get_online_alter_defaults", {}],
+                ["msm.online_alter_table", { connection_id: "c1",
+                    schema: "shop", table: "orders",
+                    spec: "ADD COLUMN `q` INT", options: { lockWait: 9 } }],
+            ]);
+        });
+
     it("names the licenses the plugin ships templates for", () => {
         expect([...MSM_LICENSES].sort()).toEqual(
             ["BSD", "GPL-2.0", "MIT", "None"]);
