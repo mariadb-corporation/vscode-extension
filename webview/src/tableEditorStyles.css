@@ -197,9 +197,10 @@ input[type="checkbox"] {
     font-weight: 600;
 }
 
+/* The rest of the row, inside its 10px margins. */
 .table-comment {
-    width: 24rem;
-    max-width: 50%;
+    flex: 1;
+    min-width: 8rem;
 }
 
 /* --- tabs and their actions ------------------------------------------------- */
