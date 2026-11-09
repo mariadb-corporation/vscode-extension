@@ -521,7 +521,7 @@ describe("MsmApi", () => {
                     structuredContent: { result }, isError: false,
                 };
             };
-            const defaults = { maxCopyBytes: 10, galeraMaxBytes: 5,
+            const defaults = { maxRebuildBytes: 10, galeraMaxBytes: 5,
                 nboLock: null, maxLockedBytes: null, lockWait: 5,
                 maxRetries: 10 };
             const caller = createCaller({

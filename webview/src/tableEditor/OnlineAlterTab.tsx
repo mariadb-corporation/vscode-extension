@@ -34,8 +34,8 @@ import {
 /** What each field is for. */
 const HINTS: Record<keyof OnlineAlterTexts, string> = {
     enabled: "",
-    maxCopyBytes: "The largest table an online copy (ALGORITHM=COPY, "
-        + "LOCK=NONE) runs on; 0 never copies.",
+    maxRebuildBytes: "The largest table an online rebuild (ALGORITHM="
+        + "INPLACE or COPY, LOCK=NONE) runs on; 0 never rebuilds.",
     galeraMaxBytes: "On Galera, the largest table for a step other than "
         + "INSTANT.",
     nboLock: "On Galera, the lock a non-blocking operation (NBO) may take: "
@@ -82,8 +82,8 @@ export const OnlineAlterTab = (props: IOnlineAlterTabProps):
         <div class="online-alter">
             <p class="muted">
                 Runs each ALTER TABLE of this table the least disruptive way
-                the server accepts: ALGORITHM=INSTANT, then NOCOPY and COPY
-                with LOCK=NONE, then a Galera NBO where allowed, then
+                the server accepts: ALGORITHM=INSTANT, then NOCOPY, INPLACE
+                and COPY with LOCK=NONE, then a Galera NBO where allowed, then
                 LOCK=SHARED and LOCK=EXCLUSIVE. A step the server refuses
                 changes nothing; where no allowed step can run it, the table
                 is left as it was.

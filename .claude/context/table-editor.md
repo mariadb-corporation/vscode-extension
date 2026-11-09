@@ -117,11 +117,13 @@ read-only Object Details view left editing to this editor.
 ## Online Alter Table
 
 msm runs an ALTER TABLE the least disruptive way the server accepts
-(INSTANT, NOCOPY and COPY with LOCK=NONE, a Galera NBO, LOCK=SHARED,
-LOCK=EXCLUSIVE; mariadb-shell-plugins `msm_plugin/.claude/context/
-online-alter.md`). The tab sets it per table, agreed with the msm session:
+(INSTANT, NOCOPY, INPLACE and COPY with LOCK=NONE, a Galera NBO,
+LOCK=SHARED, LOCK=EXCLUSIVE; mariadb-shell-plugins `msm_plugin/.claude/
+context/online-alter.md`). `maxRebuildBytes` bounds both online rebuilds
+(INPLACE, COPY). msm refuses a spec that changes the partitioning or names
+ALGORITHM/LOCK; the table editor makes neither. The tab sets it per table, agreed with the msm session:
 
-- **Settings**: `enabled` plus msm's limits (`maxCopyBytes`,
+- **Settings**: `enabled` plus msm's limits (`maxRebuildBytes`,
   `galeraMaxBytes`, `nboLock`, `maxLockedBytes`, `lockWait`,
   `maxRetries`); a key left out takes the inherited value, a size of null
   is no limit. On by default, live tables too (msm's decision).

@@ -115,7 +115,7 @@ describe("TableEditor", () => {
 
     it("sets the table's online ALTER TABLE, saved on its own", async () => {
         await send({ type: "load", data: { ...DATA, onlineAlter: {
-            inherited: { enabled: true, maxCopyBytes: 10 * 1024 ** 3,
+            inherited: { enabled: true, maxRebuildBytes: 10 * 1024 ** 3,
                 galeraMaxBytes: 256 * 1024 ** 2, nboLock: null,
                 maxLockedBytes: null, lockWait: 5, maxRetries: 10 },
             table: { lockWait: 30 },
@@ -123,7 +123,7 @@ describe("TableEditor", () => {
         } } });
         await act(async () => { button("Online Alter Table").click(); });
         const copy = host.querySelector<HTMLInputElement>(
-            "#online-alter-maxCopyBytes")!;
+            "#online-alter-maxRebuildBytes")!;
         // Empty, it shows what it takes.
         expect(copy.placeholder).toBe("10 GiB");
         expect(host.querySelector<HTMLInputElement>(
@@ -147,7 +147,7 @@ describe("TableEditor", () => {
             .toBe("Online ALTER settings");
         await act(async () => { button("Apply Changes").click(); });
         expect(posted).toContainEqual({ type: "apply", edits: [],
-            onlineAlter: { maxCopyBytes: 0, lockWait: 30 } });
+            onlineAlter: { maxRebuildBytes: 0, lockWait: 30 } });
     });
 
     it("says why a table has no online ALTER TABLE settings", async () => {

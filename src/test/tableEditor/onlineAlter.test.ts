@@ -57,13 +57,13 @@ describe("online ALTER TABLE settings", () => {
 
     it("reads the tab's fields as an entry, an empty one taking the "
         + "inherited value", () => {
-        const texts = textsOf({ enabled: false, maxCopyBytes: 0,
+        const texts = textsOf({ enabled: false, maxRebuildBytes: 0,
             nboLock: null, lockWait: 30 });
-        expect(texts).toEqual({ enabled: "off", maxCopyBytes: "0",
+        expect(texts).toEqual({ enabled: "off", maxRebuildBytes: "0",
             galeraMaxBytes: "", nboLock: "off", maxLockedBytes: "",
             lockWait: "30", maxRetries: "" });
         expect(readTexts(texts)).toEqual({ entry: { enabled: false,
-            maxCopyBytes: 0, nboLock: null, lockWait: 30 }, problems: [] });
+            maxRebuildBytes: 0, nboLock: null, lockWait: 30 }, problems: [] });
 
         const empty = readTexts(textsOf({}));
         expect(empty.entry).toEqual({});
@@ -79,7 +79,7 @@ describe("online ALTER TABLE settings", () => {
     it("tells entries apart by their values, not their key order", () => {
         expect(entryKey({ lockWait: 5, enabled: true }))
             .toBe(entryKey({ enabled: true, lockWait: 5 }));
-        expect(entryKey({ maxCopyBytes: null }))
+        expect(entryKey({ maxRebuildBytes: null }))
             .not.toBe(entryKey({}));
         expect(optionsOf({ enabled: true, lockWait: 5 }))
             .toEqual({ lockWait: 5 });
@@ -95,14 +95,14 @@ describe("OnlineAlterStore", () => {
             table: "orders" };
         expect(store.get(orders)).toEqual({});
 
-        await store.set(orders, { maxCopyBytes: 0 });
+        await store.set(orders, { maxRebuildBytes: 0 });
         await store.set({ ...orders, schema: "other" }, { enabled: false });
-        expect(store.get(orders)).toEqual({ maxCopyBytes: 0 });
+        expect(store.get(orders)).toEqual({ maxRebuildBytes: 0 });
 
         await store.rename(orders, "purchases");
         expect(store.get(orders)).toEqual({});
         expect(store.get({ ...orders, table: "purchases" }))
-            .toEqual({ maxCopyBytes: 0 });
+            .toEqual({ maxRebuildBytes: 0 });
 
         // Emptied, it goes.
         await store.set({ ...orders, table: "purchases" }, {});

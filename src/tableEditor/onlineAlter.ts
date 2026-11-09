@@ -18,8 +18,8 @@
 /**
  * Online ALTER TABLE, as the table editor's Online Alter Table tab sets it
  * for a table: msm runs each ALTER TABLE the least disruptive way the
- * server accepts (ALGORITHM=INSTANT, then NOCOPY and COPY with LOCK=NONE,
- * a Galera NBO where allowed, then LOCK=SHARED and LOCK=EXCLUSIVE), within
+ * server accepts (ALGORITHM=INSTANT, then NOCOPY, INPLACE and COPY with
+ * LOCK=NONE, a Galera NBO where allowed, then LOCK=SHARED and LOCK=EXCLUSIVE), within
  * these limits (mariadb-shell-plugins `msm_plugin/lib/online_alter.py`).
  * A project's table keeps its entry in `msm.project.json`, which
  * deployments use; a live table's is kept in the workspace, and Apply
@@ -37,7 +37,7 @@ export type NboLock = "SHARED" | "EXCLUSIVE";
  */
 export interface IOnlineAlterOptions {
     /** The largest table an online COPY runs on. */
-    maxCopyBytes?: number | null;
+    maxRebuildBytes?: number | null;
     /** The largest table on Galera for a step other than INSTANT. */
     galeraMaxBytes?: number | null;
     /** The lock a Galera NBO step takes; null allows none. */
@@ -69,11 +69,11 @@ export interface IOnlineAlterData {
 }
 
 /** The option keys, in the tab's order. */
-export const ONLINE_ALTER_KEYS = ["maxCopyBytes", "galeraMaxBytes",
+export const ONLINE_ALTER_KEYS = ["maxRebuildBytes", "galeraMaxBytes",
     "nboLock", "maxLockedBytes", "lockWait", "maxRetries"] as const;
 
 /** The options that are table sizes. */
-export const SIZE_KEYS = ["maxCopyBytes", "galeraMaxBytes",
+export const SIZE_KEYS = ["maxRebuildBytes", "galeraMaxBytes",
     "maxLockedBytes"] as const;
 
 export type SizeKey = typeof SIZE_KEYS[number];
@@ -169,7 +169,7 @@ export const textsOf = (entry: IOnlineAlterEntry): OnlineAlterTexts => {
     return {
         enabled: entry.enabled === undefined ? ""
             : entry.enabled ? "on" : "off",
-        maxCopyBytes: size("maxCopyBytes"),
+        maxRebuildBytes: size("maxRebuildBytes"),
         galeraMaxBytes: size("galeraMaxBytes"),
         nboLock: entry.nboLock === undefined ? ""
             : entry.nboLock ?? "off",
@@ -187,7 +187,7 @@ export interface IReadTexts {
 
 /** The fields' names, as the tab labels them. */
 export const ONLINE_ALTER_LABELS: Record<SizeKey | CountKey, string> = {
-    maxCopyBytes: "Online copy up to",
+    maxRebuildBytes: "Online rebuilds up to",
     galeraMaxBytes: "Galera tables up to",
     maxLockedBytes: "Locked tables up to",
     lockWait: "Lock wait (seconds)",

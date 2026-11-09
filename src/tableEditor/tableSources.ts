@@ -160,7 +160,7 @@ const field = (row: Record<string, unknown>, name: string): string => {
 export interface IOnlineAlterOutcome {
     /** Whether it changed the table: not where no allowed step could. */
     applied: boolean;
-    /** How it ran: INSTANT, NOCOPY, COPY, ..., or NEEDS_EXTERNAL. */
+    /** How it ran: INSTANT, NOCOPY, INPLACE, COPY, ..., or NEEDS_EXTERNAL. */
     method: string;
     reason?: string;
 }

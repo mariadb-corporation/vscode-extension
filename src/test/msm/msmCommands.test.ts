@@ -118,7 +118,7 @@ interface ISetUp {
 }
 
 /** msm's online ALTER TABLE defaults. */
-const ONLINE_ALTER_DEFAULTS = { maxCopyBytes: 10 * 1024 ** 3,
+const ONLINE_ALTER_DEFAULTS = { maxRebuildBytes: 10 * 1024 ** 3,
     galeraMaxBytes: 256 * 1024 ** 2, nboLock: null, maxLockedBytes: null,
     lockWait: 5, maxRetries: 10 };
 

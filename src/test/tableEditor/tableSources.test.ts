@@ -35,7 +35,7 @@ import {
     type IOnlineAlterOutcome,
 } from "../../tableEditor/tableSources.js";
 
-const DEFAULTS = { maxCopyBytes: 10 * 1024 ** 3,
+const DEFAULTS = { maxRebuildBytes: 10 * 1024 ** 3,
     galeraMaxBytes: 256 * 1024 ** 2, nboLock: null, maxLockedBytes: null,
     lockWait: 5, maxRetries: 10 };
 
@@ -138,13 +138,13 @@ describe("LspEdit", () => {
 describe("LiveTableSource, online ALTER TABLE", () => {
     it("runs the table's ALTERs online and the others as written, in "
         + "order", async () => {
-        const live = liveSetUp([OTHER, ALTER], { entry: { maxCopyBytes: 0,
+        const live = liveSetUp([OTHER, ALTER], { entry: { maxRebuildBytes: 0,
             enabled: true } });
         const applied = await live.source.apply([{ op: "add_column" }]);
 
         expect(live.executed).toEqual(["USE `shop`", OTHER.sql]);
         expect(live.runs).toEqual([["orders", ALTER.spec,
-            { maxCopyBytes: 0 }]]);
+            { maxRebuildBytes: 0 }]]);
         expect(applied.notes).toEqual(["ALTER TABLE ran online: INSTANT."]);
     });
 
@@ -161,7 +161,8 @@ describe("LiveTableSource, online ALTER TABLE", () => {
         async () => {
             const live = liveSetUp([OTHER, ALTER], { outcome: {
                 applied: false, method: "NEEDS_EXTERNAL",
-                reason: "the table is larger than maxCopyBytes" } });
+                reason: "online rebuilds (INPLACE, COPY) skipped: table size "
+                    + "20 > max_rebuild_bytes 10" } });
 
             const failed = await live.source.apply([{ op: "add_column" }])
                 .catch((error: unknown) => { return error; });
@@ -169,7 +170,7 @@ describe("LiveTableSource, online ALTER TABLE", () => {
             expect((failed as PartlyAppliedError).done).toEqual([OTHER.sql]);
             expect((failed as Error).message).toContain(
                 "nothing was changed");
-            expect((failed as Error).message).toContain("maxCopyBytes");
+            expect((failed as Error).message).toContain("max_rebuild_bytes");
         });
 
     it("keeps settings changed alone, and follows a rename with them",
@@ -219,13 +220,13 @@ describe("ProjectTableSource, online ALTER TABLE", () => {
     const settings: IMsmOnlineAlterSettings = {
         defaults: DEFAULTS,
         setting: { enabled: true, lockWait: 20,
-            tables: { orders: { maxCopyBytes: 0 } } },
+            tables: { orders: { maxRebuildBytes: 0 } } },
     };
 
     it("shows the project's values over msm's defaults as inherited", () => {
         expect(projectOnlineAlter(settings, "orders")).toEqual({
             inherited: { ...DEFAULTS, lockWait: 20, enabled: true },
-            table: { maxCopyBytes: 0 },
+            table: { maxRebuildBytes: 0 },
             keptIn: "project",
         });
         expect(projectOnlineAlter({ defaults: DEFAULTS, setting: {} },
