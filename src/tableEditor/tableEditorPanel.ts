@@ -188,7 +188,8 @@ export class TableEditorPanel {
 
             case "preview": {
                 try {
-                    const preview = await this.source.preview(message.edits);
+                    const preview = await this.source.preview(message.edits,
+                        message.onlineAlter);
                     this.#post({ type: "preview", request: message.request,
                         ...preview });
                 } catch (error) {
@@ -231,10 +232,12 @@ export class TableEditorPanel {
             await this.#load();
             this.#post({ type: "applied", notes: applied.notes });
         } catch (error) {
-            const done = error instanceof PartlyAppliedError ? error.done : [];
+            const partly = error instanceof PartlyAppliedError
+                ? error : undefined;
+            const done = partly?.done ?? [];
             this.host.log(`Could not change the table ${this.#target.table}: `
                 + errorText(error));
-            if (done.length > 0) {
+            if (partly?.changed === true) {
                 // What ran stays run: the table is read again as it is,
                 // under its new name where the rename ran.
                 const before = this.#target.table;

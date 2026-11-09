@@ -44,12 +44,14 @@ import type {
     IMsmSchemaEdit,
 } from "../mcp/msmApi.js";
 import type { ITaskState } from "../mcp/taskApi.js";
+import { errorText } from "../text.js";
 import type {
     IOutlineTable,
     IOutlineTrigger,
     ISchemaDefinition,
 } from "../modeler/modelFormat.js";
 import {
+    type ILspMigrationStatement,
     type LspEdit,
     type LspScript,
     sliceText,
@@ -82,7 +84,13 @@ export interface ITableSource {
     /** The table's name now: a Save may rename it. */
     readonly table: string;
     read(): Promise<ITableEditorData>;
-    preview(edits: IMsmSchemaEdit[]): Promise<ITablePreview>;
+    /**
+     * @param edits The edits.
+     * @param onlineAlter The table's online ALTER entry, where the tab
+     *                    changed it; else the one kept.
+     */
+    preview(edits: IMsmSchemaEdit[],
+        onlineAlter?: IOnlineAlterEntry): Promise<ITablePreview>;
     /**
      * @param edits The edits; none where only the online ALTER entry
      *              changed.
@@ -100,15 +108,35 @@ export interface ITableSource {
  */
 const onlineAlterProblem = (error: unknown): string => {
     return "Online ALTER TABLE needs a MariaDB Shell whose msm has it: "
-        + (error instanceof Error ? error.message : String(error));
+        + errorText(error);
 };
 
-/** Raised when a live Save stopped part way: what ran stays run. */
+/** Raised when a Save stopped part way: what ran stays run. */
 export class PartlyAppliedError extends Error {
-    public constructor(message: string, public readonly done: string[]) {
+    /**
+     * @param message What stopped it.
+     * @param done The statements that ran.
+     * @param changed Whether the table changed, and is to be read again:
+     *                where statements ran, or a project's edits were saved.
+     */
+    public constructor(message: string, public readonly done: string[],
+        public readonly changed = done.length > 0) {
         super(message);
     }
 }
+
+/**
+ * What a live table's SQL Preview says above an ALTER TABLE that runs
+ * through msm's online ALTER TABLE, not as written.
+ */
+export const ONLINE_ALTER_COMMENT = "-- Runs through online ALTER TABLE "
+    + "(msm), not as written: the first step\n"
+    + "-- the server accepts within this table's limits, of ALGORITHM="
+    + "INSTANT,\n"
+    + "-- then NOCOPY, INPLACE and COPY with LOCK=NONE, a Galera NBO, "
+    + "LOCK=SHARED,\n"
+    + "-- LOCK=EXCLUSIVE. Where none can run it, the table is left as it "
+    + "is.\n";
 
 /**
  * @param name An identifier.
@@ -222,6 +250,13 @@ export class LiveTableSource implements ITableSource {
     #table: string;
     /** The script last read: what the edits are worked out against. */
     #script = "";
+    /** msm's online ALTER TABLE defaults, once it gave them. */
+    #onlineDefaults?: Required<IOnlineAlterOptions>;
+    /**
+     * Whether msm, asked for them, could not give them: it has no online
+     * ALTER TABLE, so every statement runs as written.
+     */
+    #onlineMissing = false;
 
     public constructor(
         private readonly schema: string,
@@ -335,12 +370,17 @@ export class LiveTableSource implements ITableSource {
             return {};
         }
         try {
+            this.#onlineDefaults ??= await online.defaults();
+            this.#onlineMissing = false;
+
             return { onlineAlter: {
-                inherited: { ...await online.defaults(), enabled: true },
+                inherited: { ...this.#onlineDefaults, enabled: true },
                 table: online.get(this.#table),
                 keptIn: "workspace",
             } };
         } catch (error) {
+            this.#onlineMissing = true;
+
             return { onlineAlterProblem: onlineAlterProblem(error) };
         }
     }
@@ -356,19 +396,53 @@ export class LiveTableSource implements ITableSource {
             this.deps.onlineAlter !== undefined);
     }
 
-    public async preview(edits: IMsmSchemaEdit[]): Promise<ITablePreview> {
+    /**
+     * @param edits A Save's edits.
+     * @param entry The table's online ALTER entry.
+     *
+     * @returns Which of its statements run online: this table's ALTERs,
+     *          under either name where the Save renames it, while the
+     *          entry has it on and msm has online ALTER TABLE.
+     */
+    #runsOnline(edits: IMsmSchemaEdit[], entry: IOnlineAlterEntry):
+        (statement: ILspMigrationStatement) => boolean {
+        const names = new Set([this.#table, renamedTo(edits) ?? this.#table]
+            .map((name) => { return name.toLowerCase(); }));
+        const on = this.deps.onlineAlter !== undefined
+            && !this.#onlineMissing && (entry.enabled ?? true);
+
+        return (statement) => {
+            return on && statement.spec !== undefined
+                && statement.table !== undefined
+                && names.has(statement.table.toLowerCase());
+        };
+    }
+
+    /**
+     * @param result The binary's answer.
+     *
+     * @returns Its notes: msm's are for its update scripts; run here, a
+     *          trigger's CREATE needs nothing more.
+     */
+    static #notes(result: Awaited<ReturnType<LspEdit["edit"]>>): string[] {
+        return result.notes.filter((note) => {
+            return note.kind !== "trigger-created"
+                && note.kind !== "trigger-recreated";
+        }).map((note) => { return note.message; });
+    }
+
+    public async preview(edits: IMsmSchemaEdit[],
+        onlineAlter?: IOnlineAlterEntry): Promise<ITablePreview> {
         const result = await this.#migration(edits);
+        const online = this.#runsOnline(edits,
+            onlineAlter ?? this.deps.onlineAlter?.get(this.#table) ?? {});
 
         return {
             statements: result.migration.map((statement) => {
-                return statement.sql;
+                return online(statement)
+                    ? ONLINE_ALTER_COMMENT + statement.sql : statement.sql;
             }),
-            // msm's notes are for its update scripts: run here, a trigger's
-            // CREATE needs nothing more.
-            notes: result.notes.filter((note) => {
-                return note.kind !== "trigger-created"
-                    && note.kind !== "trigger-recreated";
-            }).map((note) => { return note.message; }),
+            notes: LiveTableSource.#notes(result),
         };
     }
 
@@ -409,24 +483,15 @@ export class LiveTableSource implements ITableSource {
             return { notes: [] };
         }
         const entry = online?.get(this.#table) ?? {};
-        // This table's ALTERs, under either name where the Save renames it.
-        const names = new Set([this.#table, renamedTo(edits) ?? this.#table]
-            .map((name) => { return name.toLowerCase(); }));
+        const runsOnline = this.#runsOnline(edits, entry);
         const result = await this.#migration(edits);
-        const notes = result.notes.filter((note) => {
-            return note.kind !== "trigger-created"
-                && note.kind !== "trigger-recreated";
-        }).map((note) => { return note.message; });
+        const notes = LiveTableSource.#notes(result);
         const done: string[] = [];
         // The statements carry no schema: the session's may be another.
         await this.deps.execute(`USE ${quoteName(this.schema)}`);
         for (const statement of result.migration) {
-            const runOnline = online !== undefined
-                && (entry.enabled ?? true) && statement.spec !== undefined
-                && statement.table !== undefined
-                && names.has(statement.table.toLowerCase());
             try {
-                if (runOnline) {
+                if (online !== undefined && runsOnline(statement)) {
                     const outcome = await online.run(statement.table!,
                         statement.spec!, optionsOf(entry));
                     if (!outcome.applied) {
@@ -444,8 +509,7 @@ export class LiveTableSource implements ITableSource {
                 }
             } catch (error) {
                 await this.#followRename(edits, done);
-                throw new PartlyAppliedError(error instanceof Error
-                    ? error.message : String(error), done);
+                throw new PartlyAppliedError(errorText(error), done);
             }
             done.push(statement.sql);
         }
@@ -643,7 +707,17 @@ export class ProjectTableSource implements ITableSource {
             notes = await this.deps.edit(edits, definition.source_hash);
             this.#table = renamedTo(edits) ?? this.#table;
         }
-        await this.#keepOnlineAlter(onlineAlter);
+        try {
+            await this.#keepOnlineAlter(onlineAlter);
+        } catch (error) {
+            if (edits.length === 0) {
+                throw error;
+            }
+            // The edits are saved: the table is read again as they left it.
+            throw new PartlyAppliedError("The changes were saved to the "
+                + "project, but not the table's online ALTER TABLE "
+                + `settings: ${errorText(error)}`, [], true);
+        }
 
         return { notes };
     }

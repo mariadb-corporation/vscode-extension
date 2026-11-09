@@ -28,6 +28,7 @@ import {
 import type { IOnlineAlterEntry } from "../../tableEditor/onlineAlter.js";
 import {
     LiveTableSource,
+    ONLINE_ALTER_COMMENT,
     onlineAlterOutcome,
     PartlyAppliedError,
     projectOnlineAlter,
@@ -55,7 +56,8 @@ const fakeLsp = (migration: ILspMigrationStatement[], merges = true) => {
         }
 
         return Promise.resolve({ code: 0, stderr: "", stdout: JSON.stringify(
-            { migration, notes: [], outline: { schemas: [] } }) });
+            { migration, notes: [], outline: { schemas: [{ name: null,
+                tables: [{ name: "orders", columns: [] }] }] } }) });
     };
 
     return { lsp: new LspEdit(() => { return Promise.resolve("lsp"); }, run),
@@ -69,13 +71,19 @@ const RENAME: IMsmSchemaEdit = { op: "rename_table", table: "orders",
 const liveSetUp = (migration: ILspMigrationStatement[], options: {
     entry?: IOnlineAlterEntry;
     outcome?: IOnlineAlterOutcome;
+    defaults?: () => Promise<typeof DEFAULTS>;
 } = {}) => {
     const executed: string[] = [];
     const runs: Array<[string, string, unknown]> = [];
     const entries = new Map<string, IOnlineAlterEntry>(options.entry
         === undefined ? [] : [["orders", options.entry]]);
     const source = new LiveTableSource("shop", "orders", {
-        query: () => { return Promise.resolve([{ TABLE_NAME: "purchases" }]); },
+        query: (sql) => {
+            return Promise.resolve(sql.startsWith("SHOW CREATE TABLE")
+                ? [{ "Create Table": "CREATE TABLE `orders` (`id` INT)" }]
+                : sql.includes("TRIGGERS") ? []
+                    : [{ TABLE_NAME: "purchases" }]);
+        },
         execute: (sql) => {
             executed.push(sql);
 
@@ -83,7 +91,8 @@ const liveSetUp = (migration: ILspMigrationStatement[], options: {
         },
         lsp: fakeLsp(migration).lsp,
         onlineAlter: {
-            defaults: () => { return Promise.resolve(DEFAULTS); },
+            defaults: options.defaults
+                ?? (() => { return Promise.resolve(DEFAULTS); }),
             get: (table) => { return entries.get(table) ?? {}; },
             set: (table, entry) => {
                 entries.set(table, entry);
@@ -133,6 +142,19 @@ describe("LspEdit", () => {
             await older.lsp.mergesAlters();
             expect(older.requests).toHaveLength(1);
         });
+
+    it("asks again where no binary was found yet", async () => {
+        let binary: string | undefined;
+        const lsp = new LspEdit(() => { return Promise.resolve(binary); },
+            () => {
+                return Promise.resolve({ code: 0, stderr: "", stdout:
+                    JSON.stringify({ format: 1, ops: [],
+                        merge_alters: true }) });
+            });
+        expect(await lsp.mergesAlters()).toBe(false);
+        binary = "lsp";
+        expect(await lsp.mergesAlters()).toBe(true);
+    });
 });
 
 describe("LiveTableSource, online ALTER TABLE", () => {
@@ -189,6 +211,35 @@ describe("LiveTableSource, online ALTER TABLE", () => {
         });
 });
 
+describe("LiveTableSource, SQL Preview", () => {
+    it("says above the table's ALTERs that they run online, as the tab "
+        + "sets it", async () => {
+        const live = liveSetUp([OTHER, ALTER]);
+        const preview = await live.source.preview([{ op: "add_column" }]);
+        expect(preview.statements).toEqual([OTHER.sql,
+            ONLINE_ALTER_COMMENT + ALTER.sql]);
+
+        // Off in the tab, not saved yet: as written.
+        const off = await live.source.preview([{ op: "add_column" }],
+            { enabled: false });
+        expect(off.statements).toEqual([OTHER.sql, ALTER.sql]);
+    });
+
+    it("runs every statement as written where msm has no online ALTER "
+        + "TABLE", async () => {
+        const live = liveSetUp([ALTER], { defaults: () => {
+            return Promise.reject(new Error("unknown tool"));
+        } });
+        const data = await live.source.read();
+        expect(data.onlineAlterProblem).toContain("unknown tool");
+        expect((await live.source.preview([{ op: "add_column" }]))
+            .statements).toEqual([ALTER.sql]);
+        await live.source.apply([{ op: "add_column" }]);
+        expect(live.runs).toEqual([]);
+        expect(live.executed).toContain(ALTER.sql);
+    });
+});
+
 describe("onlineAlterOutcome", () => {
     const state = (patch: Partial<ITaskState>): ITaskState => {
         return { task_id: "t", task_type: "msm", kind: "online_alter_table",
@@ -234,7 +285,7 @@ describe("ProjectTableSource, online ALTER TABLE", () => {
     });
 
     /** A project table whose msm calls are recorded. */
-    const projectSetUp = () => {
+    const projectSetUp = (options: { failSet?: boolean } = {}) => {
         const calls: unknown[][] = [];
         const definition = { schema: "shop", source_hash: "sha256:x",
             tables: [] } as unknown as ISchemaDefinition;
@@ -252,7 +303,9 @@ describe("ProjectTableSource, online ALTER TABLE", () => {
                 set: (table, entry) => {
                     calls.push(["set", table, entry]);
 
-                    return Promise.resolve();
+                    return options.failSet === true
+                        ? Promise.reject(new Error("msm is busy"))
+                        : Promise.resolve();
                 },
             },
         });
@@ -281,5 +334,24 @@ describe("ProjectTableSource, online ALTER TABLE", () => {
         const untouched = projectSetUp();
         await untouched.source.apply([{ op: "add_column" }]);
         expect(untouched.calls).toEqual([["edit", 1]]);
+    });
+
+    it("says a Save whose edits were saved but not its settings changed "
+        + "the table", async () => {
+        const failing = projectSetUp({ failSet: true });
+        const failed = await failing.source.apply([RENAME], { lockWait: 2 })
+            .catch((error: unknown) => { return error; });
+        expect(failed).toBeInstanceOf(PartlyAppliedError);
+        expect((failed as PartlyAppliedError).changed).toBe(true);
+        expect((failed as Error).message).toContain("saved to the project");
+        expect((failed as Error).message).toContain("msm is busy");
+        // Followed to its new name, to be read again.
+        expect(failing.source.table).toBe("purchases");
+
+        // Settings alone: nothing changed.
+        const alone = await projectSetUp({ failSet: true }).source
+            .apply([], { lockWait: 2 })
+            .catch((error: unknown) => { return error; });
+        expect(alone).not.toBeInstanceOf(PartlyAppliedError);
     });
 });

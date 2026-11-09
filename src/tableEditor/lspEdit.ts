@@ -150,6 +150,9 @@ export class LspEdit {
         this.#mergesAlters ??= (async () => {
             const binary = await this.binary();
             if (binary === undefined) {
+                // Asked again: one may be installed meanwhile.
+                this.#mergesAlters = undefined;
+
                 return false;
             }
             try {

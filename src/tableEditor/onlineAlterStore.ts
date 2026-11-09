@@ -81,12 +81,13 @@ export class OnlineAlterStore {
      * @returns Once it is moved.
      */
     public async rename(table: ILiveTable, name: string): Promise<void> {
-        const entry = this.get(table);
-        if (Object.keys(entry).length === 0) {
+        const { [keyOf(table)]: entry, ...others } = this.#all();
+        if (entry === undefined) {
             return;
         }
-        await this.set(table, {});
-        await this.set({ ...table, table: name }, entry);
+        // One write: the entry is never dropped without being moved.
+        await this.memento.update(ONLINE_ALTER_KEY,
+            { ...others, [keyOf({ ...table, table: name })]: entry });
     }
 
     #all(): Record<string, IOnlineAlterEntry> {

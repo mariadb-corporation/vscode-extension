@@ -46,6 +46,20 @@ const HINTS: Record<keyof OnlineAlterTexts, string> = {
     maxRetries: "How often an attempt whose lock wait ran out is made again.",
 };
 
+/** What a field shows where msm gave no inherited value for it. */
+const NO_INHERITED = "default";
+
+/**
+ * @param value An inherited value, which an older msm may leave out.
+ * @param text How the value is written.
+ *
+ * @returns What its field shows when empty.
+ */
+const placeholderOf = <T,>(value: T | undefined,
+    text: (value: T) => string): string => {
+    return value === undefined ? NO_INHERITED : text(value);
+};
+
 interface IOnlineAlterTabProps {
     data?: IOnlineAlterData;
     /** Why there are no settings. */
@@ -113,7 +127,8 @@ export const OnlineAlterTab = (props: IOnlineAlterTabProps):
                         <input key={key} id={`online-alter-${key}`}
                             class="text-field" spellcheck={false}
                             disabled={!enabled} value={texts[key]}
-                            placeholder={sizeText(inherited[key])}
+                            placeholder={placeholderOf<number | null>(
+                                inherited[key], sizeText)}
                             onInput={(event) => {
                                 change({ [key]: event.currentTarget.value });
                             }} />,
@@ -147,7 +162,8 @@ export const OnlineAlterTab = (props: IOnlineAlterTabProps):
                         <input key={key} id={`online-alter-${key}`}
                             class="text-field" spellcheck={false}
                             disabled={!enabled} value={texts[key]}
-                            placeholder={String(inherited[key])}
+                            placeholder={placeholderOf<number>(
+                                inherited[key], String)}
                             onInput={(event) => {
                                 change({ [key]: event.currentTarget.value });
                             }} />,

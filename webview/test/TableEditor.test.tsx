@@ -150,6 +150,38 @@ describe("TableEditor", () => {
             onlineAlter: { maxRebuildBytes: 0, lockWait: 30 } });
     });
 
+    it("previews with the tab's settings, and shows 'default' where msm "
+        + "gave none", async () => {
+        const inherited = { enabled: true, galeraMaxBytes: 256 * 1024 ** 2,
+            nboLock: null, maxLockedBytes: null, lockWait: 5 };
+        await send({ type: "load", data: { ...DATA, onlineAlter: {
+            // An older msm without maxRebuildBytes and maxRetries.
+            inherited: inherited as never, table: {}, keptIn: "workspace",
+        } } });
+        await act(async () => { button("Online Alter Table").click(); });
+        expect(host.querySelector<HTMLInputElement>(
+            "#online-alter-maxRebuildBytes")?.placeholder).toBe("default");
+        expect(host.querySelector<HTMLInputElement>(
+            "#online-alter-maxRetries")?.placeholder).toBe("default");
+
+        vi.useFakeTimers();
+        const enabled = host.querySelector<HTMLSelectElement>(
+            "#online-alter-enabled")!;
+        await act(async () => {
+            enabled.value = "off";
+            enabled.dispatchEvent(new Event("change"));
+        });
+        const comment = host.querySelector<HTMLInputElement>("#table-comment")!;
+        await act(async () => {
+            comment.value = "Actors";
+            comment.dispatchEvent(new Event("change"));
+        });
+        await act(async () => { vi.advanceTimersByTime(300); });
+        expect(posted.filter((message) => {
+            return (message as { type: string }).type === "preview";
+        }).at(-1)).toMatchObject({ onlineAlter: { enabled: false } });
+    });
+
     it("says why a table has no online ALTER TABLE settings", async () => {
         await send({ type: "load", data: { ...DATA,
             onlineAlterProblem: "Online ALTER TABLE needs a newer msm." } });

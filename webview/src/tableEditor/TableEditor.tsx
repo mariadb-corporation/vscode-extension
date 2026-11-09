@@ -249,13 +249,19 @@ export const TableEditor = (): preact.JSX.Element => {
     const alterChanged = alter !== undefined
         && data?.onlineAlter !== undefined && (alter.problems.length > 0
             || entryKey(alter.entry) !== entryKey(data.onlineAlter.table));
-    const problems = useMemo(() => {
-        return [...draft === undefined ? [] : draftProblems(draft),
-            ...alter?.problems ?? []];
-    }, [draft, alter]);
     const draftProblemsOnly = useMemo(() => {
         return draft === undefined ? [] : draftProblems(draft);
     }, [draft]);
+    const problems = useMemo(() => {
+        return [...draftProblemsOnly, ...alter?.problems ?? []];
+    }, [draftProblemsOnly, alter]);
+
+    // The tab's entry where it changed it to a valid one: the preview
+    // marks the ALTERs it runs online.
+    const previewAlter = alterChanged && alter.problems.length === 0
+        ? alter.entry : undefined;
+    const previewAlterKey = previewAlter === undefined ? undefined
+        : entryKey(previewAlter);
 
     useEffect(() => {
         request.current += 1;
@@ -266,11 +272,15 @@ export const TableEditor = (): preact.JSX.Element => {
         }
         const asked = request.current;
         const timer = setTimeout(() => {
-            send({ type: "preview", request: asked, edits });
+            send({ type: "preview", request: asked, edits,
+                ...(previewAlter === undefined
+                    ? {} : { onlineAlter: previewAlter }) });
         }, 250);
 
         return () => { clearTimeout(timer); };
-    }, [edits, draftProblemsOnly]);
+        // previewAlter by its key: an equal entry asks for no new preview.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [edits, draftProblemsOnly, previewAlterKey]);
 
     if (data === undefined || draft === undefined) {
         return (

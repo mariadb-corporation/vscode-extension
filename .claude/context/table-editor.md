@@ -121,22 +121,29 @@ msm runs an ALTER TABLE the least disruptive way the server accepts
 LOCK=SHARED, LOCK=EXCLUSIVE; mariadb-shell-plugins `msm_plugin/.claude/
 context/online-alter.md`). `maxRebuildBytes` bounds both online rebuilds
 (INPLACE, COPY). msm refuses a spec that changes the partitioning or names
-ALGORITHM/LOCK; the table editor makes neither. The tab sets it per table, agreed with the msm session:
+ALGORITHM/LOCK; the table editor makes neither. The tab sets it per
+table, agreed with the msm session:
 
 - **Settings**: `enabled` plus msm's limits (`maxRebuildBytes`,
   `galeraMaxBytes`, `nboLock`, `maxLockedBytes`, `lockWait`,
   `maxRetries`); a key left out takes the inherited value, a size of null
-  is no limit. On by default, live tables too (msm's decision).
+  is no limit. On by default, live tables too (msm's decision). A field
+  whose inherited value msm left out shows "default".
   - Project table: `msm.get_online_alter_settings(table)`; inherited = the
     project's general values over msm's `defaults`. Save runs
     msm.edit_schema first, then `msm.set_online_alter_table` under the
     name the Save leaves (`ProjectTableSource.#keepOnlineAlter`);
     msm.edit_schema itself carries an entry over a `rename_table` and drops
     it with a `drop_table`. Deployments use it. The SQL preview asks for
-    merged ALTERs, as msm.edit_schema does.
+    merged ALTERs, as msm.edit_schema does. Where the settings write
+    fails after the edits were saved, the Save fails as a
+    `PartlyAppliedError` with `changed` set and no `done`: the panel
+    follows the rename and reads the table again.
   - Live table: the workspace (`OnlineAlterStore`; user's decision);
     inherited = `msm.get_online_alter_defaults()`. An msm without these
-    tools gives the tab `onlineAlterProblem` to show instead.
+    tools gives the tab `onlineAlterProblem` to show instead, and every
+    statement then runs as written. The defaults are asked once per
+    source.
 - **Live Apply** (`LiveTableSource.apply`): the migration is asked with
   `merge_alters` (one ALTER per table). Each ALTER of this table (by its
   `table`, under its old or new name) with a `spec` goes to
@@ -148,6 +155,12 @@ ALGORITHM/LOCK; the table editor makes neither. The tab sets it per table, agree
   binary without `merge_alters` gives no `spec`, so all runs as written.
   Dropping and re-adding a foreign key of one name stays two statements
   only with lsp-server #34: an older binary merges them.
+- **Live SQL Preview**: each statement Apply runs online gets
+  `ONLINE_ALTER_COMMENT` above it, a SQL comment saying msm runs it
+  through the steps and leaves the table as it is where none can.
+  `#runsOnline` is the one rule for the preview and Apply; the preview
+  request carries the tab's entry while it is changed and valid, so an
+  unsaved "Off" already shows the statements as written.
 - Changing settings alone is a Save of its own (badge "Online ALTER
   settings"), which refreshes no tree or diagram.
 
@@ -181,7 +194,15 @@ ALGORITHM/LOCK; the table editor makes neither. The tab sets it per table, agree
 - Online ALTER: `src/test/tableEditor/onlineAlter.test.ts`,
   `tableSources.test.ts` (fake binary and msm), the tab in
   `webview/test/TableEditor.test.tsx`.
+- Online ALTER end to end, opt-in: `src/test/tableEditor/
+  onlineAlter.e2e.test.ts` runs a live table's preview and Saves on a
+  sandbox through the real MCP server and mariadb-lsp (INPLACE for an
+  added column plus index, COPY for a type change, NEEDS_EXTERNAL with
+  the table unchanged, off, a rename). `MARIADB_SHELL_E2E=<mariadb-shell>
+  MARIADB_LSP=<mariadb-lsp> npx vitest run onlineAlter.e2e`, `mariadbd`
+  on the PATH, the plugins from `MARIADB_SHELL_PLUGINS` or the checkout
+  next to this repository. The project side (settings tools,
+  msm.edit_schema moving an entry) has no end-to-end test.
 - **Not yet tried in a running VS Code**: opening below the editor, a
-  live Apply against a server, a project's Save through msm, the diagram
-  menu entry, the Online Alter Table tab against msm (needs
-  mariadb-shell-plugins #95).
+  project's Save through msm, the diagram menu entry, the Online Alter
+  Table tab itself.

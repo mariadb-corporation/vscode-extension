@@ -69,7 +69,9 @@ export type TableEditorHostMessage =
 export type TableEditorWebviewMessage =
     | { type: "ready" }
     | { type: "refresh" }
-    | { type: "preview"; request: number; edits: IMsmSchemaEdit[] }
+    | { type: "preview"; request: number; edits: IMsmSchemaEdit[];
+        /** The tab's online ALTER entry, where it changed it. */
+        onlineAlter?: IOnlineAlterEntry }
     | { type: "apply"; edits: IMsmSchemaEdit[];
         /** The table's online ALTER entry, where the tab changed it. */
         onlineAlter?: IOnlineAlterEntry }
