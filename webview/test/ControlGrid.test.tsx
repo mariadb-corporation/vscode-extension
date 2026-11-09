@@ -135,5 +135,11 @@ describe("the grid's controls", () => {
         input.dataset.refocus = "true";
         input.focus();
         expect(options()).toEqual([]);
+        input.blur();
+
+        // Where the input it replaced had its list open, it opens again.
+        input.dataset.refocus = "open";
+        input.focus();
+        expect(options()).toHaveLength(4);
     });
 });

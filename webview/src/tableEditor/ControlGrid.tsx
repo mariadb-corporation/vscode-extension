@@ -273,8 +273,14 @@ export const ControlGrid = <T extends IGridRow>(props: {
         const focused = document.activeElement as HTMLElement | null;
         const key = focused?.dataset.key;
         const field = focused?.dataset.field;
-        const caret = focused instanceof HTMLInputElement
-            ? focused.selectionStart : null;
+        // Its selection, not only the caret: a combo's text is selected
+        // when Tab comes to it, and the commit of the input left redraws.
+        const selection = focused instanceof HTMLInputElement
+            && focused.selectionStart !== null
+            ? [focused.selectionStart,
+                focused.selectionEnd ?? focused.selectionStart] as const
+            : undefined;
+        const listOpen = focused?.getAttribute("aria-expanded") === "true";
         void instance.replaceData(props.rows).then(() => {
             if (focusAsked() || key === undefined || field === undefined) {
                 return;
@@ -283,12 +289,13 @@ export const ControlGrid = <T extends IGridRow>(props: {
             if (again === null) {
                 return;
             }
-            // Focused again, not by the user: a combo opens no list.
-            again.dataset.refocus = "true";
+            // Focused again, not by the user: a combo opens its list only
+            // where the one it replaces had it open.
+            again.dataset.refocus = listOpen ? "open" : "true";
             again.focus();
             delete again.dataset.refocus;
-            if (again instanceof HTMLInputElement && caret !== null) {
-                again.setSelectionRange(caret, caret);
+            if (again instanceof HTMLInputElement && selection !== undefined) {
+                again.setSelectionRange(...selection);
             }
         });
     }, [props.rows]);
@@ -531,8 +538,12 @@ export const comboInput = (
     input.addEventListener("focus", () => {
         if (input.dataset.refocus !== undefined) {
             // Built again under the focus: the list of the input it
-            // replaced goes.
+            // replaced goes, and opens again from this one where it was
+            // open.
             openList?.close();
+            if (input.dataset.refocus === "open") {
+                open(false);
+            }
 
             return;
         }
