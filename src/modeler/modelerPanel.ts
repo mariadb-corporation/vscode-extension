@@ -96,6 +96,8 @@ export class ModelerPanel {
     #editing: Promise<void> = Promise.resolve();
     /** Whether the page has the model: objects to place wait until then. */
     #loaded = false;
+    /** The diagrams of the model last read. */
+    #diagrams: string[] = [];
     /** Objects to place once the page has the model. */
     #toPlace: ISchemaObjectRef[] = [];
     #schema: string;
@@ -316,13 +318,14 @@ export class ModelerPanel {
             const { model, source } = await reading;
             this.#schema = model.schema;
             this.#sourceHash = model.sourceHash;
+            this.#diagrams = model.diagrams.map((diagram) => {
+                return diagram.name;
+            });
             // One deleted, the page shows the first: the title follows.
-            const shown = model.diagrams.some((diagram) => {
-                return diagram.name === this.#diagram;
-            }) ? this.#diagram : model.diagrams[0]?.name ?? this.#diagram;
-            this.#setDiagram(shown);
-            await this.host.views?.prune(this.source.key,
-                model.diagrams.map((diagram) => { return diagram.name; }));
+            this.#setDiagram(this.#diagrams.includes(this.#diagram)
+                ? this.#diagram : this.#diagrams[0] ?? this.#diagram);
+            // Not waited for: the views read next are the pruned ones.
+            void this.host.views?.prune(this.source.key, this.#diagrams);
             this.host.log(`Showing the diagrams of ${model.schema} `
                 + `from ${source}`);
             this.#post({
@@ -504,17 +507,28 @@ export class ModelerPanel {
     }
 
     /**
-     * Closes the source's panel, where one is up: its last diagram was
-     * deleted.
+     * Follows a diagram deleted: the source's panel, where one is up,
+     * closes where it was the last (a model has one at least), else reads
+     * the model again.
      *
      * @param source Where the model comes from.
+     * @param diagram The diagram's name.
+     *
+     * @returns Once the panel has it.
      */
-    public static close(source: IModelSource): void {
+    public static async removed(source: IModelSource,
+        diagram: string): Promise<void> {
         const panel = ModelerPanel.#open.get(source.key);
-        if (panel !== undefined) {
+        if (panel === undefined) {
+            return;
+        }
+        if (panel.#diagrams.every((name) => { return name === diagram; })) {
             // Its own dispose follows, on the panel's.
             panel.#panel.dispose();
+
+            return;
         }
+        await panel.#load();
     }
 
     /**

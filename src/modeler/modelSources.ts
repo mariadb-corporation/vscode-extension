@@ -548,15 +548,7 @@ export class ProjectModelSource implements IModelSource {
         } catch (error) {
             // A figure of an object that was not made goes with it.
             for (const document of documents) {
-                const pending = this.#pending.get(document.name);
-                if (pending?.timer !== undefined) {
-                    clearTimeout(pending.timer);
-                }
-                this.#pending.delete(document.name);
-                this.host.drafts.remove(this.projectPath, document.name);
-            }
-            if (documents.length > 0 && this.#pending.size === 0) {
-                this.onSaveState?.({ state: "saved" });
+                this.#drop(document.name);
             }
             throw error;
         }

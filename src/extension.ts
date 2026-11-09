@@ -1130,6 +1130,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
         }
     });
     context.subscriptions.push(scriptSaves);
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns The names of its diagrams, as msm lists them.
+     */
+    const diagramNamesOf = async (projectPath: string): Promise<string[]> => {
+        return (await (await msmApi()).listSchemaDiagrams(projectPath))
+            .diagrams.map((diagram) => { return diagram.name; });
+    };
     const openProjectDiagram = (projectPath: string, name: string): void => {
         ModelerPanel.show(context.extensionUri, projectDiagrams(projectPath),
             name, modelerHost);
@@ -1386,9 +1395,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     if (projectPath === undefined) {
                         return;
                     }
-                    const api = await msmApi();
-                    const taken = (await api.listSchemaDiagrams(projectPath))
-                        .diagrams.map((diagram) => { return diagram.name; });
+                    const taken = await diagramNamesOf(projectPath);
                     const name = (await vscode.window.showInputBox({
                         title: "New Schema Diagram",
                         prompt: `The new diagram's name in `
@@ -1401,7 +1408,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     if (name === undefined) {
                         return;
                     }
-                    await api.createEmptySchemaDiagram(projectPath, name);
+                    await (await msmApi()).createEmptySchemaDiagram(
+                        projectPath, name);
                     await diagramViews.forget(projectSourceKey(projectPath),
                         name);
                     msmProjects.refresh();
@@ -1418,9 +1426,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 const { projectPath, name } = node;
                 try {
                     // A case-only rename of itself is one.
-                    const others = (await (await msmApi())
-                        .listSchemaDiagrams(projectPath)).diagrams
-                        .map((diagram) => { return diagram.name; })
+                    const others = (await diagramNamesOf(projectPath))
                         .filter((other) => { return other !== name; });
                     const newName = (await vscode.window.showInputBox({
                         title: "Rename Schema Diagram",
@@ -1465,13 +1471,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     await source.removeDiagram(name);
                     await diagramViews.forget(source.key, name);
                     msmProjects.refreshProject(projectPath);
-                    const left = (await (await msmApi())
-                        .listSchemaDiagrams(projectPath)).diagrams;
-                    if (left.length === 0) {
-                        ModelerPanel.close(source);
-                    } else {
-                        await ModelerPanel.reload(source);
-                    }
+                    await ModelerPanel.removed(source, name);
                 } catch (error) {
                     reportError(log, error, "delete the schema diagram");
                 }
@@ -1554,8 +1554,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
         refresh: refreshServer,
         projectsChanged: () => { msmProjects.refresh(); },
         projectRemoved: (projectPath) => {
+            const removed = projectSourceKey(projectPath);
             void diagramViews.forgetSources((key) => {
-                return key === projectSourceKey(projectPath);
+                return key === removed;
             });
         },
         projectFolders: () => { return msmProjects.folders(); },

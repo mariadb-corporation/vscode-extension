@@ -98,9 +98,9 @@ export class DiagramViews {
         diagrams: readonly string[]): Promise<void> {
         const names = new Set(diagrams);
         await this.#change(source, (kept) => {
-            return Object.keys(kept).filter((name) => {
-                return !names.has(name);
-            });
+            return Object.fromEntries(Object.entries(kept).filter(([name]) => {
+                return names.has(name);
+            }));
         });
     }
 
@@ -114,8 +114,8 @@ export class DiagramViews {
      * @returns Once it is dropped.
      */
     public async forget(source: string, diagram: string): Promise<void> {
-        await this.#change(source, (kept) => {
-            return diagram in kept ? [diagram] : [];
+        await this.#change(source, ({ [diagram]: _gone, ...left }) => {
+            return left;
         });
     }
 
@@ -131,14 +131,9 @@ export class DiagramViews {
      */
     public async rename(source: string, from: string,
         to: string): Promise<void> {
-        const all = this.#all();
-        const view = all[source]?.[from];
-        if (view === undefined) {
-            return;
-        }
-        const { [from]: _old, ...others } = all[source];
-        await this.memento.update(DIAGRAM_VIEWS_KEY,
-            { ...all, [source]: { ...others, [to]: view } });
+        await this.#change(source, ({ [from]: view, ...others }) => {
+            return view === undefined ? others : { ...others, [to]: view };
+        });
     }
 
     /**
@@ -161,29 +156,25 @@ export class DiagramViews {
     }
 
     /**
-     * Drops some of a source's views, writing only where any go; a source
-     * left with none goes too.
+     * Changes a source's views, writing only where they changed; a source
+     * left with none goes.
      *
      * @param source The model source's key.
-     * @param dropped The names to drop, of the views it has.
+     * @param change Its views as they are to be, from the ones it has.
      *
-     * @returns Once they are dropped.
+     * @returns Once they are written.
      */
     async #change(source: string,
-        dropped: (kept: Record<string, IDiagramView>) => string[]):
-        Promise<void> {
+        change: (kept: Record<string, IDiagramView>) =>
+            Record<string, IDiagramView>): Promise<void> {
         const all = this.#all();
         const kept = all[source];
         if (kept === undefined) {
             return;
         }
-        const names = dropped(kept);
-        if (names.length === 0) {
+        const left = change(kept);
+        if (JSON.stringify(left) === JSON.stringify(kept)) {
             return;
-        }
-        const left = { ...kept };
-        for (const name of names) {
-            delete left[name];
         }
         const { [source]: _gone, ...others } = all;
         await this.memento.update(DIAGRAM_VIEWS_KEY,

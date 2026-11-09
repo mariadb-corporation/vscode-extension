@@ -234,11 +234,13 @@ describe("ModelerPanel", () => {
 
             // The one shown deleted: the page shows the first, and says so.
             diagrams = ["Other"];
-            await ModelerPanel.reload(from);
+            await ModelerPanel.removed(from, "Overview");
             expect(posted(panel).at(-1)).toMatchObject({ type: "load",
                 diagram: "Other" });
+            expect(panel.disposed).toBe(false);
 
-            ModelerPanel.close(from);
+            // The last one deleted: nothing is left to show.
+            await ModelerPanel.removed(from, "Other");
             expect(panel.disposed).toBe(true);
             // Closed: nothing is up to follow.
             await ModelerPanel.renamed(from, "Other", "Else");

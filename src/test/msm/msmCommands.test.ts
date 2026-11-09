@@ -34,7 +34,6 @@ import {
     MsmCommands,
     msmCall,
     diagramNameProblem,
-    diagramNameTaken,
     newDiagramName,
     projectContext,
 } from "../../msm/msmCommands.js";
@@ -288,8 +287,9 @@ describe("newDiagramName", () => {
     });
 
     it("takes a name in use in another case for taken", () => {
-        expect(diagramNameTaken(["Main", "Diagram 1"], "diagram 1")).toBe(true);
-        expect(diagramNameTaken(["Main"], "Diagram 1")).toBe(false);
+        expect(diagramNameProblem(["Main", "Diagram 1"], "diagram 1"))
+            .toBe("The project has a diagram diagram 1 already.");
+        expect(diagramNameProblem(["Main"], "Diagram 1")).toBeUndefined();
         expect(diagramNameProblem(["Main"], "  ")).toBe("Enter a name.");
         expect(diagramNameProblem(["Main"], "schema_definition"))
             .toMatch(/schema snapshot/u);

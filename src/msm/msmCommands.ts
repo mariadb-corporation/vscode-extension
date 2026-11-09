@@ -221,7 +221,7 @@ export const newDiagramName = (taken: readonly string[]): string => {
  * @returns Whether a diagram has that name already, in any case: their
  *          files would collide where the file system ignores case.
  */
-export const diagramNameTaken = (
+const diagramNameTaken = (
     taken: readonly string[],
     name: string,
 ): boolean => {
