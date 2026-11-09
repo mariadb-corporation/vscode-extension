@@ -208,7 +208,7 @@ export class McpSession {
         this.#connection = connection;
         this.#api = new MariaDbApi(connection);
         this.#sandboxApi = new SandboxApi(connection);
-        this.#restdApi = new RestdApi(connection);
+        this.#restdApi = new RestdApi(connection, this.log);
         this.#restTools = new RestToolsApi(connection, (action) => {
             this.onMrsAction?.(action);
         });

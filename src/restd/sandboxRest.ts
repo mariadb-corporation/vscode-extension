@@ -55,7 +55,8 @@ export interface ISandboxRestHost {
     api(): Promise<IMariaDbApi>;
     restdApi(): Promise<IRestdApi>;
     /**
-     * Keeps a failure's full text in a log file, for its row to open.
+     * Keeps a text that tells more than a row can show in a log file, for
+     * the row to open: a failure's full text, or an install's log.
      *
      * @returns The file.
      */
@@ -100,6 +101,26 @@ export const setupDetail = (setup: IRestdSetup): string => {
     return `Serves ${setup.url}`
         + (setup.installed ? ", mariadb-restd was installed" : "")
         + ` (${setup.directory})`;
+};
+
+/**
+ * The log a setup's row offers once done: what the install of mariadb-restd
+ * printed, where the setup made one. Kept in a file as a failed setup's
+ * text is, so the row has it either way; the MariaDB output channel has it
+ * too, as it has the shell's install.
+ *
+ * @param setup The REST Daemon set up.
+ * @param write Keeps a text in a log file, named so.
+ *
+ * @returns The file, or undefined where nothing was installed.
+ */
+export const installLogOf = (
+    setup: IRestdSetup,
+    write: (name: string, text: string) => Promise<string>,
+): Promise<string | undefined> => {
+    return setup.install_output === undefined || setup.install_output === ""
+        ? Promise.resolve(undefined)
+        : write("restd-install", setup.install_output);
 };
 
 /**
@@ -195,6 +216,11 @@ export const deploySandboxWithRest = async (
                     logOf: async (error) => {
                         return host.writeLog(`restd-setup-${port}`,
                             errorText(error));
+                    },
+                    logOfResult: (setup) => {
+                        return installLogOf(setup, (name, text) => {
+                            return host.writeLog(`${name}-${port}`, text);
+                        });
                     },
                 });
 

@@ -40,7 +40,7 @@ import {
 import { errorText } from "../text.js";
 import { ActionGroup, type ActionPutter, type IStepOptions,
     type IStepWords } from "./actionGroup.js";
-import { setupDetail, trustCertificateStep } from "./sandboxRest.js";
+import { installLogOf, setupDetail, trustCertificateStep } from "./sandboxRest.js";
 
 /** What the REST Daemon commands need from the extension. */
 export interface IRestdCommandsHost {
@@ -60,9 +60,9 @@ export interface IRestdCommandsHost {
 }
 
 /**
- * Keeps a failure's full text in a file of its own, for its row to open:
- * a setup's error carries everything mariadb-restd printed, more than a
- * row can show.
+ * Keeps a text that tells more than a row can show in a file of its own,
+ * for the row to open: a setup's error, which carries everything
+ * mariadb-restd printed, or the log of the install a setup made.
  *
  * @param folder Where.
  * @param name What it was, for the file name.
@@ -224,6 +224,12 @@ export class RestdCommands {
                 logOf: (error) => {
                     return writeRestdLog(this.host.logFolder,
                         `restd-setup-${context.server}`, errorText(error));
+                },
+                logOfResult: (setup) => {
+                    return installLogOf(setup, (name, text) => {
+                        return writeRestdLog(this.host.logFolder,
+                            `${name}-${context.server}`, text);
+                    });
                 },
             });
             if (values.trustCertificate && !context.certificateTrusted) {

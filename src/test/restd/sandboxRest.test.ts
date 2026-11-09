@@ -203,6 +203,33 @@ describe("deploySandboxWithRest", () => {
         expect(last().kind).toBe("error");
     });
 
+    it("offers the mariadb-restd install's log on the setup's row",
+        async () => {
+            const { host: plain, last } = createHost();
+            const host: ISandboxRestHost = {
+                ...plain,
+                restdApi: () => {
+                    return Promise.resolve({
+                        ...restdApi([]),
+                        configure: () => {
+                            return Promise.resolve({
+                                ...DEPLOYMENT, installed: true,
+                                setup_output: "",
+                                install_output: "Installing mariadb-restd",
+                            });
+                        },
+                    });
+                },
+            };
+
+            const deployed = await deploySandboxWithRest(host,
+                { port: 3311, password: "p" }, REST);
+
+            expect(await deployed.rest).toBe(true);
+            expect(last().children![2]).toMatchObject({ kind: "info",
+                logPath: "/logs/restd-install-3311.log" });
+        });
+
     it("keeps the sandbox where the daemon's setup fails, with its log",
         async () => {
             const failing = 'configure {"connectionId":"c1","password":"p",'

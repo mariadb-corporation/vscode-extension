@@ -20,10 +20,12 @@ import { describe, expect, it } from "vitest";
 import type { IToolCaller } from "../../mcp/mariaDbApi.js";
 import type { IToolResult } from "../../mcp/protocol.js";
 import {
+    MINIMUM_RESTD_VERSION,
     RESTD_LIFECYCLE_TIMEOUT_MS,
     RESTD_SETUP_TIMEOUT_MS,
     RestdApi,
 } from "../../mcp/restdApi.js";
+import { createRecordingLog } from "../helpers.js";
 
 interface ICall {
     name: string;
@@ -80,7 +82,7 @@ describe("RestdApi", () => {
                 name: "restd.configure_restd",
                 args: {
                     connection_id: "c1", password: "pw", sandbox_port: 3311,
-                    port: 9443,
+                    port: 9443, restd_version: MINIMUM_RESTD_VERSION,
                 },
                 timeoutMs: RESTD_SETUP_TIMEOUT_MS,
             }]);
@@ -91,7 +93,45 @@ describe("RestdApi", () => {
 
         await new RestdApi(caller).configure({ connectionId: "c1" });
 
-        expect(caller.calls[0]?.args).toEqual({ connection_id: "c1" });
+        expect(caller.calls[0]?.args).toEqual({
+            connection_id: "c1", restd_version: MINIMUM_RESTD_VERSION,
+        });
+    });
+
+    it("logs a mariadb-restd install, as the shell's install is logged",
+        async () => {
+            const caller = createCaller({
+                "restd.configure_restd": {
+                    content: [{
+                        type: "text",
+                        text: JSON.stringify({
+                            ...DEPLOYMENT, installed: true, setup_output: "",
+                            install_output: "Installing mariadb-restd with "
+                                + "https://x/install.sh.\n"
+                                + "  installer: ==> Downloading\n"
+                                + "The installer exited with code 0 after 9.1s.",
+                        }),
+                    }],
+                },
+            });
+            const log = createRecordingLog();
+
+            await new RestdApi(caller, log).configure({ connectionId: "c1" });
+
+            // One channel line per line, as installer.ts writes the shell's.
+            expect(log.lines).toEqual([
+                "Installing mariadb-restd with https://x/install.sh.",
+                "  installer: ==> Downloading",
+                "The installer exited with code 0 after 9.1s.",
+            ]);
+        });
+
+    it("logs nothing where nothing was installed", async () => {
+        const log = createRecordingLog();
+
+        await new RestdApi(createCaller(), log).configure({ connectionId: "c1" });
+
+        expect(log.lines).toEqual([]);
     });
 
     it("starts and stops by folder", async () => {

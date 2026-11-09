@@ -98,6 +98,27 @@ describe("ActionGroup", () => {
             summary: "Finished with 1 error", jumpToRowId: failed.id,
             logPath: "/logs/setup.log" });
     });
+    it("offers the log a done step's result names", async () => {
+        const rows = collect();
+        const group = new ActionGroup(rows.put, "General", WORDS);
+
+        await group.step({ doing: "Setting up", done: "Set up" },
+            "restd.configure_restd()",
+            () => { return Promise.resolve({ installed: true }); }, {
+                logOfResult: (value) => {
+                    return Promise.resolve(value.installed
+                        ? "/logs/install.log" : undefined);
+                },
+            });
+        group.finish();
+
+        const row = rows.last();
+        expect(row.children![0]).toMatchObject({ kind: "info",
+            message: "Set up", logPath: "/logs/install.log" });
+        // The whole names a log only where a step failed.
+        expect(row.logPath).toBeUndefined();
+    });
+
     it("fails as a whole where run fails outside any step", async () => {
         const rows = collect();
         const group = new ActionGroup(rows.put, "General", WORDS);

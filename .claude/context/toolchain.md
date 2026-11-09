@@ -159,23 +159,28 @@ since those come from `contributes`, not from the name.
 
 ## Releasing
 
-`/release [version|-] [shell-version|-] [ai-plugins-version|-] [--stable]`
-(`.claude/commands/release.md`) cuts a release: it checks the three versions
+`/release [version|-] [shell-version|-] [ai-plugins-version|-] [restd-version|-] [--stable]`
+(`.claude/commands/release.md`) cuts a release: it checks the four versions
 against what is published, suggests what was not given (the next `YY.MM.x`
-version, where `x` counts the month's releases from 0, and the latest shell
-and ai-plugins releases when they are newer, so a bare `/release` with
-nothing new upstream only bumps the version), has the user confirm any
-suggestion, sets them on a `wip/release-<version>` branch
-(`update_version.py --version`, `sync:skills -- --release`, `npm version`),
-and opens the PR. After the merge it builds the merge commit's `.vsix`,
+version, where `x` counts the month's releases from 0, and the latest
+shell, ai-plugins and rest-daemon releases when they are newer, so a bare
+`/release` with nothing new upstream only bumps the version), has the user
+confirm any suggestion, sets them on a `wip/release-<version>` branch
+(`update_version.py --version`, `sync:skills -- --release`,
+`MINIMUM_RESTD_VERSION` by hand, `npm version`), and opens the PR. After the merge it builds the merge commit's `.vsix`,
 tags it and attaches it to a GitHub release, then hands that same file to
 the user. The rules it rests on:
 
 - **Every input must be published.** The extension installs
   `MINIMUM_SHELL_VERSION` when there is no shell, so a floor above the newest
   shell release breaks the first start; the skills pin must be an ai-plugins
-  release. Both repositories publish only prereleases, so `releases/latest`
-  finds nothing: the releases are listed and sorted as versions.
+  release; the daemon pin (`MINIMUM_RESTD_VERSION`, `src/mcp/restdApi.ts`)
+  must be a rest-daemon release whose tag carries `install.sh` and
+  `install.ps1`, since the shell's plugin installs exactly that release
+  from its tag, so an unpublished pin fails every daemon setup until the
+  next extension release. All three repositories publish only prereleases,
+  so `releases/latest` finds nothing: the releases are listed and sorted as
+  versions.
 - **A Marketplace version is used once**, even after an unpublish, and must
   be a bare `X.Y.Z` (vsce refuses `-rc` suffixes).
 - **Pre-release by default.** A release is stable only with `--stable`,
