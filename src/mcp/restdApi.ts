@@ -54,6 +54,8 @@ export interface IRestdSetup extends IRestdDeployment {
     installed: boolean;
     /** What `mariadb-restd --setup` printed. */
     setup_output: string;
+    /** The install's log, where one ran. Missing from an older server's. */
+    install_output?: string;
 }
 
 /** Whether this system trusts the REST Daemons' HTTPS certificate. */
@@ -88,6 +90,20 @@ export interface IRestdConfigureOptions {
 }
 
 /**
+ * The mariadb-restd release the extension needs, pinned as
+ * `MINIMUM_SHELL_VERSION` pins the shell: `restd.configure_restd` passes over
+ * an installed daemon older than this, and where there is none new enough it
+ * installs exactly this release (`MARIADB_RESTD_TAG=v<version>`), not the
+ * newest one, with the install script at that release's tag, as
+ * `installScriptUrl` takes the shell's. `/release` moves it as it moves
+ * `MINIMUM_SHELL_VERSION`, and checks what it must name: a published release
+ * whose tag carries `install.sh` and `install.ps1` - 26.11.0 is the first
+ * that does, and the hard floor. Raise it by hand only when the extension
+ * comes to need a newer daemon between releases.
+ */
+export const MINIMUM_RESTD_VERSION = "26.11.0";
+
+/**
  * How long a setup may take. Where mariadb-restd is not installed, it is
  * downloaded first, which takes far more than the transport's minute.
  */
@@ -118,7 +134,15 @@ export interface IRestdApi {
 
 /** The REST Daemon tools of the MariaDB MCP server. */
 export class RestdApi implements IRestdApi {
-    public constructor(private readonly caller: IToolCaller) { }
+    /**
+     * @param caller Calls the tools.
+     * @param log The MariaDB output channel, where a mariadb-restd install
+     *            is logged as the shell's is.
+     */
+    public constructor(
+        private readonly caller: IToolCaller,
+        private readonly log?: (message: string) => void,
+    ) { }
 
     /**
      * @returns Every deployment the server knows of: the sandboxes' and
@@ -133,8 +157,8 @@ export class RestdApi implements IRestdApi {
 
     /**
      * Sets a daemon up for a server and starts it: configuring the REST
-     * metadata where there is none, and installing mariadb-restd where it
-     * is missing.
+     * metadata where there is none, and installing mariadb-restd
+     * `MINIMUM_RESTD_VERSION` where none that new is installed.
      *
      * @param options What to set up.
      *
@@ -145,16 +169,29 @@ export class RestdApi implements IRestdApi {
     ): Promise<IRestdSetup> {
         const name = "restd.configure_restd";
 
-        return decodeObject<IRestdSetup>(name, await this.caller.callTool(name, {
-            connection_id: options.connectionId,
-            ...(options.password === undefined
-                ? {} : { password: options.password }),
-            ...(options.sandboxPort === undefined
-                ? {} : { sandbox_port: options.sandboxPort }),
-            ...(options.port === undefined ? {} : { port: options.port }),
-            ...(options.metadataSchema === undefined
-                ? {} : { metadata_schema: options.metadataSchema }),
-        }, RESTD_SETUP_TIMEOUT_MS));
+        const setup = decodeObject<IRestdSetup>(name, await this.caller.callTool(
+            name, {
+                connection_id: options.connectionId,
+                ...(options.password === undefined
+                    ? {} : { password: options.password }),
+                ...(options.sandboxPort === undefined
+                    ? {} : { sandbox_port: options.sandboxPort }),
+                ...(options.port === undefined ? {} : { port: options.port }),
+                ...(options.metadataSchema === undefined
+                    ? {} : { metadata_schema: options.metadataSchema }),
+                restd_version: MINIMUM_RESTD_VERSION,
+            }, RESTD_SETUP_TIMEOUT_MS));
+        // The plugin writes its lines in the shape installer.ts gives the
+        // shell's install (`Installing ... with <url>.`, `Running the
+        // installer: ...`, `  installer: <line>`, `The installer exited
+        // ...`), so one channel line each reads as the shell's does.
+        for (const line of (setup.install_output ?? "").split("\n")) {
+            if (line !== "") {
+                this.log?.(line);
+            }
+        }
+
+        return setup;
     }
 
     /**

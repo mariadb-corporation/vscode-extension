@@ -211,8 +211,9 @@ export interface IActionRow {
      */
     resultId?: string;
     /**
-     * A log that tells more than the row has room for, set where an
-     * action failed and its log says why: a task's, a REST Daemon's.
+     * A log that tells more than the row has room for: a failed task's
+     * or REST Daemon step's, which says why, or the install a REST Daemon
+     * setup made along the way.
      */
     logPath?: string;
     /**

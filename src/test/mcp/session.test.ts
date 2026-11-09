@@ -54,6 +54,31 @@ describe("McpSession", () => {
             .toContain("Serving /usr/local/bin/mariadb-shell");
     });
 
+    it("hands its log to the REST Daemon API, so an install is logged",
+        async () => {
+            const connector = createFakeConnector((name) => {
+                return {
+                    content: [{
+                        type: "text",
+                        text: JSON.stringify(name === "restd.configure_restd"
+                            ? {
+                                directory: "/s/3311/mariadb-restd",
+                                status: "running", installed: true,
+                                setup_output: "",
+                                install_output: "Installing mariadb-restd",
+                            } : {}),
+                    }],
+                };
+            });
+            const log = createRecordingLog();
+            const session = new McpSession(connector, log);
+
+            await session.start(command);
+            await session.restdApi?.configure({ connectionId: "c1" });
+
+            expect(log.lines).toContain("Installing mariadb-restd");
+        });
+
     it("starts only one server when asked twice", async () => {
         const connector = createFakeConnector();
         const session = new McpSession(connector, createRecordingLog());
