@@ -220,11 +220,13 @@ describe("the MSM Projects view's menus", () => {
         }
     });
 
-    it("opens a project's diagrams from their folder and their rows", () => {
+    it("opens a project's diagrams from their folder and their rows, and "
+        + "renames and deletes one from its row", () => {
         expect(onRow("mariadbMsmDiagram", true))
             .toEqual([MSM_DIAGRAM_COMMANDS.open]);
-        expect(onRow("mariadbMsmDiagram", false))
-            .toEqual([MSM_DIAGRAM_COMMANDS.open]);
+        expect(onRow("mariadbMsmDiagram", false)).toEqual([
+            MSM_DIAGRAM_COMMANDS.open, MSM_DIAGRAM_COMMANDS.rename,
+            MSM_DIAGRAM_COMMANDS.remove]);
     });
 
     it("makes a project's schema snapshot again from its schema row", () => {

@@ -46,6 +46,7 @@ import { matchingTypes } from "../../../src/sql/columnTypes.js";
 import {
     isPlaceOf,
     parseSchemaObjectUris,
+    type IDiagramView,
     type ModelerHostMessage,
     type ModelerTarget,
     type SaveState,
@@ -243,6 +244,21 @@ interface IOpenMenu {
 /** How long loading may take before a spinner shows. */
 const SPINNER_DELAY_MS = 300;
 
+/**
+ * @param id A 3D preset's id, as kept.
+ * @param hasCustom Whether the user's own angles come with it.
+ *
+ * @returns The preset to show: the user's angles where they are there,
+ *          else a known preset, the default for one not known.
+ */
+const presetIdOf = (id: string | undefined, hasCustom: boolean): string => {
+    return id === CUSTOM_ISO_PRESET && hasCustom
+        ? CUSTOM_ISO_PRESET : isoPreset(id).id;
+};
+
+/** How long the view stays put before it is kept: a pan is over. */
+const VIEW_KEEP_DELAY_MS = 500;
+
 /** The size a picture without one of its own (an SVG) is placed at. */
 const DEFAULT_PICTURE = { width: 160, height: 120 };
 
@@ -302,6 +318,15 @@ export const ModelViewer = (): JSX.Element => {
     const editsSentRef = useRef<Array<((message: string) => void) | undefined>>([]);
     /** Settles the image tool's request once a file is picked, or none. */
     const pickRef = useRef<(picked: Promise<IPickedImage | undefined>) => void>();
+    /**
+     * How each diagram was last looked at, by name: what VS Code kept,
+     * and what changed since. A diagram opens as it was left.
+     */
+    const viewsRef = useRef(new Map<string, IDiagramView>());
+    /** The diagram on the canvas, whose view a change is of. */
+    const shownRef = useRef<string>();
+    /** Keeps the view once it settles. */
+    const viewTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
     const [loaded, setLoaded] = useState<ILoaded>();
     const [error, setError] = useState<string>();
@@ -318,10 +343,36 @@ export const ModelViewer = (): JSX.Element => {
             : customPreset(kept.custom.tilt, kept.custom.turn);
     });
     const [isoPresetId, setIsoPresetId] = useState(() => {
-        return kept.isoPreset === CUSTOM_ISO_PRESET && kept.custom !== undefined
-            ? CUSTOM_ISO_PRESET
-            : isoPreset(kept.isoPreset).id;
+        return presetIdOf(kept.isoPreset, kept.custom !== undefined);
     });
+    // Read when the view is kept, which happens outside a render.
+    const isoPresetRef = useRef(isoPresetId);
+    isoPresetRef.current = isoPresetId;
+
+    /**
+     * Keeps how the diagram on the canvas is looked at, here and by
+     * VS Code, where it changed.
+     */
+    const keepView = (): void => {
+        clearTimeout(viewTimerRef.current);
+        viewTimerRef.current = undefined;
+        const canvas = canvasRef.current;
+        const diagram = shownRef.current;
+        if (canvas === undefined || diagram === undefined) {
+            return;
+        }
+        const view: IDiagramView = {
+            ...canvas.view,
+            isoPreset: isoPresetRef.current,
+        };
+        const before = viewsRef.current.get(diagram);
+        if (before === undefined
+            || JSON.stringify(before) !== JSON.stringify(view)) {
+            viewsRef.current.set(diagram, view);
+            post({ type: "viewChanged", diagram, view });
+        }
+    };
+
     const [gridVisible, setGridVisible] = useState(true);
     const [pagesVisible, setPagesVisible] = useState(true);
     const [locked, setLocked] = useState(false);
@@ -504,6 +555,13 @@ export const ModelViewer = (): JSX.Element => {
                 }
             },
             onNavigator: setNavigator,
+            // Kept once it settles, not on every step of a pan.
+            onViewChanged: () => {
+                clearTimeout(viewTimerRef.current);
+                // It reads refs only: the first render's does as well.
+                viewTimerRef.current = setTimeout(keepView,
+                    VIEW_KEEP_DELAY_MS);
+            },
             // Every change of a project's diagram is kept and saved: those
             // whose document differs from what was sent last go.
             onHistory: () => {
@@ -545,12 +603,22 @@ export const ModelViewer = (): JSX.Element => {
                     });
                     // The diagram opened in the tree, else the first.
                     setDiagramName(message.diagram);
+                    // What VS Code kept; a view changed here since is newer.
+                    for (const [name, view] of Object.entries(
+                        message.views ?? {})) {
+                        if (!viewsRef.current.has(name)) {
+                            viewsRef.current.set(name, view);
+                        }
+                    }
                     keepState({ target: message.target });
                     const set = new EerFigureSet({
                         catalog: catalogFromModel(message.model),
                         diagrams: message.model.diagrams,
                         loadIcons,
                         editable: message.editable,
+                        onEditTable: (table: string) => {
+                            post({ type: "editTable", table });
+                        },
                         onSchemaEdit: (schemaEdits: IMsmSchemaEdit[],
                             changed?: IModelDiagram[],
                             failed?: (message: string) => void) => {
@@ -704,8 +772,20 @@ export const ModelViewer = (): JSX.Element => {
         canvas.cancelEdit();
         setEdit(undefined);
         setMenu(undefined);
+        // The diagram left is kept as it was left. The same one read again
+        // (a schema edit) stays where it is; another opens as it was left,
+        // or fitted, the first time.
+        keepView();
+        const view = viewsRef.current.get(diagram.name);
+        shownRef.current = diagram.name;
+        if (view !== undefined) {
+            if (view.isoPreset === CUSTOM_ISO_PRESET) {
+                setCustom(customPreset(view.tilt, view.turn));
+            }
+            setIsoPresetId(presetIdOf(view.isoPreset, true));
+        }
         loaded.set.show(diagram);
-        canvas.load(loaded.set, loaded.pageSettings)
+        canvas.load(loaded.set, loaded.pageSettings, view)
             .catch((reason: unknown) => {
                 setError(String(reason));
             });

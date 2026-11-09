@@ -28,6 +28,7 @@ import {
     type IModelerHost,
 } from "../../modeler/modelerPanel.js";
 import type {
+    IDiagramView,
     ModelerHostMessage,
     ModelerTarget,
 } from "../../modeler/modelerProtocol.js";
@@ -35,6 +36,8 @@ import type {
     IModelSource,
     ISchemaEditOutcome,
 } from "../../modeler/modelSources.js";
+import { DiagramViews } from "../../modeler/diagramViews.js";
+import { memoryMemento } from "../../tree/customFolders.js";
 import { DEFAULT_PAGE_SETTINGS } from "../../modeler/pageSettings.js";
 import {
     errorMessages,
@@ -102,6 +105,16 @@ const source = (
     return fake;
 };
 
+/**
+ * @param name A diagram's name.
+ *
+ * @returns An empty diagram of that name.
+ */
+const diagramNamed = (name: string): ISchemaModel["diagrams"][number] => {
+    return { name, width: 100, height: 100, layers: [], figures: [],
+        connections: [] };
+};
+
 const flush = async (): Promise<void> => {
     await new Promise((resolve) => { setTimeout(resolve, 0); });
 };
@@ -161,6 +174,76 @@ describe("ModelerPanel", () => {
             expect(logs[0]).toContain("Showing the diagrams of world");
 
             panel.dispose();
+        });
+
+    it("opens each diagram as it was last looked at, kept by VS Code",
+        async () => {
+            const views = new DiagramViews(memoryMemento());
+            let diagrams = ["MRS"];
+            const from = source("world", {
+                read: () => {
+                    return Promise.resolve({ model: { ...model,
+                        diagrams: diagrams.map(diagramNamed) },
+                    source: "world.msm_schema_diagrams" });
+                },
+            });
+            ModelerPanel.show(extensionUri as never, from, "MRS",
+                { ...host(), views });
+            const panel = lastPanel();
+            await ready(panel);
+            expect(posted(panel)[0]).toMatchObject({ type: "load", views: {} });
+
+            const view: IDiagramView = { zoom: 1.5, x: 120, y: -40,
+                mode: "iso", isoPreset: "custom", tilt: 0.5, turn: 0.25 };
+            (panel.webview as MockWebview).receive({ type: "viewChanged",
+                diagram: "MRS", view });
+            await flush();
+            expect(views.of(from.key)).toEqual({ MRS: view });
+
+            // Read again (a schema edit, a reopened panel): it comes along.
+            await ModelerPanel.reload(from);
+            expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+                views: { MRS: view } });
+
+            // Deleted or renamed in msm: its view goes as the model is read.
+            diagrams = ["Renamed"];
+            await ModelerPanel.reload(from);
+            expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+                views: {} });
+            expect(views.of(from.key)).toEqual({});
+        });
+
+    it("follows a diagram renamed or deleted, and closes with the last",
+        async () => {
+            let diagrams = ["Main", "Other"];
+            const from = source("world", {
+                read: () => {
+                    return Promise.resolve({ model: { ...model,
+                        diagrams: diagrams.map(diagramNamed) },
+                    source: "world.msm_schema_diagrams" });
+                },
+            });
+            const panel = show("Main", from);
+            await ready(panel);
+
+            diagrams = ["Overview", "Other"];
+            await ModelerPanel.renamed(from, "Main", "Overview");
+            expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+                diagram: "Overview" });
+            expect(panel.title).toContain("Overview");
+
+            // The one shown deleted: the page shows the first, and says so.
+            diagrams = ["Other"];
+            await ModelerPanel.removed(from, "Overview");
+            expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+                diagram: "Other" });
+            expect(panel.disposed).toBe(false);
+
+            // The last one deleted: nothing is left to show.
+            await ModelerPanel.removed(from, "Other");
+            expect(panel.disposed).toBe(true);
+            // Closed: nothing is up to follow.
+            await ModelerPanel.renamed(from, "Other", "Else");
         });
 
     it("tells the page when the model cannot be read", async () => {

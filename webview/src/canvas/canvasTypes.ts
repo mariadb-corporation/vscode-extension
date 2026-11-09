@@ -15,6 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import type { IDiagramView } from "../../../src/modeler/modelerProtocol.js";
 import type * as THREE from "three";
 
 import type { IRect } from "../../../src/modeler/pageSettings.js";
@@ -423,6 +424,13 @@ export interface IEditRequest {
     serial: number;
 }
 
+/**
+ * How much one zoom step changes the zoom: a click of the zoom tool (or
+ * with Cmd/Ctrl + Space or Z held) zooms in by it, with Alt out by it;
+ * the Navigator's - and + do the same.
+ */
+export const ZOOM_STEP = 1.25;
+
 /** The tools the canvas itself knows. */
 export const CANVAS_TOOLS = ["pointer", "hand", "zoom"] as const;
 
@@ -434,6 +442,12 @@ export type Tool = typeof CANVAS_TOOLS[number] | (string & {});
 
 /** Which way the page is looked at. */
 export type ViewMode = "2d" | "iso";
+
+/**
+ * Where the view is: what a diagram is opened at again, all but the 3D
+ * preset's name, which is the viewer's.
+ */
+export type ICanvasView = Omit<IDiagramView, "isoPreset">;
 
 /** What the canvas reports. */
 export interface ICanvasEvents {
@@ -463,6 +477,11 @@ export interface ICanvasEvents {
     onIsoAngles?(angles: IIsoAngles, final: boolean): void;
     /** What the Navigator shows, after every frame while it is shown. */
     onNavigator?(state: INavigatorState): void;
+    /**
+     * The view moved: a pan, a zoom, a turn, on every step of one. Read
+     * `view` once it settles.
+     */
+    onViewChanged?(): void;
 }
 
 /** What the Navigator shows. */

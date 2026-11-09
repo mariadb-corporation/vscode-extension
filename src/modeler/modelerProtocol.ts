@@ -37,6 +37,25 @@ export type ModelerTarget =
     | { kind: "connection"; connection: string; schema: string; diagram: string }
     | { kind: "project"; projectPath: string; diagram: string };
 
+/**
+ * How a diagram was last looked at, to open it the same way: kept by
+ * VS Code (the workspace's state), not in the diagram.
+ */
+export interface IDiagramView {
+    /** The zoom, 1 being life size. */
+    zoom: number;
+    /** The point of the page at the middle of the view. */
+    x: number;
+    y: number;
+    /** The projection: flat, or the 3D view. */
+    mode: "2d" | "iso";
+    /** The 3D view picked: a preset's id, or the user's own angles. */
+    isoPreset: string;
+    /** The 3D view's angles, in radians. */
+    tilt: number;
+    turn: number;
+}
+
 /** An object of a diagram's schema, by name. */
 export interface ISchemaObjectRef {
     type: ObjectType;
@@ -146,6 +165,8 @@ export type ModelerWebviewMessage =
     | { type: "ready" }
     /** The diagram shown, however it was picked: for the tab's title. */
     | { type: "diagramShown"; name: string }
+    /** How a diagram is looked at now, to open it so again. */
+    | { type: "viewChanged"; diagram: string; view: IDiagramView }
     /** A diagram changed: to be kept and saved (editable models only). */
     | { type: "diagramChanged"; document: IDiagramDocument }
     /** The picture of an image figure that came without one. */
@@ -181,7 +202,9 @@ export type ModelerWebviewMessage =
      * have just ended. VS Code drops none into a webview, so the pointer's
      * coming back after the drag stands in for the drop.
      */
-    | { type: "pointerArrived"; x: number; y: number };
+    | { type: "pointerArrived"; x: number; y: number }
+    /** A table card's menu: Edit Table, in the table editor. */
+    | { type: "editTable"; table: string };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =
@@ -197,6 +220,8 @@ export type ModelerHostMessage =
         editable: boolean;
         /** What the panel is restored from, kept in the webview's state. */
         target: ModelerTarget;
+        /** How each diagram was last looked at, by name. */
+        views?: Record<string, IDiagramView>;
     }
     /** Show another of the model's diagrams: opened again in the tree. */
     | { type: "showDiagram"; name: string }

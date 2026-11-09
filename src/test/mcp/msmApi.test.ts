@@ -465,6 +465,8 @@ describe("MsmApi", () => {
                 "msm.list_schema_diagrams": structured({
                     schema_definition: null, diagrams: [],
                 }),
+                "msm.remove_schema_diagram": structured(["/p/a.sql"]),
+                "msm.rename_schema_diagram": structured(["/p/a.sql"]),
                 "msm.create_schema_diagram": structured({
                     name: "Diagram 1", figures: 0, connections: 0,
                     files: ["/p/a.sql"],
@@ -495,6 +497,19 @@ describe("MsmApi", () => {
             expect(caller.calls[2]).toEqual({
                 name: "msm.create_schema_diagram",
                 args: { name: "Diagram 1", tables: [],
+                    schema_project_path: PROJECT } });
+
+            // Removed and renamed by name; msm answers the files written.
+            expect(await api.removeSchemaDiagram(PROJECT, "Main"))
+                .toEqual(["/p/a.sql"]);
+            expect(caller.calls[3]).toEqual({
+                name: "msm.remove_schema_diagram",
+                args: { name: "Main", schema_project_path: PROJECT } });
+            expect(await api.renameSchemaDiagram(PROJECT, "Main", "Overview"))
+                .toEqual(["/p/a.sql"]);
+            expect(caller.calls[4]).toEqual({
+                name: "msm.rename_schema_diagram",
+                args: { name: "Main", new_name: "Overview",
                     schema_project_path: PROJECT } });
         });
 

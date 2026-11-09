@@ -21,7 +21,8 @@ viewer is [`modeler.md`](modeler.md), its palette
   selected on a diagram in full, editable; the same view below Connections
   for live objects, read only for now, on the same code.
 - Then a compressed, read-only view for the side bars, the editing going
-  to a dedicated object editor, still to come. A tab of the MariaDB
+  to a dedicated object editor: for tables, the table editor
+  ([`table-editor.md`](table-editor.md)); the other kinds still to come. A tab of the MariaDB
   panel (wider, one implementation) was tried for it and dropped.
 
 ## Where it lives

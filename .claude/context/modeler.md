@@ -216,6 +216,11 @@ figure sets, so the canvas knows nothing of tables or layers:
 What each kind of figure is drawn as, its menu, connections between them
 and figures sized to their content: see [modeler-figures.md](modeler-figures.md).
 
+## The view
+
+The Navigator, where a diagram opens (the views VS Code keeps), and the
+shortcuts: see [modeler-view.md](modeler-view.md).
+
 ## Tables and layers
 
 - **Workbench's rules** (`layerRules.ts`, pure, tested): a table lies ON
@@ -235,7 +240,8 @@ and figures sized to their content: see [modeler-figures.md](modeler-figures.md)
   its first and last segments at their tables' heights and spans the
   difference in its middle segment alone. Everything the canvas places (outline, handles, menu
   button, input, hit tests, drags) uses an item's own height.
-- **Menus.** A table's: Collapse / Expand, Show Indexes, Show Foreign
+- **Menus.** A table's: Edit Table... (the table editor, see
+  [`table-editor.md`](table-editor.md); `onEditTable` → `editTable`), Collapse / Expand, Show Indexes, Show Foreign
   Keys, Auto-Size Height, Rename Table. A layer's: Rename Layer, Select
   Tables on Layer, Fit to Tables (`fitAround`: 20 around, 26 above for the
   name). Opened by a right-click, or the hamburger an item shows while
@@ -265,26 +271,6 @@ and figures sized to their content: see [modeler-figures.md](modeler-figures.md)
   diagram and connection of the model. Cmd+Z / Cmd+Shift+Z (Ctrl
   elsewhere); the history is kept (`entries`, `onHistory`) for a list the
   user wants later.
-
-## The Navigator
-
-A panel 15px in from the canvas's top right corner, 192px wide (`Navigator.tsx`;
-20% under the first 240px, to cover less of the diagram):
-title "Navigator" with a hamburger (Fit Diagram, Actual Size, Hide
-Navigator; the toolbar's Navigator button brings it back, kept in the
-webview state), the overview, and below it (as in Workbench) a zoom
-slider (log scale over `ZOOM_RANGE`) with the zoom's value as a split
-button (`SplitButton`, as the Isometric one: the value does again what
-was last picked, 100% at first; its chevron lists Fit the Pages, as the
-toolbar's button, then 50 / 75 / 100 / 150%, `ZOOM_PRESETS`). The panel draws no overview: its area is transparent and the
-canvas renders the scene into that part of its own WebGL canvas with a
-second, top-down camera (`#renderNavigator`, scissor + viewport), so it
-stays 2D in a 3D view without a second WebGL context. The part in view is
-the four screen corners on the page (`INavigatorState.view`): a rectangle
-in 2D, a quadrilateral in 3D, drawn as an SVG polygon in
-`--vscode-focusBorder`, 1px, over black at 7%. Dragging pans
-(`navigatorPan`); a press outside it centres the view there first
-(`navigatorCenter`).
 
 ## Rendering notes
 
@@ -332,16 +318,6 @@ in 2D, a quadrilateral in 3D, drawn as an SVG polygon in
 - **Around the paper** is the theme's widget background darkened to 60%
   (dark themes) or 80% (light) in sRGB (`outsideColor`), the Navigator's
   margin too.
-
-## Shortcuts
-
-Space + drag pans (hand tool too); Space + Cmd + click zooms in, with Alt
-out; Z + click zooms in, Alt + Z out (zoom tool too); Cmd/Ctrl + wheel or
-a pinch zooms about the cursor, a plain wheel pans; Cmd/Ctrl + 0 fits,
-Cmd/Ctrl + 1 is 100%; Cmd + drag orbits; Option + drag on a layer (3D)
-raises it; Shift or Cmd + click toggles the selection. Modifiers are read
-off every event (macOS swallows keyups while Cmd is down); Space and Z
-are dropped when Cmd goes up, on blur and when hidden.
 
 ## Known gaps / next steps
 

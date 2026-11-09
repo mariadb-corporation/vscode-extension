@@ -31,6 +31,8 @@ import type { SandboxWebviewMessage }
     from "../../src/sandboxes/sandboxProtocol.js";
 import type { UtilWebviewMessage }
     from "../../src/util/utilProtocol.js";
+import type { TableEditorWebviewMessage }
+    from "../../src/tableEditor/tableEditorProtocol.js";
 import type { WebviewMessage } from "../../src/webview/protocol.js";
 
 /** The bridge VS Code injects into every webview. */
@@ -74,7 +76,7 @@ export const post = <
     T extends WebviewMessage | EditorWebviewMessage | SandboxWebviewMessage
     | MrsWebviewMessage | UtilWebviewMessage | ModelerWebviewMessage
     | MsmWebviewMessage | DeploymentWebviewMessage | OverviewWebviewMessage
-    | DetailsWebviewMessage,
+    | DetailsWebviewMessage | TableEditorWebviewMessage,
 >(
     message: T,
 ): void => {

@@ -33,7 +33,7 @@ import {
     MSM_LIST_COMMANDS,
     MsmCommands,
     msmCall,
-    diagramNameTaken,
+    diagramNameProblem,
     newDiagramName,
     projectContext,
 } from "../../msm/msmCommands.js";
@@ -98,6 +98,8 @@ interface IRecorded {
     revealed: string[];
     /** How often the MSM Projects view was told to read the list again. */
     projectsChanged: number;
+    /** The projects taken off the list. */
+    removedProjects: string[];
     /** The projects shown in the MSM Projects view. */
     revealedProjects: string[];
 }
@@ -120,6 +122,7 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         calls: [], rows: [], connected: [], sessions: [], disconnected: [],
         shownActions: [], refreshed: [],
         logs: [], revealed: [], projectsChanged: 0, revealedProjects: [],
+        removedProjects: [],
     };
     const answer = <T>(name: keyof IMsmApi, value: T) => {
         return (...args: unknown[]): Promise<T> => {
@@ -155,6 +158,8 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         getSchemaDiagramImage: answer("getSchemaDiagramImage", ""),
         setSchemaDiagram: answer("setSchemaDiagram", []),
         createEmptySchemaDiagram: answer("createEmptySchemaDiagram", undefined),
+        removeSchemaDiagram: answer("removeSchemaDiagram", []),
+        renameSchemaDiagram: answer("renameSchemaDiagram", []),
         updateSchemaDefinition: answer("updateSchemaDefinition", undefined),
         editSchema: answer("editSchema", {
             rows: [], files: [], migration: [], notes: [],
@@ -193,6 +198,9 @@ const setUp = (options: ISetUp = {}): IRecorded => {
                 .includes(path));
         },
         projectsChanged: () => { recorded.projectsChanged += 1; },
+        projectRemoved: (projectPath) => {
+            recorded.removedProjects.push(projectPath);
+        },
         projectFolders: () => { return Promise.resolve(["/Shop"]); },
         listedProject: (projectPath) => {
             return Promise.resolve((options.listed ?? [LISTED]).find(
@@ -279,8 +287,17 @@ describe("newDiagramName", () => {
     });
 
     it("takes a name in use in another case for taken", () => {
-        expect(diagramNameTaken(["Main", "Diagram 1"], "diagram 1")).toBe(true);
-        expect(diagramNameTaken(["Main"], "Diagram 1")).toBe(false);
+        expect(diagramNameProblem(["Main", "Diagram 1"], "diagram 1"))
+            .toBe("The project has a diagram diagram 1 already.");
+        expect(diagramNameProblem(["Main"], "Diagram 1")).toBeUndefined();
+        expect(diagramNameProblem(["Main"], "  ")).toBe("Enter a name.");
+        expect(diagramNameProblem(["Main"], "schema_definition"))
+            .toMatch(/schema snapshot/u);
+        expect(diagramNameProblem(["Main"], "Schema_Definition"))
+            .toMatch(/schema snapshot/u);
+        expect(diagramNameProblem(["Main"], " main ")).toBe(
+            "The project has a diagram main already.");
+        expect(diagramNameProblem(["Main"], "Overview")).toBeUndefined();
     });
 });
 
@@ -1141,7 +1158,18 @@ describe("the MSM Projects list", () => {
             { name: "removeProject", args: [PROJECT] },
         ]);
         expect(recorded.projectsChanged).toBe(1);
+        expect(recorded.removedProjects).toEqual([PROJECT]);
     });
+
+    it("keeps a project's diagram views where msm does not remove it",
+        async () => {
+            const recorded = setUp({ fail: ["removeProject", "locked"] });
+            await run(MSM_LIST_COMMANDS.removeFromProjects,
+                { kind: "project", project: LISTED });
+
+            expect(recorded.removedProjects).toEqual([]);
+            expect(recorded.projectsChanged).toBe(1);
+        });
 
     it("edits the development version and the list's settings, sending "
         + "only what changed", async () => {

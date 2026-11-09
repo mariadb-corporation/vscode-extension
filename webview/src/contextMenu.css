@@ -35,7 +35,10 @@
 }
 
 .copyMenuItem {
+    /* A page's own button rules (a height, say) are not the menu's. */
+    position: relative;
     display: block;
+    height: auto;
     width: calc(100% - 8px);
     margin: 0 4px;
     padding: 3px 20px;
@@ -55,6 +58,13 @@
             var(--vscode-list-activeSelectionBackground));
     color: var(--vscode-menu-selectionForeground,
             var(--vscode-list-activeSelectionForeground));
+}
+
+/* The choice picked, in the padding at the item's left. */
+.copyMenuItem.checked::before {
+    content: "\2713";
+    position: absolute;
+    left: 6px;
 }
 
 .copyMenuSeparator {

@@ -21,6 +21,7 @@ import { reportError } from "../errorMessages.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { errorText } from "../text.js";
 import type { IDetailEdits } from "../details/detailEdits.js";
+import type { DiagramViews } from "./diagramViews.js";
 import type { IDiagramDocument } from "./modelFormat.js";
 import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
@@ -60,6 +61,10 @@ export interface IModelerHost {
      * what rows dropped on the page were.
      */
     draggedObjects?(): string | undefined;
+    /** Opens a table of the shown schema in the table editor. */
+    editTable?(target: ModelerTarget, table: string): void;
+    /** How each diagram was last looked at, kept by VS Code. */
+    views?: DiagramViews;
 }
 
 /** The view type the panels are registered under. */
@@ -91,6 +96,8 @@ export class ModelerPanel {
     #editing: Promise<void> = Promise.resolve();
     /** Whether the page has the model: objects to place wait until then. */
     #loaded = false;
+    /** The diagrams of the model last read. */
+    #diagrams: string[] = [];
     /** Objects to place once the page has the model. */
     #toPlace: ISchemaObjectRef[] = [];
     #schema: string;
@@ -231,6 +238,12 @@ export class ModelerPanel {
                 break;
             }
 
+            case "viewChanged": {
+                void this.host.views?.keep(this.source.key, message.diagram,
+                    message.view);
+                break;
+            }
+
             case "diagramChanged": {
                 this.source.changed?.(message.document);
                 break;
@@ -244,6 +257,12 @@ export class ModelerPanel {
             case "selection": {
                 this.host.selected?.(this.source.target(this.#diagram),
                     message.objects);
+                break;
+            }
+
+            case "editTable": {
+                this.host.editTable?.(this.source.target(this.#diagram),
+                    message.table);
                 break;
             }
 
@@ -299,7 +318,14 @@ export class ModelerPanel {
             const { model, source } = await reading;
             this.#schema = model.schema;
             this.#sourceHash = model.sourceHash;
-            this.#setDiagram(this.#diagram);
+            this.#diagrams = model.diagrams.map((diagram) => {
+                return diagram.name;
+            });
+            // One deleted, the page shows the first: the title follows.
+            this.#setDiagram(this.#diagrams.includes(this.#diagram)
+                ? this.#diagram : this.#diagrams[0] ?? this.#diagram);
+            // Not waited for: the views read next are the pruned ones.
+            void this.host.views?.prune(this.source.key, this.#diagrams);
             this.host.log(`Showing the diagrams of ${model.schema} `
                 + `from ${source}`);
             this.#post({
@@ -310,6 +336,7 @@ export class ModelerPanel {
                 diagram: this.#diagram,
                 editable: this.source.editable,
                 target: this.source.target(this.#diagram),
+                views: this.host.views?.of(this.source.key),
             });
             this.#loaded = true;
             if (this.#toPlace.length > 0) {
@@ -454,6 +481,60 @@ export class ModelerPanel {
         if (panel !== undefined) {
             await panel.#load();
         }
+    }
+
+    /**
+     * Follows a diagram renamed: the source's panel, where one is up,
+     * shows it under its new name where it showed it, and reads the model
+     * again.
+     *
+     * @param source Where the model comes from.
+     * @param from The diagram's old name.
+     * @param to Its new name.
+     *
+     * @returns Once the panel has it.
+     */
+    public static async renamed(source: IModelSource, from: string,
+        to: string): Promise<void> {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined) {
+            return;
+        }
+        if (panel.#diagram === from) {
+            panel.#setDiagram(to);
+        }
+        // A read started before the rename has the old name.
+        panel.#reading = undefined;
+        await panel.#load();
+    }
+
+    /**
+     * Follows a diagram deleted: the source's panel, where one is up,
+     * closes where it was the last (a model has one at least), else reads
+     * the model again.
+     *
+     * @param source Where the model comes from.
+     * @param diagram The diagram's name.
+     *
+     * @returns Once the panel has it.
+     */
+    public static async removed(source: IModelSource,
+        diagram: string): Promise<void> {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined) {
+            return;
+        }
+        // Not read yet, its diagrams are not known: it reads them.
+        if (panel.#diagrams.length > 0
+            && panel.#diagrams.every((name) => { return name === diagram; })) {
+            // Its own dispose follows, on the panel's.
+            panel.#panel.dispose();
+
+            return;
+        }
+        // A read started before the removal still has it.
+        panel.#reading = undefined;
+        await panel.#load();
     }
 
     /**

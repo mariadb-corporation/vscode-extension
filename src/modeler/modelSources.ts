@@ -143,6 +143,44 @@ const hashesOf = (rows: readonly IDiagramRow[]): Map<string, string> => {
     }));
 };
 
+/**
+ * @param connection A connection's URI.
+ * @param schema One of its schemas.
+ *
+ * @returns The key of that schema's model source.
+ */
+export const connectionSourceKey = (connection: string,
+    schema: string): string => {
+    return JSON.stringify(["connection", connection, schema]);
+};
+
+/**
+ * @param key A model source's key.
+ * @param connection A connection's URI.
+ *
+ * @returns Whether it is one of that connection's schemas'.
+ */
+export const isConnectionSourceKey = (key: string,
+    connection: string): boolean => {
+    try {
+        const parsed: unknown = JSON.parse(key);
+
+        return Array.isArray(parsed) && parsed[0] === "connection"
+            && parsed[1] === connection;
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * @param projectPath An MSM project's folder.
+ *
+ * @returns The key of its model source.
+ */
+export const projectSourceKey = (projectPath: string): string => {
+    return JSON.stringify(["project", projectPath]);
+};
+
 /** The schema of a connection, read from its diagrams view. */
 export class ConnectionModelSource implements IModelSource {
     public readonly editable = false;
@@ -159,7 +197,7 @@ export class ConnectionModelSource implements IModelSource {
     ) { }
 
     public get key(): string {
-        return JSON.stringify(["connection", this.connection, this.schema]);
+        return connectionSourceKey(this.connection, this.schema);
     }
 
     public get schemaTitle(): string {
@@ -245,6 +283,11 @@ export class ProjectModelSource implements IModelSource {
     readonly #pending = new Map<string, IPending>();
     /** Each diagram's hash as the project has it. */
     #bases = new Map<string, string>();
+    /**
+     * Diagrams deleted or renamed away since the model was last read:
+     * changes the page still sends under such a name would make it again.
+     */
+    readonly #gone = new Set<string>();
     #schema: string;
 
     /**
@@ -261,7 +304,7 @@ export class ProjectModelSource implements IModelSource {
     }
 
     public get key(): string {
-        return JSON.stringify(["project", this.projectPath]);
+        return projectSourceKey(this.projectPath);
     }
 
     public get schemaTitle(): string {
@@ -280,6 +323,7 @@ export class ProjectModelSource implements IModelSource {
             return api.getSchemaDiagrams(this.projectPath);
         }, (read) => { return counted(read.length, "document"); });
         this.#bases = hashesOf(rows);
+        this.#gone.clear();
         const model = assembleSchemaModel(rows);
         this.#schema = model.schema;
         await this.#takeDrafts(model);
@@ -344,6 +388,9 @@ export class ProjectModelSource implements IModelSource {
     }
 
     public changed(document: IDiagramDocument): void {
+        if (this.#gone.has(document.name)) {
+            return;
+        }
         this.#schedule(document, true);
     }
 
@@ -437,6 +484,79 @@ export class ProjectModelSource implements IModelSource {
         await Promise.all(saves);
     }
 
+    /**
+     * Removes a diagram from the project. Its changes not saved yet go
+     * with it - a save or a draft left would make it again - and the
+     * removal waits for a save already under way. Where msm does not
+     * remove it, they are kept again; changes sent under its name until
+     * the model is read again are ignored.
+     *
+     * @param name The diagram's name.
+     *
+     * @returns Once msm removed it.
+     */
+    public async removeDiagram(name: string): Promise<void> {
+        const unsaved = this.#pending.get(name)?.document;
+        this.#drop(name);
+        this.#gone.add(name);
+        try {
+            await this.#enqueuedAction({
+                doing: `Deleting the diagram ${name} of ${this.#schema}`,
+                done: `Deleted the diagram ${name} of ${this.#schema}`,
+            }, "msm.remove_schema_diagram", { name }, (api) => {
+                return api.removeSchemaDiagram(this.projectPath, name);
+            }, (files) => { return counted(files.length, "file"); });
+        } catch (error) {
+            this.#gone.delete(name);
+            if (unsaved !== undefined) {
+                this.#schedule(unsaved, true);
+            }
+            throw error;
+        }
+        this.#bases.delete(name);
+    }
+
+    /**
+     * Renames a diagram of the project. Its changes are saved first, so
+     * msm renames them too; ones made while it renames follow the name.
+     *
+     * @param name The diagram's name.
+     * @param newName Its new name.
+     *
+     * @returns Once msm renamed it.
+     */
+    public async renameDiagram(name: string, newName: string): Promise<void> {
+        await this.flush();
+        await this.#enqueuedAction({
+            doing: `Renaming the diagram ${name} of ${this.#schema}`,
+            done: `Renamed the diagram ${name} of ${this.#schema} `
+                + `to ${newName}`,
+        }, "msm.rename_schema_diagram", { name, new_name: newName }, (api) => {
+            return api.renameSchemaDiagram(this.projectPath, name, newName);
+        }, (files) => { return counted(files.length, "file"); });
+        // The hash takes the name in: the next read has the renamed one's.
+        this.#bases.delete(name);
+        const later = this.#pending.get(name);
+        this.#drop(name);
+        this.#gone.add(name);
+        this.#gone.delete(newName);
+        if (later !== undefined) {
+            this.#schedule({ ...later.document, name: newName }, true);
+        }
+    }
+
+    /** Forgets a diagram's changes not saved yet, and their draft. */
+    #drop(name: string): void {
+        const pending = this.#pending.get(name);
+        if (pending?.timer !== undefined) {
+            clearTimeout(pending.timer);
+        }
+        if (this.#pending.delete(name) && this.#pending.size === 0) {
+            this.onSaveState?.({ state: "saved" });
+        }
+        this.host.drafts.remove(this.projectPath, name);
+    }
+
     public async edit(
         edits: IMsmSchemaEdit[],
         baseHash: string,
@@ -451,15 +571,7 @@ export class ProjectModelSource implements IModelSource {
         } catch (error) {
             // A figure of an object that was not made goes with it.
             for (const document of documents) {
-                const pending = this.#pending.get(document.name);
-                if (pending?.timer !== undefined) {
-                    clearTimeout(pending.timer);
-                }
-                this.#pending.delete(document.name);
-                this.host.drafts.remove(this.projectPath, document.name);
-            }
-            if (documents.length > 0 && this.#pending.size === 0) {
-                this.onSaveState?.({ state: "saved" });
+                this.#drop(document.name);
             }
             throw error;
         }

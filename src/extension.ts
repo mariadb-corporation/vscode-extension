@@ -44,7 +44,7 @@ import {
 import { UtilCommands } from "./util/utilCommands.js";
 import type { IMsmApi } from "./mcp/msmApi.js";
 import {
-    diagramNameTaken, MsmCommands, newDiagramName, projectPathOf,
+    diagramNameProblem, MsmCommands, newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
 import { projectOfScriptFile } from "./msm/msmFields.js";
 import { SettledSaves } from "./msm/settledSaves.js";
@@ -114,15 +114,21 @@ import { createLoggingSandboxApi } from "./sandboxes/sandboxActivity.js";
 import { SandboxStore } from "./sandboxes/sandboxStore.js";
 import { SandboxEditorPanel } from "./sandboxes/sandboxEditorPanel.js";
 import { DiagramDrafts } from "./modeler/diagramDrafts.js";
+import { DiagramViews } from "./modeler/diagramViews.js";
 import {
     MODELER_VIEW_TYPE,
     ModelerPanel,
     type IModelerHost,
 } from "./modeler/modelerPanel.js";
-import type { ModelerTarget } from "./modeler/modelerProtocol.js";
+import type {
+    ModelerTarget,
+    SchemaObjectPlace,
+} from "./modeler/modelerProtocol.js";
 import {
     ConnectionModelSource,
+    isConnectionSourceKey,
     ProjectModelSource,
+    projectSourceKey,
     type IModelSource,
 } from "./modeler/modelSources.js";
 import { DiagramService } from "./modeler/diagramService.js";
@@ -221,6 +227,15 @@ import {
     NotebookSdk,
     publishSdkTypings,
 } from "./notebook/notebookSdk.js";
+import { locateLanguageServer } from "./lsp/locator.js";
+import { LspEdit } from "./tableEditor/lspEdit.js";
+import type { TableEditorTarget } from "./tableEditor/tableEditorProtocol.js";
+import { TableEditorPanel } from "./tableEditor/tableEditorPanel.js";
+import {
+    LiveTableSource,
+    ProjectTableSource,
+    type ITableSource,
+} from "./tableEditor/tableSources.js";
 
 /**
  * Everything the extension builds on activation, kept together so
@@ -907,9 +922,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     schema: node.schema }, objectRefOf(node));
             }
         }));
+    /** How each diagram was last looked at. */
+    const diagramViews = new DiagramViews(context.workspaceState);
     /** What a diagram viewer tells the views around it. */
     const modelerHost: IModelerHost = {
         log,
+        views: diagramViews,
         schemaChanged: (target) => {
             if (target.kind === "project") {
                 msmProjects.refreshProject(target.projectPath);
@@ -1088,7 +1106,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
         return source;
     };
-    /** Shows a project's snapshot made again: trees, details, its viewer. */
+    /**
+     * Shows a project's snapshot made again: trees, details, its viewer.
+     * The tree first: it drops the snapshot it keeps, which Object Details
+     * reads a project's objects from.
+     */
     const snapshotUpdated = async (projectPath: string): Promise<void> => {
         msmProjects.refreshProject(projectPath);
         objectDetails.refreshed();
@@ -1108,6 +1130,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
         }
     });
     context.subscriptions.push(scriptSaves);
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns The names of its diagrams, as msm lists them.
+     */
+    const diagramNamesOf = async (projectPath: string): Promise<string[]> => {
+        return (await (await msmApi()).listSchemaDiagrams(projectPath))
+            .diagrams.map((diagram) => { return diagram.name; });
+    };
     const openProjectDiagram = (projectPath: string, name: string): void => {
         ModelerPanel.show(context.extensionUri, projectDiagrams(projectPath),
             name, modelerHost);
@@ -1182,6 +1213,132 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 + "placed on the diagram shown.");
         }
     };
+    // The table editor: Edit Table on a table of either tree or of a
+    // diagram. It runs mariadb-lsp itself, found as the language server is.
+    let lspBinary: Promise<string | undefined> | undefined;
+    const lspEdit = new LspEdit(() => {
+        const found = lspBinary ?? locateLanguageServer(
+            createNodeShellEnvironment(log),
+            vscode.workspace.getConfiguration("mariadb.lsp")
+                .get<string>("path", ""), log).then((location) => {
+            // None found is looked for again next time: one may be
+            // installed meanwhile.
+            if (location === undefined) {
+                lspBinary = undefined;
+            }
+
+            return location?.binaryPath;
+        }, (error: unknown) => {
+            // Nor is a lookup that failed kept.
+            lspBinary = undefined;
+            throw error;
+        });
+        lspBinary = found;
+
+        return found;
+    });
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns Its development script, as msm names it.
+     */
+    const developmentScript = async (projectPath: string):
+        Promise<string | undefined> => {
+        try {
+            const settings = JSON.parse(await fs.promises.readFile(
+                path.join(projectPath, "msm.project.json"), "utf8")) as
+                { schemaFileName?: string };
+            if (settings.schemaFileName === undefined) {
+                return undefined;
+            }
+
+            return path.join(projectPath, "development",
+                `${settings.schemaFileName}_next.sql`);
+        } catch {
+            return undefined;
+        }
+    };
+    const tableSource = (target: TableEditorTarget): ITableSource => {
+        if (target.kind === "project") {
+            const projectPath = target.projectPath;
+
+            return new ProjectTableSource(target.schema, target.table, {
+                snapshot: () => { return msmProjects.snapshot(projectPath); },
+                edit: async (edits, baseHash) => {
+                    return (await projectDiagrams(projectPath)
+                        .edit(edits, baseHash)).notes;
+                },
+                scriptFile: () => { return developmentScript(projectPath); },
+                lsp: lspEdit,
+            });
+        }
+        const uri = target.connection;
+        const connectionId = async (): Promise<string> => {
+            return await connections.connect(uri, UI_BACKEND_SESSION);
+        };
+
+        return new LiveTableSource(target.schema, target.table, {
+            query: async (sql) => {
+                const result = await (await connections.api()).executeSql(
+                    await connectionId(), sql, { limit: 100000, offset: 0 });
+                if (result.error !== undefined) {
+                    throw new Error(result.error);
+                }
+
+                return (result.result_sets?.[0]?.rows ?? []) as
+                    Array<Record<string, unknown>>;
+            },
+            execute: async (sql) => {
+                const result = await (await connections.api()).executeSql(
+                    await connectionId(), sql);
+                if (result.error !== undefined) {
+                    throw new Error(result.error);
+                }
+            },
+            lsp: lspEdit,
+        });
+    };
+    const editTable = (target: TableEditorTarget): void => {
+        void TableEditorPanel.show(target, () => { return tableSource(target); },
+            {
+                extensionUri: context.extensionUri,
+                log,
+                changed: (changed, renamedFrom) => {
+                    const place: SchemaObjectPlace = changed.kind === "project"
+                        ? { projectPath: changed.projectPath }
+                        : { connection: changed.connection,
+                            schema: changed.schema };
+                    if (renamedFrom !== undefined) {
+                        objectDetails.renamed(place,
+                            { type: "table", name: renamedFrom }, changed.table);
+                    }
+                    if (changed.kind === "project") {
+                        void snapshotUpdated(changed.projectPath);
+                    } else {
+                        refreshServer(changed.connection);
+                        objectDetails.refreshed();
+                        void ModelerPanel.reload(connectionDiagrams(
+                            changed.connection, changed.schema));
+                    }
+                },
+                viewData: (shown) => {
+                    if (shown.kind === "connection") {
+                        void editors.selectRows(shown.connection, shown.schema,
+                            shown.table);
+                    }
+                },
+            }).catch((error: unknown) => {
+            reportError(log, error, "open the table editor");
+        });
+    };
+    modelerHost.editTable = (target, table) => {
+        editTable(target.kind === "project"
+            ? { kind: "project", projectPath: target.projectPath,
+                schema: projectDiagrams(target.projectPath).schemaTitle,
+                table }
+            : { kind: "connection", connection: target.connection,
+                schema: target.schema, table });
+    };
     /** Two quick clicks on a project's diagram open it. */
     const projectDiagramClicks = new DoubleClick();
     /**
@@ -1238,34 +1395,85 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     if (projectPath === undefined) {
                         return;
                     }
-                    const api = await msmApi();
-                    const taken = (await api.listSchemaDiagrams(projectPath))
-                        .diagrams.map((diagram) => { return diagram.name; });
+                    const taken = await diagramNamesOf(projectPath);
                     const name = (await vscode.window.showInputBox({
                         title: "New Schema Diagram",
                         prompt: `The new diagram's name in `
                             + `${path.basename(projectPath)}`,
                         value: newDiagramName(taken),
                         validateInput: (value) => {
-                            const trimmed = value.trim();
-                            if (trimmed === "") {
-                                return "Enter a name.";
-                            }
-
-                            return diagramNameTaken(taken, trimmed)
-                                ? `The project has a diagram ${trimmed} `
-                                    + "already."
-                                : undefined;
+                            return diagramNameProblem(taken, value);
                         },
                     }))?.trim();
                     if (name === undefined) {
                         return;
                     }
-                    await api.createEmptySchemaDiagram(projectPath, name);
+                    await (await msmApi()).createEmptySchemaDiagram(
+                        projectPath, name);
+                    await diagramViews.forget(projectSourceKey(projectPath),
+                        name);
                     msmProjects.refresh();
                     openProjectDiagram(projectPath, name);
                 } catch (error) {
                     reportError(log, error, "create the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.rename,
+            async (node?: IMsmDiagramNode) => {
+                if (node?.kind !== "diagram") {
+                    return;
+                }
+                const { projectPath, name } = node;
+                try {
+                    // A case-only rename of itself is one.
+                    const others = (await diagramNamesOf(projectPath))
+                        .filter((other) => { return other !== name; });
+                    const newName = (await vscode.window.showInputBox({
+                        title: "Rename Schema Diagram",
+                        prompt: `The new name of the diagram ${name} in `
+                            + `${path.basename(projectPath)}`,
+                        value: name,
+                        validateInput: (value) => {
+                            return diagramNameProblem(others, value);
+                        },
+                    }))?.trim();
+                    if (newName === undefined || newName === name) {
+                        return;
+                    }
+                    const source = projectDiagrams(projectPath);
+                    await source.renameDiagram(name, newName);
+                    await diagramViews.rename(source.key, name, newName);
+                    msmProjects.refreshProject(projectPath);
+                    await ModelerPanel.renamed(source, name, newName);
+                } catch (error) {
+                    reportError(log, error, "rename the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.remove,
+            async (node?: IMsmDiagramNode) => {
+                if (node?.kind !== "diagram") {
+                    return;
+                }
+                const { projectPath, name } = node;
+                // Modal: msm keeps no copy, and there is no undo.
+                const confirmed = await vscode.window.showWarningMessage(
+                    `Delete the schema diagram '${name}'?`,
+                    { modal: true, detail: "It is removed from the project "
+                        + `${path.basename(projectPath)}. The tables and `
+                        + "other objects it shows stay in the schema." },
+                    "Delete",
+                );
+                if (confirmed !== "Delete") {
+                    return;
+                }
+                try {
+                    const source = projectDiagrams(projectPath);
+                    await source.removeDiagram(name);
+                    await diagramViews.forget(source.key, name);
+                    msmProjects.refreshProject(projectPath);
+                    await ModelerPanel.removed(source, name);
+                } catch (error) {
+                    reportError(log, error, "delete the schema diagram");
                 }
             }),
         vscode.commands.registerCommand(MSM_SCHEMA_COMMANDS.updateSnapshot,
@@ -1304,6 +1512,17 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     reportError(log, error, "add the objects to the diagram");
                 }
             }),
+        vscode.commands.registerCommand("mariadb.editTable",
+            (node?: MsmProjectsNode | ConnectionsNode) => {
+                if (node?.kind !== "object" || node.objectType !== "table") {
+                    return;
+                }
+                editTable("projectPath" in node
+                    ? { kind: "project", projectPath: node.projectPath,
+                        schema: node.schema, table: node.name }
+                    : { kind: "connection", connection: node.uri,
+                        schema: node.schema, table: node.name });
+            }),
         vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,
             (node?: IMsmDiagramNode) => {
                 if (node?.kind === "diagram" && projectDiagramClicks.click(
@@ -1334,6 +1553,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
         // A deployed schema is new to the tree and to completion.
         refresh: refreshServer,
         projectsChanged: () => { msmProjects.refresh(); },
+        projectRemoved: (projectPath) => {
+            const removed = projectSourceKey(projectPath);
+            void diagramViews.forgetSources((key) => {
+                return key === removed;
+            });
+        },
         projectFolders: () => { return msmProjects.folders(); },
         listedProject: async (projectPath) => {
             return (await msmProjects.projectAt(projectPath))?.project;
@@ -1876,6 +2101,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         kind: node.connectionKind,
                     });
                     log(`Deleted the connection '${node.uri}'.`);
+                    await diagramViews.forgetSources((key) => {
+                        return isConnectionSourceKey(key, node.uri);
+                    });
                     tree.refresh();
                 });
             },

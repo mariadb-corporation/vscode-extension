@@ -1211,10 +1211,26 @@
         "icon": "$(add)"
       },
       {
+        "command": "mariadb.msm.renameSchemaDiagram",
+        "title": "Rename Schema Diagram...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deleteSchemaDiagram",
+        "title": "Delete Schema Diagram...",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.addToDiagram",
         "title": "Add to Diagram",
         "category": "MariaDB",
         "icon": "$(type-hierarchy-sub)"
+      },
+      {
+        "command": "mariadb.editTable",
+        "title": "Edit Table...",
+        "category": "MariaDB",
+        "icon": "$(edit)"
       },
       {
         "command": "mariadb.msm.updateSchemaSnapshot",
@@ -1907,6 +1923,16 @@
           "group": "0_diagram@0"
         },
         {
+          "command": "mariadb.editTable",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.table",
+          "group": "0_diagram@1"
+        },
+        {
+          "command": "mariadb.editTable",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.table",
+          "group": "0_msm@1"
+        },
+        {
           "command": "mariadb.msm.updateSchemaSnapshot",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
           "group": "0_msm@0"
@@ -1925,6 +1951,16 @@
           "command": "mariadb.msm.openSchemaDiagram",
           "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagrams?$/",
           "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.msm.renameSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmDiagram",
+          "group": "1_edit@0"
+        },
+        {
+          "command": "mariadb.msm.deleteSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmDiagram",
+          "group": "1_edit@1"
         },
         {
           "command": "mariadb.msm.newSchemaDiagram",
@@ -2027,6 +2063,18 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "mariadb.msm.renameSchemaDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteSchemaDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.editTable",
+          "when": "false"
+        },
         {
           "command": "mariadb.addToDiagram",
           "when": "false"
@@ -3137,7 +3185,7 @@
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "build:extension": "vite build && vite build --config vite.worker.config.ts",
-    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.overview.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.details.config.ts && vite build --config vite.modeler.config.ts && vite build --config vite.notebook.config.ts",
+    "build:webview": "vite build --config vite.webview.config.ts && vite build --config vite.editor.config.ts && vite build --config vite.sandbox.config.ts && vite build --config vite.deployment.config.ts && vite build --config vite.overview.config.ts && vite build --config vite.mrs.config.ts && vite build --config vite.util.config.ts && vite build --config vite.msm.config.ts && vite build --config vite.details.config.ts && vite build --config vite.tableEditor.config.ts && vite build --config vite.modeler.config.ts && vite build --config vite.notebook.config.ts",
     "watch:webview": "vite build --config vite.webview.config.ts --watch",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "grammar:sync": "node tools/grammar.mts sync",

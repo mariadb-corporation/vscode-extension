@@ -26,6 +26,7 @@ import {
 } from "../../../src/modeler/pageSettings.js";
 import type {
     ICanvasEvents,
+    ICanvasView,
     ICanvasHost,
     ICanvasItem,
     ICanvasOverlay,
@@ -45,7 +46,7 @@ import type {
     Tool,
     ViewMode,
 } from "./canvasTypes.js";
-import { CANVAS_TOOLS } from "./canvasTypes.js";
+import { CANVAS_TOOLS, ZOOM_STEP } from "./canvasTypes.js";
 import {
     affineTransform,
     boundsOf,
@@ -371,6 +372,18 @@ export class Canvas {
         return this.#viewMode;
     }
 
+    /** Where the view is, to open the diagram there again. */
+    public get view(): ICanvasView {
+        return {
+            zoom: this.#zoom,
+            x: this.#target.x,
+            y: this.#target.z,
+            mode: this.#viewMode,
+            tilt: this.#isoAngles.tilt,
+            turn: this.#isoAngles.turn,
+        };
+    }
+
     public get tool(): Tool {
         return this.#tool;
     }
@@ -453,10 +466,13 @@ export class Canvas {
      *
      * @param set What to show.
      * @param pageSettings The paper it lies on.
+     * @param view Where to look at it: as it was left. Without one, the
+     *             pages are fitted into the view.
      *
      * @returns Once it is drawn.
      */
-    public async load(set: IFigureSet, pageSettings: IPageSettings): Promise<void> {
+    public async load(set: IFigureSet, pageSettings: IPageSettings,
+        view?: ICanvasView): Promise<void> {
         if (set !== this.#set) {
             this.#history.clear();
         }
@@ -466,7 +482,41 @@ export class Canvas {
         this.#buildPaper();
         await set.mount(this.#host);
         this.#applyView();
-        this.fit();
+        if (view === undefined) {
+            this.fit();
+        } else {
+            this.#restoreView(view);
+        }
+    }
+
+    /** Stops the view's turns under way: to 3D and back, and between angles. */
+    #stopTurning(): void {
+        for (const frame of [this.#animation, this.#isoAnimation]) {
+            if (frame !== undefined) {
+                cancelAnimationFrame(frame);
+            }
+        }
+        this.#animation = undefined;
+        this.#isoAnimation = undefined;
+    }
+
+    /**
+     * Puts the view where it was, at once: no turn is animated.
+     *
+     * @param view Where it was.
+     */
+    #restoreView(view: ICanvasView): void {
+        this.#stopTurning();
+        this.#isoAngles = { tilt: view.tilt, turn: view.turn };
+        this.#isoView.copy(isoQuaternion(this.#isoAngles));
+        if (view.mode !== this.#viewMode) {
+            this.#viewMode = view.mode;
+            this.#events.onViewMode?.(view.mode);
+        }
+        this.#viewT = view.mode === "iso" ? 1 : 0;
+        this.#target.set(view.x, 0, view.y);
+        this.#setZoom(view.zoom);
+        this.#invalidate();
     }
 
     /**
@@ -1137,6 +1187,7 @@ export class Canvas {
 
     /** Puts the camera where the zoom, the target and the view say. */
     #applyView(): void {
+        this.#events.onViewChanged?.();
         const quaternion = viewQuaternion(this.#viewT, this.#isoView);
         this.#camera.quaternion.copy(quaternion);
         this.#camera.position.copy(this.#target).add(
@@ -1739,7 +1790,7 @@ export class Canvas {
         this.#renderer.domElement.setPointerCapture(event.pointerId);
 
         if (this.#zooming()) {
-            this.#zoomAt(screen, event.altKey ? 1 / 1.25 : 1.25);
+            this.#zoomAt(screen, event.altKey ? 1 / ZOOM_STEP : ZOOM_STEP);
 
             return;
         }
@@ -1913,13 +1964,7 @@ export class Canvas {
             if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) {
                 return;
             }
-            for (const id of [this.#animation, this.#isoAnimation]) {
-                if (id !== undefined) {
-                    cancelAnimationFrame(id);
-                }
-            }
-            this.#animation = undefined;
-            this.#isoAnimation = undefined;
+            this.#stopTurning();
             pointer.from = this.#viewMode === "2d"
                 ? { tilt: MAX_TILT, turn: 0 }
                 : { ...this.#isoAngles };

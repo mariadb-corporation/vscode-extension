@@ -103,6 +103,8 @@ export interface IMsmCommandsHost {
     exists?(path: string): Promise<boolean>;
     /** The MSM Projects list changed: the view reads it again. */
     projectsChanged?(): void;
+    /** A project was taken off the MSM Projects list. */
+    projectRemoved?(projectPath: string): void;
     /** The folders of the MSM Projects view, which the dialogs offer. */
     projectFolders?(): Promise<string[]>;
     /** A project as the MSM Projects view last listed it, if it does. */
@@ -219,13 +221,39 @@ export const newDiagramName = (taken: readonly string[]): string => {
  * @returns Whether a diagram has that name already, in any case: their
  *          files would collide where the file system ignores case.
  */
-export const diagramNameTaken = (
+const diagramNameTaken = (
     taken: readonly string[],
     name: string,
 ): boolean => {
     const wanted = name.toLowerCase();
 
     return taken.some((other) => { return other.toLowerCase() === wanted; });
+};
+
+/** The name msm keeps for a project's schema snapshot row. */
+const SNAPSHOT_ROW_NAME = "schema_definition";
+
+/**
+ * @param taken The names of the project's other diagrams.
+ * @param value A name entered for a new or a renamed one.
+ *
+ * @returns Why msm would refuse it, else nothing.
+ */
+export const diagramNameProblem = (
+    taken: readonly string[],
+    value: string,
+): string | undefined => {
+    const name = value.trim();
+    if (name === "") {
+        return "Enter a name.";
+    }
+    // In any case: its file would collide where the file system ignores it.
+    if (name.toLowerCase() === SNAPSHOT_ROW_NAME) {
+        return `${SNAPSHOT_ROW_NAME} is the name of the schema snapshot.`;
+    }
+
+    return diagramNameTaken(taken, name)
+        ? `The project has a diagram ${name} already.` : undefined;
 };
 
 /** The commands, by the dialog each opens. */
@@ -475,6 +503,7 @@ export class MsmCommands {
                 msmToolArgs.removeProject(projectPath)), (api) => {
                 return api.removeProject(projectPath);
             });
+            this.host.projectRemoved?.(projectPath);
         } finally {
             this.host.projectsChanged?.();
         }
