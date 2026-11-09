@@ -149,12 +149,32 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
                 Array<Record<string, unknown>>;
         };
 
+        /**
+         * @param state An online ALTER's task.
+         *
+         * @returns Its stages' statuses: every one but an applied last one
+         *          skipped, or completed on a shell without the skipped
+         *          status (mariadb-shell #130).
+         */
+        const stagesOk = (state: ITaskState): boolean => {
+            const applied = (state.result as { applied?: boolean }).applied;
+            const before = applied === true
+                ? state.stages.slice(0, -1) : state.stages;
+
+            return before.every((stage) => {
+                return stage.status === "skipped"
+                    || stage.status === "completed";
+            }) && (applied !== true
+                || state.stages.at(-1)?.status === "completed");
+        };
+
         /** The task to its end, as TaskMonitor.follow waits for it. */
         const follow = async (taskId: string): Promise<ITaskState> => {
             let state = await tasks.getTask(taskId, 0, WAIT_MS);
             while (!isFinished(state.status)) {
                 state = await tasks.getTask(taskId, state.next_since, WAIT_MS);
             }
+            expect(stagesOk(state)).toBe(true);
             followed.push(state);
 
             return state;

@@ -60,9 +60,17 @@ export interface ITaskProgress {
     total_known?: boolean;
 }
 
+/**
+ * A stage's status: a task's, or skipped, a stage that did not do its
+ * work (an online ALTER's step the server refused or a limit ruled out).
+ * A shell without the skipped status (mariadb-shell #130) ends such a
+ * stage completed.
+ */
+export type StageStatus = TaskStatus | "skipped";
+
 export interface ITaskStage {
     name: string;
-    status: TaskStatus;
+    status: StageStatus;
     /** How long it took, once it finished. */
     seconds: number | null;
 }

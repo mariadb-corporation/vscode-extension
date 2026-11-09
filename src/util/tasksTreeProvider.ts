@@ -26,6 +26,9 @@ import {
 
 export const TASKS_VIEW_ID = "mariadb.tasks";
 
+/** The marks of the tooltip's stage lines. */
+const STAGE_MARKS = { completed: "✓", skipped: "↷", other: "•" } as const;
+
 const ICONS: Record<string, string> = {
     pending: "loading~spin",
     running: "sync~spin",
@@ -75,10 +78,13 @@ export const taskTooltip = (tracked: ITrackedTask): string => {
     const { state } = tracked;
     const lines = [state.title, tracked.connection];
     for (const stage of state.stages) {
+        // A skipped stage that never ran has no seconds.
         const seconds = stage.seconds === null ? ""
             : ` (${stage.seconds.toFixed(1)} s)`;
-        lines.push(`${stage.status === "completed" ? "✓" : "•"} ${stage.name}`
-            + seconds);
+        lines.push(stage.status === "skipped"
+            ? `${STAGE_MARKS.skipped} ${stage.name}: skipped${seconds}`
+            : `${stage.status === "completed" ? STAGE_MARKS.completed
+                : STAGE_MARKS.other} ${stage.name}${seconds}`);
     }
     if (tracked.interrupted === true) {
         lines.push("Stopped when its window closed or reloaded.");
