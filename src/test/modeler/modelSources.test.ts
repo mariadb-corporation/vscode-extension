@@ -150,6 +150,16 @@ const setUp = (keep = false): IFake => {
 
             return Promise.resolve(["/work/shop.msm.project/development/x.sql"]);
         },
+        removeSchemaDiagram: (_path: string, name: string) => {
+            calls.push(["remove", name]);
+
+            return Promise.resolve(["/work/shop.msm.project/development/x.sql"]);
+        },
+        renameSchemaDiagram: (_path: string, name: string, newName: string) => {
+            calls.push(["rename", name, newName]);
+
+            return Promise.resolve(["/work/shop.msm.project/development/x.sql"]);
+        },
         getSchemaDiagramImage: (_path: string, name: string, id: string) => {
             calls.push(["image", name, id]);
 
@@ -396,6 +406,43 @@ describe("ProjectModelSource", () => {
                 ["set", "Main"]]);
             expect(fake.states.at(-1)?.state).toBe("failed");
         });
+
+    it("deletes a diagram with its changes not saved yet, which would make "
+        + "it again", async () => {
+            await fake.source.read();
+            vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+            try {
+                fake.source.changed(diagram("Main", 50));
+                expect(await fake.drafts.list(PROJECT)).toHaveLength(1);
+                await fake.source.removeDiagram("Main");
+                vi.runOnlyPendingTimers();
+            } finally {
+                vi.useRealTimers();
+            }
+
+            expect(fake.calls.at(-1)).toEqual(["remove", "Main"]);
+            expect(fake.calls.filter((call) => { return call[0] === "set"; }))
+                .toEqual([]);
+            expect(await fake.drafts.list(PROJECT)).toEqual([]);
+            expect(fake.states.at(-1)?.state).toBe("saved");
+            expect(calls(fake)).toContainEqual(expect.stringContaining(
+                "msm.remove_schema_diagram(name=Main"));
+        });
+
+    it("saves a diagram's changes before renaming it", async () => {
+        await fake.source.read();
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        try {
+            fake.source.changed(diagram("Main", 50));
+        } finally {
+            vi.useRealTimers();
+        }
+        await fake.source.renameDiagram("Main", "Overview");
+
+        expect(fake.calls.slice(-2)).toEqual([["set", "Main"],
+            ["rename", "Main", "Overview"]]);
+        expect(await fake.drafts.list(PROJECT)).toEqual([]);
+    });
 
     it("reads a picture msm left out", async () => {
         expect(await fake.source.image("Main", "logo"))

@@ -316,7 +316,11 @@ export class ModelerPanel {
             const { model, source } = await reading;
             this.#schema = model.schema;
             this.#sourceHash = model.sourceHash;
-            this.#setDiagram(this.#diagram);
+            // One deleted, the page shows the first: the title follows.
+            const shown = model.diagrams.some((diagram) => {
+                return diagram.name === this.#diagram;
+            }) ? this.#diagram : model.diagrams[0]?.name ?? this.#diagram;
+            this.#setDiagram(shown);
             await this.host.views?.prune(this.source.key,
                 model.diagrams.map((diagram) => { return diagram.name; }));
             this.host.log(`Showing the diagrams of ${model.schema} `
@@ -473,6 +477,43 @@ export class ModelerPanel {
         const panel = ModelerPanel.#open.get(source.key);
         if (panel !== undefined) {
             await panel.#load();
+        }
+    }
+
+    /**
+     * Follows a diagram renamed: the source's panel, where one is up,
+     * shows it under its new name where it showed it, and reads the model
+     * again.
+     *
+     * @param source Where the model comes from.
+     * @param from The diagram's old name.
+     * @param to Its new name.
+     *
+     * @returns Once the panel has it.
+     */
+    public static async renamed(source: IModelSource, from: string,
+        to: string): Promise<void> {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined) {
+            return;
+        }
+        if (panel.#diagram === from) {
+            panel.#setDiagram(to);
+        }
+        await panel.#load();
+    }
+
+    /**
+     * Closes the source's panel, where one is up: its last diagram was
+     * deleted.
+     *
+     * @param source Where the model comes from.
+     */
+    public static close(source: IModelSource): void {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel !== undefined) {
+            // Its own dispose follows, on the panel's.
+            panel.#panel.dispose();
         }
     }
 

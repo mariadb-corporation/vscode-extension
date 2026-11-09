@@ -213,6 +213,37 @@ describe("ModelerPanel", () => {
             expect(views.of(from.key)).toEqual({});
         });
 
+    it("follows a diagram renamed or deleted, and closes with the last",
+        async () => {
+            let diagrams = ["Main", "Other"];
+            const from = source("world", {
+                read: () => {
+                    return Promise.resolve({ model: { ...model,
+                        diagrams: diagrams.map(diagramNamed) },
+                    source: "world.msm_schema_diagrams" });
+                },
+            });
+            const panel = show("Main", from);
+            await ready(panel);
+
+            diagrams = ["Overview", "Other"];
+            await ModelerPanel.renamed(from, "Main", "Overview");
+            expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+                diagram: "Overview" });
+            expect(panel.title).toContain("Overview");
+
+            // The one shown deleted: the page shows the first, and says so.
+            diagrams = ["Other"];
+            await ModelerPanel.reload(from);
+            expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+                diagram: "Other" });
+
+            ModelerPanel.close(from);
+            expect(panel.disposed).toBe(true);
+            // Closed: nothing is up to follow.
+            await ModelerPanel.renamed(from, "Other", "Else");
+        });
+
     it("tells the page when the model cannot be read", async () => {
         const panel = show("MRS", source("world", {
             read: () => { return Promise.reject(new Error("gone")); },

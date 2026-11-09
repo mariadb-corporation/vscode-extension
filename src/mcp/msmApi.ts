@@ -226,6 +226,9 @@ export interface IMsmApi {
     setSchemaDiagram(projectPath: string,
         document: IDiagramDocument): Promise<string[]>;
     createEmptySchemaDiagram(projectPath: string, name: string): Promise<void>;
+    removeSchemaDiagram(projectPath: string, name: string): Promise<string[]>;
+    renameSchemaDiagram(projectPath: string, name: string,
+        newName: string): Promise<string[]>;
     updateSchemaDefinition(projectPath: string): Promise<void>;
     editSchema(projectPath: string, edits: IMsmSchemaEdit[],
         baseHash: string): Promise<IMsmSchemaEditResult>;
@@ -407,6 +410,19 @@ export const msmToolArgs = {
     ): Record<string, unknown> => {
         // No tables: msm's default is every one of the schema's.
         return { name, tables: [], schema_project_path: projectPath };
+    },
+    removeSchemaDiagram: (
+        projectPath: string,
+        name: string,
+    ): Record<string, unknown> => {
+        return { name, schema_project_path: projectPath };
+    },
+    renameSchemaDiagram: (
+        projectPath: string,
+        name: string,
+        newName: string,
+    ): Record<string, unknown> => {
+        return { name, new_name: newName, schema_project_path: projectPath };
     },
     editSchema: (
         projectPath: string,
@@ -692,6 +708,45 @@ export class MsmApi implements IMsmApi {
 
         return decodeList<string>(name, await this.caller.callTool(name,
             msmToolArgs.setSchemaDiagram(projectPath, document)));
+    }
+
+    /**
+     * Removes a diagram from a project.
+     *
+     * @param projectPath The project folder.
+     * @param name The diagram's name.
+     *
+     * @returns The files written.
+     */
+    public async removeSchemaDiagram(
+        projectPath: string,
+        name: string,
+    ): Promise<string[]> {
+        const tool = "msm.remove_schema_diagram";
+
+        return decodeList<string>(tool, await this.caller.callTool(tool,
+            msmToolArgs.removeSchemaDiagram(projectPath, name)));
+    }
+
+    /**
+     * Renames a diagram of a project, in one write, its pictures and all;
+     * msm refuses a name another diagram has, in any case.
+     *
+     * @param projectPath The project folder.
+     * @param name The diagram's name.
+     * @param newName Its new name.
+     *
+     * @returns The files written.
+     */
+    public async renameSchemaDiagram(
+        projectPath: string,
+        name: string,
+        newName: string,
+    ): Promise<string[]> {
+        const tool = "msm.rename_schema_diagram";
+
+        return decodeList<string>(tool, await this.caller.callTool(tool,
+            msmToolArgs.renameSchemaDiagram(projectPath, name, newName)));
     }
 
     /**

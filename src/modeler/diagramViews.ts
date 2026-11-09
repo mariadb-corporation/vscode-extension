@@ -120,6 +120,28 @@ export class DiagramViews {
     }
 
     /**
+     * Moves a diagram's view to its new name: a renamed diagram opens as
+     * it was left.
+     *
+     * @param source The model source's key.
+     * @param from The diagram's old name.
+     * @param to Its new name.
+     *
+     * @returns Once it is moved.
+     */
+    public async rename(source: string, from: string,
+        to: string): Promise<void> {
+        const all = this.#all();
+        const view = all[source]?.[from];
+        if (view === undefined) {
+            return;
+        }
+        const { [from]: _old, ...others } = all[source];
+        await this.memento.update(DIAGRAM_VIEWS_KEY,
+            { ...all, [source]: { ...others, [to]: view } });
+    }
+
+    /**
      * Drops the views of whole sources: a connection deleted, a project
      * taken off the list.
      *

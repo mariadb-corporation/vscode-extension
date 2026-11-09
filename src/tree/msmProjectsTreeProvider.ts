@@ -188,6 +188,10 @@ export const MSM_DIAGRAM_COMMANDS = {
     open: "mariadb.msm.openSchemaDiagram",
     /** Adds an empty diagram to a project and opens it, to model on. */
     create: "mariadb.msm.newSchemaDiagram",
+    /** Renames a diagram, from its row. */
+    rename: "mariadb.msm.renameSchemaDiagram",
+    /** Deletes a diagram from its project, once confirmed; from its row. */
+    remove: "mariadb.msm.deleteSchemaDiagram",
 } as const;
 
 /** The commands on a project's schema row. */

@@ -1211,6 +1211,16 @@
         "icon": "$(add)"
       },
       {
+        "command": "mariadb.msm.renameSchemaDiagram",
+        "title": "Rename Schema Diagram...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deleteSchemaDiagram",
+        "title": "Delete Schema Diagram...",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.addToDiagram",
         "title": "Add to Diagram",
         "category": "MariaDB",
@@ -1943,6 +1953,16 @@
           "group": "0_msm@0"
         },
         {
+          "command": "mariadb.msm.renameSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmDiagram",
+          "group": "1_edit@0"
+        },
+        {
+          "command": "mariadb.msm.deleteSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmDiagram",
+          "group": "1_edit@1"
+        },
+        {
           "command": "mariadb.msm.newSchemaDiagram",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmDiagrams",
           "group": "0_msm@1"
@@ -2043,6 +2063,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "mariadb.msm.renameSchemaDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteSchemaDiagram",
+          "when": "false"
+        },
         {
           "command": "mariadb.editTable",
           "when": "false"

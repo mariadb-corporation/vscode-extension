@@ -96,6 +96,17 @@ describe("the diagrams' views", () => {
             expect(Object.keys(views.of("a"))).toEqual(["Other"]);
         });
 
+    it("moves a renamed diagram's view to its new name", async () => {
+        const views = new DiagramViews(memento());
+        await views.keep("a", "Main", VIEW);
+        await views.keep("a", "Other", { ...VIEW, zoom: 2 });
+        await views.rename("a", "Main", "Overview");
+        await views.rename("a", "Gone", "Else");
+
+        expect(views.of("a")).toEqual({ Other: { ...VIEW, zoom: 2 },
+            Overview: VIEW });
+    });
+
     it("drops a deleted connection's and a removed project's views",
         async () => {
             const views = new DiagramViews(memento());

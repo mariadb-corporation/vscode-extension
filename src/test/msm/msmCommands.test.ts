@@ -33,6 +33,7 @@ import {
     MSM_LIST_COMMANDS,
     MsmCommands,
     msmCall,
+    diagramNameProblem,
     diagramNameTaken,
     newDiagramName,
     projectContext,
@@ -158,6 +159,8 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         getSchemaDiagramImage: answer("getSchemaDiagramImage", ""),
         setSchemaDiagram: answer("setSchemaDiagram", []),
         createEmptySchemaDiagram: answer("createEmptySchemaDiagram", undefined),
+        removeSchemaDiagram: answer("removeSchemaDiagram", []),
+        renameSchemaDiagram: answer("renameSchemaDiagram", []),
         updateSchemaDefinition: answer("updateSchemaDefinition", undefined),
         editSchema: answer("editSchema", {
             rows: [], files: [], migration: [], notes: [],
@@ -287,6 +290,12 @@ describe("newDiagramName", () => {
     it("takes a name in use in another case for taken", () => {
         expect(diagramNameTaken(["Main", "Diagram 1"], "diagram 1")).toBe(true);
         expect(diagramNameTaken(["Main"], "Diagram 1")).toBe(false);
+        expect(diagramNameProblem(["Main"], "  ")).toBe("Enter a name.");
+        expect(diagramNameProblem(["Main"], "schema_definition"))
+            .toMatch(/schema snapshot/u);
+        expect(diagramNameProblem(["Main"], " main ")).toBe(
+            "The project has a diagram main already.");
+        expect(diagramNameProblem(["Main"], "Overview")).toBeUndefined();
     });
 });
 

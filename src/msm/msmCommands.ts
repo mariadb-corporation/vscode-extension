@@ -230,6 +230,31 @@ export const diagramNameTaken = (
     return taken.some((other) => { return other.toLowerCase() === wanted; });
 };
 
+/** The name msm keeps for a project's schema snapshot row. */
+const SNAPSHOT_ROW_NAME = "schema_definition";
+
+/**
+ * @param taken The names of the project's other diagrams.
+ * @param value A name entered for a new or a renamed one.
+ *
+ * @returns Why msm would refuse it, else nothing.
+ */
+export const diagramNameProblem = (
+    taken: readonly string[],
+    value: string,
+): string | undefined => {
+    const name = value.trim();
+    if (name === "") {
+        return "Enter a name.";
+    }
+    if (name === SNAPSHOT_ROW_NAME) {
+        return `${SNAPSHOT_ROW_NAME} is the name of the schema snapshot.`;
+    }
+
+    return diagramNameTaken(taken, name)
+        ? `The project has a diagram ${name} already.` : undefined;
+};
+
 /** The commands, by the dialog each opens. */
 export const MSM_COMMANDS: Record<MsmDialogKind, string> = {
     create: "mariadb.msm.createProject",

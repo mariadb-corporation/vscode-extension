@@ -202,6 +202,25 @@ vi.mock("../mcp/sdkConnector.js", async () => {
                     };
                 }
 
+                if (name === "msm.list_schema_diagrams") {
+                    const result = { schema_definition: null,
+                        diagrams: [{ name: "Main" }, { name: "Other" }] };
+
+                    return {
+                        content: [{ type: "text",
+                            text: JSON.stringify(result) }],
+                        structuredContent: { result },
+                    };
+                }
+
+                if (name === "msm.remove_schema_diagram"
+                    || name === "msm.rename_schema_diagram") {
+                    return {
+                        content: [{ type: "text", text: "[]" }],
+                        structuredContent: { result: [] },
+                    };
+                }
+
                 if (name === "db.test_connection") {
                     return {
                         content: [{ type: "text", text: "Connected." }],
@@ -366,6 +385,7 @@ describe("activate", () => {
             "mariadb.lsp.restart",
             "mariadb.msm.addToProjects",
             "mariadb.msm.createProject",
+            "mariadb.msm.deleteSchemaDiagram",
             "mariadb.msm.deploySchema",
             "mariadb.msm.diagramClicked",
             "mariadb.msm.editProject",
@@ -380,6 +400,7 @@ describe("activate", () => {
             "mariadb.msm.removeFromProjects",
             "mariadb.msm.removeProjectFolder",
             "mariadb.msm.renameProjectFolder",
+            "mariadb.msm.renameSchemaDiagram",
             "mariadb.msm.setProjectFolderColor",
             "mariadb.msm.showProjectInformation",
             "mariadb.msm.updateSchemaSnapshot",
@@ -1009,6 +1030,47 @@ describe("activate", () => {
             expect(webviewPanels).toEqual([]);
             expect(errorMessages).toEqual([]);
         });
+
+    it("asks before deleting a project's diagram, and deletes it once "
+        + "confirmed", async () => {
+            activate(createContext() as never);
+            const node = { kind: "diagram", projectPath: "/work/shop",
+                name: "Main" };
+
+            // Dismissed: nothing is deleted.
+            await mockCommands.executeCommand(
+                "mariadb.msm.deleteSchemaDiagram", node);
+            expect(warningMessages).toEqual([
+                "Delete the schema diagram 'Main'?"]);
+            expect(toolCalls().map((call) => { return call.name; }))
+                .not.toContain("msm.remove_schema_diagram");
+
+            setWarningMessageAnswer("Delete");
+            await mockCommands.executeCommand(
+                "mariadb.msm.deleteSchemaDiagram", node);
+            await vi.waitFor(() => {
+                expect(toolCalls()).toContainEqual({
+                    name: "msm.remove_schema_diagram",
+                    args: { name: "Main", schema_project_path: "/work/shop" },
+                });
+            });            expect(errorMessages).toEqual([]);
+        });
+
+    it("renames a project's diagram to the name entered", async () => {
+        activate(createContext() as never);
+        inputBoxAnswers.push(" Overview ");
+
+        await mockCommands.executeCommand("mariadb.msm.renameSchemaDiagram",
+            { kind: "diagram", projectPath: "/work/shop", name: "Main" });
+
+        await vi.waitFor(() => {
+            expect(toolCalls()).toContainEqual({
+                name: "msm.rename_schema_diagram",
+                args: { name: "Main", new_name: "Overview",
+                    schema_project_path: "/work/shop" },
+            });
+        });        expect(errorMessages).toEqual([]);
+    });
 
     it("asks before deleting a connection, and stops if told no", async () => {
         activate(createContext() as never);

@@ -475,6 +475,65 @@ export class ProjectModelSource implements IModelSource {
         await Promise.all(saves);
     }
 
+    /**
+     * Removes a diagram from the project. Its changes not saved yet go
+     * with it - a save or a draft left would make it again - and the
+     * removal waits for a save already under way.
+     *
+     * @param name The diagram's name.
+     *
+     * @returns Once msm removed it.
+     */
+    public async removeDiagram(name: string): Promise<void> {
+        this.#drop(name);
+        await this.#enqueuedAction({
+            doing: `Deleting the diagram ${name} of ${this.#schema}`,
+            done: `Deleted the diagram ${name} of ${this.#schema}`,
+        }, "msm.remove_schema_diagram", { name }, (api) => {
+            return api.removeSchemaDiagram(this.projectPath, name);
+        }, (files) => { return counted(files.length, "file"); });
+        this.#bases.delete(name);
+    }
+
+    /**
+     * Renames a diagram of the project. Its changes are saved first, so
+     * msm renames them too; ones made while it renames follow the name.
+     *
+     * @param name The diagram's name.
+     * @param newName Its new name.
+     *
+     * @returns Once msm renamed it.
+     */
+    public async renameDiagram(name: string, newName: string): Promise<void> {
+        await this.flush();
+        await this.#enqueuedAction({
+            doing: `Renaming the diagram ${name} of ${this.#schema}`,
+            done: `Renamed the diagram ${name} of ${this.#schema} `
+                + `to ${newName}`,
+        }, "msm.rename_schema_diagram", { name, new_name: newName }, (api) => {
+            return api.renameSchemaDiagram(this.projectPath, name, newName);
+        }, (files) => { return counted(files.length, "file"); });
+        // The hash takes the name in: the next read has the renamed one's.
+        this.#bases.delete(name);
+        const later = this.#pending.get(name);
+        this.#drop(name);
+        if (later !== undefined) {
+            this.#schedule({ ...later.document, name: newName }, true);
+        }
+    }
+
+    /** Forgets a diagram's changes not saved yet, and their draft. */
+    #drop(name: string): void {
+        const pending = this.#pending.get(name);
+        if (pending?.timer !== undefined) {
+            clearTimeout(pending.timer);
+        }
+        if (this.#pending.delete(name) && this.#pending.size === 0) {
+            this.onSaveState?.({ state: "saved" });
+        }
+        this.host.drafts.remove(this.projectPath, name);
+    }
+
     public async edit(
         edits: IMsmSchemaEdit[],
         baseHash: string,

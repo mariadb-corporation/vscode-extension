@@ -44,7 +44,7 @@ import {
 import { UtilCommands } from "./util/utilCommands.js";
 import type { IMsmApi } from "./mcp/msmApi.js";
 import {
-    diagramNameTaken, MsmCommands, newDiagramName, projectPathOf,
+    diagramNameProblem, MsmCommands, newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
 import { projectOfScriptFile } from "./msm/msmFields.js";
 import { SettledSaves } from "./msm/settledSaves.js";
@@ -1395,15 +1395,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                             + `${path.basename(projectPath)}`,
                         value: newDiagramName(taken),
                         validateInput: (value) => {
-                            const trimmed = value.trim();
-                            if (trimmed === "") {
-                                return "Enter a name.";
-                            }
-
-                            return diagramNameTaken(taken, trimmed)
-                                ? `The project has a diagram ${trimmed} `
-                                    + "already."
-                                : undefined;
+                            return diagramNameProblem(taken, value);
                         },
                     }))?.trim();
                     if (name === undefined) {
@@ -1416,6 +1408,72 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     openProjectDiagram(projectPath, name);
                 } catch (error) {
                     reportError(log, error, "create the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.rename,
+            async (node?: IMsmDiagramNode) => {
+                if (node?.kind !== "diagram") {
+                    return;
+                }
+                const { projectPath, name } = node;
+                try {
+                    // A case-only rename of itself is one.
+                    const others = (await (await msmApi())
+                        .listSchemaDiagrams(projectPath)).diagrams
+                        .map((diagram) => { return diagram.name; })
+                        .filter((other) => { return other !== name; });
+                    const newName = (await vscode.window.showInputBox({
+                        title: "Rename Schema Diagram",
+                        prompt: `The new name of the diagram ${name} in `
+                            + `${path.basename(projectPath)}`,
+                        value: name,
+                        validateInput: (value) => {
+                            return diagramNameProblem(others, value);
+                        },
+                    }))?.trim();
+                    if (newName === undefined || newName === name) {
+                        return;
+                    }
+                    const source = projectDiagrams(projectPath);
+                    await source.renameDiagram(name, newName);
+                    await diagramViews.rename(source.key, name, newName);
+                    msmProjects.refreshProject(projectPath);
+                    await ModelerPanel.renamed(source, name, newName);
+                } catch (error) {
+                    reportError(log, error, "rename the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.remove,
+            async (node?: IMsmDiagramNode) => {
+                if (node?.kind !== "diagram") {
+                    return;
+                }
+                const { projectPath, name } = node;
+                // Modal: msm keeps no copy, and there is no undo.
+                const confirmed = await vscode.window.showWarningMessage(
+                    `Delete the schema diagram '${name}'?`,
+                    { modal: true, detail: "It is removed from the project "
+                        + `${path.basename(projectPath)}. The tables and `
+                        + "other objects it shows stay in the schema." },
+                    "Delete",
+                );
+                if (confirmed !== "Delete") {
+                    return;
+                }
+                try {
+                    const source = projectDiagrams(projectPath);
+                    await source.removeDiagram(name);
+                    await diagramViews.forget(source.key, name);
+                    msmProjects.refreshProject(projectPath);
+                    const left = (await (await msmApi())
+                        .listSchemaDiagrams(projectPath)).diagrams;
+                    if (left.length === 0) {
+                        ModelerPanel.close(source);
+                    } else {
+                        await ModelerPanel.reload(source);
+                    }
+                } catch (error) {
+                    reportError(log, error, "delete the schema diagram");
                 }
             }),
         vscode.commands.registerCommand(MSM_SCHEMA_COMMANDS.updateSnapshot,
