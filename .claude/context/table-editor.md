@@ -34,7 +34,9 @@ read-only Object Details view left editing to this editor.
   `vscode.getEditorLayout`): where that group is already in a stack (split
   top and bottom), the group under it, or the group itself if it is the
   lowest; only otherwise `workbench.action.newGroupBelow`, so splits do
-  not nest. View columns count the groups in the grid's order. In an empty
+  not nest. A group alone is always split: VS Code reports a single
+  group as a stack of one (its grid's root is a top and bottom branch).
+  View columns count the groups in the grid's order. In an empty
   editor area, the active group. Asking for an open table's editor
   reveals it.
 - **Layout (DBX's, without its path bar, for room)**: Table name and
