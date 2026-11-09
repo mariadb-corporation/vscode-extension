@@ -54,11 +54,19 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 ## Files
 
 - `src/mcp/restdApi.ts`: the `restd.*` tools; setup's timeout is 20 minutes
-  (an install), the others 2. `MINIMUM_RESTD_VERSION` (26.10.1, set by hand)
-  goes to every `restd.configure_restd` as `restd_version`, pinned as
-  `MINIMUM_SHELL_VERSION` pins the shell: an older daemon is passed over and
-  exactly `v<version>` installed (`MARIADB_RESTD_TAG`). The server ignores it
-  before the shell whose plugin knows it, and installs the newest release.
+  (an install), the others 2. `MINIMUM_RESTD_VERSION` pins the daemon as
+  `MINIMUM_SHELL_VERSION` pins the shell (its comment says how); every
+  `restd.configure_restd` carries it as `restd_version`. A shell whose
+  plugin does not know it (every one up to 26.11.0) ignores it and installs
+  the newest release, so the pin is not in effect until
+  `MINIMUM_SHELL_VERSION` reaches a plugin that has it.
+  `RestdApi` takes the MariaDB output channel's log (`session.ts` passes
+  it): `configure` logs the answer's `install_output` where mariadb-restd
+  was installed, as `installer.ts` logs the shell's install. Plugins before
+  mariadb-shell-plugins #90 answer without it, so nothing is logged there.
+  A failed setup's error carries a failed install's log; it goes where the
+  callers put failures (the row's log file, and the dialog's line on the
+  channel), not through `RestdApi`.
 - `src/restd/actionGroup.ts`: one action with a row per step.
 - `src/restd/sandboxRest.ts`: `deploySandboxWithRest`, `followSandbox`.
 - `src/restd/restdCommands.ts`: the view's and the connection menu's

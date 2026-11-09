@@ -62,7 +62,8 @@ which exposes the backend functions over the Model Context Protocol.
   - **Set Up MariaDB REST Daemon...** on a connection's context menu sets
     one up for any server, installing `mariadb-restd` first where it is
     missing or older than the release the extension needs - that release
-    exactly, as it does the MariaDB Shell.
+    exactly, as it does the MariaDB Shell. The install is logged in the
+    *MariaDB* output channel, as the shell's is.
   - Every daemon serves one HTTPS certificate, signed by a local
     certificate authority. Both dialogs offer to have the system trust it
     once, so browsers accept every daemon's `https://localhost` address.

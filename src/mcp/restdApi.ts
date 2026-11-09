@@ -54,6 +54,8 @@ export interface IRestdSetup extends IRestdDeployment {
     installed: boolean;
     /** What `mariadb-restd --setup` printed. */
     setup_output: string;
+    /** The install's log, where one ran. Missing from an older server's. */
+    install_output?: string;
 }
 
 /** Whether this system trusts the REST Daemons' HTTPS certificate. */
@@ -92,10 +94,12 @@ export interface IRestdConfigureOptions {
  * `MINIMUM_SHELL_VERSION` pins the shell: `restd.configure_restd` passes over
  * an installed daemon older than this, and where there is none new enough it
  * installs exactly this release (`MARIADB_RESTD_TAG=v<version>`), not the
- * newest one. Raise it by hand when the extension comes to need a newer
- * daemon; it has to name a published release.
+ * newest one, with the install script at that release's tag, as
+ * `installScriptUrl` takes the shell's. Raise it by hand when the extension
+ * comes to need a newer daemon; it has to name a published release whose tag
+ * carries `install.sh` and `install.ps1` - 26.11.0 is the first that does.
  */
-export const MINIMUM_RESTD_VERSION = "26.10.1";
+export const MINIMUM_RESTD_VERSION = "26.11.0";
 
 /**
  * How long a setup may take. Where mariadb-restd is not installed, it is
@@ -128,7 +132,15 @@ export interface IRestdApi {
 
 /** The REST Daemon tools of the MariaDB MCP server. */
 export class RestdApi implements IRestdApi {
-    public constructor(private readonly caller: IToolCaller) { }
+    /**
+     * @param caller Calls the tools.
+     * @param log The MariaDB output channel, where a mariadb-restd install
+     *            is logged as the shell's is.
+     */
+    public constructor(
+        private readonly caller: IToolCaller,
+        private readonly log?: (message: string) => void,
+    ) { }
 
     /**
      * @returns Every deployment the server knows of: the sandboxes' and
@@ -155,17 +167,23 @@ export class RestdApi implements IRestdApi {
     ): Promise<IRestdSetup> {
         const name = "restd.configure_restd";
 
-        return decodeObject<IRestdSetup>(name, await this.caller.callTool(name, {
-            connection_id: options.connectionId,
-            ...(options.password === undefined
-                ? {} : { password: options.password }),
-            ...(options.sandboxPort === undefined
-                ? {} : { sandbox_port: options.sandboxPort }),
-            ...(options.port === undefined ? {} : { port: options.port }),
-            ...(options.metadataSchema === undefined
-                ? {} : { metadata_schema: options.metadataSchema }),
-            restd_version: MINIMUM_RESTD_VERSION,
-        }, RESTD_SETUP_TIMEOUT_MS));
+        const setup = decodeObject<IRestdSetup>(name, await this.caller.callTool(
+            name, {
+                connection_id: options.connectionId,
+                ...(options.password === undefined
+                    ? {} : { password: options.password }),
+                ...(options.sandboxPort === undefined
+                    ? {} : { sandbox_port: options.sandboxPort }),
+                ...(options.port === undefined ? {} : { port: options.port }),
+                ...(options.metadataSchema === undefined
+                    ? {} : { metadata_schema: options.metadataSchema }),
+                restd_version: MINIMUM_RESTD_VERSION,
+            }, RESTD_SETUP_TIMEOUT_MS));
+        if (setup.install_output) {
+            this.log?.(`mariadb-restd was installed:\n${setup.install_output}`);
+        }
+
+        return setup;
     }
 
     /**

@@ -25,6 +25,7 @@ import {
     RESTD_SETUP_TIMEOUT_MS,
     RestdApi,
 } from "../../mcp/restdApi.js";
+import { createRecordingLog } from "../helpers.js";
 
 interface ICall {
     name: string;
@@ -95,6 +96,36 @@ describe("RestdApi", () => {
         expect(caller.calls[0]?.args).toEqual({
             connection_id: "c1", restd_version: MINIMUM_RESTD_VERSION,
         });
+    });
+
+    it("logs a mariadb-restd install, as the shell's install is logged",
+        async () => {
+            const caller = createCaller({
+                "restd.configure_restd": {
+                    content: [{
+                        type: "text",
+                        text: JSON.stringify({
+                            ...DEPLOYMENT, installed: true, setup_output: "",
+                            install_output: "Installing mariadb-restd 26.11.0",
+                        }),
+                    }],
+                },
+            });
+            const log = createRecordingLog();
+
+            await new RestdApi(caller, log).configure({ connectionId: "c1" });
+
+            expect(log.lines).toEqual([
+                "mariadb-restd was installed:\nInstalling mariadb-restd 26.11.0",
+            ]);
+        });
+
+    it("logs nothing where nothing was installed", async () => {
+        const log = createRecordingLog();
+
+        await new RestdApi(createCaller(), log).configure({ connectionId: "c1" });
+
+        expect(log.lines).toEqual([]);
     });
 
     it("starts and stops by folder", async () => {
