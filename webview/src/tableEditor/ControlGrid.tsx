@@ -280,6 +280,11 @@ export const ControlGrid = <T extends IGridRow>(props: {
             ? [focused.selectionStart,
                 focused.selectionEnd ?? focused.selectionStart] as const
             : undefined;
+        // All of it selected (or an empty one): all of what the redraw
+        // puts there is, so a default a commit just set can be typed over.
+        const whole = focused instanceof HTMLInputElement
+            && selection !== undefined && selection[0] === 0
+            && selection[1] === focused.value.length;
         const listOpen = focused?.getAttribute("aria-expanded") === "true";
         void instance.replaceData(props.rows).then(() => {
             if (focusAsked() || key === undefined || field === undefined) {
@@ -295,7 +300,11 @@ export const ControlGrid = <T extends IGridRow>(props: {
             again.focus();
             delete again.dataset.refocus;
             if (again instanceof HTMLInputElement && selection !== undefined) {
-                again.setSelectionRange(...selection);
+                if (whole) {
+                    again.select();
+                } else {
+                    again.setSelectionRange(...selection);
+                }
             }
         });
     }, [props.rows]);
@@ -344,7 +353,9 @@ const marked = <E extends HTMLElement>(target: IControlTarget,
  * @param value The text.
  * @param commit Takes a changed value, once the input is left or Enter
  *               is pressed.
- * @param options Its placeholder, class, and whether it is read only.
+ * @param options Its placeholder, class, whether it is read only, and
+ *                whether its text is selected when it is focused (by
+ *                the user, not by a redraw), to be typed over.
  *
  * @returns A text input.
  */
@@ -353,7 +364,7 @@ export const textInput = (
     value: string,
     commit: (value: string) => void,
     options: { placeholder?: string; className?: string;
-        disabled?: boolean; list?: string } = {},
+        disabled?: boolean; list?: string; selectOnFocus?: boolean } = {},
 ): HTMLInputElement => {
     const input = marked(target, document.createElement("input"));
     input.type = "text";
@@ -374,6 +385,9 @@ export const textInput = (
             commit(input.value);
         }
     });
+    if (options.selectOnFocus === true) {
+        selectedWhenFocused(input);
+    }
     input.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
             input.dispatchEvent(new Event("change"));
@@ -418,6 +432,30 @@ export const checkBox = (
     label.append(box, options.label);
 
     return label;
+};
+
+/**
+ * Selects an input's text when the user focuses it, a click too (its
+ * mouseup would put the caret down); not when a redraw focuses it again.
+ *
+ * @param input The input.
+ */
+const selectedWhenFocused = (input: HTMLInputElement): void => {
+    let selectedOnFocus = false;
+    input.addEventListener("focus", () => {
+        if (input.dataset.refocus === undefined) {
+            input.select();
+            selectedOnFocus = true;
+        }
+    });
+    input.addEventListener("mouseup", (event) => {
+        if (selectedOnFocus) {
+            event.preventDefault();
+            selectedOnFocus = false;
+        }
+    });
+    input.addEventListener("blur", () => { selectedOnFocus = false; });
+    input.addEventListener("input", () => { selectedOnFocus = false; });
 };
 
 /** The one combo list open, if any: a combo's list lives on the body. */
@@ -533,8 +571,7 @@ export const comboInput = (
         mark();
     };
 
-    // A click that focuses it keeps the text selected.
-    let selectedOnFocus = false;
+    selectedWhenFocused(input);
     input.addEventListener("focus", () => {
         if (input.dataset.refocus !== undefined) {
             // Built again under the focus: the list of the input it
@@ -547,24 +584,10 @@ export const comboInput = (
 
             return;
         }
-        input.select();
-        selectedOnFocus = true;
         open(false);
     });
-    input.addEventListener("mouseup", (event) => {
-        if (selectedOnFocus) {
-            event.preventDefault();
-            selectedOnFocus = false;
-        }
-    });
-    input.addEventListener("blur", () => {
-        selectedOnFocus = false;
-        close();
-    });
-    input.addEventListener("input", () => {
-        selectedOnFocus = false;
-        open(true);
-    });
+    input.addEventListener("blur", close);
+    input.addEventListener("input", () => { open(true); });
     // Before the input's own keys: Enter takes the choice before the
     // input commits.
     wrapper.addEventListener("keydown", (event) => {

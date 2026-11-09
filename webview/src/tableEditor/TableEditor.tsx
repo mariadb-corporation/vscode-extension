@@ -43,6 +43,7 @@ import {
     REFERENTIAL_ACTIONS,
     renameColumn,
     splitType,
+    typeChanged,
     tableEdits,
     type IDraftColumn,
     type IDraftForeignKey,
@@ -94,13 +95,16 @@ const TYPE_CHOICES = [...new Set(COLUMN_TYPES.map((choice) => {
     return splitType(choice.insert.replace(/\($/, "")).base.toLowerCase();
 }))].map((type) => { return { value: type, label: type }; });
 
-/** Default lengths, by type: what choosing one fills in. */
-const DEFAULT_LENGTHS = new Map(COLUMN_TYPES.flatMap((choice) => {
-    const parts = splitType(choice.insert);
-
-    return parts.length === "" ? []
-        : [[parts.base.toLowerCase(), parts.length] as const];
-}));
+/**
+ * What the Length field holds for a type that takes more than a length:
+ * its placeholder. Everything between the type's parentheses goes there.
+ */
+const LENGTH_HINTS = new Map([
+    ["decimal", "M,D"], ["numeric", "M,D"], ["float", "M,D"],
+    ["double", "M,D"], ["enum", "'a','b'"], ["set", "'a','b'"],
+    ["vector", "dimensions"], ["datetime", "fsp"], ["time", "fsp"],
+    ["timestamp", "fsp"],
+]);
 
 const DEFAULT_CHOICES = ["''", "NULL", "0", "1", "CURRENT_TIMESTAMP",
     "CURRENT_DATE", "CURRENT_TIME", "UUID()"].map((value) => {
@@ -448,13 +452,8 @@ export const TableEditor = (): preact.JSX.Element => {
 
                 return comboInput({ key: column.key, field: "type" }, shown,
                     TYPE_CHOICES, (typed) => {
-                        const match = /^(.*?)\s*((?:\b(?:unsigned|signed|zerofill)\b\s*)*)$/i
-                            .exec(typed.trim());
-                        const base = match?.[1] ?? typed.trim();
-                        const length = parts.length !== "" ? parts.length
-                            : DEFAULT_LENGTHS.get(base.toLowerCase()) ?? "";
-                        changeColumn(column.key, { type: joinType({ base,
-                            length, rest: match?.[2] ?? "" }) });
+                        changeColumn(column.key,
+                            { type: typeChanged(parts, typed) });
                     }, { className: "type",
                         disabled: column.dropped === true });
             },
@@ -468,7 +467,11 @@ export const TableEditor = (): preact.JSX.Element => {
                     parts.length, (length) => {
                         changeColumn(column.key,
                             { type: joinType({ ...parts, length }) });
-                    }, { disabled: column.dropped === true });
+                    }, { disabled: column.dropped === true,
+                        // Its default is there to be typed over.
+                        selectOnFocus: true,
+                        placeholder: LENGTH_HINTS.get(
+                            parts.base.toLowerCase()) ?? "" });
             },
         },
         {

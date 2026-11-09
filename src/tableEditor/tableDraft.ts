@@ -28,6 +28,7 @@
  */
 
 import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
+import { COLUMN_TYPES } from "../sql/columnTypes.js";
 import type {
     IOutlineColumn,
     IOutlineForeignKey,
@@ -279,6 +280,33 @@ export const joinType = (parts: ITypeParts): string => {
         parts.rest.trim()].filter((part) => {
         return part !== "";
     }).join(" ");
+};
+
+/** Default lengths, by type: what choosing one fills in. */
+const DEFAULT_LENGTHS = new Map(COLUMN_TYPES.flatMap((choice) => {
+    const parts = splitType(choice.insert);
+
+    return parts.length === "" ? []
+        : [[parts.base.toLowerCase(), parts.length] as const];
+}));
+
+/**
+ * @param parts The column's type now.
+ * @param typed What the Type field takes: a type, perhaps with its length
+ *              and attributes (`varchar(100)`, `int unsigned`).
+ *
+ * @returns The column's new type. A length typed with it is kept; a type
+ *          changed gets its default length (`varchar` 45), and one with
+ *          none loses the length; the same type keeps its length.
+ */
+export const typeChanged = (parts: ITypeParts, typed: string): string => {
+    const next = splitType(typed);
+    const base = next.base.trim();
+    const length = next.length !== "" ? next.length
+        : base.toLowerCase() === parts.base.trim().toLowerCase()
+            ? parts.length : DEFAULT_LENGTHS.get(base.toLowerCase()) ?? "";
+
+    return joinType({ base, length, rest: next.rest });
 };
 
 // ---------------------------------------------------------------------------

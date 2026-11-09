@@ -68,6 +68,20 @@ describe("the grid's controls", () => {
         expect(committed).toEqual(["ident"]);
     });
 
+    it("selects a length when the user focuses it, not when a redraw "
+        + "does", () => {
+        const input = textInput({ key: "c1", field: "length" }, "45",
+            () => { /* not needed */ }, { selectOnFocus: true });
+        document.body.append(input);
+        input.focus();
+        expect([input.selectionStart, input.selectionEnd]).toEqual([0, 2]);
+        input.blur();
+        input.setSelectionRange(1, 1);
+        input.dataset.refocus = "true";
+        input.focus();
+        expect([input.selectionStart, input.selectionEnd]).toEqual([1, 1]);
+    });
+
     it("selects the type and lists the choices when focused, Up and Down "
         + "moving through them", () => {
         const committed: string[] = [];

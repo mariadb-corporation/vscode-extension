@@ -76,6 +76,15 @@ read-only Object Details view left editing to this editor.
   one open at a time); typing narrows it to choices starting so, Up/Down
   move through it putting the choice in the input, Enter or a mouse down
   takes one, the ▾ toggles it.
+- **Type and length**: a type taken in the Type field (`typeChanged` in
+  `tableDraft.ts`) keeps a length typed with it (`varchar(100)`); a
+  changed type gets its default length from `COLUMN_TYPES` (varchar 45,
+  char 1, decimal 10,2, ...), one without a default loses it; the same
+  type keeps its own. The Length field holds all that goes between the
+  parentheses (`10,2`, ENUM's `'a','b'`), with a placeholder saying so
+  for such types (`M,D`, `'a','b'`, `fsp`); focused by the user it
+  selects its text (`selectOnFocus`). A redraw keeps a selection of a
+  whole field whole, so a default a commit just set is selected.
 - **Column titles stay on one line**, cut short with an ellipsis, the
   whole title as the tooltip (`titleFormatter`).
 - **Row bars are index membership**, DBX's colours: primary amber, unique

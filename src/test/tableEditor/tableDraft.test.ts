@@ -30,6 +30,7 @@ import {
     parseKeyParts,
     renameColumn,
     splitType,
+    typeChanged,
     tableEdits,
     type ITableDraft,
 } from "../../tableEditor/tableDraft.js";
@@ -199,6 +200,20 @@ describe("types and key parts", () => {
             rest: "UNSIGNED" });
         expect(joinType({ base: "decimal", length: "10,2", rest: "" }))
             .toBe("decimal(10,2)");
+    });
+
+    it("sets a changed type's default length, and clears it for a type "
+        + "that has none", () => {
+        const varchar = splitType("varchar(45)");
+        expect(typeChanged(varchar, "int")).toBe("int");
+        expect(typeChanged(varchar, "decimal")).toBe("decimal(10,2)");
+        expect(typeChanged(splitType("int"), "varchar")).toBe("varchar(45)");
+        expect(typeChanged(splitType("int"), "enum")).toBe("enum");
+        // The same type keeps its length; one typed with it is taken.
+        expect(typeChanged(splitType("varchar(100)"), "VARCHAR"))
+            .toBe("VARCHAR(100)");
+        expect(typeChanged(varchar, "char(3)")).toBe("char(3)");
+        expect(typeChanged(varchar, "int unsigned")).toBe("int unsigned");
     });
 
     it("reads and writes key parts", () => {
