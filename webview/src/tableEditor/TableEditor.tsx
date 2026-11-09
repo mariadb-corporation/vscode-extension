@@ -459,7 +459,7 @@ export const TableEditor = (): preact.JSX.Element => {
             },
         },
         {
-            field: "length", title: "Length", width: 90,
+            field: "length", title: "Length/Values", width: 110,
             render: (column) => {
                 const parts = splitType(column.type);
 

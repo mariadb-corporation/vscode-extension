@@ -80,7 +80,7 @@ read-only Object Details view left editing to this editor.
   `tableDraft.ts`) keeps a length typed with it (`varchar(100)`); a
   changed type gets its default length from `COLUMN_TYPES` (varchar 45,
   char 1, decimal 10,2, ...), one without a default loses it; the same
-  type keeps its own. The Length field holds all that goes between the
+  type keeps its own. The Length/Values field holds all that goes between the
   parentheses (`10,2`, ENUM's `'a','b'`), with a placeholder saying so
   for such types (`M,D`, `'a','b'`, `fsp`); focused by the user it
   selects its text (`selectOnFocus`). A redraw keeps a selection of a
