@@ -64,9 +64,11 @@ read-only Object Details view left editing to this editor.
   page's column specs of the latest render (not the first). A text input
   commits a value once, however often `change` comes.
 - **Keys**: Up/Down in a grid's text input move to the same field a row
-  up or down (a capture listener on the grid; disabled controls skipped;
-  the input left commits first); Down in the last row calls `onAddRow`
-  (Columns: Add Column). Down in the Table name goes to the first
+  up or down, Enter (as in a spreadsheet) a row down (a capture listener
+  on the grid; disabled controls skipped; the input left commits first;
+  a combo keeps Up/Down, and Enter while its list is open); Down or
+  Enter in the last row calls `onAddRow` with the control left (Columns:
+  Add Column, but not from a new column whose name is still empty). Down in the Table name goes to the first
   column's name, or adds one. The page asks for a focus with the grid's
   `focus` prop, honoured once `replaceData` built the row (Add Column
   focuses the new name so); `addColumn` sets the draft functionally, as

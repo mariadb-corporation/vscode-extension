@@ -29,8 +29,9 @@
  * survives the commit the first one made on leaving.
  *
  * Up and Down in a text input move to the same field of the row above or
- * below; Down in the last row asks the page for a new row, where it has
- * one to give. A combo's input keeps them for its list of choices. The
+ * below, Enter to the one below; Down or Enter in the last row asks the
+ * page for a new row, where it has one to give. A combo's input keeps Up
+ * and Down for its list of choices, and Enter while the list is open. The
  * page asks for a control to be focused with `focus`, which the grid
  * honours once the rows it is in are built.
  */
@@ -88,8 +89,13 @@ export const ControlGrid = <T extends IGridRow>(props: {
     /** A control to focus, once it is built; `onFocused` clears it. */
     focus?: IGridFocus;
     onFocused?(): void;
-    /** Down in the last row: the page adds a row, and asks for a focus. */
-    onAddRow?(): void;
+    /**
+     * Down or Enter in the last row: the page adds a row, and asks for a
+     * focus.
+     *
+     * @param from The control left: its row, field and value.
+     */
+    onAddRow?(from: IGridFocus & { value: string }): void;
 }): preact.JSX.Element => {
     const host = useRef<HTMLDivElement>(null);
     const table = useRef<Tabulator | undefined>(undefined);
@@ -139,11 +145,16 @@ export const ControlGrid = <T extends IGridRow>(props: {
     const onArrow = (event: KeyboardEvent): void => {
         const instance = table.current;
         const input = event.target;
-        if ((event.key !== "ArrowUp" && event.key !== "ArrowDown")
+        if (!["ArrowUp", "ArrowDown", "Enter"].includes(event.key)
             || event.altKey || event.ctrlKey || event.metaKey
             || event.shiftKey || instance === undefined
-            || !(input instanceof HTMLInputElement) || input.type !== "text"
-            || input.closest(".cell-combo") !== null) {
+            || !(input instanceof HTMLInputElement) || input.type !== "text") {
+            return;
+        }
+        // A combo keeps Up and Down for its list, and Enter while the list
+        // is open, to take a choice.
+        if (input.closest(".cell-combo") !== null && (event.key !== "Enter"
+            || input.getAttribute("aria-expanded") === "true")) {
             return;
         }
         const { key, field } = input.dataset;
@@ -155,6 +166,7 @@ export const ControlGrid = <T extends IGridRow>(props: {
         const keys = instance.getRows("active").map((row) => {
             return (row.getData() as IGridRow).key;
         });
+        // Enter goes down, as in a spreadsheet.
         const step = event.key === "ArrowUp" ? -1 : 1;
         // Taken first: what the next control's commit sees includes it.
         input.dispatchEvent(new Event("change"));
@@ -167,7 +179,7 @@ export const ControlGrid = <T extends IGridRow>(props: {
             return;
         }
         if (at >= keys.length) {
-            latest.current.onAddRow?.();
+            latest.current.onAddRow?.({ key, field, value: input.value });
 
             return;
         }

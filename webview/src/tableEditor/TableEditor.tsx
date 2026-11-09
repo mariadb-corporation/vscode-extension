@@ -982,7 +982,19 @@ export const TableEditor = (): preact.JSX.Element => {
                         density={density} placeholder="The table has no columns."
                         focus={columnFocus}
                         onFocused={() => { setColumnFocus(undefined); }}
-                        onAddRow={addColumn}
+                        onAddRow={(from) => {
+                            // Not from a new column with no name yet: it is
+                            // the new one.
+                            const left = draft.columns.find((column) => {
+                                return column.key === from.key;
+                            });
+                            const name = from.field === "name" ? from.value
+                                : left?.name ?? "";
+                            if (left?.origin !== undefined
+                                || name.trim() !== "") {
+                                addColumn();
+                            }
+                        }}
                         rowClass={(column) => {
                             return [...(marks.get(column.key) ?? []).slice(0, 1),
                                 ...(column.dropped === true ? ["dropped"] : []),
