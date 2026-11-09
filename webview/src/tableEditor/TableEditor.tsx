@@ -17,7 +17,8 @@
 
 /**
  * The table editor, laid out as DBX's: the table's name and comment, then
- * tabs (DDL, Columns, Indexes, Foreign Keys, Triggers) with each tab's
+ * tabs (DDL, Columns, Indexes, Foreign Keys, Triggers, Online Alter Table)
+ * with each tab's
  * actions to their right (Refresh Structure and a menu last), and
  * below them the SQL preview of what Apply runs. In VS Code's colours.
  *
@@ -49,6 +50,12 @@ import {
     type IDraftTrigger,
     type ITableDraft,
 } from "../../../src/tableEditor/tableDraft.js";
+import {
+    entryKey,
+    readTexts,
+    textsOf,
+    type OnlineAlterTexts,
+} from "../../../src/tableEditor/onlineAlter.js";
 import type {
     ITableEditorData,
     TableEditorHostMessage,
@@ -66,8 +73,10 @@ import {
     textInput,
     type IGridColumn,
 } from "./ControlGrid.js";
+import { OnlineAlterTab } from "./OnlineAlterTab.js";
 
-const TABS = ["DDL", "Columns", "Indexes", "Foreign Keys", "Triggers"] as const;
+const TABS = ["DDL", "Columns", "Indexes", "Foreign Keys", "Triggers",
+    "Online Alter Table"] as const;
 type Tab = typeof TABS[number];
 
 const DENSITIES = ["Compact", "Standard", "Comfortable"] as const;
@@ -148,6 +157,8 @@ export const TableEditor = (): preact.JSX.Element => {
     const [data, setData] = useState<ITableEditorData | undefined>();
     const [loadError, setLoadError] = useState<string | undefined>();
     const [draft, setDraft] = useState<ITableDraft | undefined>();
+    /** The Online Alter Table tab's fields, as typed. */
+    const [alterTexts, setAlterTexts] = useState<OnlineAlterTexts>();
     const [tab, setTab] = useState<Tab>(kept.tab ?? "Columns");
     const [density, setDensity] = useState<Density>(kept.density ?? "Compact");
     const [search, setSearch] = useState("");
@@ -177,6 +188,8 @@ export const TableEditor = (): preact.JSX.Element => {
                     setData(message.data);
                     setDraft(draftOf(message.data.table,
                         message.data.triggers));
+                    setAlterTexts(message.data.onlineAlter === undefined
+                        ? undefined : textsOf(message.data.onlineAlter.table));
                     setLoadError(undefined);
                     setConfirmRefresh(false);
                     break;
@@ -228,13 +241,25 @@ export const TableEditor = (): preact.JSX.Element => {
         return data === undefined || draft === undefined ? []
             : tableEdits(data.table, data.triggers, draft);
     }, [data, draft]);
+    const alter = useMemo(() => {
+        return alterTexts === undefined ? undefined : readTexts(alterTexts);
+    }, [alterTexts]);
+    // Changed where its entry is another than the one read, or a field
+    // typed in is no value.
+    const alterChanged = alter !== undefined
+        && data?.onlineAlter !== undefined && (alter.problems.length > 0
+            || entryKey(alter.entry) !== entryKey(data.onlineAlter.table));
     const problems = useMemo(() => {
+        return [...draft === undefined ? [] : draftProblems(draft),
+            ...alter?.problems ?? []];
+    }, [draft, alter]);
+    const draftProblemsOnly = useMemo(() => {
         return draft === undefined ? [] : draftProblems(draft);
     }, [draft]);
 
     useEffect(() => {
         request.current += 1;
-        if (edits.length === 0 || problems.length > 0) {
+        if (edits.length === 0 || draftProblemsOnly.length > 0) {
             setPreview({ statements: [], notes: [] });
 
             return;
@@ -245,7 +270,7 @@ export const TableEditor = (): preact.JSX.Element => {
         }, 250);
 
         return () => { clearTimeout(timer); };
-    }, [edits, problems]);
+    }, [edits, draftProblemsOnly]);
 
     if (data === undefined || draft === undefined) {
         return (
@@ -280,7 +305,7 @@ export const TableEditor = (): preact.JSX.Element => {
         change({ triggers: patched(draft.triggers, key, patch) });
     };
 
-    const dirty = edits.length > 0;
+    const dirty = edits.length > 0 || alterChanged;
     const refresh = (): void => {
         if (dirty && !confirmRefresh) {
             setConfirmRefresh(true);
@@ -938,6 +963,14 @@ export const TableEditor = (): preact.JSX.Element => {
                             return key.dropped === true ? ["dropped"] : [];
                         }} />
                 )}
+                {tab === "Online Alter Table" && (
+                    <OnlineAlterTab data={data.onlineAlter}
+                        problem={data.onlineAlterProblem} texts={alterTexts}
+                        onChange={(texts) => {
+                            setOutcome(undefined);
+                            setAlterTexts(texts);
+                        }} />
+                )}
                 {tab === "Triggers" && (
                     <div class="triggers">
                         <ControlGrid rows={draft.triggers} columns={triggerGrid}
@@ -981,8 +1014,10 @@ export const TableEditor = (): preact.JSX.Element => {
                         && preview.error === undefined ? "badge ready"
                         : "badge"}>
                         {!dirty ? "No changes" : problems.length > 0
-                            ? "Not ready" : `${statements.length} statement${
-                                statements.length === 1 ? "" : "s"}`}
+                            ? "Not ready" : edits.length === 0
+                                ? "Online ALTER settings"
+                                : `${statements.length} statement${
+                                    statements.length === 1 ? "" : "s"}`}
                     </span>
                     <span class="spacer" />
                     <button type="button" class="ghost" disabled={sql === ""}
@@ -994,6 +1029,8 @@ export const TableEditor = (): preact.JSX.Element => {
                         onClick={() => {
                             setOutcome(undefined);
                             setDraft(draftOf(data.table, data.triggers));
+                            setAlterTexts(data.onlineAlter === undefined
+                                ? undefined : textsOf(data.onlineAlter.table));
                         }}>
                         Discard Changes
                     </button>
@@ -1005,7 +1042,9 @@ export const TableEditor = (): preact.JSX.Element => {
                             // Busy at once: a second click sends no second
                             // Save before the panel's busy comes back.
                             setBusy(true);
-                            send({ type: "apply", edits });
+                            send({ type: "apply", edits,
+                                ...(alterChanged
+                                    ? { onlineAlter: alter.entry } : {}) });
                         }}>
                         {busy ? "Applying…" : data.live ? "Apply Changes"
                             : "Save to Project"}

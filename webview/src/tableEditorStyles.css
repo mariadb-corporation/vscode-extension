@@ -389,6 +389,38 @@ button.bare:hover:not(:disabled) {
     font-size: var(--vscode-editor-font-size);
 }
 
+/* --- the Online Alter Table tab ------------------------------------------ */
+
+.online-alter {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.online-alter p {
+    margin: 0;
+    max-width: 60rem;
+}
+
+/* label, field, what it is for */
+.online-alter-fields {
+    display: grid;
+    grid-template-columns: max-content minmax(8rem, 12rem) 1fr;
+    align-items: center;
+    gap: 6px 10px;
+}
+
+.online-alter-fields select {
+    height: 26px;
+}
+
+.online-alter-fields .hint {
+    min-width: 0;
+}
+
 /* --- the grids ----------------------------------------------------------- */
 
 .control-grid {

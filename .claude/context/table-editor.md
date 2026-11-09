@@ -20,9 +20,11 @@ read-only Object Details view left editing to this editor.
 | File | Role |
 | --- | --- |
 | `src/tableEditor/tableDraft.ts` | Pure, shared with the page: the draft (`draftOf`; each row's `origin`, its place in the table as read, so a rename is not a drop and an add, and an unnamed index can still be dropped; `dropped` rows), `tableEdits` (draft → ops), `draftProblems`, the type and key-part text helpers |
-| `src/tableEditor/lspEdit.ts` | `LspEdit`: `mariadb-lsp edit` on a script's text (stdin) or a file, the request in a temp file; no edits reads the outline |
+| `src/tableEditor/lspEdit.ts` | `LspEdit`: `mariadb-lsp edit` on a script's text (stdin) or a file, the request in a temp file; no edits reads the outline. `mergesAlters` asks `edit --ops` once whether the binary merges a table's ALTERs (`merge_alters`, lsp-server #33), then each ALTER TABLE has `table` and `spec` |
+| `src/tableEditor/onlineAlter.ts`, `onlineAlterStore.ts` | The Online Alter Table tab's model, pure, shared with the page (msm's camelCase option keys, sizes as `10 GiB` / `unlimited`, `textsOf` / `readTexts`, `entryKey`); `OnlineAlterStore`, a live table's entry in workspace state (`mariadb.onlineAlterTables`, by connection, schema and table; a rename moves it) |
 | `src/tableEditor/tableSources.ts` | `LiveTableSource`, `ProjectTableSource` (read, preview, apply), `COMMON_COLLATIONS` |
 | `src/tableEditor/tableEditorPanel.ts`, `tableEditorProtocol.ts` | The panel (one per table, `tableEditorKey`) and its messages |
+| `webview/src/tableEditor/OnlineAlterTab.tsx` | The Online Alter Table tab: on / off / inherited, the five limits and the NBO lock, each field empty = the inherited value shown as its placeholder |
 | `webview/src/tableEditor/TableEditor.tsx`, `ControlGrid.tsx`, `tableEditor.tsx`, `tableEditorStyles.css`, `vite.tableEditor.config.ts` | The page, its own build (`dist/webview/tableEditor.{js,css}`) |
 
 ## How it behaves
@@ -112,6 +114,38 @@ read-only Object Details view left editing to this editor.
 - The binary is found as the language server is (`mariadb.lsp.path`,
   PATH, the shell's installations), once; none found is looked for again.
 
+## Online Alter Table
+
+msm runs an ALTER TABLE the least disruptive way the server accepts
+(INSTANT, NOCOPY and COPY with LOCK=NONE, a Galera NBO, LOCK=SHARED,
+LOCK=EXCLUSIVE; mariadb-shell-plugins `msm_plugin/.claude/context/
+online-alter.md`). The tab sets it per table, agreed with the msm session:
+
+- **Settings**: `enabled` plus msm's limits (`maxCopyBytes`,
+  `galeraMaxBytes`, `nboLock`, `maxLockedBytes`, `lockWait`,
+  `maxRetries`); a key left out takes the inherited value, a size of null
+  is no limit. On by default, live tables too (msm's decision).
+  - Project table: `msm.get_online_alter_settings(table)`; inherited = the
+    project's general values over msm's `defaults`. Save runs
+    msm.edit_schema first, then `msm.set_online_alter_table` under the
+    name the Save leaves (`ProjectTableSource.#keepOnlineAlter`): msm does
+    not carry an entry over a `rename_table` yet, so the extension moves it
+    (set new, drop old) - to drop once msm does. Deployments use it.
+  - Live table: the workspace (`OnlineAlterStore`; user's decision);
+    inherited = `msm.get_online_alter_defaults()`. An msm without these
+    tools gives the tab `onlineAlterProblem` to show instead.
+- **Live Apply** (`LiveTableSource.apply`): the migration is asked with
+  `merge_alters` (one ALTER per table). Each ALTER of this table (by its
+  `table`, under its old or new name) with a `spec` goes to
+  `msm.online_alter_table` with the entry's options, followed by
+  `TaskMonitor.follow(percent: true)` (the stages' percent moves the bar;
+  Cancel = KILL QUERY); everything else runs in order on the UI session
+  as before. NEEDS_EXTERNAL (`applied: false`) stops the Save with the
+  reason, the statements before it kept (`PartlyAppliedError`); a
+  binary without `merge_alters` gives no `spec`, so all runs as written.
+- Changing settings alone is a Save of its own (badge "Online ALTER
+  settings"), which refreshes no tree or diagram.
+
 ## Not done yet
 
 - DBX's Copy Fields from Another Table, Paste fields, Insert Preset
@@ -139,6 +173,10 @@ read-only Object Details view left editing to this editor.
   unchanged columns. `ProjectTableSource`'s DDL and preview on a real
   project's script.
 - The page rendered in headless Chrome with a dark theme's variables.
+- Online ALTER: `src/test/tableEditor/onlineAlter.test.ts`,
+  `tableSources.test.ts` (fake binary and msm), the tab in
+  `webview/test/TableEditor.test.tsx`.
 - **Not yet tried in a running VS Code**: opening below the editor, a
   live Apply against a server, a project's Save through msm, the diagram
-  menu entry.
+  menu entry, the Online Alter Table tab against msm (needs
+  mariadb-shell-plugins #95).

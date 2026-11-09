@@ -29,7 +29,7 @@ export type TaskStatus =
     | "pending" | "running" | "completed" | "failed" | "cancelled";
 
 /** The tool group that started a task. */
-export type TaskType = "util" | "dba";
+export type TaskType = "util" | "dba" | "msm";
 
 /** The utilities a `util` task can run, as the server names them. */
 export type UtilTaskKind =
@@ -40,7 +40,10 @@ export type UtilTaskKind =
 /** What a `dba` task does with a cloud vendor's object. */
 export type DbaTaskKind = "deploy_object" | "delete_object";
 
-export type TaskKind = UtilTaskKind | DbaTaskKind;
+/** What an `msm` task does: an ALTER TABLE of a live table, run online. */
+export type MsmTaskKind = "online_alter_table";
+
+export type TaskKind = UtilTaskKind | DbaTaskKind | MsmTaskKind;
 
 /** The progress of a task's current stage. */
 export interface ITaskProgress {

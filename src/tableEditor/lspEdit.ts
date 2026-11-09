@@ -68,6 +68,13 @@ export interface ILspMigrationStatement {
     action?: string;
     object?: string;
     name?: string;
+    /**
+     * An ALTER TABLE's table, as named when it runs: only with
+     * `merge_alters`.
+     */
+    table?: string;
+    /** What follows ``ALTER TABLE `t` ``: only with `merge_alters`. */
+    spec?: string;
 }
 
 /** What `mariadb-lsp edit` answers with. */
@@ -122,6 +129,9 @@ export const spawnLsp: LspRunner = (binary, args, stdin) => {
  * `mariadb-lsp edit`, found when first needed.
  */
 export class LspEdit {
+    /** Whether the binary merges a table's ALTERs, once asked. */
+    #mergesAlters?: Promise<boolean>;
+
     /**
      * @param binary Finds the binary: undefined where there is none.
      * @param run Runs it.
@@ -132,10 +142,37 @@ export class LspEdit {
     ) { }
 
     /**
+     * @returns Whether the binary merges the ALTER TABLE statements of a
+     *          table into one, giving each its `table` and `spec`
+     *          (`edit --ops` says `merge_alters`); an older one does not.
+     */
+    public mergesAlters(): Promise<boolean> {
+        this.#mergesAlters ??= (async () => {
+            const binary = await this.binary();
+            if (binary === undefined) {
+                return false;
+            }
+            try {
+                const { code, stdout } = await this.run(binary,
+                    ["edit", "--ops"]);
+
+                return code === 0 && (JSON.parse(stdout) as
+                    { merge_alters?: unknown }).merge_alters === true;
+            } catch {
+                return false;
+            }
+        })();
+
+        return this.#mergesAlters;
+    }
+
+    /**
      * @param script The script.
      * @param schema The schema the names belong to; null for a script
      *               without `USE`.
      * @param edits The edits; none reads the outline alone.
+     * @param mergeAlters Whether to merge a table's ALTERs into one, each
+     *                    with its `table` and `spec`, where the binary does.
      *
      * @returns What the binary answered.
      */
@@ -143,6 +180,7 @@ export class LspEdit {
         script: LspScript,
         schema: string | null,
         edits: IMsmSchemaEdit[] = [],
+        mergeAlters = false,
     ): Promise<ILspEditResult> {
         const binary = await this.binary();
         if (binary === undefined) {
@@ -150,11 +188,12 @@ export class LspEdit {
                 + "editor needs the MariaDB SQL language server of a MariaDB "
                 + "Shell installation, one on the PATH, or mariadb.lsp.path.");
         }
+        const merge = mergeAlters && await this.mergesAlters();
         const folder = await mkdtemp(path.join(tmpdir(), "mariadb-edit-"));
         try {
             const request = path.join(folder, "edits.json");
             await writeFile(request, JSON.stringify({ format: 1, schema,
-                edits }));
+                ...(merge ? { merge_alters: true } : {}), edits }));
             const args = ["edit", "--edits", request];
             const result = "file" in script
                 ? await this.run(binary, [...args, script.file])

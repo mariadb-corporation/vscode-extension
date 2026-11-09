@@ -25,16 +25,25 @@
  *   connection, one statement at a time: the other tables are in the
  *   script so a column their foreign keys use is changed as MariaDB needs
  *   (the key dropped and added back, error 1833).
+ *   Where online ALTER TABLE is on for the table, its ALTERs (merged into
+ *   one per table by the binary, with their `spec`) run through
+ *   `msm.online_alter_table` instead, each a task of the Tasks view; its
+ *   entry is kept in the workspace.
  * - A project's table is msm's schema snapshot's, the editor's edits made
  *   by `msm.edit_schema` in the project's queue (the diagrams' source).
  *   The binary reads the development script for the DDL tab and previews
- *   the migration msm will keep; it writes nothing.
+ *   the migration msm will keep; it writes nothing. Its online ALTER
+ *   entry is msm.project.json's, which deployments use.
  */
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
+import type {
+    IMsmOnlineAlterSettings,
+    IMsmSchemaEdit,
+} from "../mcp/msmApi.js";
+import type { ITaskState } from "../mcp/taskApi.js";
 import type {
     IOutlineTable,
     IOutlineTrigger,
@@ -46,6 +55,12 @@ import {
     sliceText,
     tableOfOutline,
 } from "./lspEdit.js";
+import {
+    type IOnlineAlterData,
+    type IOnlineAlterEntry,
+    type IOnlineAlterOptions,
+    optionsOf,
+} from "./onlineAlter.js";
 import type {
     ICollationChoice,
     ITableEditorData,
@@ -68,8 +83,25 @@ export interface ITableSource {
     readonly table: string;
     read(): Promise<ITableEditorData>;
     preview(edits: IMsmSchemaEdit[]): Promise<ITablePreview>;
-    apply(edits: IMsmSchemaEdit[]): Promise<ITableApplied>;
+    /**
+     * @param edits The edits; none where only the online ALTER entry
+     *              changed.
+     * @param onlineAlter The table's online ALTER entry, where the tab
+     *                    changed it.
+     */
+    apply(edits: IMsmSchemaEdit[],
+        onlineAlter?: IOnlineAlterEntry): Promise<ITableApplied>;
 }
+
+/**
+ * @param error Why msm could not give the settings.
+ *
+ * @returns What the Online Alter Table tab says instead.
+ */
+const onlineAlterProblem = (error: unknown): string => {
+    return "Online ALTER TABLE needs a MariaDB Shell whose msm has it: "
+        + (error instanceof Error ? error.message : String(error));
+};
 
 /** Raised when a live Save stopped part way: what ran stays run. */
 export class PartlyAppliedError extends Error {
@@ -124,6 +156,56 @@ const field = (row: Record<string, unknown>, name: string): string => {
     return value === undefined || value === null ? "" : String(value);
 };
 
+/** What an ALTER TABLE run online came to. */
+export interface IOnlineAlterOutcome {
+    /** Whether it changed the table: not where no allowed step could. */
+    applied: boolean;
+    /** How it ran: INSTANT, NOCOPY, COPY, ..., or NEEDS_EXTERNAL. */
+    method: string;
+    reason?: string;
+}
+
+/**
+ * @param state An `online_alter_table` task, ended.
+ *
+ * @returns What it came to; an error where it failed or was cancelled.
+ */
+export const onlineAlterOutcome = (state: ITaskState): IOnlineAlterOutcome => {
+    if (state.status === "cancelled") {
+        throw new Error("The online ALTER TABLE was cancelled; the table is "
+            + "as it was.");
+    }
+    if (state.status !== "completed") {
+        throw new Error(state.error ?? "The online ALTER TABLE failed.");
+    }
+    const result = (state.result ?? {}) as { method?: unknown;
+        applied?: unknown; reason?: unknown };
+
+    return {
+        applied: result.applied !== false,
+        method: typeof result.method === "string" ? result.method : "done",
+        ...(typeof result.reason === "string" && result.reason !== ""
+            ? { reason: result.reason } : {}),
+    };
+};
+
+/** A live table's online ALTER TABLE: its entry, and its runs. */
+export interface ILiveOnlineAlter {
+    /** msm's limits where nothing sets them. */
+    defaults(): Promise<Required<IOnlineAlterOptions>>;
+    /** The table's entry, as the workspace keeps it. */
+    get(table: string): IOnlineAlterEntry;
+    set(table: string, entry: IOnlineAlterEntry): Promise<void>;
+    /** Moves a renamed table's entry. */
+    rename(table: string, name: string): Promise<void>;
+    /**
+     * Runs one ALTER TABLE of the table online, as a task; throws where it
+     * failed or was cancelled.
+     */
+    run(table: string, spec: string,
+        options: IOnlineAlterOptions): Promise<IOnlineAlterOutcome>;
+}
+
 /** What a live table is read and changed through. */
 export interface ILiveTableDeps {
     /** Runs a query on the connection, its rows as objects. */
@@ -131,6 +213,8 @@ export interface ILiveTableDeps {
     /** Runs a statement that returns no rows. */
     execute(sql: string): Promise<void>;
     lsp: LspEdit;
+    /** Online ALTER TABLE; without it, every statement runs as written. */
+    onlineAlter?: ILiveOnlineAlter;
 }
 
 /** A table of a live connection. */
@@ -239,12 +323,41 @@ export class LiveTableSource implements ITableSource {
             ddl,
             tables,
             collations,
+            ...await this.#onlineAlterData(),
         };
     }
 
+    /** The Online Alter Table tab's settings, or why there are none. */
+    async #onlineAlterData(): Promise<Pick<ITableEditorData,
+        "onlineAlter" | "onlineAlterProblem">> {
+        const online = this.deps.onlineAlter;
+        if (online === undefined) {
+            return {};
+        }
+        try {
+            return { onlineAlter: {
+                inherited: { ...await online.defaults(), enabled: true },
+                table: online.get(this.#table),
+                keptIn: "workspace",
+            } };
+        } catch (error) {
+            return { onlineAlterProblem: onlineAlterProblem(error) };
+        }
+    }
+
+    /**
+     * @param edits The edits.
+     *
+     * @returns The binary's migration for them: an online ALTER needs
+     *          each table's ALTERs merged, with their `spec`.
+     */
+    #migration(edits: IMsmSchemaEdit[]): ReturnType<LspEdit["edit"]> {
+        return this.deps.lsp.edit({ text: this.#script }, null, edits,
+            this.deps.onlineAlter !== undefined);
+    }
+
     public async preview(edits: IMsmSchemaEdit[]): Promise<ITablePreview> {
-        const result = await this.deps.lsp.edit({ text: this.#script }, null,
-            edits);
+        const result = await this.#migration(edits);
 
         return {
             statements: result.migration.map((statement) => {
@@ -278,6 +391,7 @@ export class LiveTableSource implements ITableSource {
                 + `${quoteString(this.schema)} AND TABLE_NAME = ${
                     quoteString(renamed)}`);
             if (rows.length > 0) {
+                await this.deps.onlineAlter?.rename(this.#table, renamed);
                 this.#table = renamed;
             }
         } catch {
@@ -285,24 +399,63 @@ export class LiveTableSource implements ITableSource {
         }
     }
 
-    public async apply(edits: IMsmSchemaEdit[]): Promise<ITableApplied> {
-        const preview = await this.preview(edits);
+    public async apply(edits: IMsmSchemaEdit[],
+        onlineAlter?: IOnlineAlterEntry): Promise<ITableApplied> {
+        const online = this.deps.onlineAlter;
+        if (online !== undefined && onlineAlter !== undefined) {
+            await online.set(this.#table, onlineAlter);
+        }
+        if (edits.length === 0) {
+            return { notes: [] };
+        }
+        const entry = online?.get(this.#table) ?? {};
+        // This table's ALTERs, under either name where the Save renames it.
+        const names = new Set([this.#table, renamedTo(edits) ?? this.#table]
+            .map((name) => { return name.toLowerCase(); }));
+        const result = await this.#migration(edits);
+        const notes = result.notes.filter((note) => {
+            return note.kind !== "trigger-created"
+                && note.kind !== "trigger-recreated";
+        }).map((note) => { return note.message; });
         const done: string[] = [];
         // The statements carry no schema: the session's may be another.
         await this.deps.execute(`USE ${quoteName(this.schema)}`);
-        for (const statement of preview.statements) {
+        for (const statement of result.migration) {
+            const runOnline = online !== undefined
+                && (entry.enabled ?? true) && statement.spec !== undefined
+                && statement.table !== undefined
+                && names.has(statement.table.toLowerCase());
             try {
-                await this.deps.execute(statement);
+                if (runOnline) {
+                    const outcome = await online.run(statement.table!,
+                        statement.spec!, optionsOf(entry));
+                    if (!outcome.applied) {
+                        throw new Error("The ALTER TABLE was not run, and "
+                            + "nothing was changed: no step online ALTER "
+                            + "TABLE allows could run it"
+                            + (outcome.reason === undefined ? "."
+                                : ` (${outcome.reason}).`));
+                    }
+                    notes.push(`ALTER TABLE ran online: ${outcome.method}`
+                        + (outcome.reason === undefined ? "."
+                            : ` (${outcome.reason}).`));
+                } else {
+                    await this.deps.execute(statement.sql);
+                }
             } catch (error) {
                 await this.#followRename(edits, done);
                 throw new PartlyAppliedError(error instanceof Error
                     ? error.message : String(error), done);
             }
-            done.push(statement);
+            done.push(statement.sql);
         }
-        this.#table = renamedTo(edits) ?? this.#table;
+        const renamed = renamedTo(edits);
+        if (renamed !== undefined) {
+            await online?.rename(this.#table, renamed);
+            this.#table = renamed;
+        }
 
-        return { notes: preview.notes };
+        return { notes };
     }
 }
 
@@ -316,7 +469,32 @@ export interface IProjectTableDeps {
     scriptFile(): Promise<string | undefined>;
     lsp: LspEdit;
     readText?(file: string): Promise<string>;
+    /** The project's online ALTER TABLE setting, through msm. */
+    onlineAlter?: {
+        get(table: string): Promise<IMsmOnlineAlterSettings>;
+        /** Writes a table's entry; null drops it. */
+        set(table: string, entry: IOnlineAlterEntry | null): Promise<void>;
+    };
 }
+
+/**
+ * @param settings A project's setting, as msm gives it.
+ * @param table A table of it.
+ *
+ * @returns What the Online Alter Table tab shows of the table.
+ */
+export const projectOnlineAlter = (settings: IMsmOnlineAlterSettings,
+    table: string): IOnlineAlterData => {
+    const { tables, enabled, ...general } = settings.setting;
+
+    return {
+        inherited: { ...settings.defaults, ...general,
+            enabled: enabled ?? true },
+        // Table names match exactly, as msm matches them.
+        table: tables?.[table] ?? {},
+        keptIn: "project",
+    };
+};
 
 /** The character sets and collations offered where no server is asked. */
 export const COMMON_COLLATIONS: readonly ICollationChoice[] = [
@@ -396,7 +574,23 @@ export class ProjectTableSource implements ITableSource {
             }),
             tables,
             collations: [...COMMON_COLLATIONS],
+            ...await this.#onlineAlterData(table.name),
         };
+    }
+
+    /** The Online Alter Table tab's settings, or why there are none. */
+    async #onlineAlterData(table: string): Promise<Pick<ITableEditorData,
+        "onlineAlter" | "onlineAlterProblem">> {
+        const online = this.deps.onlineAlter;
+        if (online === undefined) {
+            return {};
+        }
+        try {
+            return { onlineAlter: projectOnlineAlter(await online.get(table),
+                table) };
+        } catch (error) {
+            return { onlineAlterProblem: onlineAlterProblem(error) };
+        }
     }
 
     /**
@@ -436,16 +630,50 @@ export class ProjectTableSource implements ITableSource {
         };
     }
 
-    public async apply(edits: IMsmSchemaEdit[]): Promise<ITableApplied> {
-        const definition = await this.#definition();
-        if (definition.source_hash === undefined) {
-            throw new Error("The project's schema snapshot has no hash to "
-                + "edit against: run Update Schema Snapshot first.");
+    public async apply(edits: IMsmSchemaEdit[],
+        onlineAlter?: IOnlineAlterEntry): Promise<ITableApplied> {
+        const before = this.#table;
+        let notes: string[] = [];
+        if (edits.length > 0) {
+            const definition = await this.#definition();
+            if (definition.source_hash === undefined) {
+                throw new Error("The project's schema snapshot has no hash "
+                    + "to edit against: run Update Schema Snapshot first.");
+            }
+            notes = await this.deps.edit(edits, definition.source_hash);
+            this.#table = renamedTo(edits) ?? this.#table;
         }
-        const notes = await this.deps.edit(edits, definition.source_hash);
-        this.#table = renamedTo(edits) ?? this.#table;
+        await this.#keepOnlineAlter(before, onlineAlter);
 
         return { notes };
+    }
+
+    /**
+     * Writes the table's online ALTER entry after the edits, under the
+     * name they leave it: msm.edit_schema does not carry it over a rename,
+     * so a renamed table's entry is moved.
+     *
+     * @param before The table's name before the edits.
+     * @param entry Its entry, where the tab changed it.
+     */
+    async #keepOnlineAlter(before: string,
+        entry: IOnlineAlterEntry | undefined): Promise<void> {
+        const online = this.deps.onlineAlter;
+        const renamed = before !== this.#table;
+        if (online === undefined || (entry === undefined && !renamed)) {
+            return;
+        }
+        const kept = entry
+            ?? (await online.get(before)).setting.tables?.[before] ?? {};
+        if (renamed && entry === undefined
+            && Object.keys(kept).length === 0) {
+            return;
+        }
+        if (renamed) {
+            await online.set(before, null);
+        }
+        await online.set(this.#table,
+            Object.keys(kept).length === 0 ? null : kept);
     }
 }
 

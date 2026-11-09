@@ -25,6 +25,7 @@ import type {
     IOutlineTable,
     IOutlineTrigger,
 } from "../modeler/modelFormat.js";
+import type { IOnlineAlterData, IOnlineAlterEntry } from "./onlineAlter.js";
 
 /** Which table an editor edits. */
 export type TableEditorTarget =
@@ -48,6 +49,10 @@ export interface ITableEditorData {
     /** The schema's tables and their columns, for foreign keys. */
     tables: Record<string, string[]>;
     collations: ICollationChoice[];
+    /** The Online Alter Table tab's settings of the table. */
+    onlineAlter?: IOnlineAlterData;
+    /** Why the tab has none: msm cannot give them. */
+    onlineAlterProblem?: string;
 }
 
 /** What the panel sends the page. */
@@ -65,7 +70,9 @@ export type TableEditorWebviewMessage =
     | { type: "ready" }
     | { type: "refresh" }
     | { type: "preview"; request: number; edits: IMsmSchemaEdit[] }
-    | { type: "apply"; edits: IMsmSchemaEdit[] }
+    | { type: "apply"; edits: IMsmSchemaEdit[];
+        /** The table's online ALTER entry, where the tab changed it. */
+        onlineAlter?: IOnlineAlterEntry }
     | { type: "viewData" };
 
 /**

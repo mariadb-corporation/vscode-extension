@@ -117,6 +117,11 @@ interface ISetUp {
     listed?: IMsmListedProject[];
 }
 
+/** msm's online ALTER TABLE defaults. */
+const ONLINE_ALTER_DEFAULTS = { maxCopyBytes: 10 * 1024 ** 3,
+    galeraMaxBytes: 256 * 1024 ** 2, nboLock: null, maxLockedBytes: null,
+    lockWait: 5, maxRetries: 10 };
+
 const setUp = (options: ISetUp = {}): IRecorded => {
     const recorded: IRecorded = {
         calls: [], rows: [], connected: [], sessions: [], disconnected: [],
@@ -160,6 +165,13 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         createEmptySchemaDiagram: answer("createEmptySchemaDiagram", undefined),
         removeSchemaDiagram: answer("removeSchemaDiagram", []),
         renameSchemaDiagram: answer("renameSchemaDiagram", []),
+        getOnlineAlterSettings: answer("getOnlineAlterSettings", {
+            defaults: ONLINE_ALTER_DEFAULTS, setting: {} }),
+        setOnlineAlterTable: answer("setOnlineAlterTable", []),
+        onlineAlterDefaults: answer("onlineAlterDefaults",
+            ONLINE_ALTER_DEFAULTS),
+        onlineAlterTable: answer("onlineAlterTable",
+            { task_id: "t1", status: "pending" }),
         updateSchemaDefinition: answer("updateSchemaDefinition", undefined),
         editSchema: answer("editSchema", {
             rows: [], files: [], migration: [], notes: [],

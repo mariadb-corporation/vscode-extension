@@ -1,0 +1,281 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+import { describe, expect, it } from "vitest";
+
+import type { IMsmOnlineAlterSettings, IMsmSchemaEdit } from "../../mcp/msmApi.js";
+import type { ITaskState } from "../../mcp/taskApi.js";
+import type { ISchemaDefinition } from "../../modeler/modelFormat.js";
+import {
+    type ILspMigrationStatement,
+    type ILspRun,
+    LspEdit,
+} from "../../tableEditor/lspEdit.js";
+import type { IOnlineAlterEntry } from "../../tableEditor/onlineAlter.js";
+import {
+    LiveTableSource,
+    onlineAlterOutcome,
+    PartlyAppliedError,
+    projectOnlineAlter,
+    ProjectTableSource,
+    type IOnlineAlterOutcome,
+} from "../../tableEditor/tableSources.js";
+
+const DEFAULTS = { maxCopyBytes: 10 * 1024 ** 3,
+    galeraMaxBytes: 256 * 1024 ** 2, nboLock: null, maxLockedBytes: null,
+    lockWait: 5, maxRetries: 10 };
+
+/**
+ * @param migration What the binary answers an edit with.
+ *
+ * @returns An LspEdit whose binary answers so, and the requests it got.
+ */
+const fakeLsp = (migration: ILspMigrationStatement[], merges = true) => {
+    const requests: string[][] = [];
+    const run = (_binary: string, args: string[]): Promise<ILspRun> => {
+        requests.push(args);
+        if (args.includes("--ops")) {
+            return Promise.resolve({ code: 0, stderr: "", stdout:
+                JSON.stringify({ format: 1, ops: [],
+                    ...(merges ? { merge_alters: true } : {}) }) });
+        }
+
+        return Promise.resolve({ code: 0, stderr: "", stdout: JSON.stringify(
+            { migration, notes: [], outline: { schemas: [] } }) });
+    };
+
+    return { lsp: new LspEdit(() => { return Promise.resolve("lsp"); }, run),
+        requests };
+};
+
+const RENAME: IMsmSchemaEdit = { op: "rename_table", table: "orders",
+    new_name: "purchases" };
+
+/** A live table whose online ALTERs answer as told. */
+const liveSetUp = (migration: ILspMigrationStatement[], options: {
+    entry?: IOnlineAlterEntry;
+    outcome?: IOnlineAlterOutcome;
+} = {}) => {
+    const executed: string[] = [];
+    const runs: Array<[string, string, unknown]> = [];
+    const entries = new Map<string, IOnlineAlterEntry>(options.entry
+        === undefined ? [] : [["orders", options.entry]]);
+    const source = new LiveTableSource("shop", "orders", {
+        query: () => { return Promise.resolve([{ TABLE_NAME: "purchases" }]); },
+        execute: (sql) => {
+            executed.push(sql);
+
+            return Promise.resolve();
+        },
+        lsp: fakeLsp(migration).lsp,
+        onlineAlter: {
+            defaults: () => { return Promise.resolve(DEFAULTS); },
+            get: (table) => { return entries.get(table) ?? {}; },
+            set: (table, entry) => {
+                entries.set(table, entry);
+
+                return Promise.resolve();
+            },
+            rename: (table, name) => {
+                const entry = entries.get(table);
+                entries.delete(table);
+                if (entry !== undefined) {
+                    entries.set(name, entry);
+                }
+
+                return Promise.resolve();
+            },
+            run: (table, spec, limits) => {
+                runs.push([table, spec, limits]);
+
+                return Promise.resolve(options.outcome
+                    ?? { applied: true, method: "INSTANT" });
+            },
+        },
+    });
+
+    return { source, executed, runs, entries };
+};
+
+const ALTER: ILspMigrationStatement = {
+    sql: "ALTER TABLE `orders` ADD COLUMN `qty` INT, ADD INDEX `ix` (`qty`)",
+    action: "alter", object: "table", table: "orders",
+    spec: "ADD COLUMN `qty` INT, ADD INDEX `ix` (`qty`)" };
+const OTHER: ILspMigrationStatement = {
+    sql: "ALTER TABLE `lines` DROP FOREIGN KEY `fk`",
+    action: "drop", object: "foreign_key", table: "lines",
+    spec: "DROP FOREIGN KEY `fk`" };
+
+describe("LspEdit", () => {
+    it("asks for merged ALTERs only where the binary says it merges them",
+        async () => {
+            const merging = fakeLsp([]);
+            await merging.lsp.edit({ text: "" }, null, [], true);
+            expect(merging.requests[0]).toEqual(["edit", "--ops"]);
+
+            const older = fakeLsp([], false);
+            expect(await older.lsp.mergesAlters()).toBe(false);
+            // Asked once.
+            await older.lsp.mergesAlters();
+            expect(older.requests).toHaveLength(1);
+        });
+});
+
+describe("LiveTableSource, online ALTER TABLE", () => {
+    it("runs the table's ALTERs online and the others as written, in "
+        + "order", async () => {
+        const live = liveSetUp([OTHER, ALTER], { entry: { maxCopyBytes: 0,
+            enabled: true } });
+        const applied = await live.source.apply([{ op: "add_column" }]);
+
+        expect(live.executed).toEqual(["USE `shop`", OTHER.sql]);
+        expect(live.runs).toEqual([["orders", ALTER.spec,
+            { maxCopyBytes: 0 }]]);
+        expect(applied.notes).toEqual(["ALTER TABLE ran online: INSTANT."]);
+    });
+
+    it("runs every statement as written where the table has it off",
+        async () => {
+            const live = liveSetUp([ALTER], { entry: { enabled: false } });
+            await live.source.apply([{ op: "add_column" }]);
+
+            expect(live.runs).toEqual([]);
+            expect(live.executed).toEqual(["USE `shop`", ALTER.sql]);
+        });
+
+    it("stops where no allowed step can run an ALTER, what ran before kept",
+        async () => {
+            const live = liveSetUp([OTHER, ALTER], { outcome: {
+                applied: false, method: "NEEDS_EXTERNAL",
+                reason: "the table is larger than maxCopyBytes" } });
+
+            const failed = await live.source.apply([{ op: "add_column" }])
+                .catch((error: unknown) => { return error; });
+            expect(failed).toBeInstanceOf(PartlyAppliedError);
+            expect((failed as PartlyAppliedError).done).toEqual([OTHER.sql]);
+            expect((failed as Error).message).toContain(
+                "nothing was changed");
+            expect((failed as Error).message).toContain("maxCopyBytes");
+        });
+
+    it("keeps settings changed alone, and follows a rename with them",
+        async () => {
+            const live = liveSetUp([{ sql: "RENAME TABLE `orders` TO "
+                + "`purchases`" }, { ...ALTER, table: "purchases" }]);
+            expect(await live.source.apply([], { lockWait: 30 }))
+                .toEqual({ notes: [] });
+            expect(live.entries.get("orders")).toEqual({ lockWait: 30 });
+
+            await live.source.apply([RENAME, { op: "add_column" }]);
+            // The ALTER names the table as it is by then.
+            expect(live.runs[0][0]).toBe("purchases");
+            expect(live.entries.get("purchases")).toEqual({ lockWait: 30 });
+            expect(live.source.table).toBe("purchases");
+        });
+});
+
+describe("onlineAlterOutcome", () => {
+    const state = (patch: Partial<ITaskState>): ITaskState => {
+        return { task_id: "t", task_type: "msm", kind: "online_alter_table",
+            title: "", status: "completed", cancel_requested: false,
+            created_at: "", started_at: null, finished_at: null, stage: null,
+            progress: null, stages: [], next_since: 0, result: null,
+            error: null, ...patch };
+    };
+
+    it("reads what the task came to", () => {
+        expect(onlineAlterOutcome(state({ result: { method: "COPY",
+            applied: true, reason: "" } })))
+            .toEqual({ applied: true, method: "COPY" });
+        expect(onlineAlterOutcome(state({ result: {
+            method: "NEEDS_EXTERNAL", applied: false, reason: "too big" } })))
+            .toEqual({ applied: false, method: "NEEDS_EXTERNAL",
+                reason: "too big" });
+        expect(() => {
+            return onlineAlterOutcome(state({ status: "cancelled" }));
+        }).toThrow(/cancelled/u);
+        expect(() => {
+            return onlineAlterOutcome(state({ status: "failed",
+                error: "Lock wait timeout" }));
+        }).toThrow("Lock wait timeout");
+    });
+});
+
+describe("ProjectTableSource, online ALTER TABLE", () => {
+    const settings: IMsmOnlineAlterSettings = {
+        defaults: DEFAULTS,
+        setting: { enabled: true, lockWait: 20,
+            tables: { orders: { maxCopyBytes: 0 } } },
+    };
+
+    it("shows the project's values over msm's defaults as inherited", () => {
+        expect(projectOnlineAlter(settings, "orders")).toEqual({
+            inherited: { ...DEFAULTS, lockWait: 20, enabled: true },
+            table: { maxCopyBytes: 0 },
+            keptIn: "project",
+        });
+        expect(projectOnlineAlter({ defaults: DEFAULTS, setting: {} },
+            "orders").inherited.enabled).toBe(true);
+    });
+
+    /** A project table whose msm calls are recorded. */
+    const projectSetUp = () => {
+        const calls: unknown[][] = [];
+        const definition = { schema: "shop", source_hash: "sha256:x",
+            tables: [] } as unknown as ISchemaDefinition;
+        const source = new ProjectTableSource("shop", "orders", {
+            snapshot: () => { return Promise.resolve(definition); },
+            edit: (edits) => {
+                calls.push(["edit", edits.length]);
+
+                return Promise.resolve([]);
+            },
+            scriptFile: () => { return Promise.resolve(undefined); },
+            lsp: fakeLsp([]).lsp,
+            onlineAlter: {
+                get: () => { return Promise.resolve(settings); },
+                set: (table, entry) => {
+                    calls.push(["set", table, entry]);
+
+                    return Promise.resolve();
+                },
+            },
+        });
+
+        return { source, calls };
+    };
+
+    it("writes the entry after the edits, under the table's new name, and "
+        + "moves it on a rename", async () => {
+        const changed = projectSetUp();
+        await changed.source.apply([], { lockWait: 1 });
+        expect(changed.calls).toEqual([["set", "orders", { lockWait: 1 }]]);
+
+        const reset = projectSetUp();
+        await reset.source.apply([], {});
+        expect(reset.calls).toEqual([["set", "orders", null]]);
+
+        const renamed = projectSetUp();
+        await renamed.source.apply([RENAME]);
+        expect(renamed.calls).toEqual([["edit", 1], ["set", "orders", null],
+            ["set", "purchases", { maxCopyBytes: 0 }]]);
+
+        const untouched = projectSetUp();
+        await untouched.source.apply([{ op: "add_column" }]);
+        expect(untouched.calls).toEqual([["edit", 1]]);
+    });
+});

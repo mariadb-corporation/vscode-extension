@@ -113,6 +113,51 @@ describe("TableEditor", () => {
         expect(posted).toContainEqual({ type: "apply", edits });
     });
 
+    it("sets the table's online ALTER TABLE, saved on its own", async () => {
+        await send({ type: "load", data: { ...DATA, onlineAlter: {
+            inherited: { enabled: true, maxCopyBytes: 10 * 1024 ** 3,
+                galeraMaxBytes: 256 * 1024 ** 2, nboLock: null,
+                maxLockedBytes: null, lockWait: 5, maxRetries: 10 },
+            table: { lockWait: 30 },
+            keptIn: "workspace",
+        } } });
+        await act(async () => { button("Online Alter Table").click(); });
+        const copy = host.querySelector<HTMLInputElement>(
+            "#online-alter-maxCopyBytes")!;
+        // Empty, it shows what it takes.
+        expect(copy.placeholder).toBe("10 GiB");
+        expect(host.querySelector<HTMLInputElement>(
+            "#online-alter-lockWait")?.value).toBe("30");
+        expect(host.querySelector<HTMLInputElement>(
+            "#online-alter-maxLockedBytes")?.placeholder).toBe("unlimited");
+
+        await act(async () => {
+            copy.value = "lots";
+            copy.dispatchEvent(new Event("input"));
+        });
+        expect(host.querySelector(".sql-preview .badge")?.textContent)
+            .toBe("Not ready");
+        expect(button("Apply Changes").disabled).toBe(true);
+
+        await act(async () => {
+            copy.value = "0";
+            copy.dispatchEvent(new Event("input"));
+        });
+        expect(host.querySelector(".sql-preview .badge")?.textContent)
+            .toBe("Online ALTER settings");
+        await act(async () => { button("Apply Changes").click(); });
+        expect(posted).toContainEqual({ type: "apply", edits: [],
+            onlineAlter: { maxCopyBytes: 0, lockWait: 30 } });
+    });
+
+    it("says why a table has no online ALTER TABLE settings", async () => {
+        await send({ type: "load", data: { ...DATA,
+            onlineAlterProblem: "Online ALTER TABLE needs a newer msm." } });
+        await act(async () => { button("Online Alter Table").click(); });
+        expect(host.querySelector(".online-alter .warning")?.textContent)
+            .toBe("Online ALTER TABLE needs a newer msm.");
+    });
+
     it("asks before a refresh throws changes away", async () => {
         await send({ type: "load", data: DATA });
         const name = host.querySelector<HTMLInputElement>("#table-name")!;
