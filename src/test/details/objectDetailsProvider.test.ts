@@ -153,6 +153,23 @@ describe("the Object Details view", () => {
         expect(reads()).toBe(2);
     });
 
+    it("follows a rename of the object it shows, in its own side bar only",
+        async () => {
+            const { provider, msm, live } = setUp();
+            provider.show(PROJECT, ORDERS);
+            provider.show(LIVE, ORDERS);
+            await settle();
+            provider.renamed(PROJECT, ORDERS, "purchases");
+            // Another object's rename leaves it as it is.
+            provider.renamed(PROJECT, { type: "table", name: "items" }, "lines");
+            provider.refreshed();
+            await settle();
+            expect(msm.posted.at(-1)).toMatchObject({ type: "show",
+                message: "purchases is not in the project's schema snapshot." });
+            expect(live.posted.at(-1)).toMatchObject({ details: {
+                where: "local" } });
+        });
+
     it("reads nothing while its view does not show, and the selection once "
         + "it does", async () => {
         const { provider, msm, reads } = setUp(false);

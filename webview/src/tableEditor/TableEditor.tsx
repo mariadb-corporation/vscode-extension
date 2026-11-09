@@ -16,9 +16,9 @@
  */
 
 /**
- * The table editor, laid out as DBX's: the table's path with a badge and
- * Refresh Structure, its comment, then tabs (DDL, Columns, Indexes,
- * Foreign Keys, Triggers) with each tab's actions to their right, and
+ * The table editor, laid out as DBX's: the table's name and comment, then
+ * tabs (DDL, Columns, Indexes, Foreign Keys, Triggers) with each tab's
+ * actions to their right (Refresh Structure and a menu last), and
  * below them the SQL preview of what Apply runs. In VS Code's colours.
  *
  * The page edits a draft of the table; the edits are worked out from it
@@ -53,6 +53,7 @@ import type {
     TableEditorHostMessage,
     TableEditorWebviewMessage,
 } from "../../../src/tableEditor/tableEditorProtocol.js";
+import { openMenuBelow } from "../contextMenu.js";
 import { loadState, post, saveState } from "../vscodeApi.js";
 import {
     cellRow,
@@ -333,7 +334,7 @@ export const TableEditor = (): preact.JSX.Element => {
     // -- Columns ------------------------------------------------------------
     const columnGrid: Array<IGridColumn<IDraftColumn>> = [
         {
-            field: "position", title: "#", width: 52, hozAlign: "center",
+            field: "position", title: "#", width: 52, hozAlign: "right",
             render: (column) => {
                 const at = draft.columns.findIndex((candidate) => {
                     return candidate.key === column.key;
@@ -347,7 +348,9 @@ export const TableEditor = (): preact.JSX.Element => {
                     return icon;
                 });
 
-                return cellRow([String(at), ...icons.slice(0, 1)],
+                // The key before the number: the numbers line up at the
+                // right, with a key or without.
+                return cellRow([...icons.slice(0, 1), String(at)],
                     "cell-row position");
             },
         },
@@ -799,19 +802,6 @@ export const TableEditor = (): preact.JSX.Element => {
 
     return (
         <div class={`table-editor density-${density.toLowerCase()}`}>
-            <header class="path-bar">
-                <span class="codicon codicon-database" aria-hidden="true" />
-                <span class="path">{data.path}</span>
-                <span class="spacer" />
-                <span class="badge">{data.badge}</span>
-                <button type="button" class="ghost" onClick={refresh}
-                    disabled={busy}
-                    title="Read the table again; changes not applied are lost">
-                    <span class="codicon codicon-refresh" />
-                    {confirmRefresh ? "Discard Changes and Refresh?"
-                        : "Refresh Structure"}
-                </button>
-            </header>
             <div class="table-fields">
                 <label class="field-label" for="table-name">Table</label>
                 <input id="table-name" class="text-field table-name"
@@ -827,15 +817,14 @@ export const TableEditor = (): preact.JSX.Element => {
                     }} />
             </div>
             <div class="toolbar">
-                <nav class="segmented" role="tablist">
+                <nav class="tabs" role="tablist">
                     {TABS.map((name) => {
                         return (
                             <button key={name} type="button" role="tab"
                                 aria-selected={tab === name}
-                                class={tab === name ? "segment selected"
-                                    : "segment"}
+                                class={tab === name ? "tab active" : "tab"}
                                 onClick={() => { setTab(name); }}>
-                                {name}
+                                <span class="tabCaption">{name}</span>
                             </button>
                         );
                     })}
@@ -847,14 +836,6 @@ export const TableEditor = (): preact.JSX.Element => {
                         <span class="codicon codicon-table" />View Data
                     </button>
                 )}
-                <select class="density" value={density} title="Density"
-                    onChange={(event) => {
-                        setDensity(event.currentTarget.value as Density);
-                    }}>
-                    {DENSITIES.map((name) => {
-                        return <option key={name} value={name}>{name}</option>;
-                    })}
-                </select>
                 {tab === "Columns" && (
                     <>
                         <span class="search">
@@ -867,11 +848,6 @@ export const TableEditor = (): preact.JSX.Element => {
                         <button type="button" class="primary"
                             onClick={addColumn}>
                             <span class="codicon codicon-add" />Add Column
-                        </button>
-                        <button type="button" class="ghost"
-                            onClick={copyColumnNames}>
-                            <span class="codicon codicon-copy" />
-                            Copy Column Names
                         </button>
                     </>
                 )}
@@ -898,6 +874,38 @@ export const TableEditor = (): preact.JSX.Element => {
                         <span class="codicon codicon-copy" />Copy DDL
                     </button>
                 )}
+                {/* An icon alone; with changes not applied, it asks first,
+                    in words. */}
+                <button type="button"
+                    class={confirmRefresh ? "bare refresh-button confirm"
+                        : "bare refresh-button"}
+                    title="Refresh Structure" aria-label="Refresh Structure"
+                    disabled={busy} onClick={refresh}>
+                    <span class="codicon codicon-refresh" />
+                    {confirmRefresh && "Discard Changes and Refresh?"}
+                </button>
+                {/* Last, right of the tab's Add button: the tab's other
+                    actions, and the rows' spacing, which every grid has. */}
+                <button type="button" class="bare menu-button"
+                    title="More Actions" aria-label="More Actions"
+                    aria-haspopup="menu"
+                    onClick={(event) => {
+                        openMenuBelow(event.currentTarget, [
+                            ...(tab === "Columns"
+                                ? [{ label: "Copy Column Names",
+                                    onClick: copyColumnNames }, {}]
+                                : []),
+                            ...DENSITIES.map((name) => {
+                                return {
+                                    label: name,
+                                    checked: density === name,
+                                    onClick: () => { setDensity(name); },
+                                };
+                            }),
+                        ]);
+                    }}>
+                    <span class="codicon codicon-menu" />
+                </button>
             </div>
             <main class="tab-content">
                 {tab === "DDL" && <pre class="ddl">{data.ddl}</pre>}

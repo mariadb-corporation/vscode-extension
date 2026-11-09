@@ -39,10 +39,6 @@ export interface ICollationChoice {
 
 /** What the page edits. */
 export interface ITableEditorData {
-    /** The path bar: "localhost:3310 / sakila / actor". */
-    path: string;
-    /** The badge beside it: "MariaDB 11.8" or "MSM Project". */
-    badge: string;
     /** Whether Save changes a live database (ALTER statements run). */
     live: boolean;
     table: IOutlineTable;

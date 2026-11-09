@@ -47,7 +47,11 @@ body {
     flex-direction: column;
     height: 100%;
     box-sizing: border-box;
-    padding: 6px 10px 8px;
+    /*
+     * No padding at the sides: the tab's content runs from edge to edge.
+     * What else is on the page keeps its distance itself.
+     */
+    padding: 6px 0 8px;
     gap: 6px;
 }
 
@@ -67,6 +71,11 @@ body {
     justify-content: center;
     align-items: center;
     color: var(--vscode-descriptionForeground);
+}
+
+.table-editor > :not(.toolbar, .tab-content) {
+    margin-left: 10px;
+    margin-right: 10px;
 }
 
 .spacer {
@@ -125,8 +134,17 @@ textarea {
     background: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border, var(--vscode-widget-border,
         transparent));
-    border-radius: 3px;
     font: inherit;
+}
+
+/* Square, as the other dialogs' fields are; a select keeps its corners. */
+input,
+textarea {
+    border-radius: 0;
+}
+
+select {
+    border-radius: 3px;
 }
 
 input:focus,
@@ -143,23 +161,7 @@ input[type="checkbox"] {
     margin: 0;
 }
 
-/* --- the path bar, the name and comment ----------------------------------- */
-
-.path-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 8px;
-    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-    border-radius: 6px;
-}
-
-.path-bar .path {
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
+/* --- the name and comment, the badge ------------------------------------- */
 
 .badge {
     padding: 2px 10px;
@@ -188,7 +190,6 @@ input[type="checkbox"] {
 .text-field {
     height: 26px;
     padding: 0 8px;
-    border-radius: 13px;
 }
 
 .table-name {
@@ -203,50 +204,107 @@ input[type="checkbox"] {
 
 /* --- tabs and their actions ------------------------------------------------- */
 
+/*
+ * The MariaDB Panel's tab bar (`.contentSelectionBar` and `.tab` in
+ * `styles.css`), turned over: here the bar is above the content, so its
+ * line runs along the bottom and the tab on show hangs open downwards
+ * into the content, its corners rounded at the top.
+ */
 .toolbar {
     display: flex;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
     align-items: center;
     gap: 6px;
-    padding: 4px;
-    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-    border-radius: 6px;
+    /*
+     * No padding above or below: the tab on show runs the bar's height.
+     * The bar's line runs from edge to edge, as the content under it.
+     */
+    padding: 0 10px;
+    /*
+     * The line is painted, not a border, so the tab on show can cover it
+     * with its own surface.
+     */
+    background:
+        linear-gradient(var(--vscode-panel-border),
+            var(--vscode-panel-border)) bottom / 100% 1px no-repeat,
+        var(--vscode-editor-background);
+    overflow: hidden;
 }
 
-.segmented {
-    display: inline-flex;
-    padding: 2px;
-    gap: 2px;
-    border-radius: 6px;
-    background: var(--vscode-editorWidget-background,
-        var(--vscode-sideBar-background));
+/* What is not a tab keeps its distance from the bar's edges. */
+.toolbar > :not(.tabs) {
+    margin: 3px 0 4px;
 }
 
-.segment {
-    height: 26px;
-    border: none;
-    color: var(--vscode-descriptionForeground);
+.tabs {
+    display: flex;
+    /* What gives way where the bar is narrow, cut off, not overlapped. */
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    align-self: stretch;
+    align-items: stretch;
+}
+
+.tabs .tab {
+    flex: 0 0 auto;
+    height: auto;
+    border: 1px solid transparent;
+    border-radius: 4px 4px 0 0;
+    margin-top: 2px;
+    padding: 0 8px;
     background: transparent;
-    font-size: 13px;
+    color: var(--vscode-tab-inactiveForeground,
+            var(--vscode-descriptionForeground));
+    white-space: nowrap;
 }
 
-.segment.selected {
-    color: var(--vscode-foreground);
-    background: var(--vscode-tab-activeBackground,
-        var(--vscode-editor-background));
-    box-shadow: 0 0 0 1px var(--vscode-widget-border, transparent);
-    font-weight: 600;
+.tabs .tab:hover {
+    color: var(--vscode-tab-activeForeground,
+            var(--vscode-foreground));
 }
 
-.density {
-    height: 26px;
-    padding: 0 6px;
+.tabs .tab.active {
+    border-color: var(--vscode-panel-border);
+    /* Open at the foot, towards the content it shows. */
+    border-bottom-color: transparent;
+    background: var(--vscode-sideBar-background,
+            var(--vscode-panel-background));
+    color: var(--vscode-tab-activeForeground,
+            var(--vscode-foreground));
+}
+
+.tabs .tab.active .tabCaption {
+    text-decoration: underline;
+    text-decoration-color: var(--vscode-textLink-foreground);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+}
+
+/* Icon buttons of the toolbar: no border, a surface only on hover. */
+button.bare {
+    padding: 0 4px;
+    border-color: transparent;
+    color: var(--vscode-icon-foreground, var(--vscode-foreground));
+    background: transparent;
+}
+
+button.bare:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+/* Asking before changes are thrown away. */
+.refresh-button.confirm {
+    color: var(--vscode-editorWarning-foreground);
 }
 
 .search {
     position: relative;
     display: inline-flex;
     align-items: center;
+    /* Gives way first where the bar is narrow, before the tabs do. */
+    flex: 0 100 12rem;
+    min-width: 5rem;
 }
 
 .search .codicon {
@@ -257,9 +315,8 @@ input[type="checkbox"] {
 
 .search input {
     height: 26px;
-    width: 12rem;
+    width: 100%;
     padding: 0 8px 0 26px;
-    border-radius: 13px;
 }
 
 /* --- the tab's content ------------------------------------------------------ */
@@ -269,6 +326,16 @@ input[type="checkbox"] {
     min-height: 0;
     display: flex;
     flex-direction: column;
+    /*
+     * On the tab on show's surface, its sides carried on round the
+     * content; the bar's line is the top.
+     */
+    margin-top: -6px;
+    padding: 6px 10px;
+    /* From edge to edge: no border at the sides. */
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background,
+            var(--vscode-panel-background));
 }
 
 .ddl,
@@ -347,7 +414,9 @@ input[type="checkbox"] {
 }
 
 .control-grid.tabulator .tabulator-header .tabulator-col-title {
-    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .control-grid.tabulator .tabulator-tableholder,
@@ -418,6 +487,7 @@ input[type="checkbox"] {
 .cell-row.position {
     gap: 4px;
     color: var(--vscode-descriptionForeground);
+    font-variant-numeric: tabular-nums;
 }
 
 .cell-row.extended {

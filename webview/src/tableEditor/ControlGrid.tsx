@@ -89,7 +89,15 @@ export const ControlGrid = <T extends IGridRow>(props: {
                 title: column.title,
                 field: column.field,
                 headerSort: false,
-                headerWordWrap: true,
+                // One line, cut short with an ellipsis, the whole title
+                // its tooltip: a wrapped header costs a row of the grid.
+                titleFormatter: () => {
+                    const title = document.createElement("span");
+                    title.textContent = column.title;
+                    title.title = column.title;
+
+                    return title;
+                },
                 resizable: true,
                 hozAlign: column.hozAlign ?? "left",
                 vertAlign: "middle",

@@ -131,8 +131,6 @@ export interface ILiveTableDeps {
     /** Runs a statement that returns no rows. */
     execute(sql: string): Promise<void>;
     lsp: LspEdit;
-    /** The connection's caption, for the path bar. */
-    where: string;
 }
 
 /** A table of a live connection. */
@@ -233,12 +231,8 @@ export class LiveTableSource implements ITableSource {
             return { charset: field(row, "CHARACTER_SET_NAME"),
                 collation: field(row, "COLLATION_NAME") };
         });
-        const [version] = await this.deps.query("SELECT VERSION() AS v");
 
         return {
-            path: `${this.deps.where} / ${this.schema} / ${this.#table}`,
-            badge: `MariaDB ${version === undefined ? ""
-                : field(version, "v").replace(/-.*$/, "")}`.trim(),
             live: true,
             table: withoutPlaces(found.table),
             triggers: found.triggers.map(withoutPlaces),
@@ -294,8 +288,6 @@ export interface IProjectTableDeps {
     /** The development script, `development/<schema>_next.sql`. */
     scriptFile(): Promise<string | undefined>;
     lsp: LspEdit;
-    /** The project's name, for the path bar. */
-    where: string;
     readText?(file: string): Promise<string>;
 }
 
@@ -366,8 +358,6 @@ export class ProjectTableSource implements ITableSource {
         }
 
         return {
-            path: `${this.deps.where} / ${definition.schema} / ${table.name}`,
-            badge: "MSM Project",
             live: false,
             table,
             triggers: (definition.triggers ?? []).filter((trigger) => {

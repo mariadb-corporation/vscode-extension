@@ -28,6 +28,7 @@ import {
     type IModelerHost,
 } from "../../modeler/modelerPanel.js";
 import type {
+    IDiagramView,
     ModelerHostMessage,
     ModelerTarget,
 } from "../../modeler/modelerProtocol.js";
@@ -35,6 +36,8 @@ import type {
     IModelSource,
     ISchemaEditOutcome,
 } from "../../modeler/modelSources.js";
+import { DiagramViews } from "../../modeler/diagramViews.js";
+import { memoryMemento } from "../../tree/customFolders.js";
 import { DEFAULT_PAGE_SETTINGS } from "../../modeler/pageSettings.js";
 import {
     errorMessages,
@@ -161,6 +164,29 @@ describe("ModelerPanel", () => {
             expect(logs[0]).toContain("Showing the diagrams of world");
 
             panel.dispose();
+        });
+
+    it("opens each diagram as it was last looked at, kept by VS Code",
+        async () => {
+            const views = new DiagramViews(memoryMemento());
+            const from = source();
+            ModelerPanel.show(extensionUri as never, from, "MRS",
+                { ...host(), views });
+            const panel = lastPanel();
+            await ready(panel);
+            expect(posted(panel)[0]).toMatchObject({ type: "load", views: {} });
+
+            const view: IDiagramView = { zoom: 1.5, x: 120, y: -40,
+                mode: "iso", isoPreset: "custom", tilt: 0.5, turn: 0.25 };
+            (panel.webview as MockWebview).receive({ type: "viewChanged",
+                diagram: "MRS", view });
+            await flush();
+            expect(views.of(from.key)).toEqual({ MRS: view });
+
+            // Read again (a schema edit, a reopened panel): it comes along.
+            await ModelerPanel.reload(from);
+            expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+                views: { MRS: view } });
         });
 
     it("tells the page when the model cannot be read", async () => {

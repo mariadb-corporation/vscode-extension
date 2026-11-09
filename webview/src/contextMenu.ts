@@ -82,6 +82,8 @@ export const closeCopyMenu = (): void => {
 export interface IContextMenuItem {
     label?: string;
     disabled?: boolean;
+    /** Set for one of a set of choices: a check shows the one picked. */
+    checked?: boolean;
     onClick?(): void;
 }
 
@@ -126,6 +128,24 @@ export const openContextMenu = (
 };
 
 /**
+ * Opens a menu below an element, as the MySQL Shell's opened below the
+ * button.
+ *
+ * @param anchor The element.
+ * @param items What it offers, in order; one with no label divides.
+ *
+ * @returns The menu element.
+ */
+export const openMenuBelow = (
+    anchor: HTMLElement,
+    items: IContextMenuItem[],
+): HTMLElement => {
+    const rect = anchor.getBoundingClientRect();
+
+    return openMenuAt({ x: rect.left, y: rect.bottom }, items);
+};
+
+/**
  * Opens a menu of the given items at a point: below a button, say, where
  * no right-click placed it. Otherwise as `openContextMenu`.
  *
@@ -157,8 +177,14 @@ export const openMenuAt = (
 
         const item = document.createElement("button");
         item.type = "button";
-        item.className = "copyMenuItem";
-        item.setAttribute("role", "menuitem");
+        item.className = entry.checked === true
+            ? "copyMenuItem checked" : "copyMenuItem";
+        if (entry.checked === undefined) {
+            item.setAttribute("role", "menuitem");
+        } else {
+            item.setAttribute("role", "menuitemradio");
+            item.setAttribute("aria-checked", String(entry.checked));
+        }
         item.textContent = entry.label;
         item.disabled = entry.disabled ?? false;
         item.addEventListener("click", () => {

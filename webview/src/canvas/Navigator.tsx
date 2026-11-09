@@ -18,7 +18,7 @@
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
-import type { INavigatorState } from "./canvasTypes.js";
+import { ZOOM_STEP, type INavigatorState } from "./canvasTypes.js";
 import {
     HamburgerButton,
     MENU_BUTTON_SIZE,
@@ -251,6 +251,24 @@ export const Navigator = (props: INavigatorProps): JSX.Element => {
                         props.zoomRange));
                 }}
             />
+            {/* A click's zoom step, as the zoom tool's: about the middle
+                of the view, kept in the range by the canvas. */}
+            <button
+                type="button"
+                className="toolbarText navigatorStep"
+                title="Zoom Out"
+                aria-label="Zoom Out"
+                disabled={props.zoom <= props.zoomRange.min}
+                onClick={() => { props.onZoom(props.zoom / ZOOM_STEP); }}
+            >−</button>
+            <button
+                type="button"
+                className="toolbarText navigatorStep"
+                title="Zoom In"
+                aria-label="Zoom In"
+                disabled={props.zoom >= props.zoomRange.max}
+                onClick={() => { props.onZoom(props.zoom * ZOOM_STEP); }}
+            >+</button>
             <SplitButton
                 caption={`${Math.round(props.zoom * 100)}%`}
                 title={lastPick === FIT ? "Fit the pages"

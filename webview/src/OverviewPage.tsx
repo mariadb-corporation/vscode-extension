@@ -36,7 +36,7 @@ import type {
     OverviewHostMessage,
     OverviewWebviewMessage,
 } from "../../src/overview/overviewProtocol.js";
-import { openMenuAt, type IContextMenuItem } from "./contextMenu.js";
+import { openMenuBelow, type IContextMenuItem } from "./contextMenu.js";
 import { loadState, post, saveState } from "./vscodeApi.js";
 
 /**
@@ -135,20 +135,6 @@ const descriptionOf = (connection: IOverviewConnection): string => {
     ];
 
     return parts.length === 0 ? "Database Connection" : parts.join(" · ");
-};
-
-/**
- * Opens a menu below an element, as the MySQL Shell's opened below the
- * button.
- *
- * @param anchor The element.
- * @param items What it offers, in order; one with no label divides.
- *
- * @returns Nothing.
- */
-const openMenuBelow = (anchor: HTMLElement, items: IContextMenuItem[]): void => {
-    const rect = anchor.getBoundingClientRect();
-    openMenuAt({ x: rect.left, y: rect.bottom }, items);
 };
 
 /**

@@ -91,6 +91,20 @@ const sideOf = (place: SchemaObjectPlace): DetailsSide => {
 };
 
 /**
+ * @param subject What a view shows.
+ * @param place Where an object is.
+ * @param ref The object.
+ *
+ * @returns Whether it is that object.
+ */
+const shows = (subject: ISubject | undefined, place: SchemaObjectPlace,
+    ref: ISchemaObjectRef): boolean => {
+    return subject !== undefined
+        && JSON.stringify(subject.place) === JSON.stringify(place)
+        && subject.ref.type === ref.type && subject.ref.name === ref.name;
+};
+
+/**
  * @param viewType One of `OBJECT_DETAILS_VIEWS`.
  *
  * @returns The side bar it is in.
@@ -146,11 +160,27 @@ export class ObjectDetailsProvider
     public show(place: SchemaObjectPlace, ref: ISchemaObjectRef): void {
         const side = sideOf(place);
         const state = this.#sides[side];
-        const same = state.subject !== undefined
-            && JSON.stringify(state.subject) === JSON.stringify({ place, ref });
-        if (!same) {
+        if (!shows(state.subject, place, ref)) {
             state.subject = { place, ref };
             void this.#read(side);
+        }
+    }
+
+    /**
+     * Follows a rename: where a side bar's view shows the object, it shows
+     * it under its new name from the next read on.
+     *
+     * @param place Where the object is.
+     * @param ref The object, under its old name.
+     * @param name Its new name.
+     *
+     * @returns Nothing.
+     */
+    public renamed(place: SchemaObjectPlace, ref: ISchemaObjectRef,
+        name: string): void {
+        const state = this.#sides[sideOf(place)];
+        if (shows(state.subject, place, ref)) {
+            state.subject = { place, ref: { ...ref, name } };
         }
     }
 

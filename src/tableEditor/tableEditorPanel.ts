@@ -26,6 +26,7 @@ import * as vscode from "vscode";
 import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
 import { errorText } from "../text.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
+import { belowActive, type IEditorLayout } from "./editorLayout.js";
 import {
     tableEditorKey,
     type TableEditorHostMessage,
@@ -39,7 +40,11 @@ export interface ITableEditorHost {
     extensionUri: vscode.Uri;
     log(message: string): void;
     /** A Save changed the table: trees, details and diagrams read again. */
-    changed(target: TableEditorTarget): void;
+    /**
+     * A Save changed the table; `renamedFrom` is what it was called where
+     * the Save renamed it.
+     */
+    changed(target: TableEditorTarget, renamedFrom?: string): void;
     /** View Data: a live table's rows; not offered for a project's. */
     viewData?(target: TableEditorTarget): void;
 }
@@ -103,8 +108,9 @@ export class TableEditorPanel {
 
     /**
      * @returns Where a new editor goes: beside the table editors open,
-     *          else in a new group below the active one, unless the editor
-     *          area is empty.
+     *          else in the group below the active one, made only where the
+     *          active one is not split top and bottom already (or the
+     *          editor area is empty), so splits do not nest.
      */
     static async #column(): Promise<vscode.ViewColumn> {
         for (const editor of TableEditorPanel.#open.values()) {
@@ -112,12 +118,22 @@ export class TableEditorPanel {
                 return editor.#panel.viewColumn;
             }
         }
-        if (vscode.window.tabGroups.activeTabGroup.tabs.length > 0) {
+        const active = vscode.window.tabGroups.activeTabGroup;
+        if (active.tabs.length === 0) {
+            return vscode.ViewColumn.Active;
+        }
+        const layout = await vscode.commands.executeCommand<
+            IEditorLayout | undefined>("vscode.getEditorLayout");
+        const below = layout === undefined
+            ? "split" : belowActive(layout, active.viewColumn);
+        if (below === "split") {
             await vscode.commands.executeCommand(
                 "workbench.action.newGroupBelow");
+
+            return vscode.ViewColumn.Active;
         }
 
-        return vscode.ViewColumn.Active;
+        return below === "active" ? vscode.ViewColumn.Active : below.column;
     }
 
     /**
@@ -183,8 +199,10 @@ export class TableEditorPanel {
             const applied = await this.source.apply(edits);
             this.host.log(`Changed the table ${this.#target.schema}.`
                 + `${this.#target.table}: ${edits.length} edit(s).`);
+            const before = this.#target.table;
             this.#renamed();
-            this.host.changed(this.#target);
+            this.host.changed(this.#target,
+                before === this.#target.table ? undefined : before);
             await this.#load();
             this.#post({ type: "applied", notes: applied.notes });
         } catch (error) {

@@ -114,12 +114,16 @@ import { createLoggingSandboxApi } from "./sandboxes/sandboxActivity.js";
 import { SandboxStore } from "./sandboxes/sandboxStore.js";
 import { SandboxEditorPanel } from "./sandboxes/sandboxEditorPanel.js";
 import { DiagramDrafts } from "./modeler/diagramDrafts.js";
+import { DiagramViews } from "./modeler/diagramViews.js";
 import {
     MODELER_VIEW_TYPE,
     ModelerPanel,
     type IModelerHost,
 } from "./modeler/modelerPanel.js";
-import type { ModelerTarget } from "./modeler/modelerProtocol.js";
+import type {
+    ModelerTarget,
+    SchemaObjectPlace,
+} from "./modeler/modelerProtocol.js";
 import {
     ConnectionModelSource,
     ProjectModelSource,
@@ -919,6 +923,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
     /** What a diagram viewer tells the views around it. */
     const modelerHost: IModelerHost = {
         log,
+        views: new DiagramViews(context.workspaceState),
         schemaChanged: (target) => {
             if (target.kind === "project") {
                 msmProjects.refreshProject(target.projectPath);
@@ -1097,7 +1102,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
         return source;
     };
-    /** Shows a project's snapshot made again: trees, details, its viewer. */
+    /**
+     * Shows a project's snapshot made again: trees, details, its viewer.
+     * The tree first: it drops the snapshot it keeps, which Object Details
+     * reads a project's objects from.
+     */
     const snapshotUpdated = async (projectPath: string): Promise<void> => {
         msmProjects.refreshProject(projectPath);
         objectDetails.refreshed();
@@ -1244,8 +1253,6 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 },
                 scriptFile: () => { return developmentScript(projectPath); },
                 lsp: lspEdit,
-                where: path.basename(projectPath).replace(/\.msm\.project$/,
-                    ""),
             });
         }
         const uri = target.connection;
@@ -1272,7 +1279,6 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 }
             },
             lsp: lspEdit,
-            where: connectionLabel(uri),
         });
     };
     const editTable = (target: TableEditorTarget): void => {
@@ -1280,14 +1286,20 @@ export const activate = (context: vscode.ExtensionContext): void => {
             {
                 extensionUri: context.extensionUri,
                 log,
-                changed: (changed) => {
-                    objectDetails.refreshed();
+                changed: (changed, renamedFrom) => {
+                    const place: SchemaObjectPlace = changed.kind === "project"
+                        ? { projectPath: changed.projectPath }
+                        : { connection: changed.connection,
+                            schema: changed.schema };
+                    if (renamedFrom !== undefined) {
+                        objectDetails.renamed(place,
+                            { type: "table", name: renamedFrom }, changed.table);
+                    }
                     if (changed.kind === "project") {
-                        msmProjects.refreshProject(changed.projectPath);
-                        void ModelerPanel.reload(
-                            projectDiagrams(changed.projectPath));
+                        void snapshotUpdated(changed.projectPath);
                     } else {
                         refreshServer(changed.connection);
+                        objectDetails.refreshed();
                         void ModelerPanel.reload(connectionDiagrams(
                             changed.connection, changed.schema));
                     }

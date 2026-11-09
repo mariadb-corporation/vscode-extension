@@ -359,24 +359,41 @@ button.toolbarText.toggled {
             var(--vscode-widget-border, transparent));
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 8px;
+    /* Tight: the slider gets what the buttons leave. */
+    gap: 0;
+    padding: 4px 6px 4px 8px;
 }
 
 .navigatorZoom input[type="range"] {
     flex: 1 1 auto;
     min-width: 0;
-    margin: 0;
+    /* Clear of the - only by what keeps its thumb off it. */
+    margin: 0 2px 0 0;
     accent-color: var(--vscode-focusBorder);
+}
+
+/* - and +, beside the slider: a zoom step each. */
+.navigatorZoom .navigatorStep {
+    min-width: 18px;
+    margin: 0;
+    padding: 0;
+    font-size: 1.1em;
+}
+
+.navigatorZoom .navigatorStep:disabled {
+    opacity: 0.4;
+    cursor: default;
 }
 
 /* The zoom's value with its list, as the Isometric button has one. */
 .navigatorZoom .splitButton {
     flex: 0 0 auto;
+    margin: 0;
 }
 
 .navigatorZoom .splitMain {
     min-width: 3.4em;
+    padding: 0 3px;
     font-variant-numeric: tabular-nums;
 }
 

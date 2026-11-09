@@ -21,6 +21,7 @@ import { reportError } from "../errorMessages.js";
 import { buildWebviewHtml, webviewOptions } from "../webview/html.js";
 import { errorText } from "../text.js";
 import type { IDetailEdits } from "../details/detailEdits.js";
+import type { DiagramViews } from "./diagramViews.js";
 import type { IDiagramDocument } from "./modelFormat.js";
 import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
@@ -62,6 +63,8 @@ export interface IModelerHost {
     draggedObjects?(): string | undefined;
     /** Opens a table of the shown schema in the table editor. */
     editTable?(target: ModelerTarget, table: string): void;
+    /** How each diagram was last looked at, kept by VS Code. */
+    views?: DiagramViews;
 }
 
 /** The view type the panels are registered under. */
@@ -233,6 +236,12 @@ export class ModelerPanel {
                 break;
             }
 
+            case "viewChanged": {
+                void this.host.views?.keep(this.source.key, message.diagram,
+                    message.view);
+                break;
+            }
+
             case "diagramChanged": {
                 this.source.changed?.(message.document);
                 break;
@@ -318,6 +327,7 @@ export class ModelerPanel {
                 diagram: this.#diagram,
                 editable: this.source.editable,
                 target: this.source.target(this.#diagram),
+                views: this.host.views?.of(this.source.key),
             });
             this.#loaded = true;
             if (this.#toPlace.length > 0) {

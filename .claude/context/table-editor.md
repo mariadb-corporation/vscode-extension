@@ -27,24 +27,38 @@ read-only Object Details view left editing to this editor.
 
 ## How it behaves
 
-- **Where it opens**: beside the table editors already open; else
-  `workbench.action.newGroupBelow` and the new group (in an empty editor
-  area, the active group). Asking for an open table's editor reveals it.
-- **Layout (DBX's)**: path bar (database icon, `connection / schema /
-  table`, a badge: the server's version or "MSM Project", Refresh
-  Structure, which asks again before it throws changes away); Table name
-  and Comment; tabs DDL, Columns, Indexes, Foreign Keys, Triggers as a
-  segmented control, the tab's actions to their right (View Data, live
-  only, through `selectRows`; density Compact / Standard / Comfortable;
-  Columns: search, Add Column, Copy Column Names); under the tab the SQL
+- **Where it opens**: beside the table editors already open; else below
+  the active group (`editorLayout.ts`, `belowActive` on
+  `vscode.getEditorLayout`): where that group is already in a stack (split
+  top and bottom), the group under it, or the group itself if it is the
+  lowest; only otherwise `workbench.action.newGroupBelow`, so splits do
+  not nest. View columns count the groups in the grid's order. In an empty
+  editor area, the active group. Asking for an open table's editor
+  reveals it.
+- **Layout (DBX's, without its path bar, for room)**: Table name and
+  Comment; tabs DDL, Columns, Indexes, Foreign Keys, Triggers drawn as
+  the MariaDB Panel's (`.tab` in `styles.css`) but turned over, the bar
+  above its content, the tab on show open downwards into it; the bar
+  and the tab's content run edge to edge (the page has no side padding,
+  its other parts a margin); the tab's
+  actions to their right (View Data, live only, through `selectRows`;
+  Columns: search, Add Column; each tab's Add; last, on every tab, Refresh
+  Structure (an icon; with changes not applied it asks first, in words)
+  and a hamburger, both borderless (`button.bare`), the hamburger (`openMenuBelow`): Copy Column Names on Columns, then the rows'
+  spacing Compact / Standard / Comfortable, the one picked checked
+  (`checked` of `IContextMenuItem`)); under the tab the SQL
   Preview with Copy SQL, Discard Changes, and Apply Changes (Save to
   Project for a project).
+- **Text fields are square**, as the other dialogs' are; selects keep
+  their rounded corners.
 - **The grids** (`ControlGrid`) are Tabulator with cells of controls
   that always show (inputs, checkboxes, selects; a text input with a ▾
   of choices, `comboInput`), as DBX's. New rows `replaceData` the grid;
   the control that had the focus is found again by `data-key` /
   `data-field`, so Tab survives the commit of the input left. Formatters
   call the page's column specs of the latest render (not the first).
+- **Column titles stay on one line**, cut short with an ellipsis, the
+  whole title as the tooltip (`titleFormatter`).
 - **Row bars are index membership**, DBX's colours: primary amber, unique
   red, index green, fulltext purple, spatial cyan; not "changed". A
   dropped row stays, struck out, with Restore; a new row removed goes.
@@ -87,8 +101,14 @@ read-only Object Details view left editing to this editor.
   (`development/<schemaFileName>_next.sql`, from `msm.project.json`),
   reading nothing msm does not; the DDL is the table's range of the file
   (or of the included file its `source` names).
-- After a Save: Object Details, the tree (a project's `refreshProject`,
-  a connection's `refreshServer`) and the open diagram read again.
+- After a Save: a project's goes through `snapshotUpdated`
+  (`extension.ts`): the tree first (`refreshProject` drops the snapshot it
+  keeps, which Object Details reads a project's table from; the other way
+  round Object Details shows the table as it was), then Object Details,
+  then the open diagram. A connection's: `refreshServer`, Object Details,
+  the diagram. A rename is passed on
+  (`changed(target, renamedFrom)` → `ObjectDetailsProvider.renamed`), so
+  the view goes on showing the table under its new name.
 - The binary is found as the language server is (`mariadb.lsp.path`,
   PATH, the shell's installations), once; none found is looked for again.
 
@@ -102,6 +122,12 @@ read-only Object Details view left editing to this editor.
 - A live Apply is not on the Actions tab; it is logged.
 - An AUTO_INCREMENT column that only becomes a key in the same Save fails
   (MODIFY runs before `set_primary_key`).
+- Object Details follows a rename made here only; a table renamed on a
+  diagram or in the script leaves it on the old name.
+- The tab bar's CSS is a copy of the MariaDB Panel's `.tab` rules in
+  `styles.css`, turned over (the page does not load that sheet), and
+  `button.bare` repeats its `.toolbarIcon`: a change to one is made in
+  both, until they share a stylesheet.
 
 ## Checked
 

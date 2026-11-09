@@ -32,8 +32,6 @@ import type {
 let host: HTMLDivElement;
 
 const DATA: ITableEditorData = {
-    path: "localhost:3310 / sakila / actor",
-    badge: "MariaDB 11.8",
     live: true,
     table: {
         name: "actor",
@@ -82,11 +80,11 @@ describe("TableEditor", () => {
         vi.useRealTimers();
     });
 
-    it("asks for the table, then shows its path, badge and DDL", async () => {
+    it("asks for the table, then shows its name and DDL", async () => {
         expect(posted).toContainEqual({ type: "ready" });
         await send({ type: "load", data: DATA });
-        expect(host.querySelector(".path")?.textContent).toBe(DATA.path);
-        expect(host.querySelector(".badge")?.textContent).toBe("MariaDB 11.8");
+        expect(host.querySelector<HTMLInputElement>("#table-name")?.value)
+            .toBe("actor");
         await act(async () => { button("DDL").click(); });
         expect(host.querySelector(".ddl")?.textContent).toBe(DATA.ddl);
         expect(button("Apply Changes").disabled).toBe(true);
@@ -122,13 +120,40 @@ describe("TableEditor", () => {
             name.value = "actors";
             name.dispatchEvent(new Event("change"));
         });
-        await act(async () => { button("Refresh Structure").click(); });
+        const refresh = host.querySelector<HTMLButtonElement>(
+            "[title='Refresh Structure']")!;
+        // Left of the menu, an icon alone until it asks.
+        expect(refresh.nextElementSibling?.getAttribute("aria-label"))
+            .toBe("More Actions");
+        expect(refresh.textContent).toBe("");
+        await act(async () => { refresh.click(); });
         expect(posted.filter((message) => {
             return (message as { type: string }).type === "refresh";
         })).toHaveLength(0);
         await act(async () => { button("Discard Changes and Refresh?").click(); });
         expect(posted).toContainEqual({ type: "refresh" });
     });
+
+    it("keeps Copy Column Names and the spacing in the menu beside Add Column",
+        async () => {
+            await send({ type: "load", data: DATA });
+            await act(async () => { button("Columns").click(); });
+            expect(() => { return button("Copy Column Names"); }).toThrow();
+            expect(host.querySelector("select.density")).toBeNull();
+            const menu = host.querySelector<HTMLButtonElement>(
+                "[aria-label='More Actions']")!;
+            expect(menu.previousElementSibling?.previousElementSibling?.textContent)
+                .toContain("Add Column");
+            await act(async () => { menu.click(); });
+            const items = [...document.querySelectorAll<HTMLButtonElement>(
+                ".copyMenu .copyMenuItem")];
+            expect(items.map((item) => { return item.textContent; })).toEqual(
+                ["Copy Column Names", "Compact", "Standard", "Comfortable"]);
+            expect(items[1].getAttribute("aria-checked")).toBe("true");
+            await act(async () => { items[3].click(); });
+            expect(host.querySelector(".table-editor")?.classList
+                .contains("density-comfortable")).toBe(true);
+        });
 
     it("says why the table could not be read", async () => {
         await send({ type: "loadFailed", message: "No such table." });

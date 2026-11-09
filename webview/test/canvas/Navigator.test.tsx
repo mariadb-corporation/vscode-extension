@@ -20,6 +20,7 @@ import { act } from "preact/test-utils";
 import { describe, expect, it } from "vitest";
 
 import { ZOOM_RANGE } from "../../src/canvas/Canvas.js";
+import { ZOOM_STEP } from "../../src/canvas/canvasTypes.js";
 import {
     Navigator,
     sliderToZoom,
@@ -85,6 +86,17 @@ describe("the Navigator", () => {
             });
             expect(fits).toBe(2);
             expect(zooms).toEqual([]);
+
+            // - and +, right of the slider, step as a zoom click does.
+            const steps = [...host.querySelectorAll<HTMLButtonElement>(
+                ".navigatorStep")];
+            expect(steps.map((step) => { return step.title; }))
+                .toEqual(["Zoom Out", "Zoom In"]);
+            expect(steps[0].previousElementSibling?.getAttribute("type"))
+                .toBe("range");
+            act(() => { steps[0].click(); });
+            act(() => { steps[1].click(); });
+            expect(zooms).toEqual([0.5 / ZOOM_STEP, 0.5 * ZOOM_STEP]);
 
             render(null, host);
             host.remove();
