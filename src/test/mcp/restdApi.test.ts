@@ -106,7 +106,10 @@ describe("RestdApi", () => {
                         type: "text",
                         text: JSON.stringify({
                             ...DEPLOYMENT, installed: true, setup_output: "",
-                            install_output: "Installing mariadb-restd 26.11.0",
+                            install_output: "Installing mariadb-restd with "
+                                + "https://x/install.sh.\n"
+                                + "  installer: ==> Downloading\n"
+                                + "The installer exited with code 0 after 9.1s.",
                         }),
                     }],
                 },
@@ -115,8 +118,11 @@ describe("RestdApi", () => {
 
             await new RestdApi(caller, log).configure({ connectionId: "c1" });
 
+            // One channel line per line, as installer.ts writes the shell's.
             expect(log.lines).toEqual([
-                "mariadb-restd was installed:\nInstalling mariadb-restd 26.11.0",
+                "Installing mariadb-restd with https://x/install.sh.",
+                "  installer: ==> Downloading",
+                "The installer exited with code 0 after 9.1s.",
             ]);
         });
 

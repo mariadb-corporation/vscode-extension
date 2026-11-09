@@ -181,8 +181,14 @@ export class RestdApi implements IRestdApi {
                     ? {} : { metadata_schema: options.metadataSchema }),
                 restd_version: MINIMUM_RESTD_VERSION,
             }, RESTD_SETUP_TIMEOUT_MS));
-        if (setup.install_output) {
-            this.log?.(`mariadb-restd was installed:\n${setup.install_output}`);
+        // The plugin writes its lines in the shape installer.ts gives the
+        // shell's install (`Installing ... with <url>.`, `Running the
+        // installer: ...`, `  installer: <line>`, `The installer exited
+        // ...`), so one channel line each reads as the shell's does.
+        for (const line of (setup.install_output ?? "").split("\n")) {
+            if (line !== "") {
+                this.log?.(line);
+            }
         }
 
         return setup;

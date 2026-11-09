@@ -30,10 +30,16 @@ export interface IStepWords {
     done: string;
 }
 
-/** What a step came to, from its result, and the log a failure names. */
+/** What a step came to, from its result, and the log its row offers. */
 export interface IStepOptions<T> {
     detail?: (value: T) => string | undefined;
+    /** The log a failure names: what the row offers to open. */
     logOf?: (error: unknown) => Promise<string | undefined>;
+    /**
+     * The log a result names, where the step wrote more than its row can
+     * show although it succeeded: an install made along the way.
+     */
+    logOfResult?: (value: T) => Promise<string | undefined>;
 }
 
 /** One step, as its row shows it. */
@@ -60,7 +66,8 @@ let groups = 0;
  * runs, and ends as the steps did: done, or failed with the first error
  * to jump to.
  *
- * A step that fails can name a log, which its row offers to open.
+ * A step can name a log, which its row offers to open: the one its
+ * failure names, or the one its result does.
  */
 export class ActionGroup {
     readonly #id: string;
@@ -113,6 +120,12 @@ export class ActionGroup {
             const detail = options.detail?.(value);
             if (detail !== undefined) {
                 step.detail = detail;
+            }
+            const logPath = await options.logOfResult?.(value).catch(() => {
+                return undefined;
+            });
+            if (logPath !== undefined) {
+                step.logPath = logPath;
             }
             this.#show();
 

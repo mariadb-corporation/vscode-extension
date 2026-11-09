@@ -36,8 +36,9 @@ which exposes the backend functions over the Model Context Protocol.
   connection's results are shown, the output accumulates until you clear
   it, and each output row can jump to the result set it produced.
   General Actions - a sandbox deploy, a REST Daemon's steps - are shown
-  among every connection's, a failed row offers its log, and the actions
-  are kept for the next session.
+  among every connection's, a row with more to tell offers its log (a
+  failure's, or a `mariadb-restd` install's), and the actions are kept for
+  the next session.
 - A result that comes from a single table with a primary key can be
   **edited in place** — change cells, add and remove rows — and
   **Preview SQL** shows exactly the statements Apply would run, with a
@@ -63,7 +64,8 @@ which exposes the backend functions over the Model Context Protocol.
     one up for any server, installing `mariadb-restd` first where it is
     missing or older than the release the extension needs - that release
     exactly, as it does the MariaDB Shell. The install is logged in the
-    *MariaDB* output channel, as the shell's is.
+    *MariaDB* output channel, as the shell's is, and the setup's row in
+    the Actions tab offers the log too.
   - Every daemon serves one HTTPS certificate, signed by a local
     certificate authority. Both dialogs offer to have the system trust it
     once, so browsers accept every daemon's `https://localhost` address.

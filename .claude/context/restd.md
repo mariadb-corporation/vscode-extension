@@ -35,12 +35,16 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   actionGroup.ts`). The same for start / stop / delete of a sandbox that
   has a daemon: the daemon after the server on start, before it on stop
   and delete (`followSandbox`).
-- **A failed row offers its log**: a `$(go-to-file)` button (the Tasks
-  view's Show Log icon) beside the ↗ and → arrows, from `IActionRow.
-  logPath`. Failed dump & load task rows have it too, for their task log.
-  A setup's failure text (all mariadb-restd printed) is written to
-  `<storage>/restd-logs/`; a daemon that did not start points at its own
-  `log/mariadb-restd.log`.
+- **A row offers its log**: a `$(go-to-file)` button (the Tasks view's
+  Show Log icon) beside the ↗ and → arrows, from `IActionRow.logPath`.
+  A failed row's says why: failed dump & load task rows have it too, for
+  their task log. A setup's failure text (all mariadb-restd printed) is
+  written to `<storage>/restd-logs/`; a daemon that did not start points
+  at its own `log/mariadb-restd.log`. A setup that installed mariadb-restd
+  offers the install's log from the same folder although it succeeded
+  (`installLogOf`, `ActionGroup`'s `logOfResult`), so a download of
+  minutes can be looked at without knowing to scroll the output channel.
+  Only a failed step's log is also the whole action's.
 - **The REST Daemons view** lists `restd.get_restd_status`: every
   deployment, the sandboxes' and `~/.mariadb-restd`'s, running or stopped,
   with Start / Stop / Delete / Open Log / Open in Browser. Delete drops the
@@ -64,11 +68,20 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   `MINIMUM_SHELL_VERSION` reaches a plugin that has it.
   `RestdApi` takes the MariaDB output channel's log (`session.ts` passes
   it): `configure` logs the answer's `install_output` where mariadb-restd
-  was installed, as `installer.ts` logs the shell's install. Plugins before
+  was installed, one channel line per line, as `installer.ts` logs the
+  shell's install - the plugin writes the lines in that shape (`Installing
+  ... with <url>.`, `  installer: <line>`, `The installer exited ...`);
+  the callers keep the same text in a log file for the setup's row
+  (above). Plugins before
   mariadb-shell-plugins #90 answer without it, so nothing is logged there.
   A failed setup's error carries a failed install's log; it goes where the
   callers put failures (the row's log file, and the dialog's line on the
-  channel), not through `RestdApi`.
+  channel), not through `RestdApi`. Not so an install that succeeded and
+  a setup that failed after it (a deployment there already, a missing
+  privilege, a taken port, `--setup` or the start): the plugin's error
+  carries no install log, so the daemon just downloaded leaves no trace
+  anywhere. That is the plugin's to fix (attach the install lines to the
+  failures after it), not the extension's.
 - `src/restd/actionGroup.ts`: one action with a row per step.
 - `src/restd/sandboxRest.ts`: `deploySandboxWithRest`, `followSandbox`.
 - `src/restd/restdCommands.ts`: the view's and the connection menu's

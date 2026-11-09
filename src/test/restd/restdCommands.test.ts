@@ -15,6 +15,10 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { IRestdApi } from "../../mcp/restdApi.js";
@@ -88,4 +92,50 @@ describe("Set Up MariaDB REST Daemon", () => {
                 + "The dialog was cancelled.",
         });
     });
+
+    it("keeps the mariadb-restd install's log for the setup's row",
+        async () => {
+            const logFolder = await mkdtemp(join(tmpdir(), "restd-logs-"));
+            const rows: IActionRow[] = [];
+            const restdApi = {
+                certificateStatus: () => {
+                    return Promise.resolve({ exists: true, trusted: true,
+                        ca_path: "/c" });
+                },
+                configure: () => {
+                    return Promise.resolve({ url: "https://localhost:8443",
+                        installed: true, directory: "/d",
+                        install_output: "Installing mariadb-restd 26.11.0" });
+                },
+            } as unknown as IRestdApi;
+            const commands = new RestdCommands({
+                extensionUri: Uri.file("/ext") as never,
+                connect: () => { return Promise.resolve("c1"); },
+                metadataSchemas: () => { return Promise.resolve([]); },
+                restdApi: () => { return Promise.resolve(restdApi); },
+                tree: {} as RestdTreeProvider,
+                put: (_connection, row) => { rows.push(row); },
+                showActions: () => { /* not shown */ },
+                logFolder,
+                log: () => { /* not logged */ },
+            });
+
+            const node = { kind: "connection", uri: URI } as IConnectionNode;
+            try {
+                await commands.setUp(node);
+                const [spec] = shown;
+                await spec!.save({
+                    ...spec!.values as IRestdDialogValues,
+                    trustCertificate: false,
+                });
+
+                const setup = rows.at(-1)?.children?.at(-1);
+                expect(setup).toMatchObject({ kind: "info" });
+                expect(setup?.logPath).toMatch(/restd-install-.*\.log$/u);
+                expect(await readFile(setup!.logPath!, "utf8"))
+                    .toBe("Installing mariadb-restd 26.11.0\n");
+            } finally {
+                await rm(logFolder, { recursive: true, force: true });
+            }
+        });
 });
