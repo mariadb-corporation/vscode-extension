@@ -1,5 +1,5 @@
 ---
-description: Cut a release of the extension, suggesting its next YY.MM.x version and moving the MariaDB Shell floor and the ai-plugins skills release to newer releases where there are any, PR it, tag it, attach the .vsix to a GitHub release, and hand it over for upload to the VS Code Marketplace. Usage: /release [version|-] [shell-version|-] [ai-plugins-version|-] [--stable]
+description: Cut a release of the extension, suggesting its next YY.MM.x version and moving the MariaDB Shell floor, the ai-plugins skills release and the mariadb-restd pin to newer releases where there are any, PR it, tag it, attach the .vsix to a GitHub release, and hand it over for upload to the VS Code Marketplace. Usage: /release [version|-] [shell-version|-] [ai-plugins-version|-] [restd-version|-] [--stable]
 ---
 
 # Release Command
@@ -18,30 +18,37 @@ only says what is the default anyway. Of the rest:
 3. **The skills release**: `aiPlugins.release` in
    `package.json`, the mariadb-corporation/ai-plugins release whose skills
    the extension contributes to Copilot.
+4. **The daemon pin**: `MINIMUM_RESTD_VERSION` in `src/mcp/restdApi.ts`,
+   the mariadb-corporation/rest-daemon release that `restd.configure_restd`
+   installs where no mariadb-restd that new is found. Exactly that
+   release: unlike the floor, the pin is not a minimum but the release
+   installed.
 
-All three are optional, so a bare `/release` works. A `-` in a position
+All four are optional, so a bare `/release` works. A `-` in a position
 means "not given", so a later position can be given without an earlier one
-(`/release - - 26.10.3`). What is not given is suggested in step 2:
+(`/release - - 26.10.3`, `/release - - - 26.11.0`). What is not given is
+suggested in step 2:
 
 - the version: the next `YY.MM.x` version (see step 2);
-- the floor and the skills release: the latest published release, when it
-  is newer than the current one. Otherwise they stay where they are.
+- the floor, the skills release and the daemon pin: the latest published
+  release, when it is newer than the current one. Otherwise they stay where
+  they are.
 
-So with no newer shell or ai-plugins release, a bare `/release` only bumps
-the extension's version. If a fourth word is left over, stop and ask what
-it means.
+So with no newer shell, ai-plugins or rest-daemon release, a bare
+`/release` only bumps the extension's version. If a fifth word is left
+over, stop and ask what it means.
 
 Every version is a bare `MAJOR.MINOR.PATCH` such as `26.11.0`. Strip a
-leading `v` if one was given and say so. The extension's version and the
-shell floor are bare everywhere in this repository. Only the git tag
-(`v26.11.0`) and the skills pin (`"release": "v26.11.2"`, an ai-plugins tag)
-carry the `v`.
+leading `v` if one was given and say so. The extension's version, the
+shell floor and the daemon pin are bare everywhere in this repository. Only
+the git tag (`v26.11.0`) and the skills pin (`"release": "v26.11.2"`, an
+ai-plugins tag) carry the `v`.
 
-**The three versions are independent.** The extension's version is the
-Marketplace version and the tag. The floor and the skills release are
-inputs it ships with. When one of them is not given it stays where it is,
-unless a newer release of it exists. Then step 2 suggests moving it to that
-release.
+**The four versions are independent.** The extension's version is the
+Marketplace version and the tag. The floor, the skills release and the
+daemon pin are inputs it ships with. When one of them is not given it stays
+where it is, unless a newer release of it exists. Then step 2 suggests
+moving it to that release.
 
 **A release is a pre-release unless `--stable` is given.** A pre-release
 goes on the Marketplace's pre-release channel, and its GitHub release is a
@@ -79,12 +86,12 @@ The remote is `origin` = `mariadb-corporation/vscode-extension`. Check
 ## 2. Check the versions
 
 Do all of this before changing anything, and report what you find in one
-summary: each of the three versions, its current value, the value this
+summary: each of the four versions, its current value, the value this
 release ships, and whether that was given or suggested. That way the user
 sees the whole release, including its channel, before it starts.
 
 **When anything was suggested, stop and ask the user to confirm the
-summary.** They may accept it, or change any of the three versions, for
+summary.** They may accept it, or change any of the four versions, for
 example to keep the current floor although a newer shell exists. Run the
 checks below again for what they changed. With `--stable`, also **ask the
 user to confirm** that this release goes to every user as stable. Name the
@@ -198,6 +205,51 @@ the extension's floor (after this release), say so and ask whether to go
 on: Copilot would be taught tools that the shell the extension installs may
 not have.
 
+**The daemon pin.** The current one is `MINIMUM_RESTD_VERSION` in
+`src/mcp/restdApi.ts`. Report it. List the published rest-daemon releases:
+
+```bash
+gh release list --repo mariadb-corporation/rest-daemon --exclude-drafts --limit 30 --json tagName,isPrerelease,publishedAt
+```
+
+Every rest-daemon release so far is a prerelease too: the same rules, and
+the same sorting, apply. The pin is stricter than the floor, though. The
+shell's `mcp_plugin` installs *exactly* this release, with the install
+script at its tag (`MARIADB_RESTD_TAG=v<pin>`, and `install.sh` or
+`install.ps1` fetched from
+`https://github.com/mariadb-corporation/rest-daemon/raw/v<pin>/`). A pin
+that names no published release, or a release whose tag carries no install
+scripts, fails every Set Up MariaDB REST Daemon and every New Sandbox with
+the REST Service on a machine without a daemon that new, until the
+extension is released again. So whichever pin this release ships, check
+that both scripts are at its tag:
+
+```bash
+gh api "repos/mariadb-corporation/rest-daemon/contents/install.sh?ref=v<pin>" --jq .size
+gh api "repos/mariadb-corporation/rest-daemon/contents/install.ps1?ref=v<pin>" --jq .size
+```
+
+Both must print a size. 26.11.0 is the first release that carries them,
+which the comment on `MINIMUM_RESTD_VERSION` names as its hard floor. If
+either 404s, stop.
+
+- **None given:** if the pin is the highest release, keep it. If a newer one
+  exists, suggest moving the pin to the latest release, naming both and the
+  latest one's publish date, and continue with it as if it had been given.
+  The confirmation of the summary settles it.
+- **One given:** not in the list → stop. Below the current pin → stop and
+  ask. Equal → nothing to move. A higher one exists → say so and ask.
+  Otherwise continue, and report its publish date.
+
+The pin itself must be in the list too, with both scripts at its tag. If it
+is not, stop, as for the floor.
+
+The pin reaches the daemon only through a shell whose `mcp_plugin` passes
+`restd_version` on; `context/restd.md` says from which shell that is. An
+older shell ignores it and installs the newest daemon release. When the
+pin moves while the floor is below that shell, say so in the summary: the
+move does not change what the floor's shell installs.
+
 ## 3. Branch and set the versions
 
 ```bash
@@ -237,7 +289,11 @@ here is worth looking into before going on.
      after).
 
    Commit as `Contribute the skills of ai-plugins v<skills>`.
-3. **The version.**
+3. **The daemon pin.** Set `MINIMUM_RESTD_VERSION` in `src/mcp/restdApi.ts`
+   to `<restd>`: one line in one file, changed by hand. Leave the 26.11.0
+   in its comment alone: it names the first release with install scripts,
+   not the pin. Commit as `Install mariadb-restd <restd>`.
+4. **The version.**
 
    ```bash
    npm version <version> --no-git-tag-version --allow-same-version
@@ -258,6 +314,8 @@ against what this release actually ships:
 - When the floor moved, say so and name it.
 - When the skills release moved, name it, with the skill count and the
   skills added or removed.
+- When the daemon pin moved, say so and name it: the mariadb-restd release
+  the extension installs.
 
 Keep the existing structure (`### Added`, `### Changed`, `### Fixed`). The
 Marketplace shows this file as the extension's Changelog tab, so write it
@@ -299,8 +357,8 @@ gh pr create --repo mariadb-corporation/vscode-extension --base main --head wip/
 ```
 
 The title names what the release contains, for example
-`Release 26.11.0: shell 26.10.3, skills v26.10.3, and the version`. Leave out
-a part that did not move. The release changes `package.json`, so the title
+`Release 26.11.0: shell 26.10.3, skills v26.10.3, restd 26.11.0, and the
+version`. Leave out a part that did not move. The release changes `package.json`, so the title
 never carries `[bypass-ci]`. The body lists each step with the files it
 changed, the skill sync's findings, the channel (pre-release, or stable with `--stable`), and
 the verification. It ends with the PR attribution line.
@@ -337,6 +395,7 @@ body is the release notes: a short prose summary for users, covering:
 - what is new;
 - the MariaDB Shell the release requires, and whether that moved;
 - the ai-plugins release its Copilot skills come from, with the skill count;
+- the mariadb-restd release it installs, when that moved;
 - the final line `See CHANGELOG.md, section [<version>], for details.`
 
 ```bash
@@ -412,7 +471,8 @@ release is published, with:
 - the Marketplace page,
   `https://marketplace.visualstudio.com/items?itemName=MariaDB.mariadb-shell`,
   and the channel;
-- the shell floor and the skills release it ships, and whether each moved;
+- the shell floor, the skills release and the daemon pin it ships, and
+  whether each moved;
 - anything that did not go as expected.
 
 If the release taught something that stays true, such as a step that has to

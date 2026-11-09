@@ -95,9 +95,11 @@ export interface IRestdConfigureOptions {
  * an installed daemon older than this, and where there is none new enough it
  * installs exactly this release (`MARIADB_RESTD_TAG=v<version>`), not the
  * newest one, with the install script at that release's tag, as
- * `installScriptUrl` takes the shell's. Raise it by hand when the extension
- * comes to need a newer daemon; it has to name a published release whose tag
- * carries `install.sh` and `install.ps1` - 26.11.0 is the first that does.
+ * `installScriptUrl` takes the shell's. `/release` moves it as it moves
+ * `MINIMUM_SHELL_VERSION`, and checks what it must name: a published release
+ * whose tag carries `install.sh` and `install.ps1` - 26.11.0 is the first
+ * that does, and the hard floor. Raise it by hand only when the extension
+ * comes to need a newer daemon between releases.
  */
 export const MINIMUM_RESTD_VERSION = "26.11.0";
 

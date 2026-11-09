@@ -55,7 +55,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 
 - `src/mcp/restdApi.ts`: the `restd.*` tools; setup's timeout is 20 minutes
   (an install), the others 2. `MINIMUM_RESTD_VERSION` pins the daemon as
-  `MINIMUM_SHELL_VERSION` pins the shell (its comment says how); every
+  `MINIMUM_SHELL_VERSION` pins the shell (its comment says how), and
+  `/release` moves it as it moves the floor, to a published rest-daemon
+  release whose tag carries the install scripts; every
   `restd.configure_restd` carries it as `restd_version`. A shell whose
   plugin does not know it (every one up to 26.11.0) ignores it and installs
   the newest release, so the pin is not in effect until
