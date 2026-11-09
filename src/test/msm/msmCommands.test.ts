@@ -293,6 +293,8 @@ describe("newDiagramName", () => {
         expect(diagramNameProblem(["Main"], "  ")).toBe("Enter a name.");
         expect(diagramNameProblem(["Main"], "schema_definition"))
             .toMatch(/schema snapshot/u);
+        expect(diagramNameProblem(["Main"], "Schema_Definition"))
+            .toMatch(/schema snapshot/u);
         expect(diagramNameProblem(["Main"], " main ")).toBe(
             "The project has a diagram main already.");
         expect(diagramNameProblem(["Main"], "Overview")).toBeUndefined();

@@ -107,6 +107,16 @@ describe("the diagrams' views", () => {
             Overview: VIEW });
     });
 
+    it("drops a stale view of the new name where the renamed one has none",
+        async () => {
+            const views = new DiagramViews(memento());
+            await views.keep("a", "Overview", VIEW);
+            await views.keep("a", "Other", VIEW);
+            await views.rename("a", "Main", "Overview");
+
+            expect(Object.keys(views.of("a"))).toEqual(["Other"]);
+        });
+
     it("drops a deleted connection's and a removed project's views",
         async () => {
             const views = new DiagramViews(memento());

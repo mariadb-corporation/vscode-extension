@@ -503,6 +503,8 @@ export class ModelerPanel {
         if (panel.#diagram === from) {
             panel.#setDiagram(to);
         }
+        // A read started before the rename has the old name.
+        panel.#reading = undefined;
         await panel.#load();
     }
 
@@ -522,12 +524,16 @@ export class ModelerPanel {
         if (panel === undefined) {
             return;
         }
-        if (panel.#diagrams.every((name) => { return name === diagram; })) {
+        // Not read yet, its diagrams are not known: it reads them.
+        if (panel.#diagrams.length > 0
+            && panel.#diagrams.every((name) => { return name === diagram; })) {
             // Its own dispose follows, on the panel's.
             panel.#panel.dispose();
 
             return;
         }
+        // A read started before the removal still has it.
+        panel.#reading = undefined;
         await panel.#load();
     }
 

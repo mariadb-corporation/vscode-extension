@@ -97,6 +97,7 @@ interface IFake {
     asked: string[];
     /** Makes the next save fail. */
     failSave: (error?: Error) => void;
+    failRemove: (error?: Error) => void;
     /** Makes the next schema edit fail. */
     failEdit: (error?: Error) => void;
     /** What msm lists of the project's snapshot. */
@@ -121,6 +122,7 @@ const setUp = (keep = false): IFake => {
     const rows: IDiagramRow[] = [snapshot(),
         { name: "Main", format: DIAGRAM_FORMAT, document: diagram("Main") }];
     let saveError: Error | undefined;
+    let removeError: Error | undefined;
     let editError: Error | undefined;
     const listing: IFake["listing"] = {};
     const api = {
@@ -152,6 +154,12 @@ const setUp = (keep = false): IFake => {
         },
         removeSchemaDiagram: (_path: string, name: string) => {
             calls.push(["remove", name]);
+            if (removeError !== undefined) {
+                const error = removeError;
+                removeError = undefined;
+
+                return Promise.reject(error);
+            }
 
             return Promise.resolve(["/work/shop.msm.project/development/x.sql"]);
         },
@@ -205,6 +213,9 @@ const setUp = (keep = false): IFake => {
     return {
         source, calls, rows, drafts, states, actions, asked, listing,
         failSave: (error = new Error("disk full")) => { saveError = error; },
+        failRemove: (error = new Error("unknown tool")) => {
+            removeError = error;
+        },
         failEdit: (error = new Error("unsupported")) => { editError = error; },
     };
 };
@@ -427,6 +438,36 @@ describe("ProjectModelSource", () => {
             expect(fake.states.at(-1)?.state).toBe("saved");
             expect(calls(fake)).toContainEqual(expect.stringContaining(
                 "msm.remove_schema_diagram(name=Main"));
+        });
+
+    it("keeps a diagram's changes where msm does not delete it", async () => {
+        await fake.source.read();
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        try {
+            fake.source.changed(diagram("Main", 50));
+            fake.failRemove();
+            await expect(fake.source.removeDiagram("Main")).rejects
+                .toThrow("unknown tool");
+            expect(await fake.drafts.list(PROJECT)).toHaveLength(1);
+            vi.runOnlyPendingTimers();
+        } finally {
+            vi.useRealTimers();
+        }
+        await fake.source.flush();
+
+        expect(fake.calls.at(-1)).toEqual(["set", "Main"]);
+    });
+
+    it("ignores changes of a deleted diagram until the next read",
+        async () => {
+            await fake.source.read();
+            await fake.source.removeDiagram("Main");
+            fake.source.changed(diagram("Main", 50));
+            await fake.source.flush();
+
+            expect(fake.calls.filter((call) => { return call[0] === "set"; }))
+                .toEqual([]);
+            expect(await fake.drafts.list(PROJECT)).toEqual([]);
         });
 
     it("saves a diagram's changes before renaming it", async () => {

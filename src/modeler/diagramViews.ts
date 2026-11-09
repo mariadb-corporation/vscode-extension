@@ -121,7 +121,8 @@ export class DiagramViews {
 
     /**
      * Moves a diagram's view to its new name: a renamed diagram opens as
-     * it was left.
+     * it was left, and without one, fitted (not as an old diagram of the
+     * new name was left).
      *
      * @param source The model source's key.
      * @param from The diagram's old name.
@@ -131,7 +132,9 @@ export class DiagramViews {
      */
     public async rename(source: string, from: string,
         to: string): Promise<void> {
-        await this.#change(source, ({ [from]: view, ...others }) => {
+        await this.#change(source, (kept) => {
+            const { [from]: view, [to]: _stale, ...others } = kept;
+
             return view === undefined ? others : { ...others, [to]: view };
         });
     }

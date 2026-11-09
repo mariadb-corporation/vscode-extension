@@ -247,7 +247,8 @@ export const diagramNameProblem = (
     if (name === "") {
         return "Enter a name.";
     }
-    if (name === SNAPSHOT_ROW_NAME) {
+    // In any case: its file would collide where the file system ignores it.
+    if (name.toLowerCase() === SNAPSHOT_ROW_NAME) {
         return `${SNAPSHOT_ROW_NAME} is the name of the schema snapshot.`;
     }
 

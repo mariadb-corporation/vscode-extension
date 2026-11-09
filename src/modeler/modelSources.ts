@@ -283,6 +283,11 @@ export class ProjectModelSource implements IModelSource {
     readonly #pending = new Map<string, IPending>();
     /** Each diagram's hash as the project has it. */
     #bases = new Map<string, string>();
+    /**
+     * Diagrams deleted or renamed away since the model was last read:
+     * changes the page still sends under such a name would make it again.
+     */
+    readonly #gone = new Set<string>();
     #schema: string;
 
     /**
@@ -318,6 +323,7 @@ export class ProjectModelSource implements IModelSource {
             return api.getSchemaDiagrams(this.projectPath);
         }, (read) => { return counted(read.length, "document"); });
         this.#bases = hashesOf(rows);
+        this.#gone.clear();
         const model = assembleSchemaModel(rows);
         this.#schema = model.schema;
         await this.#takeDrafts(model);
@@ -382,6 +388,9 @@ export class ProjectModelSource implements IModelSource {
     }
 
     public changed(document: IDiagramDocument): void {
+        if (this.#gone.has(document.name)) {
+            return;
+        }
         this.#schedule(document, true);
     }
 
@@ -478,20 +487,32 @@ export class ProjectModelSource implements IModelSource {
     /**
      * Removes a diagram from the project. Its changes not saved yet go
      * with it - a save or a draft left would make it again - and the
-     * removal waits for a save already under way.
+     * removal waits for a save already under way. Where msm does not
+     * remove it, they are kept again; changes sent under its name until
+     * the model is read again are ignored.
      *
      * @param name The diagram's name.
      *
      * @returns Once msm removed it.
      */
     public async removeDiagram(name: string): Promise<void> {
+        const unsaved = this.#pending.get(name)?.document;
         this.#drop(name);
-        await this.#enqueuedAction({
-            doing: `Deleting the diagram ${name} of ${this.#schema}`,
-            done: `Deleted the diagram ${name} of ${this.#schema}`,
-        }, "msm.remove_schema_diagram", { name }, (api) => {
-            return api.removeSchemaDiagram(this.projectPath, name);
-        }, (files) => { return counted(files.length, "file"); });
+        this.#gone.add(name);
+        try {
+            await this.#enqueuedAction({
+                doing: `Deleting the diagram ${name} of ${this.#schema}`,
+                done: `Deleted the diagram ${name} of ${this.#schema}`,
+            }, "msm.remove_schema_diagram", { name }, (api) => {
+                return api.removeSchemaDiagram(this.projectPath, name);
+            }, (files) => { return counted(files.length, "file"); });
+        } catch (error) {
+            this.#gone.delete(name);
+            if (unsaved !== undefined) {
+                this.#schedule(unsaved, true);
+            }
+            throw error;
+        }
         this.#bases.delete(name);
     }
 
@@ -517,6 +538,8 @@ export class ProjectModelSource implements IModelSource {
         this.#bases.delete(name);
         const later = this.#pending.get(name);
         this.#drop(name);
+        this.#gone.add(name);
+        this.#gone.delete(newName);
         if (later !== undefined) {
             this.#schedule({ ...later.document, name: newName }, true);
         }
