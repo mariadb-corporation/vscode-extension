@@ -39,7 +39,6 @@ import { PartlyAppliedError, type ITableSource } from "./tableSources.js";
 export interface ITableEditorHost {
     extensionUri: vscode.Uri;
     log(message: string): void;
-    /** A Save changed the table: trees, details and diagrams read again. */
     /**
      * A Save changed the table; `renamedFrom` is what it was called where
      * the Save renamed it.
@@ -52,6 +51,8 @@ export interface ITableEditorHost {
 /** One table's editor. */
 export class TableEditorPanel {
     static readonly #open = new Map<string, TableEditorPanel>();
+    /** The editors being opened: a second Edit Table waits for them. */
+    static readonly #opening = new Map<string, Promise<void>>();
 
     readonly #panel: vscode.WebviewPanel;
     #target: TableEditorTarget;
@@ -86,12 +87,29 @@ export class TableEditorPanel {
         source: () => ITableSource,
         host: ITableEditorHost,
     ): Promise<void> {
-        const open = TableEditorPanel.#open.get(tableEditorKey(target));
+        const key = tableEditorKey(target);
+        const open = TableEditorPanel.#open.get(key);
         if (open !== undefined) {
             open.#panel.reveal(open.#panel.viewColumn, false);
 
             return;
         }
+        const opening = TableEditorPanel.#opening.get(key);
+        if (opening !== undefined) {
+            return opening;
+        }
+        const created = TableEditorPanel.#create(target, source, host)
+            .finally(() => { TableEditorPanel.#opening.delete(key); });
+        TableEditorPanel.#opening.set(key, created);
+
+        return created;
+    }
+
+    static async #create(
+        target: TableEditorTarget,
+        source: () => ITableSource,
+        host: ITableEditorHost,
+    ): Promise<void> {
         const panel = vscode.window.createWebviewPanel("mariadb.tableEditor",
             TableEditorPanel.#title(target), await TableEditorPanel.#column(),
             { ...webviewOptions(host.extensionUri),
@@ -210,8 +228,12 @@ export class TableEditorPanel {
             this.host.log(`Could not change the table ${this.#target.table}: `
                 + errorText(error));
             if (done.length > 0) {
-                // What ran stays run: the table is read again as it is.
-                this.host.changed(this.#target);
+                // What ran stays run: the table is read again as it is,
+                // under its new name where the rename ran.
+                const before = this.#target.table;
+                this.#renamed();
+                this.host.changed(this.#target,
+                    before === this.#target.table ? undefined : before);
                 await this.#load();
             }
             this.#post({ type: "applyFailed", message: errorText(error), done });

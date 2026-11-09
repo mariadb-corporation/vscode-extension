@@ -497,6 +497,48 @@ export const draftProblems = (edited: ITableDraft): string[] => {
     return problems;
 };
 
+/**
+ * Renames a column of the draft, its indexes and foreign keys following
+ * it, as MariaDB's do; where another column has its old name, they stay.
+ *
+ * @param draft A draft.
+ * @param key The column's row key.
+ * @param name Its new name.
+ *
+ * @returns The draft with it renamed.
+ */
+export const renameColumn = (draft: ITableDraft, key: string,
+    name: string): ITableDraft => {
+    const column = draft.columns.find((row) => { return row.key === key; });
+    if (column === undefined) {
+        return draft;
+    }
+    const old = column.name.trim().toLowerCase();
+    const shared = draft.columns.some((row) => {
+        return row.key !== key && row.dropped !== true
+            && row.name.trim().toLowerCase() === old;
+    });
+    const follow = (named: string): string => {
+        return !shared && named.toLowerCase() === old ? name.trim() : named;
+    };
+
+    return {
+        ...draft,
+        columns: draft.columns.map((row) => {
+            return row.key === key ? { ...row, name } : row;
+        }),
+        indexes: draft.indexes.map((index) => {
+            return { ...index, keyParts: index.keyParts.map((part) => {
+                return { ...part, column: follow(part.column) };
+            }) };
+        }),
+        foreignKeys: draft.foreignKeys.map((foreignKey) => {
+            return { ...foreignKey,
+                columns: foreignKey.columns.map(follow) };
+        }),
+    };
+};
+
 // ---------------------------------------------------------------------------
 // The edits.
 
@@ -705,15 +747,29 @@ export const tableEdits = (
     }
     const readIndexes = table.indexes ?? [];
     const readKeys = table.foreign_keys ?? [];
+    // A column renamed takes its indexes and foreign keys along: what
+    // names it as read is compared under its name now.
+    const renames = new Map(draft.columns.flatMap((column) => {
+        return column.origin === undefined ? []
+            : [[table.columns[column.origin].name.toLowerCase(),
+                column.name.trim()] as const];
+    }));
+    const nowNamed = (column: string): string => {
+        return renames.get(column.toLowerCase()) ?? column;
+    };
 
     // What goes, and what changes (dropped here, added again below).
     const changedKeys = draft.foreignKeys.filter((key) => {
         const read = key.origin === undefined ? undefined : readKeys[key.origin];
+        if (read === undefined) {
+            return true;
+        }
+        const before = draftOf({ name, columns: [], foreign_keys: [read] },
+            []).foreignKeys[0];
 
-        return read === undefined
-            || canonical(foreignKeyMembers(key)) !== canonical(
-                foreignKeyMembers(draftOf({ name, columns: [],
-                    foreign_keys: [read] }, []).foreignKeys[0]));
+        return canonical(foreignKeyMembers(key)) !== canonical(
+            foreignKeyMembers({ ...before,
+                columns: before.columns.map(nowNamed) }));
     });
     for (const origin of [...removed(readKeys, draft.foreignKeys),
         ...changedKeys.flatMap((key) => {
@@ -748,10 +804,16 @@ export const tableEdits = (
         const read = index.origin === undefined
             ? undefined : readIndexes[index.origin];
 
-        return read === undefined
-            || canonical(indexMembers(index)) !== canonical(indexMembers(
-                draftOf({ name, columns: [], indexes: [read] }, [])
-                    .indexes[0]));
+        if (read === undefined) {
+            return true;
+        }
+        const before = draftOf({ name, columns: [], indexes: [read] }, [])
+            .indexes[0];
+
+        return canonical(indexMembers(index)) !== canonical(indexMembers({
+            ...before, keyParts: before.keyParts.map((part) => {
+                return { ...part, column: nowNamed(part.column) };
+            }) }));
     });
     const keptIndexes = new Set(draft.indexes.map((index) => {
         return index.origin;

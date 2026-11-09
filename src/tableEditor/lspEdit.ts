@@ -111,6 +111,9 @@ export const spawnLsp: LspRunner = (binary, args, stdin) => {
         child.stderr.on("data", (chunk: string) => { stderr += chunk; });
         child.once("error", reject);
         child.once("close", (code) => { resolve({ code, stdout, stderr }); });
+        // A binary that ends before reading all of it (EPIPE) is told by
+        // its exit; the pipe's error is no crash of the extension host.
+        child.stdin.on("error", () => { /* told by "close" */ });
         child.stdin.end(stdin ?? "");
     });
 };

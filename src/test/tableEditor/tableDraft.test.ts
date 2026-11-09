@@ -28,6 +28,7 @@ import {
     keyPartsText,
     newRowKey,
     parseKeyParts,
+    renameColumn,
     splitType,
     tableEdits,
     type ITableDraft,
@@ -222,5 +223,20 @@ describe("draftProblems", () => {
             "The index idx_actor_last_name names nope, which the table has "
                 + "no column of.",
         ]);
+    });
+});
+
+describe("renameColumn", () => {
+    it("takes the column's indexes along, and only renames the column", () => {
+        const draft = draftOf(actor(), []);
+        const lastName = draft.columns[2].key;
+        let renamed = renameColumn(draft, lastName, "surname");
+        expect(renamed.indexes[0].keyParts[0].column).toBe("surname");
+        expect(draftProblems(renamed)).toEqual([]);
+        expect(tableEdits(actor(), [], renamed).map((edit) => {
+            return edit.op;
+        })).toEqual(["modify_column"]);
+        renamed = renameColumn(renamed, lastName, "last_name");
+        expect(tableEdits(actor(), [], renamed)).toEqual([]);
     });
 });

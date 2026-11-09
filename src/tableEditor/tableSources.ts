@@ -259,6 +259,32 @@ export class LiveTableSource implements ITableSource {
         };
     }
 
+    /**
+     * After a Save stopped part way: the table is followed to its new name
+     * where the rename ran.
+     *
+     * @param edits The Save's edits.
+     * @param done The statements that ran.
+     */
+    async #followRename(edits: IMsmSchemaEdit[], done: string[]):
+        Promise<void> {
+        const renamed = renamedTo(edits);
+        if (renamed === undefined || done.length === 0) {
+            return;
+        }
+        try {
+            const rows = await this.deps.query("SELECT TABLE_NAME FROM "
+                + "information_schema.TABLES WHERE TABLE_SCHEMA = "
+                + `${quoteString(this.schema)} AND TABLE_NAME = ${
+                    quoteString(renamed)}`);
+            if (rows.length > 0) {
+                this.#table = renamed;
+            }
+        } catch {
+            // Not known: the table is read under the name it had.
+        }
+    }
+
     public async apply(edits: IMsmSchemaEdit[]): Promise<ITableApplied> {
         const preview = await this.preview(edits);
         const done: string[] = [];
@@ -268,6 +294,7 @@ export class LiveTableSource implements ITableSource {
             try {
                 await this.deps.execute(statement);
             } catch (error) {
+                await this.#followRename(edits, done);
                 throw new PartlyAppliedError(error instanceof Error
                     ? error.message : String(error), done);
             }

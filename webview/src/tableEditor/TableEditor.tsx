@@ -40,6 +40,7 @@ import {
     parseKeyParts,
     parseNameList,
     REFERENTIAL_ACTIONS,
+    renameColumn,
     splitType,
     tableEdits,
     type IDraftColumn,
@@ -389,7 +390,8 @@ export const TableEditor = (): preact.JSX.Element => {
             render: (column) => {
                 return textInput({ key: column.key, field: "name" },
                     column.name, (name) => {
-                        changeColumn(column.key, { name });
+                        setOutcome(undefined);
+                        setDraft(renameColumn(draft, column.key, name));
                     }, { className: "name", placeholder: "column name",
                         disabled: column.dropped === true });
             },
@@ -1000,6 +1002,9 @@ export const TableEditor = (): preact.JSX.Element => {
                             || preview.error !== undefined}
                         onClick={() => {
                             setOutcome(undefined);
+                            // Busy at once: a second click sends no second
+                            // Save before the panel's busy comes back.
+                            setBusy(true);
                             send({ type: "apply", edits });
                         }}>
                         {busy ? "Applying…" : data.live ? "Apply Changes"

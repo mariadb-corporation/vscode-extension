@@ -74,8 +74,11 @@ export type TableEditorWebviewMessage =
  * @returns What tells its editor from every other.
  */
 export const tableEditorKey = (target: TableEditorTarget): string => {
+    // A project has one schema, which the tree and a diagram may title
+    // apart: the folder's name until msm's model says it.
     const where = target.kind === "connection"
-        ? `connection:${target.connection}` : `project:${target.projectPath}`;
+        ? `connection:${target.connection}|${target.schema}`
+        : `project:${target.projectPath}`;
 
-    return `${where}|${target.schema}|${target.table.toLowerCase()}`;
+    return `${where}|${target.table.toLowerCase()}`;
 };

@@ -1215,6 +1215,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
             }
 
             return location?.binaryPath;
+        }, (error: unknown) => {
+            // Nor is a lookup that failed kept.
+            lspBinary = undefined;
+            throw error;
         });
         lspBinary = found;
 
