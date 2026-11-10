@@ -74,6 +74,17 @@ export const OBJECT_GROUP_LABELS: Record<ObjectType, string> = {
     event: "Events",
 };
 
+/** What one object of each type is called, as a title has it. */
+export const OBJECT_TYPE_LABELS: Record<ObjectType, string> = {
+    table: "Table",
+    view: "View",
+    function: "Function",
+    procedure: "Procedure",
+    sequence: "Sequence",
+    trigger: "Trigger",
+    event: "Event",
+};
+
 /** The icon shown for a group of objects of one type. */
 const GROUP_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
     table: "schemaTables.svg",

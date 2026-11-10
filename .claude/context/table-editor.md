@@ -133,6 +133,20 @@ read-only Object Details view left editing to this editor.
   (`development/<schemaFileName>_next.sql`, from `msm.project.json`),
   reading nothing msm does not; the DDL is the table's range of the file
   (or of the included file its `source` names).
+- **A new table** (a project's only, from Add Table... on its Tables
+  row): the target's `table` is `""` until the first Save. The source
+  reads an empty table with `isNew` (its snapshot is `snapshotOrMake`'s in
+  `extension.ts`: msm makes a project's first, as for Add View...), the page starts with the
+  focus on the Table name (placeholder "Enter table name…"), and its
+  edits are `newTableEdits`: `add_table` with the columns and the primary
+  key, then what `tableEdits` adds to a table so made (indexes, foreign
+  keys, the comment, triggers). Enter in the Table name or Comment of a
+  new table with no column adds its first, `firstColumn`: `id`, `uuid`, NOT
+  NULL, `DEFAULT UUID()`, the primary key, its name focused; with columns
+  Enter goes to the first's name, as Down does (Down on a table with none
+  adds an empty column, as before). The Save's `add_table` names the
+  table (`createdTable`), the panel follows it as a rename (its title was
+  New Table), which the trees are not told of as one.
 - After a Save: a project's goes through `snapshotUpdated`
   (`extension.ts`): the tree first (`refreshProject` drops the snapshot it
   keeps, which Object Details reads a project's table from; the other way

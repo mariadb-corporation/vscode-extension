@@ -236,4 +236,60 @@ describe("TableEditor", () => {
         await send({ type: "loadFailed", message: "No such table." });
         expect(host.textContent).toContain("No such table.");
     });
+
+    describe("a new table", () => {
+        const NEW: ITableEditorData = { ...DATA, live: false, isNew: true,
+            table: { name: "", columns: [] }, ddl: "" };
+
+        const key = async (id: string, which: string): Promise<void> => {
+            const input = host.querySelector<HTMLInputElement>(`#${id}`)!;
+            await act(async () => {
+                input.dispatchEvent(new KeyboardEvent("keydown",
+                    { key: which, bubbles: true, cancelable: true }));
+            });
+        };
+
+        it("starts on the table's name", async () => {
+            await send({ type: "load", data: NEW });
+
+            expect(document.activeElement?.id).toBe("table-name");
+            expect(host.querySelector<HTMLInputElement>("#table-name")
+                ?.placeholder).toBe("Enter table name…");
+        });
+
+        it("gets its first column, id, the key, on Enter in the name or "
+            + "comment, and saves it with add_table", async () => {
+            await send({ type: "load", data: NEW });
+            vi.useFakeTimers();
+            const name = host.querySelector<HTMLInputElement>("#table-name")!;
+            await act(async () => {
+                name.value = "orders";
+                name.dispatchEvent(new Event("change"));
+            });
+            await key("table-name", "Enter");
+            await act(async () => { vi.advanceTimersByTime(300); });
+
+            const asked = posted.filter((message) => {
+                return (message as { type: string }).type === "preview";
+            }).pop() as unknown as { edits: Array<{ op: string; table: unknown }> };
+            expect(asked.edits).toEqual([{ op: "add_table", table:
+                expect.objectContaining({ name: "orders",
+                    columns: [expect.objectContaining({ name: "id",
+                        type: "uuid", default: "UUID()", nullable: false })],
+                    indexes: [{ name: null, kind: "primary",
+                        columns: ["id"] }] }) }]);
+            await act(async () => { button("Save to Project").click(); });
+            expect(posted).toContainEqual({ type: "apply",
+                edits: asked.edits });
+
+            // A second Enter adds no second id.
+            await key("table-comment", "Enter");
+            await act(async () => { vi.advanceTimersByTime(300); });
+            const again = posted.filter((message) => {
+                return (message as { type: string }).type === "preview";
+            }).pop() as unknown as {
+                edits: Array<{ table: { columns: unknown[] } }>; };
+            expect(again.edits[0].table.columns).toHaveLength(1);
+        });
+    });
 });

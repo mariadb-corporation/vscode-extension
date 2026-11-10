@@ -1243,6 +1243,58 @@
         "icon": "$(edit)"
       },
       {
+        "command": "mariadb.msm.addTable",
+        "title": "Add Table...",
+        "category": "MariaDB",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.addView",
+        "title": "Add View...",
+        "category": "MariaDB",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.addProcedure",
+        "title": "Add Procedure...",
+        "category": "MariaDB",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.addFunction",
+        "title": "Add Function...",
+        "category": "MariaDB",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.addTrigger",
+        "title": "Add Trigger...",
+        "category": "MariaDB",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.addEvent",
+        "title": "Add Event...",
+        "category": "MariaDB",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.addSequence",
+        "title": "Add Sequence...",
+        "category": "MariaDB",
+        "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.editObjectTemplate",
+        "title": "Edit Template...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.resetObjectTemplate",
+        "title": "Reset Template to msm's Default",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.msm.updateSchemaSnapshot",
         "title": "Update Schema Snapshot",
         "category": "MariaDB",
@@ -1923,6 +1975,86 @@
           "group": "inline@0"
         },
         {
+          "command": "mariadb.msm.addTable",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.table",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.addTable",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.table",
+          "group": "0_add@0"
+        },
+        {
+          "command": "mariadb.msm.addView",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.view",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.addView",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.view",
+          "group": "0_add@0"
+        },
+        {
+          "command": "mariadb.msm.addProcedure",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.procedure",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.addProcedure",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.procedure",
+          "group": "0_add@0"
+        },
+        {
+          "command": "mariadb.msm.addFunction",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.function",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.addFunction",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.function",
+          "group": "0_add@0"
+        },
+        {
+          "command": "mariadb.msm.addTrigger",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.trigger",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.addTrigger",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.trigger",
+          "group": "0_add@0"
+        },
+        {
+          "command": "mariadb.msm.addEvent",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.event",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.addEvent",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.event",
+          "group": "0_add@0"
+        },
+        {
+          "command": "mariadb.msm.addSequence",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.sequence",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.msm.addSequence",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObjectGroup.sequence",
+          "group": "0_add@0"
+        },
+        {
+          "command": "mariadb.msm.editObjectTemplate",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObjectGroup\\.(view|procedure|function|trigger|event|sequence)$/",
+          "group": "1_template@0"
+        },
+        {
+          "command": "mariadb.msm.resetObjectTemplate",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObjectGroup\\.(view|procedure|function|trigger|event|sequence)$/",
+          "group": "1_template@1"
+        },
+        {
           "command": "mariadb.msm.updateSchemaSnapshot",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
           "group": "inline@0"
@@ -2101,6 +2233,42 @@
         },
         {
           "command": "mariadb.addToDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.addTable",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.addView",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.addProcedure",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.addFunction",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.addTrigger",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.addEvent",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.addSequence",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.editObjectTemplate",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.resetObjectTemplate",
           "when": "false"
         },
         {

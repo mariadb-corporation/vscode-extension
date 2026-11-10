@@ -223,6 +223,10 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         listLiveSchemaObjects: answer("listLiveSchemaObjects", LIVE),
         importLiveSchema: answer("importLiveSchema",
             { task_id: "t2", status: "pending" }),
+        getObjectTemplates: answer("getObjectTemplates",
+            { templates: {}, placeholders: {} } as never),
+        addSchemaObject: answer("addSchemaObject", { rows: [], files: [],
+            migration: [], notes: [], file: "", line: 1 }),
     };
     setWorkspaceFolders([{ name: "work", uri: Uri.file("/work") }]);
     registeredCommands.set("revealInExplorer", (uri: unknown) => {

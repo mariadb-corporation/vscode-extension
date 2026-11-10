@@ -24,8 +24,10 @@ import type {
 import {
     draftOf,
     draftProblems,
+    firstColumn,
     joinType,
     keyPartsText,
+    newTableEdits,
     newRowKey,
     parseKeyParts,
     renameColumn,
@@ -253,5 +255,49 @@ describe("renameColumn", () => {
         })).toEqual(["modify_column"]);
         renamed = renameColumn(renamed, lastName, "last_name");
         expect(tableEdits(actor(), [], renamed)).toEqual([]);
+    });
+});
+
+describe("a new table", () => {
+    it("starts its first column as id, a UUID the server makes, the key",
+        () => {
+            expect(firstColumn()).toMatchObject({ name: "id", type: "uuid",
+                nullable: false, default: "UUID()", primary: true });
+        });
+
+    it("is made with add_table, its key and columns in it, the rest after",
+        () => {
+            const draft = { ...draftOf({ name: "", columns: [] }, []),
+                name: " orders ", comment: "Orders",
+                columns: [firstColumn(), { key: "c2", name: "total",
+                    type: "decimal(10,2)", nullable: true, primary: false }],
+                indexes: [{ key: "i1", name: "", kind: "index",
+                    keyParts: [{ column: "total", length: null, order: null }],
+                    using: null, comment: null }] };
+
+            expect(newTableEdits(draft)).toEqual([
+                { op: "add_table", table: { name: "orders",
+                    columns: [
+                        expect.objectContaining({ name: "id", type: "uuid",
+                            nullable: false, default: "UUID()" }),
+                        expect.objectContaining({ name: "total",
+                            type: "decimal(10,2)", nullable: true })],
+                    indexes: [{ name: null, kind: "primary",
+                        columns: ["id"] }] } },
+                { op: "add_index", table: "orders", index: { kind: "index",
+                    key_parts: [{ column: "total", length: null,
+                        order: null }] } },
+                { op: "set_table_options", table: "orders",
+                    options: { comment: "Orders" } },
+            ]);
+        });
+
+    it("makes no edits before it has a name and a column", () => {
+        const empty = draftOf({ name: "", columns: [] }, []);
+
+        expect(newTableEdits(empty)).toEqual([]);
+        expect(newTableEdits({ ...empty, name: "t" })).toEqual([]);
+        expect(newTableEdits({ ...empty, columns: [firstColumn()] }))
+            .toEqual([]);
     });
 });

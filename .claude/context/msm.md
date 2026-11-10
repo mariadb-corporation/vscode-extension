@@ -256,6 +256,40 @@ group only.
   warning notification, the first with a count of the rest. A failed or
   cancelled import leaves no project (msm removes it); nothing opens.
 
+## Adding schema objects
+
+Each object group row of a project's schema in the MSM Projects view
+(`mariadbMsmObjectGroup.<type>`) has an Add of its kind: a `$(add)` inline
+and the first entry of its menu (`MSM_ADD_COMMANDS` in
+`src/msm/schemaObjects.ts`, `mariadb.msm.addTable` ... `addSequence`;
+hidden from the palette: they need the row).
+
+- **Add Table...** opens the table editor on a new table of the project
+  (target `table: ""`, see table-editor.md).
+- **The other kinds** (`SchemaObjectCommands.add`): a name asked for
+  (`objectNameProblem`: not empty, 64 at most, not taken in the kind's
+  namespace - tables, views and sequences share one; a procedure and a
+  function may share a name), a trigger's table picked from the
+  snapshot's tables, then `msm.add_schema_object(kind, name, base_hash,
+  template?, table?)` through `ProjectModelSource.addObject`, in the
+  project's queue after the diagrams' changes (as `edit`), against the
+  snapshot's `source_hash`. msm fills the template, places the statement
+  where it keeps that kind (its section, or the section's breakout file)
+  as an `add_*` edit of `msm.edit_schema`, and answers with `file` and
+  `line`: the editor opens there for the body to be written, and the tree,
+  Object Details and diagrams follow (`snapshotUpdated`). A project with no
+  snapshot yet has msm make its first.
+- **Templates** are msm's (`msm.get_object_templates`: a plain CREATE per
+  kind, string.Template placeholders `${name}`, a trigger's `${table}`,
+  `${schema}`), unless the user changed one: `ObjectTemplates` keeps the
+  user's as `<kind>.sql` in the extension's global storage
+  (`msm-object-templates/`), sent as `template`; a kind without a file
+  sends none and msm takes its own. **Edit Template...** on a group row
+  (every kind but tables) opens the kind's file, made from msm's template
+  the first time; saving it is changing it; a notification names the
+  placeholders msm fills. **Reset Template to msm's Default** deletes the
+  file.
+
 ## The commands
 
 | Command | Shown on | Does |

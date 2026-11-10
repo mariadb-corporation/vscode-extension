@@ -354,6 +354,36 @@ export interface IMsmSchemaEdit {
     [member: string]: unknown;
 }
 
+/**
+ * The kinds of schema object msm adds from a SQL template
+ * (`msm.add_schema_object`); a table is made with the table editor.
+ */
+export const MSM_OBJECT_KINDS = ["view", "procedure", "function", "trigger",
+    "event", "sequence"] as const;
+
+export type MsmObjectKind = typeof MSM_OBJECT_KINDS[number];
+
+/** What `msm.get_object_templates` answers with. */
+export interface IMsmObjectTemplates {
+    /**
+     * Each kind's default: a plain CREATE statement with string.Template
+     * placeholders (`${name}`, a trigger's `${table}`).
+     */
+    templates: Record<MsmObjectKind, string>;
+    /** The placeholders each kind's template may use. */
+    placeholders: Record<MsmObjectKind, string[]>;
+}
+
+/** What a new schema object is made of. */
+export interface IMsmNewObject {
+    kind: MsmObjectKind;
+    name: string;
+    /** The user's template; left out, msm's default. */
+    template?: string;
+    /** A trigger's table. */
+    table?: string;
+}
+
 /** What `msm.edit_schema` answers with. */
 export interface IMsmSchemaEditResult {
     /** The diagrams view afterwards, the new snapshot first. */
@@ -364,6 +394,13 @@ export interface IMsmSchemaEditResult {
     migrationFile?: string;
     /** What the edits could not change themselves, for a person. */
     notes: Array<{ kind?: string; message: string }>;
+}
+
+/** What `msm.add_schema_object` answers with. */
+export interface IMsmObjectAdded extends IMsmSchemaEditResult {
+    /** The file the new statement is in, and the line it starts on (1-based). */
+    file: string;
+    line: number;
 }
 
 /** The `msm.*` tools, as typed calls. */
@@ -409,7 +446,35 @@ export interface IMsmApi {
     updateSchemaDefinition(projectPath: string): Promise<void>;
     editSchema(projectPath: string, edits: IMsmSchemaEdit[],
         baseHash: string): Promise<IMsmSchemaEditResult>;
+    getObjectTemplates(): Promise<IMsmObjectTemplates>;
+    addSchemaObject(projectPath: string, object: IMsmNewObject,
+        baseHash: string): Promise<IMsmObjectAdded>;
 }
+
+/** `msm.edit_schema`'s answer, by the server's names. */
+interface IEditResultOnTheWire {
+    rows?: IDiagramRow[];
+    files?: string[];
+    migration?: string[];
+    migration_file?: string | null;
+    notes?: Array<{ kind?: string; message: string }>;
+}
+
+/**
+ * @param result What msm.edit_schema, or msm.add_schema_object, said.
+ *
+ * @returns It as the extension reads it, every list there.
+ */
+const editResultOf = (result: IEditResultOnTheWire): IMsmSchemaEditResult => {
+    return {
+        rows: result.rows ?? [],
+        files: result.files ?? [],
+        migration: result.migration ?? [],
+        ...(typeof result.migration_file === "string"
+            ? { migrationFile: result.migration_file } : {}),
+        notes: result.notes ?? [],
+    };
+};
 
 /**
  * @param version `[major, minor, patch]`, as the msm tools list versions.
@@ -671,6 +736,20 @@ export const msmToolArgs = {
             base_hash: baseHash,
             schema_project_path: projectPath,
         };
+    },
+    addSchemaObject: (
+        projectPath: string,
+        object: IMsmNewObject,
+        baseHash: string,
+    ): Record<string, unknown> => {
+        return given({
+            schema_project_path: projectPath,
+            kind: object.kind,
+            name: object.name,
+            base_hash: baseHash,
+            template: object.template,
+            table: object.table,
+        });
     },
     deploySchema: (options: IMsmDeployOptions): Record<string, unknown> => {
         return given({
@@ -1169,22 +1248,46 @@ export class MsmApi implements IMsmApi {
         baseHash: string,
     ): Promise<IMsmSchemaEditResult> {
         const name = "msm.edit_schema";
-        const result = decodeObject<{
-            rows?: IDiagramRow[];
-            files?: string[];
-            migration?: string[];
-            migration_file?: string | null;
-            notes?: Array<{ kind?: string; message: string }>;
-        }>(name, await this.caller.callTool(name,
-            msmToolArgs.editSchema(projectPath, edits, baseHash)));
 
-        return {
-            rows: result.rows ?? [],
-            files: result.files ?? [],
-            migration: result.migration ?? [],
-            ...(typeof result.migration_file === "string"
-                ? { migrationFile: result.migration_file } : {}),
-            notes: result.notes ?? [],
-        };
+        return editResultOf(decodeObject<IEditResultOnTheWire>(name,
+            await this.caller.callTool(name,
+                msmToolArgs.editSchema(projectPath, edits, baseHash))));
+    }
+
+    /**
+     * @returns msm's default template of each kind of schema object it
+     *          adds, and the placeholders each may use.
+     */
+    public async getObjectTemplates(): Promise<IMsmObjectTemplates> {
+        const tool = "msm.get_object_templates";
+
+        return decodeObject<IMsmObjectTemplates>(tool,
+            await this.caller.callTool(tool, {}));
+    }
+
+    /**
+     * Adds a view, routine, trigger, event or sequence to the project from
+     * a SQL template filled with its name, where msm keeps that kind (its
+     * section, or the section's breakout file), as an edit of the schema.
+     *
+     * @param projectPath The project folder.
+     * @param object What to add.
+     * @param baseHash The snapshot's `source_hash` it was named against.
+     *
+     * @returns The edit's result, and where the new statement is.
+     */
+    public async addSchemaObject(
+        projectPath: string,
+        object: IMsmNewObject,
+        baseHash: string,
+    ): Promise<IMsmObjectAdded> {
+        const tool = "msm.add_schema_object";
+        const result = decodeObject<IEditResultOnTheWire & {
+            file: string; line: number; }>(tool,
+            await this.caller.callTool(tool, msmToolArgs.addSchemaObject(
+                projectPath, object, baseHash)));
+
+        return { ...editResultOf(result), file: result.file,
+            line: result.line };
     }
 }
