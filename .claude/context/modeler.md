@@ -343,8 +343,6 @@ shortcuts: see [modeler-view.md](modeler-view.md).
   view, the double-click, the pre-selected diagram, the Actions rows on
   the "Diagram" session, the Navigator's zoom list, layer moves with
   their tables and Option + drag.
-- A diagram row has the Diagrams folder's icon (`type-hierarchy-sub`)
-  until the user designs one of its own.
 - A project's diagrams are saved; a live schema's never are (their
   changes last the panel). The history is not shown anywhere yet. Tables
   and columns are renamed; new tables, views, procedures and foreign keys

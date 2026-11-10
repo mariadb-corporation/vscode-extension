@@ -96,8 +96,11 @@ const OBJECT_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
     event: "schemaEvent.svg",
 };
 
-/** The icon of a Diagrams folder and of a diagram. */
-const DIAGRAM_ICON = new vscode.ThemeIcon("type-hierarchy-sub");
+/** The icon of a Diagrams folder. */
+const DIAGRAMS_ICON = "schemaDiagrams.svg";
+
+/** The icon of a diagram. */
+const DIAGRAM_ICON = "schemaDiagram.svg";
 
 /**
  * The start of a schema row's context value, naming the tree it is in:
@@ -374,7 +377,7 @@ export class DiagramsTreeItem<T extends IDiagramsRow>
 
     public constructor(node: T, resolveIcon: IconResolver,
         prefix: SchemaRowPrefix, tooltip: string) {
-        super(node, "Diagrams", DIAGRAM_ICON, true, resolveIcon);
+        super(node, "Diagrams", DIAGRAMS_ICON, true, resolveIcon);
         this.contextValue = `${prefix}Diagrams`;
         this.tooltip = tooltip;
     }
@@ -390,7 +393,6 @@ export class DiagramTreeItem<T extends IDiagramEntryRow>
 
     public constructor(node: T, resolveIcon: IconResolver,
         prefix: SchemaRowPrefix, clickCommand: string) {
-        // The Diagrams folder's icon, until a diagram has one of its own.
         super(node, node.name, DIAGRAM_ICON, false, resolveIcon);
         this.contextValue = `${prefix}Diagram`;
         if (node.figures !== undefined) {

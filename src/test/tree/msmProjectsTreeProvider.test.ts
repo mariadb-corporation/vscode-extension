@@ -357,12 +357,18 @@ describe("the MSM Projects view", () => {
             const folder = fake.tree.getTreeItem(diagrams);
             expect(folder.label).toBe("Diagrams");
             expect(folder.contextValue).toBe("mariadbMsmDiagrams");
+            const icon = (item: { iconPath?: unknown }): string => {
+                return (item.iconPath as { light: { path: string } })
+                    .light.path;
+            };
+            expect(icon(folder)).toMatch(/\/light\/schemaDiagrams\.svg$/u);
             const rows = await fake.tree.getChildren(diagrams);
             expect(rows).toEqual([{ kind: "diagram", projectPath: project,
                 name: "Main", figures: 3 }]);
             const row = fake.tree.getTreeItem(rows[0]);
             expect(row.description).toBe("3 figures");
             expect(row.contextValue).toBe("mariadbMsmDiagram");
+            expect(icon(row)).toMatch(/\/light\/schemaDiagram\.svg$/u);
             expect(row.command).toEqual({
                 command: MSM_DIAGRAM_CLICK_COMMAND,
                 title: "Open Diagram",
