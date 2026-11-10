@@ -1678,6 +1678,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 await msmProjectsView.reveal(node, { select: true });
             }
         },
+        // New MSM Project from Schema's import, a task of the Tasks view.
+        followTask: (started, options) => {
+            return taskMonitor.follow(started, options);
+        },
+        startFailed: (connection, title, call, error) => {
+            taskActions.startFailed(connection, title, call, error);
+        },
         log,
     });
     context.subscriptions.push(...msmCommands.register(),

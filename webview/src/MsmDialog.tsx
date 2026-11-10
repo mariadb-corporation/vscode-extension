@@ -28,15 +28,27 @@ import {
     msmProblem,
     nextPatchVersion,
     onlineAlterField,
+    allTicked,
+    liveNamesOf,
     projectFolderName,
+    tickedObjects,
+    readsNote,
+    tickedSets,
+    unticked,
     type IMsmCreateValues,
     type IMsmDeployValues,
+    type IMsmImportValues,
     type IMsmProblem,
     type IMsmProjectContext,
     type IMsmReleaseValues,
     type MsmDialogKind,
     type MsmValues,
 } from "../../src/msm/msmFields.js";
+import {
+    IMPORTED_KINDS,
+    liveObjectsOf,
+    type ImportedKind,
+} from "../../src/mcp/msmApi.js";
 import type {
     IMsmLoadMessage,
     IMsmOpenMessage,
@@ -77,6 +89,7 @@ import { post } from "./vscodeApi.js";
  */
 const ACTIONS: Record<Exclude<MsmDialogKind, "info">, [string, string]> = {
     create: ["Create Project", "Creating the project..."],
+    import: ["Create Project", "Starting the import..."],
     edit: ["Update", "Updating the project..."],
     release: ["Prepare Release", "Preparing the release..."],
     deploymentScript: ["Generate", "Generating the deployment script..."],
@@ -88,6 +101,10 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
     create: "Creates a schema project folder: the development script the "
         + "schema is written in, and the folders its releases and "
         + "deployment scripts go to.",
+    import: "Creates a schema project from a schema on a server: the "
+        + "CREATE statements of the objects chosen, without their DEFINER "
+        + "clauses, the schema's name or AUTO_INCREMENT counters, so it "
+        + "deploys anywhere. No data, users or grants.",
     edit: "Changes the version development goes on with, the project's "
         + "copyrights, how the MSM Projects view files and shows it, and how "
         + "its tables are altered online.",
@@ -108,18 +125,24 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
  * Project, as tabs. Each page's fields, so a problem can be shown on its
  * page.
  */
-type MsmPage = "Project" | "Copyright" | "Location" | "MSM Projects View"
-    | "Online Schema Change";
+type MsmPage = "Schema Objects" | "Project" | "Copyright" | "Location"
+    | "MSM Projects View" | "Online Schema Change";
 
 /** The pages of each dialog that has them, in order. */
 const PAGES: Partial<Record<MsmDialogKind, readonly MsmPage[]>> = {
     create: ["Project", "Location", "MSM Projects View"],
+    import: ["Schema Objects", "Project", "Location", "MSM Projects View"],
     edit: ["Project", "Copyright", "MSM Projects View",
         "Online Schema Change"],
 };
 
+/** The dialogs that are wizards: Back, Next, and their button at the end. */
+const WIZARDS: ReadonlySet<MsmDialogKind> = new Set(["create", "import"]);
+
 /** The fields on each page. */
 const PAGE_FIELDS: Record<MsmPage, readonly string[]> = {
+    // Each kind's: `objects.tables`.
+    "Schema Objects": ["objects"],
     Project: ["schemaName", "license", "customLicense", "copyrightHolder",
         "yearOfCreation",
         "allowSpecialChars", "developmentVersion"],
@@ -133,6 +156,7 @@ const PAGE_FIELDS: Record<MsmPage, readonly string[]> = {
 
 /** What each page holds, as its tab's tooltip. */
 const PAGE_TOOLTIPS: Record<MsmPage, string> = {
+    "Schema Objects": "The objects of the schema the project is made from.",
     Project: "The schema, its license and copyright, and its version.",
     Copyright: "Who holds the project's copyright, and the years its "
         + "notices name.",
@@ -308,7 +332,7 @@ export const MsmDialog = (): preact.JSX.Element => {
     };
 
     const pages = PAGES[kind];
-    const isWizard = kind === "create";
+    const isWizard = WIZARDS.has(kind);
     const lastPage = (pages?.length ?? 1) - 1;
 
     const submit = (): void => {
@@ -518,6 +542,8 @@ export const MsmDialog = (): preact.JSX.Element => {
     /** New MSM Project's first page: the schema and whose it is. */
     const createProject = (): preact.JSX.Element => {
         const create = values as IMsmCreateValues;
+        // From Schema: the schema's own name, which msm takes as it is.
+        const imported = kind === "import";
         const folder = create.schemaName.trim() === ""
             ? "<schema>.msm.project"
             : projectFolderName(create.schemaName);
@@ -525,8 +551,11 @@ export const MsmDialog = (): preact.JSX.Element => {
         return (
             <section class="grid">
                 <Field caption="Schema Name" hint={hint("schemaName",
-                    `The project folder is ${folder}.`)}>
-                    {text("schemaName", "sakila")}
+                    imported
+                        ? `The schema's own name. The project folder is `
+                            + `${folder}.`
+                        : `The project folder is ${folder}.`)}>
+                    {text("schemaName", "sakila", undefined, imported)}
                 </Field>
                 {licenseFields()}
                 <Field caption="Copyright Holder" hint={hint(
@@ -539,11 +568,133 @@ export const MsmDialog = (): preact.JSX.Element => {
                     + "notices name: an earlier one for work begun before.")}>
                     {text("yearOfCreation", currentYear())}
                 </Field>
-                <div class="group flags">
-                    {box("allowSpecialChars",
-                        "Allow Special Characters",
-                        "Allow a schema name that has to be quoted.")}
-                </div>
+                {imported ? null : (
+                    <div class="group flags">
+                        {box("allowSpecialChars",
+                            "Allow Special Characters",
+                            "Allow a schema name that has to be quoted.")}
+                    </div>
+                )}
+            </section>
+        );
+    };
+
+    /**
+     * New MSM Project from Schema's first page: the schema's objects by
+     * kind, each ticked to be imported; a table's triggers are named under
+     * it, coming with it.
+     */
+    const schemaObjects = (): preact.JSX.Element => {
+        const live = load.liveSchema;
+        if (live === undefined) {
+            return <section />;
+        }
+        const ticked = (values as IMsmImportValues).objects;
+        const tick = (objectKind: ImportedKind, names: readonly string[],
+            on: boolean): void => {
+            update("objects", tickedObjects(live, ticked, objectKind, names,
+                on));
+        };
+        const tickBox = (name: string, checked: boolean, label: string,
+            onTick: (on: boolean) => void, value?: string,
+            tooltip?: string, some = false): preact.JSX.Element => {
+            return (
+                <label class="checkbox" data-tooltip={tooltip}>
+                    <input
+                        type="checkbox"
+                        name={name}
+                        value={value}
+                        checked={checked}
+                        // A kind some of whose objects are ticked: neither.
+                        ref={(element) => {
+                            if (element !== null) {
+                                element.indeterminate = some;
+                            }
+                        }}
+                        disabled={busy}
+                        onChange={(event) => {
+                            onTick(event.currentTarget.checked);
+                        }}
+                    />
+                    <span>{label}</span>
+                </label>
+            );
+        };
+        // Built once, for every row to look up.
+        const sets = tickedSets(ticked);
+        const kinds = IMPORTED_KINDS.filter((objectKind) => {
+            return live[objectKind].length > 0;
+        });
+
+        return (
+            <section class="msm-objects">
+                <p class="note">
+                    {`Schema ${live.schema} on ${load.source ?? "the server"}`}
+                    {live.schema_version === null ? "."
+                        : `, deployed by msm at version ${live.schema_version}.`}
+                </p>
+                {kinds.length === 0 ? (
+                    <p class="note">The schema has no objects to import.</p>
+                ) : kinds.map((objectKind) => {
+                    const objects = liveObjectsOf(live, objectKind);
+                    const on = sets[objectKind];
+                    const name = `objects.${objectKind}`;
+
+                    return (
+                        <fieldset key={objectKind} class="msm-object-kind"
+                            name={name}>
+                            <legend>
+                                {tickBox(`${name}.all`,
+                                    allTicked(live, ticked, objectKind),
+                                    `${KIND_CAPTIONS[objectKind]} `
+                                        + `(${String(objects.length)})`,
+                                    (all) => {
+                                        tick(objectKind,
+                                            liveNamesOf(live, objectKind), all);
+                                    }, undefined, undefined,
+                                    on.size > 0
+                                        && !allTicked(live, ticked, objectKind))}
+                            </legend>
+                            <ul>
+                                {objects.map((object) => {
+                                    const triggers = object.triggers ?? [];
+                                    const missing = unticked(sets,
+                                        objectKind, object);
+
+                                    return (
+                                        <li key={object.name}>
+                                            {tickBox(name, on.has(object.name),
+                                                object.name, (one) => {
+                                                    tick(objectKind,
+                                                        [object.name], one);
+                                                }, object.name,
+                                                object.comment || undefined)}
+                                            {triggers.length > 0 && (
+                                                <span class="field-hint msm-triggers">
+                                                    {"Triggers, with the "
+                                                        + "table: "
+                                                        + triggers.join(", ")}
+                                                </span>
+                                            )}
+                                            {missing.length > 0 && (
+                                                <span class="field-hint msm-reads">
+                                                    {readsNote(missing)}
+                                                </span>
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </fieldset>
+                    );
+                })}
+                {boxProblem("objects")}
+                {live.left_out.length > 0 && (
+                    <p class="field-hint">
+                        {"Left out, as msm's own: "
+                            + live.left_out.join(", ") + "."}
+                    </p>
+                )}
             </section>
         );
     };
@@ -773,6 +924,9 @@ export const MsmDialog = (): preact.JSX.Element => {
             case "MSM Projects View": {
                 return listSettings();
             }
+            case "Schema Objects": {
+                return schemaObjects();
+            }
             case "Online Schema Change": {
                 return onlineAlterSettings();
             }
@@ -781,7 +935,7 @@ export const MsmDialog = (): preact.JSX.Element => {
             }
 
             default: {
-                return kind === "create" ? createProject() : editProject();
+                return kind === "edit" ? editProject() : createProject();
             }
         }
     };
@@ -789,6 +943,7 @@ export const MsmDialog = (): preact.JSX.Element => {
     const body = (): preact.JSX.Element => {
         switch (kind) {
             case "create":
+            case "import":
             case "edit": {
                 return pageBody();
             }
@@ -1116,4 +1271,14 @@ const summary = (
             </span>
         </p>
     );
+};
+
+/** Each kind's caption on the Schema Objects page. */
+const KIND_CAPTIONS: Record<ImportedKind, string> = {
+    tables: "Tables",
+    sequences: "Sequences",
+    views: "Views",
+    procedures: "Procedures",
+    functions: "Functions",
+    events: "Events",
 };

@@ -21,7 +21,11 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { MSM_COMMANDS, MSM_LIST_COMMANDS } from "../../msm/msmCommands.js";
+import {
+    MSM_COMMANDS,
+    MSM_IMPORT_COMMAND,
+    MSM_LIST_COMMANDS,
+} from "../../msm/msmCommands.js";
 import { MSM_FOLDER_COMMANDS } from "../../msm/msmProjectsCommands.js";
 import {
     MSM_ADD_COMMANDS,
@@ -75,6 +79,20 @@ const shownOn = (when: string, folder: string): boolean => {
     return !clause.includes("false");
 };
 
+describe("New MSM Project from Schema", () => {
+    it("is on a Connections view schema row only, not in the palette", () => {
+        expect(commands).toContainEqual({ command: MSM_IMPORT_COMMAND,
+            title: "New MSM Project from Schema...", category: "MariaDB" });
+        expect(menus["view/item/context"].filter((entry) => {
+            return entry.command === MSM_IMPORT_COMMAND;
+        })).toEqual([{ command: MSM_IMPORT_COMMAND,
+            when: "view == mariadb.connections && viewItem == mariadbSchema",
+            group: "6_msm@1" }]);
+        expect(menus.commandPalette).toContainEqual(
+            { command: MSM_IMPORT_COMMAND, when: "false" });
+    });
+});
+
 describe("adding schema objects to a project", () => {
     const rowMenu = menus["view/item/context"];
 
@@ -125,7 +143,7 @@ describe("the MariaDB Schema Management menu", () => {
             ...Object.values(MSM_DIAGRAM_COMMANDS),
             ...Object.values(MSM_SCHEMA_COMMANDS),
             ...Object.values(MSM_ADD_COMMANDS),
-            ...Object.values(MSM_TEMPLATE_COMMANDS)];
+            ...Object.values(MSM_TEMPLATE_COMMANDS), MSM_IMPORT_COMMAND];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
         }).map((entry) => { return entry.command; }).sort())

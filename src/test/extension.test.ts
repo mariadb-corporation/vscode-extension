@@ -398,6 +398,7 @@ describe("activate", () => {
             "mariadb.msm.editObjectTemplate",
             "mariadb.msm.editProject",
             "mariadb.msm.generateDeploymentScript",
+            "mariadb.msm.importLiveSchema",
             "mariadb.msm.layoutSchemaDiagram",
             "mariadb.msm.newProjectFolder",
             "mariadb.msm.newProjectInView",

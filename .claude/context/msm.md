@@ -13,7 +13,7 @@ MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
 
 | File | Purpose |
 | --- | --- |
-| `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the seventeen `msm.*` tools used, typed (the five of the schema diagrams - `list_` / `get_` / `set_schema_diagram(s)`, `get_schema_diagram_image`, `edit_schema` - are the diagram viewer's, see modeler.md) (the list's four, read with `listedProject`: an unknown color dropped, a missing `mcp_access` read as true, as the server reads an old entry); `msmToolArgs`, each tool's arguments by the server's names, which the Actions tab shows the call with (all but `connection_id`). `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
+| `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the `msm.*` tools used, typed (two of them, `list_live_schema_objects` and `import_live_schema`, with `IMPORTED_KINDS`, New MSM Project from Schema's, below) (the five of the schema diagrams - `list_` / `get_` / `set_schema_diagram(s)`, `get_schema_diagram_image`, `edit_schema` - are the diagram viewer's, see modeler.md) (the list's four, read with `listedProject`: an unknown color dropped, a missing `mcp_access` read as true, as the server reads an old entry); `msmToolArgs`, each tool's arguments by the server's names, which the Actions tab shows the call with (all but `connection_id`). `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
 | `src/msm/msmFields.ts` | Pure, shared with the webview: per dialog its values, defaults and `*Problem` checks, version parsing / comparing (numbers, so 1.10 > 1.9), `projectFolderName` as the plugin names it. |
 | `src/msm/msmProtocol.ts`, `msmDialogPanel.ts` | The dialog's messages and panel, a `DialogPanel` typed by the dialog's kind: one at a time, checks the values again (and `host.check`, the disk) before `host.submit`; a failure stays in the dialog, or is notified once it was closed. |
 | `src/msm/msmCommands.ts` | `MsmCommands`: the dialogs' six commands and the list's four (`MSM_LIST_COMMANDS`), reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`); `changedDetails`, what an add or update sends. |
@@ -126,7 +126,7 @@ MSM Projects (`mariadb.msmProjects`).
   field by going to its page first.
 - **Custom license** (New's Project step, Edit's Project tab,
   `licenseFields`): the License list is msm's templates (`MSM_LICENSES`,
-  now sent to Edit too) plus Custom (`CUSTOM_LICENSE`, msm's `CUSTOM`),
+  sent to New and Edit) plus Custom (`CUSTOM_LICENSE`, msm's `CUSTOM`),
   which shows a License Text box, prefilled with `CUSTOM_LICENSE_START`.
   `customLicenseProblem` checks it as msm does (not empty; only
   `${copyright_notices}`, `${copyright_holder}`, `${year}` as `$name` or
@@ -144,7 +144,7 @@ MSM Projects (`mariadb.msmProjects`).
   work begun in an earlier year; four digits, not in the future
   (`yearProblem`, msm's `check_copyright_year`).
 - **Edit MSM Project** (a project row's menu; `MSM_COMMANDS.edit`, kind
-  `edit`) shows the schema and license as read, and edits the
+  `edit`) shows the schema as read, and edits the license (above), the
   development version (`msm.set_development_version`, not below the last
   release) and the list settings; Update sends only what changed
   (`changedDetails`, the folder through `normalizeFolder` and the caption
@@ -154,11 +154,13 @@ MSM Projects (`mariadb.msmProjects`).
   no second listing. It is not in the Explorer submenu: it edits a list
   entry, which an Explorer folder may not have.
 - **One settings call**: everything Edit changes in msm.project.json - the
-  copyrights and the Online Schema Change values - goes in one
+  license and its text, the copyrights and the Online Schema Change
+  values - goes in one
   `msm.set_project_settings(settings)` (mariadb-shell-plugins #102), with
   only the keys that changed; each value replaces the stored one as a
-  whole. msm has no per-setting writers any more (the user's decision: no
-  MCP function per msm.project.json parameter), and reads them all with
+  whole. msm has no per-setting writers of msm.project.json (the user's
+  decision: no MCP function per msm.project.json parameter), and reads
+  them all with
   `msm.get_project_information`. The development version (the development
   script) and the list entry (`msm.update_project`) are not msm.project.json
   and keep their own calls.
@@ -204,6 +206,56 @@ MSM Projects (`mariadb.msmProjects`).
   `context/siblings.md`), so the `--gui` server of this extension is the
   only one that reaches it; only that server offers the argument.
 
+## New MSM Project from Schema
+
+The reverse of a deploy (mariadb-shell-plugins #103): a project made from
+a schema on a server. On a Connections view schema row only
+(`MSM_IMPORT_COMMAND`, `mariadb.msm.importLiveSchema`, group `6_msm@1`;
+hidden from the palette, as it needs the row). Both tools come with the db
+group only.
+
+- **The listing** (`MsmCommands.importLiveSchema`): an action of the
+  connection's, "Read schema <s> for an MSM project", with `db.connect`
+  and `msm.list_live_schema_objects` as its steps, on a session of its own
+  (`MSM Import <n>`, as Deploy's), closed once listed: the wizard may stay
+  open a long while. A failure (no such schema) opens no wizard.
+- **The wizard** is New MSM Project's (kind `import`, `IMsmImportValues`:
+  the create values plus `connection` and `objects`), with a first page,
+  **Schema Objects**: a box per kind the schema has (tables, sequences,
+  views, procedures, functions, events), each object ticked by default and
+  the box's legend ticking the kind as a whole (`tickedObjects`, in the
+  listing's order). A table's triggers are named under it as information
+  only: msm imports them with their table, so they are never ticked nor
+  sent. The page says the version msm deployed of the schema
+  (`schema_version`) and names msm's own objects it leaves out
+  (`left_out`). Under a ticked view, a note names what it reads that is
+  not ticked (`unticked`, the view's `reads` of mariadb-shell-plugins
+  #104: tables, views, sequences and stored functions; null where msm
+  could not read the definition, missing from an older msm, either way
+  no note): the project would not deploy the view without them. A note,
+  not a problem: Create Project is not held back, and msm warns again
+  after the import with the same detection. The schema name is the
+  schema's, shown disabled; no Allow
+  Special Characters (msm takes the name as it is). `importProblem`: none
+  ticked is refused (an empty project is New MSM Project's), then
+  `createProblem`; `#checkCreate` checks the folder as for New.
+- **Create Project** connects a second `MSM Import <n>` session and starts
+  `msm.import_live_schema`. `objects` is left out where everything is
+  ticked, so objects made meanwhile come too (`importedObjects`); else
+  every kind is sent, an empty list for none, never a `triggers` key. msm
+  refuses what it would refuse (folder, license, selection, no
+  mariadb-lsp) before a task starts: the refusal stays in the wizard and
+  is a row of its own (`startFailed`), the session closed. Started, the
+  wizard closes and the task is followed (`followTask`, the
+  `TaskMonitor`: Tasks view, notification, its Actions row); its session
+  is closed once it ended. Completed: the MSM Projects view reads the list
+  (msm added the project, folder, caption and color), a custom license is
+  set as New sets it, the development script opens and the project is
+  revealed in the MSM Projects view. msm's `warnings` (a foreign key to a
+  table not imported, a definition the account cannot read) are one
+  warning notification, the first with a count of the rest. A failed or
+  cancelled import leaves no project (msm removes it); nothing opens.
+
 ## Adding schema objects
 
 Each object group row of a project's schema in the MSM Projects view
@@ -242,7 +294,8 @@ hidden from the palette: they need the row).
 
 | Command | Shown on | Does |
 | --- | --- | --- |
-| `mariadb.msm.createProject` | A folder NOT named `*.msm.project` | New MSM Project: schema name, license, copyright holder, the folder (Browse), Create the Folder / Allow Special Characters / Replace Existing Project. Opens `development/<schema>_next.sql` and reveals the project folder in the Explorer. |
+| `mariadb.msm.createProject` | A folder NOT named `*.msm.project` | New MSM Project, a wizard: schema name, license (a template or a custom text), copyright holder and year of creation, the folder (Browse), Create the Folder / Allow Special Characters / Replace Existing Project, the MSM Projects View settings. Opens `development/<schema>_next.sql` and reveals the project folder in the Explorer. |
+| `mariadb.msm.importLiveSchema` | A Connections view schema row | New MSM Project from Schema...: the wizard above, the schema's objects first; the import a task. |
 | `mariadb.msm.showProjectInformation` | `*.msm.project` | The project's information, with buttons to open the development script and to go on to the three dialogs below (in its place). Replaces the old extension's JSON document. |
 | `mariadb.msm.prepareRelease` | `*.msm.project` | Release version (the development version) and next version (its patch + 1, following the first until typed into), Stay on the Same Version, Replace Existing Files. Opens the files written. |
 | `mariadb.msm.generateDeploymentScript` | `*.msm.project` | A released version (newest first, marked where it has a script), Replace Existing File. Opens the script. |
@@ -335,7 +388,9 @@ first four with input boxes one after another; Deploy is new.
   list's commands, the file dialogs, Edit), `msmPackage.test.ts` (the
   submenu's `when` clauses judged per folder, the view's toolbar and row
   menus).
-- `webview/test/MsmDialog.test.tsx`.
+- `webview/test/MsmDialog.test.tsx` (the Schema Objects page too);
+  `msmCommands.test.ts`' "New MSM Project from Schema" (sessions,
+  arguments, refusals, warnings, a cancelled task).
 - UI: `ui-test/tests/10-msm-projects.test.ts`, in suite `msm` before
   `09-msm`, whose create lists its project, see testing-and-debugging.md.
 - UI: `ui-test/tests/09-msm.test.ts`, suite `msm` (`npm run ui-test:msm`):

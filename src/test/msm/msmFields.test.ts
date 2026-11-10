@@ -28,6 +28,9 @@ import {
     deploymentScriptDefaults,
     deploymentScriptProblem,
     deployProblem,
+    importDefaults,
+    importedObjects,
+    importProblem,
     isProjectFolder,
     msmProblem,
     nextPatchVersion,
@@ -36,6 +39,10 @@ import {
     releaseDefaults,
     releaseProblem,
     storedCopyrights,
+    readsNote,
+    tickedObjects,
+    tickedSets,
+    unticked,
     type IMsmCopyrightValues,
     type IMsmCreateValues,
     type IMsmProjectContext,
@@ -404,5 +411,87 @@ describe("msmProblem", () => {
     it("refuses a project dialog without its project", () => {
         expect(msmProblem("release", undefined, releaseDefaults(PROJECT))
             ?.message).toMatch(/could not be read/u);
+    });
+});
+
+describe("New MSM Project from Schema's fields", () => {
+    const LIVE = {
+        schema: "shop",
+        tables: [{ name: "b", comment: "", triggers: ["b_ai"] },
+            { name: "a", comment: "", triggers: [] }],
+        views: [{ name: "v", comment: "" }],
+        procedures: [{ name: "p" }], functions: [], events: [],
+        triggers: [{ name: "b_ai", table: "b" }],
+        sequences: [{ name: "s" }],
+        schema_version: null, left_out: [],
+    };
+
+    it("starts with every object ticked, under the schema's own name", () => {
+        const values = importDefaults("mariadb://x", LIVE, "/work");
+
+        expect(values).toMatchObject({ schemaName: "shop", targetPath: "/work",
+            connection: "mariadb://x", allowSpecialChars: true });
+        expect(values.objects).toEqual({ tables: ["b", "a"], sequences: ["s"],
+            views: ["v"], procedures: ["p"], functions: [], events: [] });
+        expect(importedObjects(LIVE, values.objects)).toBeUndefined();
+    });
+
+    it("ticks in the listing's order, and sends every kind once one is not "
+        + "all ticked", () => {
+        const { objects } = importDefaults("mariadb://x", LIVE, "/work");
+        const none = tickedObjects(LIVE, objects, "tables", ["a", "b"], false);
+        const again = tickedObjects(LIVE, none, "tables", ["a", "b"], true);
+
+        expect(none.tables).toEqual([]);
+        expect(again.tables).toEqual(["b", "a"]);
+        expect(importedObjects(LIVE, none)).toEqual({ tables: [],
+            sequences: ["s"], views: ["v"], procedures: ["p"], functions: [],
+            events: [] });
+    });
+
+    it("refuses an import of nothing, then checks as New MSM Project does",
+        () => {
+            const values = importDefaults("mariadb://x", LIVE, "/work");
+            const empty = Object.fromEntries(Object.keys(values.objects).map(
+                (kind) => { return [kind, []]; })) as unknown as typeof values.objects;
+
+            expect(importProblem({ ...values, objects: empty })?.field)
+                .toBe("objects");
+            expect(importProblem(values)?.field).toBe("copyrightHolder");
+            expect(msmProblem("import", undefined, { ...values,
+                copyrightHolder: "Ada" })).toBeUndefined();
+        });
+
+    it("names what a ticked view reads that is not ticked", () => {
+        const { objects } = importDefaults("mariadb://x", LIVE, "/work");
+        const view = { name: "v", comment: "", reads: [
+            { kind: "functions" as const, name: "f" },
+            { kind: "tables" as const, name: "a" },
+            { kind: "tables" as const, name: "b" }] };
+        const some = tickedObjects(LIVE, objects, "tables", ["a"], false);
+        const missing = (ticked: typeof objects, object: typeof view
+            | { name: string; reads?: null }) => {
+            return unticked(tickedSets(ticked), "views", object);
+        };
+
+        expect(missing(objects, view)).toEqual([
+            { kind: "functions", name: "f" }]);
+        expect(missing(some, view)).toEqual([
+            { kind: "functions", name: "f" }, { kind: "tables", name: "a" }]);
+        // Not ticked itself, or reads not known: nothing to say.
+        expect(missing(tickedObjects(LIVE, some, "views", ["v"], false),
+            view)).toEqual([]);
+        expect(missing(some, { ...view, reads: null })).toEqual([]);
+        expect(missing(some, { name: "v" })).toEqual([]);
+    });
+
+    it("says what is missing in a note", () => {
+        expect(readsNote([{ kind: "tables", name: "film" }])).toBe("Reads the "
+            + "table film, not ticked: the project will not deploy the view "
+            + "without it.");
+        expect(readsNote([{ kind: "functions", name: "f" },
+            { kind: "sequences", name: "s" }, { kind: "views", name: "v" }]))
+            .toBe("Reads the function f, the sequence s and the view v, not "
+            + "ticked: the project will not deploy the view without them.");
     });
 });

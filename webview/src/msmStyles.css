@@ -115,3 +115,41 @@
 .msm-license.invalid {
     border-color: var(--vscode-inputValidation-errorBorder);
 }
+
+/* New MSM Project from Schema's objects, a box per kind. */
+.msm-objects {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.msm-object-kind {
+    border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+    border-radius: 4px;
+    margin: 0;
+    padding: 4px 12px 8px;
+}
+
+.msm-object-kind ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    columns: 16em auto;
+    column-gap: 24px;
+}
+
+.msm-object-kind li {
+    break-inside: avoid;
+    padding: 2px 0;
+}
+
+.msm-triggers,
+.msm-reads {
+    display: block;
+    margin-left: 24px;
+}
+
+/* A ticked view whose sources are not all ticked. */
+.msm-reads {
+    color: var(--vscode-editorWarning-foreground);
+}

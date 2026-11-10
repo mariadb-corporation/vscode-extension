@@ -40,7 +40,10 @@ import {
     type IMsmCreateOptions,
     type IMsmDeployOptions,
     type IMsmDeploymentScriptOptions,
+    type IMsmImportOptions,
+    type IMsmImportResult,
     type IMsmListedProject,
+    type IMsmLiveSchema,
     type IMsmProjectDetails,
     type IMsmProjectInfo,
     type IMsmProjectSettings,
@@ -55,6 +58,8 @@ import {
     deployDefaults,
     deploymentScriptDefaults,
     editDefaults,
+    importDefaults,
+    importedObjects,
     isProjectFolder,
     MSM_TITLES,
     projectFolderName,
@@ -63,6 +68,7 @@ import {
     storedCopyrights,
     type IMsmCreateValues,
     type IMsmEditValues,
+    type IMsmImportValues,
     type IMsmListValues,
     type IMsmDeploymentScriptValues,
     type IMsmDeployValues,
@@ -70,7 +76,6 @@ import {
     type IMsmProblem,
     type IMsmProjectContext,
     type IMsmReleaseValues,
-    type MsmDialogKind,
 } from "./msmFields.js";
 import {
     entryKey,
@@ -79,6 +84,8 @@ import {
     readTexts,
     withGeneral,
 } from "../tableEditor/onlineAlter.js";
+import type { ITaskStarted, ITaskState } from "../mcp/taskApi.js";
+import type { IFollowOptions } from "../util/taskMonitor.js";
 import { pickFolder } from "../webview/dialogPanel.js";
 import {
     msmFolderOf,
@@ -124,6 +131,15 @@ export interface IMsmCommandsHost {
     listedProject?(projectPath: string): Promise<IMsmListedProject | undefined>;
     /** Shows a project in the MSM Projects view. */
     revealProject?(projectPath: string): Promise<void>;
+    /**
+     * Follows a task until it ends: the Tasks view, its notification and
+     * its row of the connection's Actions.
+     */
+    followTask(started: ITaskStarted,
+        options: IFollowOptions): Promise<ITaskState>;
+    /** Puts up a task that did not start, as a row of its connection's. */
+    startFailed(connection: string, title: string, call: string,
+        error: string): void;
     log(message: string): void;
 }
 
@@ -135,11 +151,69 @@ export interface IMsmCommandsHost {
  */
 export const MSM_DEPLOY_SESSION = "MSM Deploy";
 
-/** Makes the deploys' sessions' names unique, as deploys may overlap. */
-let deploys = 0;
+/**
+ * What an import's own session is called, numbered per import: the
+ * listing's and the task's, never the tree's, which the import would
+ * otherwise hold for as long as it reads the schema.
+ */
+export const MSM_IMPORT_SESSION = "MSM Import";
 
-/** The dialogs on a project: all but New MSM Project. */
-type ProjectDialogKind = Exclude<MsmDialogKind, "create" | "edit">;
+/**
+ * Makes the sessions of deploys and imports unique, as they may overlap:
+ * one count for both.
+ */
+let ownSessions = 0;
+
+/**
+ * @param prefix What the session is for: {@link MSM_DEPLOY_SESSION} or
+ *               {@link MSM_IMPORT_SESSION}.
+ *
+ * @returns A name for a session of its own, not used yet.
+ */
+const ownSession = (prefix: string): string => {
+    ownSessions += 1;
+
+    return `${prefix} ${String(ownSessions)}`;
+};
+
+/**
+ * @param values What New MSM Project, or from Schema, says.
+ *
+ * @returns What msm.create_project and msm.import_live_schema are both
+ *          told of the new project. Filed and shown in the MSM Projects
+ *          list as it is made; only what differs from a new project's
+ *          place there - the top level, no caption or color - is sent. msm
+ *          makes no project with a license text: it is made with none,
+ *          then given the text.
+ */
+const newProjectOptions = (
+    values: IMsmCreateValues,
+): Omit<IMsmCreateOptions, "schemaName" | "allowSpecialChars"> => {
+    const folder = normalizeFolder(values.folder);
+    const caption = values.caption.trim();
+
+    return {
+        targetPath: values.targetPath.trim(),
+        copyrightHolder: values.copyrightHolder.trim(),
+        license: values.license === CUSTOM_LICENSE ? "None" : values.license,
+        overwriteExisting: values.overwriteExisting,
+        enforceTargetPath: values.createTargetPath,
+        yearOfCreation: values.yearOfCreation.trim(),
+        mcpAccess: values.mcpAccess,
+        ...(folder === ROOT_FOLDER ? {} : { folder }),
+        ...(caption === "" ? {} : { caption }),
+        ...(values.color === "" ? {} : { color: values.color }),
+    };
+};
+
+/** The dialogs on a project read first, each a command of the Explorer's. */
+const PROJECT_DIALOGS = ["info", "release", "deploymentScript",
+    "deploy"] as const;
+
+type ProjectDialogKind = typeof PROJECT_DIALOGS[number];
+
+/** The dialogs the Explorer's MariaDB Schema Management commands open. */
+type ExplorerDialogKind = "create" | "edit" | ProjectDialogKind;
 
 /** The MSM Projects list's commands, beside the dialogs'. */
 export const MSM_LIST_COMMANDS = {
@@ -269,8 +343,66 @@ export const diagramNameProblem = (
         ? `The project has a diagram ${name} already.` : undefined;
 };
 
+/**
+ * New MSM Project from Schema, on a Connections view schema row: not one
+ * of the Explorer's, which are {@link MSM_COMMANDS}.
+ */
+export const MSM_IMPORT_COMMAND = "mariadb.msm.importLiveSchema";
+
+/** What New MSM Project from Schema's command is used on: a schema row. */
+interface ILiveSchemaRow {
+    kind: string;
+    uri: string;
+    schema: string;
+}
+
+/**
+ * @param counts How many of each thing, by what it is called, singular.
+ * @param none What it says where there are none at all.
+ *
+ * @returns "3 tables, 1 view", those with none left out.
+ */
+const countsDetail = (
+    counts: ReadonlyArray<readonly [number, string]>,
+    none: string,
+): string => {
+    const parts = counts.filter(([count]) => {
+        return count > 0;
+    }).map(([count, what]) => { return counted(count, what); });
+
+    return parts.length === 0 ? none : parts.join(", ");
+};
+
+/**
+ * @param live A schema, as msm lists it.
+ *
+ * @returns What an import can take of it: "3 tables, 1 view", or
+ *          "Nothing to import".
+ */
+export const liveSchemaDetail = (live: IMsmLiveSchema): string => {
+    return countsDetail([
+        [live.tables.length, "table"], [live.sequences.length, "sequence"],
+        [live.views.length, "view"], [live.procedures.length, "procedure"],
+        [live.functions.length, "function"], [live.triggers.length, "trigger"],
+        [live.events.length, "event"],
+    ], "Nothing to import");
+};
+
+/**
+ * @param result What an import ended with.
+ *
+ * @returns What it took: "3 tables, 2 routines", or "No objects".
+ */
+export const importDetail = (result: IMsmImportResult): string => {
+    return countsDetail([
+        [result.tables, "table"], [result.sequences, "sequence"],
+        [result.views, "view"], [result.routines, "routine"],
+        [result.triggers, "trigger"], [result.events, "event"],
+    ], "No objects");
+};
+
 /** The commands, by the dialog each opens. */
-export const MSM_COMMANDS: Record<MsmDialogKind, string> = {
+export const MSM_COMMANDS: Record<ExplorerDialogKind, string> = {
     create: "mariadb.msm.createProject",
     edit: "mariadb.msm.editProject",
     info: "mariadb.msm.showProjectInformation",
@@ -376,15 +508,11 @@ export class MsmCommands {
                     }
                 });
         };
-        const kinds: ProjectDialogKind[] = [
-            "info", "release", "deploymentScript", "deploy",
-        ];
-
         return [
             command(MSM_COMMANDS.create, (folder) => {
                 return this.createProject(folder);
             }, () => { return Promise.resolve(this.host.defaultFolder()); }),
-            ...kinds.map((kind) => {
+            ...PROJECT_DIALOGS.map((kind) => {
                 return command(MSM_COMMANDS[kind], (folder) => {
                     return this.open(kind, folder);
                 }, () => {
@@ -408,6 +536,17 @@ export class MsmCommands {
             command(MSM_LIST_COMMANDS.removeFromProjects, (folder) => {
                 return this.removeFromProjects(folder);
             }),
+            vscode.commands.registerCommand(MSM_IMPORT_COMMAND,
+                async (row?: ILiveSchemaRow) => {
+                    try {
+                        // Only on a schema row: nothing to pick it from.
+                        if (row?.kind === "schema") {
+                            await this.importLiveSchema(row.uri, row.schema);
+                        }
+                    } catch (error) {
+                        reportError(this.host.log, error);
+                    }
+                }),
             this.#viewCommand(MSM_LIST_COMMANDS.newProject, (folder) => {
                 return this.newProjectInView(folder);
             }),
@@ -768,6 +907,214 @@ export class MsmCommands {
     }
 
     /**
+     * Opens New MSM Project from Schema on a schema of a server: lists
+     * what msm can take of it, as an action of the connection's, then the
+     * wizard, the objects first.
+     *
+     * @param uri The connection.
+     * @param schema The schema.
+     * @param folder The folder the project is to be made in.
+     */
+    public async importLiveSchema(
+        uri: string,
+        schema: string,
+        folder = this.host.defaultFolder(),
+    ): Promise<void> {
+        const group = new ActionGroup(this.host.put, uri, {
+            doing: `Reading schema ${schema} for an MSM project`,
+            done: `Read schema ${schema} for an MSM project`,
+        });
+        // Read meanwhile: the wizard offers them.
+        const folders = this.#folders();
+        let live: IMsmLiveSchema;
+        try {
+            live = await group.run(() => {
+                return this.#inSession(group, uri, MSM_IMPORT_SESSION,
+                    (connectionId) => {
+                        return group.step({
+                            doing: "Listing the schema's objects",
+                            done: "Listed the schema's objects",
+                        }, msmCall("msm.list_live_schema_objects",
+                            msmToolArgs.listLiveSchemaObjects(connectionId,
+                                schema)),
+                        async () => {
+                            return (await this.host.msmApi())
+                                .listLiveSchemaObjects(connectionId, schema);
+                        }, { detail: liveSchemaDetail });
+                    });
+            }, liveSchemaDetail);
+        } catch (error) {
+            this.host.showActions(uri);
+            throw error;
+        }
+
+        MsmDialogPanel.show(this.host.extensionUri, {
+            kind: "import",
+            title: `${MSM_TITLES.import} - ${schema}`,
+            values: importDefaults(uri, live, folder),
+            liveSchema: live,
+            source: connectionLabel(uri),
+            licenses: MSM_LICENSES,
+            folders: await folders,
+        }, {
+            check: (values) => { return this.#checkCreate(values); },
+            submit: (values) => { return this.#import(uri, live, values); },
+            onFailed: () => { this.host.showActions(uri); },
+            log: this.host.log,
+        });
+    }
+
+    /**
+     * Starts the import, which closes the dialog once msm took it on - what
+     * would refuse it refuses the call, and stays in the dialog - then
+     * follows it as a task and, once done, opens the project as New MSM
+     * Project does.
+     *
+     * @param uri The connection the dialog was opened on.
+     * @param live The schema, as listed for the dialog.
+     * @param values What New MSM Project from Schema says.
+     */
+    async #import(
+        uri: string,
+        live: IMsmLiveSchema,
+        values: IMsmImportValues,
+    ): Promise<void> {
+        const objects = importedObjects(live, values.objects);
+        const title = `Import schema ${live.schema} into an MSM project`;
+        // The task's session, open until it ended: the task opens one of
+        // its own from it as it starts.
+        const session = ownSession(MSM_IMPORT_SESSION);
+        let call = msmCall("db.connect", { uri });
+        let started: ITaskStarted;
+        try {
+            const connectionId = await this.host.connect(uri, session);
+            const options: IMsmImportOptions = {
+                connectionId,
+                schema: live.schema,
+                ...newProjectOptions(values),
+                ...(objects === undefined ? {} : { objects }),
+            };
+            call = msmCall("msm.import_live_schema",
+                msmToolArgs.importLiveSchema(options));
+            started = await (await this.host.msmApi()).importLiveSchema(options);
+        } catch (error) {
+            await this.#closeSession(uri, session);
+            // No task to follow, so its row says so itself.
+            this.host.startFailed(uri, title, call, errorText(error));
+            throw error;
+        }
+        this.host.log(`Started ${title}.`);
+
+        // Followed from here on, not awaited: the dialog closes as soon as
+        // the work runs.
+        this.#afterwards(async () => {
+            let state: ITaskState;
+            try {
+                state = await this.host.followTask(started, {
+                    title, connection: uri, call,
+                });
+            } finally {
+                await this.#closeSession(uri, session);
+            }
+            if (state.status !== "completed") {
+                // The monitor told how it ended.
+                return;
+            }
+            const result = state.result as unknown as IMsmImportResult | null;
+            this.host.projectsChanged?.();
+            if (result === null || typeof result.project_path !== "string") {
+                throw new Error(`${title}: msm told no project folder.`);
+            }
+            const warnings = result.warnings ?? [];
+            this.host.log(`${title}: ${importDetail(result)}.`);
+            if (warnings.length > 0) {
+                const [first] = warnings;
+                const more = warnings.length - 1;
+                void vscode.window.showWarningMessage(`${title}: ${first}`
+                    + (more > 0 ? ` (and ${counted(more, "more warning")}, `
+                        + "in the task's log)" : ""));
+            }
+            await this.#openNewProject(result.project_path, values, "view");
+        });
+    }
+
+    /**
+     * Shows a project just made, once its dialog closed: gives it its
+     * custom license, as msm makes none with one, reads it back, opens its
+     * development script and shows it where it was asked for - the folder
+     * in the Explorer, or its row in the MSM Projects view. Not both, as
+     * showing the row switches the side bar to the view.
+     *
+     * @param projectPath The project folder.
+     * @param values What New MSM Project, or from Schema, said.
+     * @param from Where to show it.
+     */
+    async #openNewProject(
+        projectPath: string,
+        values: IMsmCreateValues,
+        from: "explorer" | "view",
+    ): Promise<void> {
+        if (values.license === CUSTOM_LICENSE) {
+            await this.#setCustomLicense(projectPath, values.customLicense);
+        }
+        const info = await this.#readBack(projectPath);
+        await this.#showFile(info.schemaDevelopmentFilePath);
+        if (from === "view") {
+            await this.host.revealProject?.(projectPath);
+        } else {
+            await this.#reveal(projectPath);
+        }
+    }
+
+    /**
+     * Runs work on a session of its own, numbered, as steps of an action:
+     * connecting first, the session closed after however the work went.
+     *
+     * @param group The action.
+     * @param uri The connection.
+     * @param prefix What the session is called, before its number.
+     * @param work The work, given the session's connection id.
+     *
+     * @returns What the work returned.
+     */
+    async #inSession<T>(
+        group: ActionGroup,
+        uri: string,
+        prefix: string,
+        work: (connectionId: string) => Promise<T>,
+    ): Promise<T> {
+        const server = connectionLabel(uri);
+        const session = ownSession(prefix);
+        const connectionId = await group.step({
+            doing: `Connecting to ${server}`,
+            done: `Connected to ${server}`,
+        }, msmCall("db.connect", { uri }), () => {
+            return this.host.connect(uri, session);
+        });
+
+        try {
+            return await work(connectionId);
+        } finally {
+            // Its work done, whichever way: nothing else uses it.
+            await this.#closeSession(uri, session);
+        }
+    }
+
+    /**
+     * Closes a session of the extension's, saying so in the log only where
+     * that fails: its work is done either way.
+     *
+     * @param uri The connection.
+     * @param session The session.
+     */
+    async #closeSession(uri: string, session: string): Promise<void> {
+        await this.host.disconnect(uri, session).catch((error: unknown) => {
+            this.host.log(`Closing ${session} on ${connectionLabel(uri)} `
+                + `failed: ${String(error)}`);
+        });
+    }
+
+    /**
      * Reads a project and opens a dialog on it.
      *
      * @param kind The dialog.
@@ -987,31 +1334,14 @@ export class MsmCommands {
         from: "explorer" | "view",
     ): Promise<void> {
         const schemaName = values.schemaName.trim();
-        const targetPath = values.targetPath.trim();
-        const copyrightHolder = values.copyrightHolder.trim();
         const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, {
             doing: `Creating MSM project for schema ${schemaName}`,
             done: `Created MSM project for schema ${schemaName}`,
         });
-        // Filed and shown in the MSM Projects list as it is made; only what
-        // differs from a new project's place there - the top level, no
-        // caption or color - is sent.
-        const folder = normalizeFolder(values.folder);
-        const caption = values.caption.trim();
-        // msm creates no project with a license text: it is made with
-        // none, then given the text.
-        const custom = values.license === CUSTOM_LICENSE;
         const options: IMsmCreateOptions = {
-            schemaName, targetPath, copyrightHolder,
-            license: custom ? "None" : values.license,
+            schemaName,
             allowSpecialChars: values.allowSpecialChars,
-            overwriteExisting: values.overwriteExisting,
-            enforceTargetPath: values.createTargetPath,
-            yearOfCreation: values.yearOfCreation.trim(),
-            mcpAccess: values.mcpAccess,
-            ...(folder === ROOT_FOLDER ? {} : { folder }),
-            ...(caption === "" ? {} : { caption }),
-            ...(values.color === "" ? {} : { color: values.color }),
+            ...newProjectOptions(values),
         };
         const projectPath = await group.run(() => {
             return group.step({
@@ -1027,18 +1357,8 @@ export class MsmCommands {
         // The project is made once the folder is: reading it back, to open
         // its development script, is not the creation failing - pressing
         // Create again would be refused, the folder being there.
-        this.#afterwards(async () => {
-            if (custom) {
-                await this.#setCustomLicense(projectPath,
-                    values.customLicense);
-            }
-            const info = await this.#readBack(projectPath);
-            await this.#showFile(info.schemaDevelopmentFilePath);
-            if (from === "view") {
-                await this.host.revealProject?.(projectPath);
-            } else {
-                await this.#reveal(projectPath);
-            }
+        this.#afterwards(() => {
+            return this.#openNewProject(projectPath, values, from);
         });
     }
 
@@ -1200,40 +1520,26 @@ export class MsmCommands {
             doing: `Deploying ${what}`,
             done: `Deployed ${what}`,
         });
-        deploys += 1;
-        const session = `${MSM_DEPLOY_SESSION} ${String(deploys)}`;
         try {
-            await group.run(async () => {
-                const connectionId = await group.step({
-                    doing: `Connecting to ${server}`,
-                    done: `Connected to ${server}`,
-                }, msmCall("db.connect", { uri: values.connection }), () => {
-                    return this.host.connect(values.connection, session);
-                });
-                const options: IMsmDeployOptions = {
-                    projectPath: project.projectPath, connectionId, version,
-                    backup: values.backup,
-                    ...(backupDirectory === undefined
-                        ? {} : { backupDirectory }),
-                };
+            await group.run(() => {
+                return this.#inSession(group, values.connection,
+                    MSM_DEPLOY_SESSION, (connectionId) => {
+                        const options: IMsmDeployOptions = {
+                            projectPath: project.projectPath, connectionId,
+                            version, backup: values.backup,
+                            ...(backupDirectory === undefined
+                                ? {} : { backupDirectory }),
+                        };
 
-                try {
-                    return await group.step({
-                        doing: `Deploying schema ${project.schemaName}`,
-                        done: `Deployed schema ${project.schemaName}`,
-                    }, msmCall("msm.deploy_schema",
-                        msmToolArgs.deploySchema(options)), async () => {
-                        return (await this.host.msmApi())
-                            .deploySchema(options);
-                    }, { detail: (said) => { return said; } });
-                } finally {
-                    // Its work done, whichever way: nothing else uses it.
-                    await this.host.disconnect(values.connection, session)
-                        .catch((error: unknown) => {
-                            this.host.log(`Closing ${session} on ${server} `
-                                + `failed: ${String(error)}`);
-                        });
-                }
+                        return group.step({
+                            doing: `Deploying schema ${project.schemaName}`,
+                            done: `Deployed schema ${project.schemaName}`,
+                        }, msmCall("msm.deploy_schema",
+                            msmToolArgs.deploySchema(options)), async () => {
+                            return (await this.host.msmApi())
+                                .deploySchema(options);
+                        }, { detail: (said) => { return said; } });
+                    });
             }, (said) => { return said; });
         } finally {
             // However it went: a script that failed partway may have made

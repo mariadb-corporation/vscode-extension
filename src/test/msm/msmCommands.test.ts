@@ -24,12 +24,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { GENERAL_ACTIONS } from "../../connections/connectionActivity.js";
 import type {
     IMsmApi,
+    IMsmImportResult,
     IMsmListedProject,
+    IMsmLiveSchema,
     IMsmProjectInfo,
 } from "../../mcp/msmApi.js";
+import type { ITaskState } from "../../mcp/taskApi.js";
 import {
     changedDetails,
     MSM_COMMANDS,
+    MSM_IMPORT_COMMAND,
     MSM_LIST_COMMANDS,
     MsmCommands,
     msmCall,
@@ -44,6 +48,7 @@ import {
     type IMsmCreateValues,
     type IMsmDeployValues,
     type IMsmEditValues,
+    type IMsmImportValues,
     type IMsmReleaseValues,
 } from "../../msm/msmFields.js";
 import type {
@@ -60,6 +65,7 @@ import {
     setWorkspaceFolders,
     shownDocuments,
     Uri,
+    warningMessages,
     webviewPanels,
     workspace,
     type MockWebviewPanel,
@@ -105,6 +111,10 @@ interface IRecorded {
     removedProjects: string[];
     /** The projects shown in the MSM Projects view. */
     revealedProjects: string[];
+    /** The tasks followed, by their title. */
+    followed: string[];
+    /** The tasks that did not start: `<connection> <title>: <error>`. */
+    startFailed: string[];
 }
 
 interface ISetUp {
@@ -122,7 +132,31 @@ interface ISetUp {
     info?: Partial<IMsmProjectInfo>;
     /** msm.project.json's onlineAlter, as msm.get_online_alter_settings has it. */
     online?: Record<string, unknown>;
+    /** How an import's task ends. */
+    imported?: Partial<ITaskState>;
 }
+
+/** A schema on a server, as msm.list_live_schema_objects lists it. */
+const LIVE: IMsmLiveSchema = {
+    schema: "sakila",
+    tables: [{ name: "actor", comment: "", triggers: ["actor_bi"] },
+        { name: "film", comment: "Films", triggers: [] }],
+    views: [{ name: "actor_info", comment: "" }],
+    procedures: [{ name: "rewards" }],
+    functions: [],
+    triggers: [{ name: "actor_bi", table: "actor" }],
+    events: [],
+    sequences: [],
+    schema_version: "1.0.0",
+    left_out: ["msm_schema_version"],
+};
+
+/** What an import's task ends with. */
+const IMPORTED: IMsmImportResult = {
+    project_path: "/work/sakila.msm.project", schema: "sakila", tables: 2,
+    sequences: 0, views: 1, routines: 1, triggers: 1, events: 0,
+    schema_version: "1.0.0", warnings: [], files: [],
+};
 
 /** msm's online ALTER TABLE defaults. */
 const ONLINE_ALTER_DEFAULTS = { maxRebuildBytes: 10 * 1024 ** 3,
@@ -134,7 +168,7 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         calls: [], rows: [], connected: [], sessions: [], disconnected: [],
         shownActions: [], refreshed: [],
         logs: [], revealed: [], projectsChanged: 0, revealedProjects: [],
-        removedProjects: [],
+        removedProjects: [], followed: [], startFailed: [],
     };
     const answer = <T>(name: keyof IMsmApi, value: T) => {
         return (...args: unknown[]): Promise<T> => {
@@ -186,6 +220,9 @@ const setUp = (options: ISetUp = {}): IRecorded => {
             rows: [], files: [], migration: [], notes: [],
         }),
         setDevelopmentVersion: answer("setDevelopmentVersion", undefined),
+        listLiveSchemaObjects: answer("listLiveSchemaObjects", LIVE),
+        importLiveSchema: answer("importLiveSchema",
+            { task_id: "t2", status: "pending" }),
         getObjectTemplates: answer("getObjectTemplates",
             { templates: {}, placeholders: {} } as never),
         addSchemaObject: answer("addSchemaObject", { rows: [], files: [],
@@ -235,6 +272,17 @@ const setUp = (options: ISetUp = {}): IRecorded => {
             recorded.revealedProjects.push(path);
 
             return Promise.resolve();
+        },
+        followTask: (started, followed) => {
+            recorded.followed.push(followed.title);
+
+            return Promise.resolve({
+                task_id: started.task_id, status: "completed",
+                result: IMPORTED, ...options.imported,
+            } as ITaskState);
+        },
+        startFailed: (connection, title, _call, error) => {
+            recorded.startFailed.push(`${connection} ${title}: ${error}`);
         },
         log: (message) => { recorded.logs.push(message); },
     }).register();
@@ -660,6 +708,8 @@ describe("New MSM Project", () => {
             put: () => { /* nothing */ },
             showActions: () => { /* nothing */ },
             refresh: () => { /* nothing */ },
+            followTask: () => { return Promise.reject(new Error("no task")); },
+            startFailed: () => { /* nothing */ },
             log: () => { /* nothing */ },
         }).register();
         await run(MSM_COMMANDS.create, folder(work));
@@ -1483,4 +1533,203 @@ describe("the MSM Projects list", () => {
         expect(changedDetails({ ...values, folder: "Shop/Prod/" }))
             .toMatchObject({ folder: "/Shop/Prod" });
     });
+});
+
+describe("New MSM Project from Schema", () => {
+    beforeEach(() => { resetVscodeMock(); });
+
+    const row = { kind: "schema", uri: SERVER, schema: "sakila" };
+
+    it("lists the schema's objects on a session of its own, then opens the "
+        + "wizard on them", async () => {
+        const recorded = setUp();
+        await run(MSM_IMPORT_COMMAND, row);
+        const load = await loaded();
+
+        expect(recorded.calls[0]).toEqual({ name: "listLiveSchemaObjects",
+            args: [`id-of-${SERVER}`, "sakila"] });
+        expect(recorded.sessions).toEqual([
+            expect.stringMatching(/ MSM Import \d+$/u)]);
+        // Closed once listed: the dialog may stay open a long while.
+        expect(recorded.disconnected).toEqual(recorded.sessions);
+        const action = lastAction(recorded);
+        expect(action.connection).toBe(SERVER);
+        expect(action.row.message).toBe("Read schema sakila for an MSM "
+            + "project");
+        expect(load.kind).toBe("import");
+        expect(load.liveSchema).toEqual(LIVE);
+        expect(load.source).toBe("root@127.0.0.1:3310");
+        expect(load.values).toMatchObject({
+            schemaName: "sakila", targetPath: "/home/me", connection: SERVER,
+            allowSpecialChars: true,
+            objects: { tables: ["actor", "film"], views: ["actor_info"],
+                procedures: ["rewards"], functions: [], events: [],
+                sequences: [] },
+        });
+    });
+
+    it("does nothing without a schema row", async () => {
+        const recorded = setUp();
+        await run(MSM_IMPORT_COMMAND);
+
+        expect(recorded.calls).toEqual([]);
+        expect(webviewPanels).toEqual([]);
+    });
+
+    it("says why the schema cannot be listed, and opens no wizard",
+        async () => {
+            const recorded = setUp({ fail: ["listLiveSchemaObjects",
+                "The server has no schema `sakila`."] });
+            await run(MSM_IMPORT_COMMAND, row);
+
+            expect(webviewPanels).toEqual([]);
+            expect(errorMessages.join()).toMatch(/no schema `sakila`/u);
+            expect(recorded.shownActions).toEqual([SERVER]);
+            expect(recorded.disconnected).toEqual(recorded.sessions);
+        });
+
+    it("imports everything with no selection sent, follows the task, then "
+        + "opens the project", async () => {
+        const recorded = setUp();
+        await run(MSM_IMPORT_COMMAND, row);
+        const load = await loaded();
+
+        await receive({ type: "submit", values: {
+            ...(load.values as IMsmImportValues), targetPath: "/work",
+            copyrightHolder: " Ada ", license: "MIT", folder: "/Shop",
+        } });
+
+        expect(recorded.calls.map((call) => { return call.name; }))
+            .toEqual(["listLiveSchemaObjects", "importLiveSchema",
+                "projectInformation"]);
+        expect(recorded.calls[1].args).toEqual([{
+            connectionId: `id-of-${SERVER}`, schema: "sakila",
+            targetPath: "/work", copyrightHolder: "Ada", license: "MIT",
+            overwriteExisting: false, enforceTargetPath: false,
+            yearOfCreation: (load.values as IMsmImportValues).yearOfCreation,
+            mcpAccess: false,
+            folder: "/Shop",
+        }]);
+        expect(panel().disposed).toBe(true);
+        expect(recorded.followed).toEqual(
+            ["Import schema sakila into an MSM project"]);
+        // The task's own session, closed once it ended.
+        expect(recorded.sessions).toHaveLength(2);
+        expect(recorded.sessions[1]).not.toBe(recorded.sessions[0]);
+        expect(recorded.disconnected).toEqual(recorded.sessions);
+        expect(recorded.projectsChanged).toBe(1);
+        expect(shownDocuments.map((document) => {
+            return document.uri.fsPath;
+        })).toEqual([`${PROJECT}/development/sakila_next.sql`]);
+        expect(recorded.revealedProjects).toEqual([PROJECT]);
+        expect(warningMessages).toEqual([]);
+    });
+
+    it("sends the objects ticked, every kind, never triggers", async () => {
+        const recorded = setUp();
+        await run(MSM_IMPORT_COMMAND, row);
+        const load = await loaded();
+        const values = load.values as IMsmImportValues;
+
+        await receive({ type: "submit", values: {
+            ...values, targetPath: "/work", copyrightHolder: "Ada",
+            objects: { ...values.objects, tables: ["film"] },
+        } });
+
+        expect(recorded.calls[1].args[0]).toMatchObject({ objects: {
+            tables: ["film"], views: ["actor_info"], procedures: ["rewards"],
+            functions: [], events: [], sequences: [],
+        } });
+        expect(Object.keys((recorded.calls[1].args[0] as {
+            objects: object; }).objects)).not.toContain("triggers");
+    });
+
+    it("keeps the wizard open on msm's refusal, the task not started",
+        async () => {
+            const recorded = setUp({ fail: ["importLiveSchema",
+                "A trigger needs its table."] });
+            await run(MSM_IMPORT_COMMAND, row);
+            const load = await loaded();
+
+            await receive({ type: "submit", values: {
+                ...(load.values as IMsmImportValues), targetPath: "/work",
+                copyrightHolder: "Ada",
+            } });
+
+            expect(panel().disposed).toBe(false);
+            expect(errorsPosted().join()).toMatch(/needs its table/u);
+            expect(recorded.followed).toEqual([]);
+            expect(recorded.startFailed).toEqual([`${SERVER} Import schema `
+                + "sakila into an MSM project: A trigger needs its table."]);
+            expect(recorded.disconnected).toEqual(recorded.sessions);
+        });
+
+    it("refuses an existing project folder before calling msm", async () => {
+        const recorded = setUp({ existing: ["/work", PROJECT] });
+        await run(MSM_IMPORT_COMMAND, row);
+        const load = await loaded();
+
+        await receive({ type: "submit", values: {
+            ...(load.values as IMsmImportValues), targetPath: "/work",
+            copyrightHolder: "Ada",
+        } });
+
+        expect(recorded.calls.map((call) => { return call.name; }))
+            .toEqual(["listLiveSchemaObjects"]);
+        expect(posted()).toContainEqual(expect.objectContaining({
+            type: "error", field: "schemaName" }));
+    });
+
+    it("tells what was left out once imported", async () => {
+        setUp({ imported: { result: { ...IMPORTED, warnings: [
+            "The foreign key `fk` of `film` refers to `actor`, which is not "
+                + "imported; it was left out.", "Another."] } } });
+        await run(MSM_IMPORT_COMMAND, row);
+        const load = await loaded();
+
+        await receive({ type: "submit", values: {
+            ...(load.values as IMsmImportValues), targetPath: "/work",
+            copyrightHolder: "Ada",
+        } });
+
+        expect(warningMessages).toEqual(["Import schema sakila into an MSM "
+            + "project: The foreign key `fk` of `film` refers to `actor`, "
+            + "which is not imported; it was left out. (and 1 more warning, "
+            + "in the task's log)"]);
+    });
+
+    it("opens nothing where the task failed or was cancelled", async () => {
+        const recorded = setUp({ imported: { status: "cancelled",
+            result: null } });
+        await run(MSM_IMPORT_COMMAND, row);
+        const load = await loaded();
+
+        await receive({ type: "submit", values: {
+            ...(load.values as IMsmImportValues), targetPath: "/work",
+            copyrightHolder: "Ada",
+        } });
+
+        expect(recorded.followed).toHaveLength(1);
+        expect(recorded.projectsChanged).toBe(0);
+        expect(shownDocuments).toEqual([]);
+    });
+
+    it("gives a custom license after the import, msm taking none",
+        async () => {
+            const recorded = setUp();
+            await run(MSM_IMPORT_COMMAND, row);
+            const load = await loaded();
+
+            await receive({ type: "submit", values: {
+                ...(load.values as IMsmImportValues), targetPath: "/work",
+                copyrightHolder: "Ada", license: "CUSTOM",
+                customLicense: "-- Ours.",
+            } });
+
+            expect(recorded.calls[1].args[0]).toMatchObject(
+                { license: "None" });
+            expect(recorded.calls.map((call) => { return call.name; }))
+                .toEqual(["listLiveSchemaObjects", "importLiveSchema",
+                    "setProjectSettings", "projectInformation"]);
+        });
 });

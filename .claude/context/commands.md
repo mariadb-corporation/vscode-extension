@@ -54,6 +54,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.showTaskLog` | Show Log | A task's click and context menu: that task's own log file |
 | `mariadb.showTaskOutput` / `clearFinishedTasks` | Show Task Output / Clear Finished Tasks | The Tasks view's title bar; Show Task Output (every task's messages, in one channel) also on a task's menu |
 | `mariadb.msm.createProject` | New MSM Project... | MariaDB Schema Management submenu of an Explorer folder not named `*.msm.project`; the palette (the first workspace folder). Opens the dialog (see [msm.md](msm.md)) |
+| `mariadb.msm.importLiveSchema` | New MSM Project from Schema... | A Connections view schema row (not the palette). Lists the schema's objects, opens the wizard on them, runs the import as a task (see [msm.md](msm.md)) |
 | `mariadb.msm.addTable` ... `addSequence` | Add Table... / View... / Procedure... / Function... / Trigger... / Event... / Sequence... | An MSM project's object group row, inline `$(add)` and its menu. A table opens the table editor on a new table; the others are named and added from a template through msm (see [msm.md](msm.md)) |
 | `mariadb.msm.editObjectTemplate`, `resetObjectTemplate` | Edit Template... / Reset Template to msm's Default | The object group rows but Tables. The kind's template, the user's copy in the extension's storage |
 | `mariadb.msm.showProjectInformation` | Show MSM Project Information... | MariaDB Schema Management submenu of a `*.msm.project` folder; the palette asks for the folder |
