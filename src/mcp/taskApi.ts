@@ -40,8 +40,11 @@ export type UtilTaskKind =
 /** What a `dba` task does with a cloud vendor's object. */
 export type DbaTaskKind = "deploy_object" | "delete_object";
 
-/** What an `msm` task does: an ALTER TABLE of a live table, run online. */
-export type MsmTaskKind = "online_alter_table";
+/**
+ * What an `msm` task does: an ALTER TABLE of a live table, run online, or
+ * a project made from a live schema.
+ */
+export type MsmTaskKind = "online_alter_table" | "import_live_schema";
 
 export type TaskKind = UtilTaskKind | DbaTaskKind | MsmTaskKind;
 

@@ -28,6 +28,9 @@ import {
     deploymentScriptDefaults,
     deploymentScriptProblem,
     deployProblem,
+    importDefaults,
+    importedObjects,
+    importProblem,
     isProjectFolder,
     msmProblem,
     nextPatchVersion,
@@ -36,6 +39,7 @@ import {
     releaseDefaults,
     releaseProblem,
     storedCopyrights,
+    tickedObjects,
     type IMsmCopyrightValues,
     type IMsmCreateValues,
     type IMsmProjectContext,
@@ -405,4 +409,53 @@ describe("msmProblem", () => {
         expect(msmProblem("release", undefined, releaseDefaults(PROJECT))
             ?.message).toMatch(/could not be read/u);
     });
+});
+
+describe("New MSM Project from Schema's fields", () => {
+    const LIVE = {
+        schema: "shop",
+        tables: [{ name: "b", comment: "", triggers: ["b_ai"] },
+            { name: "a", comment: "", triggers: [] }],
+        views: [{ name: "v", comment: "" }],
+        procedures: [{ name: "p" }], functions: [], events: [],
+        triggers: [{ name: "b_ai", table: "b" }],
+        sequences: [{ name: "s" }],
+        schema_version: null, left_out: [],
+    };
+
+    it("starts with every object ticked, under the schema's own name", () => {
+        const values = importDefaults("mariadb://x", LIVE, "/work");
+
+        expect(values).toMatchObject({ schemaName: "shop", targetPath: "/work",
+            connection: "mariadb://x", allowSpecialChars: true });
+        expect(values.objects).toEqual({ tables: ["b", "a"], sequences: ["s"],
+            views: ["v"], procedures: ["p"], functions: [], events: [] });
+        expect(importedObjects(LIVE, values.objects)).toBeUndefined();
+    });
+
+    it("ticks in the listing's order, and sends every kind once one is not "
+        + "all ticked", () => {
+        const { objects } = importDefaults("mariadb://x", LIVE, "/work");
+        const none = tickedObjects(LIVE, objects, "tables", ["a", "b"], false);
+        const again = tickedObjects(LIVE, none, "tables", ["a", "b"], true);
+
+        expect(none.tables).toEqual([]);
+        expect(again.tables).toEqual(["b", "a"]);
+        expect(importedObjects(LIVE, none)).toEqual({ tables: [],
+            sequences: ["s"], views: ["v"], procedures: ["p"], functions: [],
+            events: [] });
+    });
+
+    it("refuses an import of nothing, then checks as New MSM Project does",
+        () => {
+            const values = importDefaults("mariadb://x", LIVE, "/work");
+            const empty = Object.fromEntries(Object.keys(values.objects).map(
+                (kind) => { return [kind, []]; })) as unknown as typeof values.objects;
+
+            expect(importProblem({ ...values, objects: empty })?.field)
+                .toBe("objects");
+            expect(importProblem(values)?.field).toBe("copyrightHolder");
+            expect(msmProblem("import", undefined, { ...values,
+                copyrightHolder: "Ada" })).toBeUndefined();
+        });
 });

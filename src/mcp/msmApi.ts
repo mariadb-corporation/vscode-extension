@@ -92,6 +92,89 @@ export interface IMsmCreateOptions {
 }
 
 /**
+ * The kinds an import is told which to take of: not triggers, which come
+ * with their table.
+ */
+export const IMPORTED_KINDS = ["tables", "sequences", "views", "procedures",
+    "functions", "events"] as const;
+
+export type ImportedKind = typeof IMPORTED_KINDS[number];
+
+/** An object of a live schema, as the listing has it. */
+export interface IMsmLiveObject {
+    name: string;
+    /** A table's or a view's. */
+    comment?: string;
+    /** A table's, which come with it. */
+    triggers?: string[];
+}
+
+/**
+ * A schema on a server, as `msm.list_live_schema_objects` lists what
+ * `msm.import_live_schema` can take of it; each list sorted by name.
+ */
+export interface IMsmLiveSchema {
+    schema: string;
+    tables: Array<{ name: string; comment: string; triggers: string[] }>;
+    views: Array<{ name: string; comment: string }>;
+    procedures: Array<{ name: string }>;
+    functions: Array<{ name: string }>;
+    triggers: Array<{ name: string; table: string }>;
+    events: Array<{ name: string }>;
+    sequences: Array<{ name: string }>;
+    /** The version msm deployed of it, "1.0.0", or null for none. */
+    schema_version: string | null;
+    /** msm's own objects (its version view, `msm_*` routines), never taken. */
+    left_out: string[];
+}
+
+/**
+ * @param live A schema, as msm lists it.
+ * @param kind A kind an import is told about.
+ *
+ * @returns Its objects of that kind.
+ */
+export const liveObjectsOf = (
+    live: IMsmLiveSchema,
+    kind: ImportedKind,
+): readonly IMsmLiveObject[] => {
+    return live[kind];
+};
+
+/** The names of each kind to import. The tables bring their triggers. */
+export type MsmLiveObjects = Record<ImportedKind, string[]>;
+
+/** What `msm.import_live_schema` is told: a new project's, and the source. */
+export interface IMsmImportOptions extends Omit<IMsmCreateOptions,
+    "schemaName" | "allowSpecialChars"> {
+    /** The session `db.connect` opened. */
+    connectionId: string;
+    /** The schema on the server; the project gets its name. */
+    schema: string;
+    /** Left out, every object, those made meanwhile too. */
+    objects?: MsmLiveObjects;
+}
+
+/** What an `import_live_schema` task ends with. */
+export interface IMsmImportResult {
+    project_path: string;
+    schema: string;
+    tables: number;
+    sequences: number;
+    views: number;
+    routines: number;
+    triggers: number;
+    events: number;
+    schema_version: string | null;
+    /**
+     * What was left out, and why: a foreign key, an unreadable view; none
+     * where it is not there.
+     */
+    warnings?: string[];
+    files: string[];
+}
+
+/**
  * A project of the MSM Projects list, as `msm.list_projects` reports it.
  * The list is the server's, kept in the msm plugin's data folder.
  */
@@ -299,6 +382,9 @@ export interface IMsmApi {
     onlineAlterDefaults(): Promise<Required<IOnlineAlterOptions>>;
     onlineAlterTable(connectionId: string, schema: string, table: string,
         spec: string, options: IOnlineAlterOptions): Promise<ITaskStarted>;
+    listLiveSchemaObjects(connectionId: string,
+        schema: string): Promise<IMsmLiveSchema>;
+    importLiveSchema(options: IMsmImportOptions): Promise<ITaskStarted>;
     layoutSchemaDiagram(projectPath: string,
         name: string): Promise<IMsmDiagramLayout>;
     renameSchemaDiagram(projectPath: string, name: string,
@@ -394,6 +480,29 @@ const detailArgs = (
 };
 
 /**
+ * @param options A new project's, of msm.create_project or
+ *                msm.import_live_schema.
+ *
+ * @returns The arguments both tools take for it, by the server's names.
+ */
+const newProjectArgs = (
+    options: Omit<IMsmCreateOptions, "schemaName" | "allowSpecialChars">,
+): Record<string, unknown> => {
+    return {
+        target_path: options.targetPath,
+        copyright_holder: options.copyrightHolder,
+        license: options.license,
+        overwrite_existing: options.overwriteExisting,
+        enforce_target_path: options.enforceTargetPath,
+        year_of_creation: options.yearOfCreation,
+        mcp_access: options.mcpAccess,
+        folder: options.folder,
+        caption: options.caption,
+        color: options.color,
+    };
+};
+
+/**
  * The arguments each `msm.*` tool is called with, by the server's names:
  * what `MsmApi` sends, and what the Actions tab shows a call with.
  */
@@ -404,17 +513,8 @@ export const msmToolArgs = {
     createProject: (options: IMsmCreateOptions): Record<string, unknown> => {
         return given({
             schema_name: options.schemaName,
-            target_path: options.targetPath,
-            copyright_holder: options.copyrightHolder,
-            license: options.license,
-            overwrite_existing: options.overwriteExisting,
             allow_special_chars: options.allowSpecialChars,
-            enforce_target_path: options.enforceTargetPath,
-            year_of_creation: options.yearOfCreation,
-            mcp_access: options.mcpAccess,
-            folder: options.folder,
-            caption: options.caption,
-            color: options.color,
+            ...newProjectArgs(options),
         });
     },
     addProject: (
@@ -515,6 +615,20 @@ export const msmToolArgs = {
         options: IOnlineAlterOptions,
     ): Record<string, unknown> => {
         return { connection_id: connectionId, schema, table, spec, options };
+    },
+    listLiveSchemaObjects: (
+        connectionId: string,
+        schema: string,
+    ): Record<string, unknown> => {
+        return { connection_id: connectionId, schema };
+    },
+    importLiveSchema: (options: IMsmImportOptions): Record<string, unknown> => {
+        return given({
+            connection_id: options.connectionId,
+            schema: options.schema,
+            objects: options.objects,
+            ...newProjectArgs(options),
+        });
     },
     layoutSchemaDiagram: (
         projectPath: string,
@@ -908,6 +1022,43 @@ export class MsmApi implements IMsmApi {
         return decodeObject<ITaskStarted>(tool, await this.caller.callTool(
             tool, msmToolArgs.onlineAlterTable(connectionId, schema, table,
                 spec, options)));
+    }
+
+    /**
+     * Lists what of a schema on a server an import can take.
+     *
+     * @param connectionId The connection's session.
+     * @param schema The schema.
+     *
+     * @returns Its objects by kind, and msm's own, which are left out.
+     */
+    public async listLiveSchemaObjects(
+        connectionId: string,
+        schema: string,
+    ): Promise<IMsmLiveSchema> {
+        const tool = "msm.list_live_schema_objects";
+
+        return decodeObject<IMsmLiveSchema>(tool, await this.caller.callTool(
+            tool, msmToolArgs.listLiveSchemaObjects(connectionId, schema)));
+    }
+
+    /**
+     * Starts making a project from a schema on a server, as a task (type
+     * `msm`, kind `import_live_schema`) that the `task.*` tools follow.
+     * What would refuse it (the folder, the license, the selection) refuses
+     * this call, before a task starts.
+     *
+     * @param options The source and the new project.
+     *
+     * @returns The task to follow; it ends with an {@link IMsmImportResult}.
+     */
+    public async importLiveSchema(
+        options: IMsmImportOptions,
+    ): Promise<ITaskStarted> {
+        const tool = "msm.import_live_schema";
+
+        return decodeObject<ITaskStarted>(tool, await this.caller.callTool(
+            tool, msmToolArgs.importLiveSchema(options)));
     }
 
     /**

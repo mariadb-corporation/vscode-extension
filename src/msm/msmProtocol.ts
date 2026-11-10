@@ -20,6 +20,7 @@ import type {
     ICancelMessage,
     IReadyMessage,
 } from "../webview/dialogProtocol.js";
+import type { IMsmLiveSchema } from "../mcp/msmApi.js";
 import type {
     IMsmConnectionChoice,
     IMsmOnlineAlterContext,
@@ -49,6 +50,10 @@ export interface IMsmLoadMessage {
     onlineAlter?: IMsmOnlineAlterContext;
     /** Why the tab has no values: an msm without the setting's tools. */
     onlineAlterProblem?: string;
+    /** New MSM Project from Schema: the schema's objects, as msm lists them. */
+    liveSchema?: IMsmLiveSchema;
+    /** New MSM Project from Schema: the server, as its row names it. */
+    source?: string;
 }
 
 /** A folder picked with Browse, for the field it was picked for. */

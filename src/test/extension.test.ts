@@ -390,6 +390,7 @@ describe("activate", () => {
             "mariadb.msm.diagramClicked",
             "mariadb.msm.editProject",
             "mariadb.msm.generateDeploymentScript",
+            "mariadb.msm.importLiveSchema",
             "mariadb.msm.layoutSchemaDiagram",
             "mariadb.msm.newProjectFolder",
             "mariadb.msm.newProjectInView",

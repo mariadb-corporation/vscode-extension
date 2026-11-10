@@ -54,6 +54,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.showTaskLog` | Show Log | A task's click and context menu: that task's own log file |
 | `mariadb.showTaskOutput` / `clearFinishedTasks` | Show Task Output / Clear Finished Tasks | The Tasks view's title bar; Show Task Output (every task's messages, in one channel) also on a task's menu |
 | `mariadb.msm.createProject` | New MSM Project... | MariaDB Schema Management submenu of an Explorer folder not named `*.msm.project`; the palette (the first workspace folder). Opens the dialog (see [msm.md](msm.md)) |
+| `mariadb.msm.importLiveSchema` | New MSM Project from Schema... | A Connections view schema row (not the palette). Lists the schema's objects, opens the wizard on them, runs the import as a task (see [msm.md](msm.md)) |
 | `mariadb.msm.showProjectInformation` | Show MSM Project Information... | MariaDB Schema Management submenu of a `*.msm.project` folder; the palette asks for the folder |
 | `mariadb.msm.prepareRelease` | Prepare MSM Release... | As above |
 | `mariadb.msm.generateDeploymentScript` | Generate MSM Deployment Script... | As above |

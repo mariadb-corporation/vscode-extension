@@ -28,11 +28,13 @@ import {
     deployDefaults,
     deploymentScriptDefaults,
     editDefaults,
+    importDefaults,
     LIST_DEFAULTS,
     releaseDefaults,
     type IMsmConnectionChoice,
     type IMsmProjectContext,
 } from "../../src/msm/msmFields.js";
+import type { IMsmLiveSchema } from "../../src/mcp/msmApi.js";
 import { textsOf } from "../../src/tableEditor/onlineAlter.js";
 import type {
     IMsmLoadMessage,
@@ -845,5 +847,113 @@ describe("Edit MSM Project", () => {
         expect(currentPage()).toBe("Project");
         expect(input("developmentVersion").getAttribute("aria-invalid"))
             .toBe("true");
+    });
+});
+
+describe("MsmDialog, New MSM Project from Schema", () => {
+    beforeEach(() => {
+        host = document.createElement("div");
+        document.body.append(host);
+        posted.length = 0;
+    });
+
+    afterEach(() => {
+        render(null, host);
+        host.remove();
+    });
+
+    const LIVE: IMsmLiveSchema = {
+        schema: "sakila",
+        tables: [{ name: "actor", comment: "", triggers: ["actor_bi"] },
+            { name: "film", comment: "Films", triggers: [] }],
+        views: [{ name: "actor_info", comment: "" }],
+        procedures: [], functions: [],
+        triggers: [{ name: "actor_bi", table: "actor" }],
+        events: [], sequences: [],
+        schema_version: "1.0.0",
+        left_out: ["msm_schema_version"],
+    };
+
+    const openImport = (): Promise<void> => {
+        return open({
+            kind: "import", title: "New MSM Project from Schema - sakila",
+            values: importDefaults("mariadb://root@a:3306", LIVE, "/work"),
+            licenses: ["None", "MIT"], liveSchema: LIVE,
+            source: "root@a:3306",
+        });
+    };
+
+    const object = (kind: string, name: string): HTMLInputElement => {
+        return host.querySelector(
+            `input[name='objects.${kind}'][value='${name}']`)!;
+    };
+
+    const tick = async (element: HTMLInputElement, on: boolean,
+    ): Promise<void> => {
+        await act(async () => {
+            element.checked = on;
+            element.dispatchEvent(new Event("change", { bubbles: true }));
+            await Promise.resolve();
+        });
+    };
+
+    it("starts on the schema's objects, every one ticked, the kinds it has "
+        + "only", async () => {
+        await openImport();
+
+        expect(currentPage()).toBe("Schema Objects");
+        expect([...host.querySelectorAll("legend")].map((legend) => {
+            return legend.textContent;
+        })).toEqual(["Tables (2)", "Views (1)"]);
+        expect(object("tables", "actor").checked).toBe(true);
+        expect(object("views", "actor_info").checked).toBe(true);
+        // Triggers are named with their table, not ticked of their own.
+        expect(host.textContent).toContain("Triggers, with the table: "
+            + "actor_bi");
+        expect(host.querySelector("input[name='objects.triggers']")).toBeNull();
+        expect(host.textContent).toContain("deployed by msm at version 1.0.0");
+        expect(host.textContent).toContain("msm_schema_version");
+    });
+
+    it("ticks a kind as a whole, and refuses an import of nothing",
+        async () => {
+            await openImport();
+            await tick(input("objects.tables.all"), false);
+            expect(object("tables", "actor").checked).toBe(false);
+            expect(object("tables", "film").checked).toBe(false);
+            await tick(object("views", "actor_info"), false);
+
+            await click("Next");
+            expect(currentPage()).toBe("Schema Objects");
+            expect(host.textContent).toContain("Tick the objects to import.");
+
+            await tick(object("tables", "film"), true);
+            expect(input("objects.tables.all").checked).toBe(false);
+            // Some of the kind ticked: neither ticked nor not.
+            expect(input("objects.tables.all").indeterminate).toBe(true);
+            await click("Next");
+            expect(currentPage()).toBe("Project");
+        });
+
+    it("shows the schema's name, which it cannot change, and sends the "
+        + "objects ticked", async () => {
+        await openImport();
+        await tick(object("tables", "actor"), false);
+        await click("Next");
+
+        expect(input("schemaName").value).toBe("sakila");
+        expect(input("schemaName").disabled).toBe(true);
+        expect(input("allowSpecialChars")).toBeNull();
+        await change("copyrightHolder", "Ada");
+        await toLastPage();
+        await click("Create Project");
+
+        expect(submitted()).toEqual([{ type: "submit", values:
+            expect.objectContaining({
+                schemaName: "sakila", copyrightHolder: "Ada",
+                objects: { tables: ["film"], sequences: [],
+                    views: ["actor_info"], procedures: [], functions: [],
+                    events: [] },
+            }) }]);
     });
 });

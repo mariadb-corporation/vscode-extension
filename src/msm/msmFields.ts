@@ -20,7 +20,14 @@ import {
     isConnectionColor,
 } from "../connections/connectionDetails.js";
 import type { ConnectionColor } from "../mcp/types.js";
-import type { IMsmCopyright } from "../mcp/msmApi.js";
+import {
+    IMPORTED_KINDS,
+    liveObjectsOf,
+    type IMsmCopyright,
+    type IMsmLiveSchema,
+    type ImportedKind,
+    type MsmLiveObjects,
+} from "../mcp/msmApi.js";
 import {
     type IOnlineAlterEntry,
     type IOnlineAlterOptions,
@@ -46,6 +53,7 @@ import { compareVersions, newestFirst } from "../versionOrder.js";
 /** The dialogs, by what they do. */
 export type MsmDialogKind =
     | "create"
+    | "import"
     | "edit"
     | "info"
     | "release"
@@ -127,6 +135,17 @@ export interface IMsmCreateValues extends IMsmListValues {
     createTargetPath: boolean;
 }
 
+/**
+ * What New MSM Project from Schema asks for: a new project's values, the
+ * schema name being the live schema's, and the objects to take of it.
+ */
+export interface IMsmImportValues extends IMsmCreateValues {
+    /** The connection the schema is on. */
+    connection: string;
+    /** The names ticked, by kind; a table's triggers come with it. */
+    objects: MsmLiveObjects;
+}
+
 /** What Edit MSM Project asks for. */
 export interface IMsmEditValues extends IMsmListValues {
     developmentVersion: string;
@@ -184,6 +203,7 @@ export interface IMsmDeployValues {
 /** The values of each dialog, by its kind. */
 export interface IMsmValuesOf {
     create: IMsmCreateValues;
+    import: IMsmImportValues;
     edit: IMsmEditValues;
     info: Record<string, never>;
     release: IMsmReleaseValues;
@@ -203,6 +223,7 @@ export interface IMsmProblem {
 /** What the dialogs are called, as their tab titles and headers. */
 export const MSM_TITLES: Record<MsmDialogKind, string> = {
     create: "New MSM Project",
+    import: "New MSM Project from Schema",
     edit: "Edit MSM Project",
     info: "MSM Project Information",
     release: "Prepare Release",
@@ -635,6 +656,148 @@ export const createProblem = (
     return listProblem(values);
 };
 
+// --- New MSM Project from Schema --------------------------------------
+
+/**
+ * @param live The schema, as msm lists it.
+ * @param kind A kind an import is told about.
+ *
+ * @returns The names of its objects of that kind, in the listing's order.
+ */
+export const liveNamesOf = (
+    live: IMsmLiveSchema,
+    kind: ImportedKind,
+): string[] => {
+    return liveObjectsOf(live, kind).map((item) => { return item.name; });
+};
+
+/**
+ * @param live The schema, as msm lists it.
+ *
+ * @returns Every object an import can be told to take of it, by kind.
+ */
+export const liveObjectNames = (
+    live: IMsmLiveSchema,
+): MsmLiveObjects => {
+    return Object.fromEntries(IMPORTED_KINDS.map((kind) => {
+        return [kind, liveNamesOf(live, kind)];
+    })) as MsmLiveObjects;
+};
+
+/**
+ * @param live The schema, as msm lists it.
+ * @param objects The names ticked.
+ * @param kind A kind.
+ *
+ * @returns Whether every object of that kind is ticked: the ticked are
+ *          always some of the listing's, once each.
+ */
+export const allTicked = (
+    live: IMsmLiveSchema,
+    objects: MsmLiveObjects,
+    kind: ImportedKind,
+): boolean => {
+    return objects[kind].length === live[kind].length;
+};
+
+/**
+ * @param connection The connection the schema is on.
+ * @param live The schema, as msm lists it.
+ * @param folder The folder the project is created in.
+ * @param list How the new project is filed in the MSM Projects list.
+ *
+ * @returns What New MSM Project from Schema starts with: every object
+ *          ticked, and the schema's own name, which msm takes as it is.
+ */
+export const importDefaults = (
+    connection: string,
+    live: IMsmLiveSchema,
+    folder: string,
+    list: Partial<IMsmListValues> = {},
+): IMsmImportValues => {
+    return {
+        ...createDefaults(folder, live.schema, list),
+        allowSpecialChars: true,
+        connection,
+        objects: liveObjectNames(live),
+    };
+};
+
+/**
+ * @param live The schema, as msm lists it.
+ * @param objects The names ticked.
+ * @param kind The kind of the one ticked or unticked, or of all of a kind.
+ * @param names Their names.
+ * @param on Ticked, or not.
+ *
+ * @returns The names ticked then, in the listing's order.
+ */
+export const tickedObjects = (
+    live: IMsmLiveSchema,
+    objects: MsmLiveObjects,
+    kind: ImportedKind,
+    names: readonly string[],
+    on: boolean,
+): MsmLiveObjects => {
+    const set = new Set(objects[kind]);
+    for (const name of names) {
+        if (on) {
+            set.add(name);
+        } else {
+            set.delete(name);
+        }
+    }
+
+    return {
+        ...objects,
+        [kind]: liveNamesOf(live, kind).filter((name) => {
+            return set.has(name);
+        }),
+    };
+};
+
+/**
+ * @param live The schema, as msm lists it.
+ * @param objects The names ticked.
+ *
+ * @returns What `msm.import_live_schema` is sent: nothing where every
+ *          object is ticked, so msm takes them all, those made meanwhile
+ *          too; else every kind, one with none ticked as an empty list.
+ *          Never triggers: the tables bring theirs.
+ */
+export const importedObjects = (
+    live: IMsmLiveSchema,
+    objects: MsmLiveObjects,
+): MsmLiveObjects | undefined => {
+    const everything = IMPORTED_KINDS.every((kind) => {
+        return allTicked(live, objects, kind);
+    });
+
+    return everything ? undefined : { ...objects };
+};
+
+/**
+ * @param values What New MSM Project from Schema says.
+ *
+ * @returns The first problem, or undefined where it can be imported.
+ */
+export const importProblem = (
+    values: IMsmImportValues,
+): IMsmProblem | undefined => {
+    const none = IMPORTED_KINDS.every((kind) => {
+        return values.objects[kind].length === 0;
+    });
+    if (none) {
+        return {
+            field: "objects",
+            message: "Tick the objects to import. For an empty project, use "
+                + "New MSM Project.",
+        };
+    }
+
+    return createProblem(values);
+};
+
 // --- Edit MSM Project --------------------------------------------------
 
 /**
@@ -917,6 +1080,9 @@ export const msmProblem = (
 ): IMsmProblem | undefined => {
     if (kind === "create") {
         return createProblem(values as IMsmCreateValues);
+    }
+    if (kind === "import") {
+        return importProblem(values as IMsmImportValues);
     }
     if (kind === "info") {
         return undefined;
