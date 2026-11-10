@@ -39,7 +39,9 @@ import {
     releaseDefaults,
     releaseProblem,
     storedCopyrights,
+    readsNote,
     tickedObjects,
+    tickedSets,
     unticked,
     type IMsmCopyrightValues,
     type IMsmCreateValues,
@@ -467,15 +469,30 @@ describe("New MSM Project from Schema's fields", () => {
             { kind: "tables" as const, name: "a" },
             { kind: "tables" as const, name: "b" }] };
         const some = tickedObjects(LIVE, objects, "tables", ["a"], false);
+        const missing = (ticked: typeof objects, object: typeof view
+            | { name: string; reads?: null }) => {
+            return unticked(tickedSets(ticked), "views", object);
+        };
 
-        expect(unticked(objects, view)).toEqual([
+        expect(missing(objects, view)).toEqual([
             { kind: "functions", name: "f" }]);
-        expect(unticked(some, view)).toEqual([
+        expect(missing(some, view)).toEqual([
             { kind: "functions", name: "f" }, { kind: "tables", name: "a" }]);
         // Not ticked itself, or reads not known: nothing to say.
-        expect(unticked(tickedObjects(LIVE, some, "views", ["v"], false),
+        expect(missing(tickedObjects(LIVE, some, "views", ["v"], false),
             view)).toEqual([]);
-        expect(unticked(some, { ...view, reads: null })).toEqual([]);
-        expect(unticked(some, { name: "v" })).toEqual([]);
+        expect(missing(some, { ...view, reads: null })).toEqual([]);
+        expect(missing(some, { name: "v" })).toEqual([]);
     });
+
+    it("says what is missing in a note", () => {
+        expect(readsNote([{ kind: "tables", name: "film" }])).toBe("Reads the "
+            + "table film, not ticked: the project will not deploy the view "
+            + "without it.");
+        expect(readsNote([{ kind: "functions", name: "f" },
+            { kind: "sequences", name: "s" }, { kind: "views", name: "v" }]))
+            .toBe("Reads the function f, the sequence s and the view v, not "
+            + "ticked: the project will not deploy the view without them.");
+    });
+
 });

@@ -32,6 +32,8 @@ import {
     liveNamesOf,
     projectFolderName,
     tickedObjects,
+    readsNote,
+    tickedSets,
     unticked,
     type IMsmCreateValues,
     type IMsmDeployValues,
@@ -46,7 +48,6 @@ import {
     IMPORTED_KINDS,
     liveObjectsOf,
     type ImportedKind,
-    type IMsmViewRead,
 } from "../../src/mcp/msmApi.js";
 import type {
     IMsmLoadMessage,
@@ -619,6 +620,8 @@ export const MsmDialog = (): preact.JSX.Element => {
                 </label>
             );
         };
+        // Built once, for every row to look up.
+        const sets = tickedSets(ticked);
         const kinds = IMPORTED_KINDS.filter((objectKind) => {
             return live[objectKind].length > 0;
         });
@@ -634,7 +637,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                     <p class="note">The schema has no objects to import.</p>
                 ) : kinds.map((objectKind) => {
                     const objects = liveObjectsOf(live, objectKind);
-                    const on = new Set(ticked[objectKind]);
+                    const on = sets[objectKind];
                     const name = `objects.${objectKind}`;
 
                     return (
@@ -655,8 +658,8 @@ export const MsmDialog = (): preact.JSX.Element => {
                             <ul>
                                 {objects.map((object) => {
                                     const triggers = object.triggers ?? [];
-                                    const missing = objectKind === "views"
-                                        ? unticked(ticked, object) : [];
+                                    const missing = unticked(sets,
+                                        objectKind, object);
 
                                     return (
                                         <li key={object.name}>
@@ -1278,32 +1281,4 @@ const KIND_CAPTIONS: Record<ImportedKind, string> = {
     procedures: "Procedures",
     functions: "Functions",
     events: "Events",
-};
-
-/** A kind's objects as a note names one: singular. */
-const KIND_NOUNS: Record<ImportedKind, string> = {
-    tables: "table",
-    sequences: "sequence",
-    views: "view",
-    procedures: "procedure",
-    functions: "function",
-    events: "event",
-};
-
-/**
- * @param missing What a ticked view reads that is not ticked.
- *
- * @returns The note under the view: "Reads the table film and the
- *          function twice, not ticked: the project will not deploy the
- *          view without them."
- */
-const readsNote = (missing: readonly IMsmViewRead[]): string => {
-    const named = missing.map((read) => {
-        return `the ${KIND_NOUNS[read.kind]} ${read.name}`;
-    });
-    const list = named.length === 1 ? named[0]
-        : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
-
-    return `Reads ${list}, not ticked: the project will not deploy the view `
-        + `without ${missing.length === 1 ? "it" : "them"}.`;
 };

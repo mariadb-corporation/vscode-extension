@@ -143,14 +143,13 @@
     padding: 2px 0;
 }
 
-.msm-triggers {
+.msm-triggers,
+.msm-reads {
     display: block;
     margin-left: 24px;
 }
 
 /* A ticked view whose sources are not all ticked. */
 .msm-reads {
-    display: block;
-    margin-left: 24px;
     color: var(--vscode-editorWarning-foreground);
 }

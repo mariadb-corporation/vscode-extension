@@ -760,24 +760,58 @@ export const tickedObjects = (
 
 /**
  * @param objects The names ticked.
- * @param view A view of the schema, as msm lists it.
  *
- * @returns What of the schema the view reads that is not ticked, in the
+ * @returns Them as a set per kind, to look each up at once.
+ */
+export const tickedSets = (
+    objects: MsmLiveObjects,
+): Record<ImportedKind, ReadonlySet<string>> => {
+    return Object.fromEntries(IMPORTED_KINDS.map((kind) => {
+        return [kind, new Set(objects[kind]) as ReadonlySet<string>];
+    })) as Record<ImportedKind, ReadonlySet<string>>;
+};
+
+/**
+ * @param ticked The names ticked, as {@link tickedSets} gives them.
+ * @param kind The object's kind.
+ * @param object An object of the schema, as msm lists it.
+ *
+ * @returns What of the schema it reads that is not ticked, in the
  *          listing's order (kind, then name): the project would not deploy
- *          the view without it. Nothing for a view not ticked itself, or
- *          whose reads msm could not tell.
+ *          it without that. Nothing for an object not ticked itself, or
+ *          whose reads msm could not tell (only views have any).
  */
 export const unticked = (
-    objects: MsmLiveObjects,
-    view: IMsmLiveObject,
+    ticked: Record<ImportedKind, ReadonlySet<string>>,
+    kind: ImportedKind,
+    object: IMsmLiveObject,
 ): IMsmViewRead[] => {
-    if (!objects.views.includes(view.name)) {
+    if (!ticked[kind].has(object.name)) {
         return [];
     }
 
-    return (view.reads ?? []).filter((read) => {
-        return !objects[read.kind].includes(read.name);
+    return (object.reads ?? []).filter((read) => {
+        return !ticked[read.kind].has(read.name);
     });
+};
+
+/**
+ * @param missing What a ticked view reads that is not ticked.
+ *
+ * @returns The note under the view: "Reads the table film and the
+ *          function twice, not ticked: the project will not deploy the
+ *          view without them."
+ */
+export const readsNote = (missing: readonly IMsmViewRead[]): string => {
+    // Each kind's key is its noun's plural.
+    const named = missing.map((read) => {
+        return `the ${read.kind.slice(0, -1)} ${read.name}`;
+    });
+    const list = named.length === 1 ? named[0]
+        : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
+
+    return `Reads ${list}, not ticked: the project will not deploy the view `
+        + `without ${missing.length === 1 ? "it" : "them"}.`;
 };
 
 /**
