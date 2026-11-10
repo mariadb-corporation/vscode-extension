@@ -34,6 +34,10 @@ import { applyKeybindings } from "./editor/keybindings.js";
 import type { ITaskApi } from "./mcp/taskApi.js";
 import type { IUtilApi } from "./mcp/utilApi.js";
 import { TaskActionLog } from "./util/taskActions.js";
+import {
+    ObjectTemplates,
+    SchemaObjectCommands,
+} from "./msm/schemaObjects.js";
 import { TaskLogs } from "./util/taskLogs.js";
 import { TaskMonitor } from "./util/taskMonitor.js";
 import {
@@ -1272,6 +1276,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
             return new ProjectTableSource(target.schema, target.table, {
                 snapshot: () => { return msmProjects.snapshot(projectPath); },
+                makeSnapshot: async () => {
+                    await projectDiagrams(projectPath).updateSnapshot();
+                    msmProjects.refreshProject(projectPath);
+                },
                 edit: async (edits, baseHash) => {
                     return (await projectDiagrams(projectPath)
                         .edit(edits, baseHash)).notes;
@@ -1386,6 +1394,31 @@ export const activate = (context: vscode.ExtensionContext): void => {
             reportError(log, error, "open the table editor");
         });
     };
+    // Add Table... and the other kinds' Add on a project's group rows.
+    context.subscriptions.push(...new SchemaObjectCommands({
+        msmApi,
+        snapshot: async (projectPath) => {
+            const kept = await msmProjects.snapshot(projectPath);
+            if (kept !== undefined) {
+                return kept;
+            }
+            // A new project: msm makes its first snapshot.
+            await projectDiagrams(projectPath).updateSnapshot();
+            msmProjects.refreshProject(projectPath);
+
+            return await msmProjects.snapshot(projectPath);
+        },
+        addObject: (projectPath, object, baseHash) => {
+            return projectDiagrams(projectPath).addObject(object, baseHash);
+        },
+        newTable: (projectPath, schema) => {
+            editTable({ kind: "project", projectPath, schema, table: "" });
+        },
+        snapshotUpdated,
+        templates: new ObjectTemplates(path.join(
+            context.globalStorageUri.fsPath, "msm-object-templates")),
+        log,
+    }).register());
     modelerHost.editTable = (target, table) => {
         editTable(target.kind === "project"
             ? { kind: "project", projectPath: target.projectPath,

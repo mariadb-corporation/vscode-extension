@@ -942,3 +942,57 @@ export const tableEdits = (
 
     return edits;
 };
+
+// ---------------------------------------------------------------------------
+// A new table.
+
+/**
+ * @returns A new table's first column, as Enter in its name or comment
+ *          adds it: `id`, a UUID the server makes, the primary key.
+ */
+export const firstColumn = (): IDraftColumn => {
+    return { key: newRowKey("c"), name: "id", type: "uuid", nullable: false,
+        default: "UUID()", primary: true };
+};
+
+/**
+ * @param edited A new table as edited.
+ *
+ * @returns The edits that create it: `add_table` with its columns and
+ *          primary key, then what the edits of a table so made add to it
+ *          (indexes, foreign keys, the comment, triggers). None until it
+ *          has a name and a column.
+ */
+export const newTableEdits = (edited: ITableDraft): IMsmSchemaEdit[] => {
+    const draft = withoutDropped(edited);
+    const name = draft.name.trim();
+    if (name === "" || draft.columns.length === 0) {
+        return [];
+    }
+    const primary = draft.columns.filter((column) => {
+        return column.primary;
+    }).map((column) => { return column.name.trim(); });
+    const indexes = primary.length === 0 ? []
+        : [{ name: null, kind: "primary", columns: primary }];
+    const columns: IOutlineColumn[] = draft.columns.map((column) => {
+        const { key: _key, origin: _origin, primary: _primary,
+            dropped: _dropped, ...outline } = column;
+
+        return outline;
+    });
+    const created: IOutlineTable = { name, columns, indexes };
+
+    return [
+        { op: "add_table", table: { name,
+            columns: draft.columns.map((column) => {
+                return columnMembers(column);
+            }), indexes } },
+        // The rest as edits of the table just made, its columns as read.
+        ...tableEdits(created, [], {
+            ...draft,
+            columns: draft.columns.map((column, origin) => {
+                return { ...column, origin };
+            }),
+        }),
+    ];
+};

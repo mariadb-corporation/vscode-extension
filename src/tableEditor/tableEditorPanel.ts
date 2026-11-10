@@ -49,6 +49,17 @@ export interface ITableEditorHost {
     viewData?(target: TableEditorTarget): void;
 }
 
+/**
+ * @param before What a table was called before a Save; "" for a new one.
+ * @param now What it is called after it.
+ *
+ * @returns What the Save renamed it from: nothing where it kept its name,
+ *          or made the table.
+ */
+const renamedFrom = (before: string, now: string): string | undefined => {
+    return before === now || before === "" ? undefined : before;
+};
+
 /** One table's editor. */
 export class TableEditorPanel {
     static readonly #open = new Map<string, TableEditorPanel>();
@@ -68,7 +79,8 @@ export class TableEditorPanel {
         this.#panel = panel;
         this.#target = target;
         panel.webview.html = buildWebviewHtml(panel.webview,
-            host.extensionUri, "tableEditor", `Edit Table ${target.table}`);
+            host.extensionUri, "tableEditor", target.table === ""
+                ? "New Table" : `Edit Table ${target.table}`);
         panel.webview.onDidReceiveMessage((message: TableEditorWebviewMessage) => {
             void this.#onMessage(message);
         }, undefined, this.#disposables);
@@ -161,7 +173,8 @@ export class TableEditorPanel {
      * @returns Its editor's tab title.
      */
     static #title(target: TableEditorTarget): string {
-        return `${target.table} (${target.schema})`;
+        return `${target.table === "" ? "New Table" : target.table} `
+            + `(${target.schema})`;
     }
 
     #post(message: TableEditorHostMessage): void {
@@ -226,8 +239,8 @@ export class TableEditorPanel {
             this.#renamed();
             // Settings alone change nothing the trees or diagrams show.
             if (edits.length > 0) {
-                this.host.changed(this.#target,
-                    before === this.#target.table ? undefined : before);
+                this.host.changed(this.#target, renamedFrom(before,
+                    this.#target.table));
             }
             await this.#load();
             this.#post({ type: "applied", notes: applied.notes });
@@ -242,8 +255,8 @@ export class TableEditorPanel {
                 // under its new name where the rename ran.
                 const before = this.#target.table;
                 this.#renamed();
-                this.host.changed(this.#target,
-                    before === this.#target.table ? undefined : before);
+                this.host.changed(this.#target, renamedFrom(before,
+                    this.#target.table));
                 await this.#load();
             }
             this.#post({ type: "applyFailed", message: errorText(error), done });

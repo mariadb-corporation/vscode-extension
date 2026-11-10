@@ -355,3 +355,60 @@ describe("ProjectTableSource, online ALTER TABLE", () => {
         expect(alone).not.toBeInstanceOf(PartlyAppliedError);
     });
 });
+
+describe("ProjectTableSource, a new table", () => {
+    const definition = { schema: "shop", source_hash: "sha256:x",
+        tables: [{ name: "customers", columns: [{ name: "id",
+            type: "uuid" }] }] } as unknown as ISchemaDefinition;
+
+    const newSetUp = (withSnapshot = true) => {
+        const calls: unknown[][] = [];
+        let made = withSnapshot ? definition : undefined;
+        const source = new ProjectTableSource("shop", "", {
+            snapshot: () => { return Promise.resolve(made); },
+            makeSnapshot: () => {
+                calls.push(["makeSnapshot"]);
+                made = definition;
+
+                return Promise.resolve();
+            },
+            edit: (edits) => {
+                calls.push(["edit", edits.map((edit) => { return edit.op; })]);
+
+                return Promise.resolve([]);
+            },
+            scriptFile: () => { return Promise.resolve(undefined); },
+            lsp: fakeLsp([]).lsp,
+        });
+
+        return { source, calls };
+    };
+
+    it("reads as an empty table with the schema's tables, for its keys",
+        async () => {
+            const { source } = newSetUp();
+            const data = await source.read();
+
+            expect(data).toMatchObject({ live: false, isNew: true,
+                table: { name: "", columns: [] }, triggers: [], ddl: "",
+                tables: { customers: ["id"] } });
+            expect(data.onlineAlter).toBeUndefined();
+        });
+
+    it("has msm make the first snapshot of a project that has none",
+        async () => {
+            const { source, calls } = newSetUp(false);
+            await source.read();
+
+            expect(calls).toEqual([["makeSnapshot"]]);
+        });
+
+    it("is the table it made after its Save", async () => {
+        const { source, calls } = newSetUp();
+        await source.apply([{ op: "add_table", table: { name: "orders",
+            columns: [] } }, { op: "set_table_options", table: "orders" }]);
+
+        expect(calls).toEqual([["edit", ["add_table", "set_table_options"]]]);
+        expect(source.table).toBe("orders");
+    });
+});

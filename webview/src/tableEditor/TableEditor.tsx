@@ -32,6 +32,8 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { COLUMN_TYPES } from "../../../src/sql/columnTypes.js";
 import {
     draftOf,
+    firstColumn,
+    newTableEdits,
     draftProblems,
     INDEX_KINDS,
     joinType,
@@ -244,9 +246,17 @@ export const TableEditor = (): preact.JSX.Element => {
         return () => { window.removeEventListener("message", onMessage); };
     }, []);
 
+    // A new table starts on its name, for it to be typed at once.
+    useEffect(() => {
+        if (data?.isNew === true) {
+            document.getElementById("table-name")?.focus();
+        }
+    }, [data]);
+
     const edits = useMemo(() => {
         return data === undefined || draft === undefined ? []
-            : tableEdits(data.table, data.triggers, draft);
+            : data.isNew === true ? newTableEdits(draft)
+                : tableEdits(data.table, data.triggers, draft);
     }, [data, draft]);
     const alter = useMemo(() => {
         return alterTexts === undefined ? undefined : readTexts(alterTexts);
@@ -363,6 +373,53 @@ export const TableEditor = (): preact.JSX.Element => {
     const columnNames = draft.columns.filter((column) => {
         return column.dropped !== true;
     }).map((column) => { return column.name; });
+
+    /**
+     * Enter or Down in the table's name or comment: on to the first
+     * column's name; a table with none gets its first column, `id`, the
+     * primary key.
+     */
+    const toColumns = (first: boolean): void => {
+        const column = visibleColumns.find((candidate) => {
+            return candidate.dropped !== true;
+        });
+        if (column !== undefined) {
+            setTab("Columns");
+            setColumnFocus({ key: column.key, field: "name" });
+        } else if (first) {
+            const id = firstColumn();
+            setOutcome(undefined);
+            setDraft((now) => {
+                return now === undefined ? now
+                    : { ...now, columns: [...now.columns, id] };
+            });
+            setSearch("");
+            setTab("Columns");
+            setColumnFocus({ key: id.key, field: "name" });
+        } else {
+            addColumn();
+        }
+    };
+
+    /**
+     * @param event A key in the table's name or comment.
+     *
+     * @returns Whether it went on to the columns: Enter, or Down.
+     */
+    const headerKey = (event: KeyboardEvent): boolean => {
+        const plain = !event.altKey && !event.ctrlKey && !event.metaKey
+            && !event.shiftKey;
+        if (!plain || (event.key !== "Enter" && event.key !== "ArrowDown")) {
+            return false;
+        }
+        event.preventDefault();
+        // The value typed is the draft's before the focus moves.
+        event.currentTarget?.dispatchEvent(new Event("change",
+            { bubbles: true }));
+        toColumns(event.key === "Enter");
+
+        return true;
+    };
 
     const addColumn = (): void => {
         const column: IDraftColumn = { key: newRowKey("c"), name: "",
@@ -854,36 +911,18 @@ export const TableEditor = (): preact.JSX.Element => {
                 <label class="field-label" for="table-name">Table</label>
                 <input id="table-name" class="text-field table-name"
                     value={draft.name} spellcheck={false}
+                    placeholder="Enter table name…"
                     onChange={(event) => {
                         change({ name: event.currentTarget.value });
                     }}
-                    onKeyDown={(event) => {
-                        // Down: to the first column's name, a new one
-                        // where there is none.
-                        if (event.key !== "ArrowDown" || event.altKey
-                            || event.ctrlKey || event.metaKey
-                            || event.shiftKey) {
-                            return;
-                        }
-                        event.preventDefault();
-                        event.currentTarget.dispatchEvent(new Event("change",
-                            { bubbles: true }));
-                        const first = visibleColumns.find((column) => {
-                            return column.dropped !== true;
-                        });
-                        if (first === undefined) {
-                            addColumn();
-                        } else {
-                            setTab("Columns");
-                            setColumnFocus({ key: first.key, field: "name" });
-                        }
-                    }} />
+                    onKeyDown={headerKey} />
                 <label class="field-label" for="table-comment">Comment</label>
                 <input id="table-comment" class="text-field table-comment"
                     value={draft.comment} placeholder="Enter table comment…"
                     onChange={(event) => {
                         change({ comment: event.currentTarget.value });
-                    }} />
+                    }}
+                    onKeyDown={headerKey} />
             </div>
             <div class="toolbar">
                 <nav class="tabs" role="tablist">
