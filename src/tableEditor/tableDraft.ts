@@ -978,7 +978,8 @@ export const newTableEdits = (edited: ITableDraft): IMsmSchemaEdit[] => {
         const { key: _key, origin: _origin, primary: _primary,
             dropped: _dropped, ...outline } = column;
 
-        return outline;
+        // As add_table names it: the key and the edits after compare by it.
+        return { ...outline, name: column.name.trim() };
     });
     const created: IOutlineTable = { name, columns, indexes };
 

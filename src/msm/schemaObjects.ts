@@ -139,7 +139,10 @@ export class ObjectTemplates {
      */
     public async read(kind: MsmObjectKind): Promise<string | undefined> {
         try {
-            return await readFile(this.fileOf(kind), "utf8");
+            const text = await readFile(this.fileOf(kind), "utf8");
+
+            // One emptied is no template: msm's is taken.
+            return text.trim() === "" ? undefined : text;
         } catch {
             return undefined;
         }
@@ -334,11 +337,14 @@ export class SchemaObjectCommands {
             this.#defaults = undefined;
             throw error;
         });
-        const file = await this.host.templates.ensure(type,
-            defaults.templates[type]);
+        const start = defaults.templates[type] as string | undefined;
+        if (start === undefined) {
+            throw new Error(`msm has no template of a ${type}.`);
+        }
+        const file = await this.host.templates.ensure(type, start);
         await vscode.window.showTextDocument(vscode.Uri.file(file),
             { preview: false });
-        const placeholders = defaults.placeholders[type]
+        const placeholders = (defaults.placeholders[type] ?? [])
             .map((name) => { return `\${${name}}`; }).join(", ");
         void vscode.window.showInformationMessage(`The template every new `
             + `${type} starts from; saving it keeps it. msm fills in `

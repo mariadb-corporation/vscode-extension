@@ -231,12 +231,13 @@ export class TableEditorPanel {
         this.#post({ type: "busy", busy: true });
         try {
             const applied = await this.source.apply(edits, onlineAlter);
+            const before = this.#target.table;
+            // Under the name the Save left it, a new table's included.
+            this.#renamed();
             this.host.log(`Changed the table ${this.#target.schema}.`
                 + `${this.#target.table}: ${edits.length} edit(s)`
                 + (onlineAlter === undefined ? "."
                     : ", and its online ALTER TABLE settings."));
-            const before = this.#target.table;
-            this.#renamed();
             // Settings alone change nothing the trees or diagrams show.
             if (edits.length > 0) {
                 this.host.changed(this.#target, renamedFrom(before,
@@ -248,8 +249,9 @@ export class TableEditorPanel {
             const partly = error instanceof PartlyAppliedError
                 ? error : undefined;
             const done = partly?.done ?? [];
-            this.host.log(`Could not change the table ${this.#target.table}: `
-                + errorText(error));
+            this.host.log(`Could not ${this.#target.table === ""
+                ? "create the new table" : `change the table ${
+                    this.#target.table}`}: ${errorText(error)}`);
             if (partly?.changed === true) {
                 // What ran stays run: the table is read again as it is,
                 // under its new name where the rename ran.
