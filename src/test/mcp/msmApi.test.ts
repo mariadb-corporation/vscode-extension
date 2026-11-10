@@ -529,6 +529,8 @@ describe("MsmApi", () => {
                     setting: { enabled: true }, table: "orders",
                     enabled: true, options: defaults }),
                 "msm.set_online_alter_table": structured(["/p/msm.project.json"]),
+                "msm.set_online_alter_defaults": structured(
+                    ["/p/msm.project.json"]),
                 "msm.get_online_alter_defaults": structured(defaults),
                 "msm.online_alter_table": structured({ task_id: "t1",
                     status: "pending" }),
@@ -539,6 +541,10 @@ describe("MsmApi", () => {
                 .defaults).toEqual(defaults);
             expect(await api.setOnlineAlterTable(PROJECT, "orders", null))
                 .toEqual(["/p/msm.project.json"]);
+            expect((await api.getOnlineAlterSettings(PROJECT)).setting)
+                .toEqual({ enabled: true });
+            expect(await api.setOnlineAlterDefaults(PROJECT,
+                { lockWait: 9 })).toEqual(["/p/msm.project.json"]);
             expect(await api.onlineAlterDefaults()).toEqual(defaults);
             expect(await api.onlineAlterTable("c1", "shop", "orders",
                 "ADD COLUMN `q` INT", { lockWait: 9 }))
@@ -550,6 +556,10 @@ describe("MsmApi", () => {
                     schema_project_path: PROJECT }],
                 ["msm.set_online_alter_table", { table: "orders",
                     settings: null, schema_project_path: PROJECT }],
+                ["msm.get_online_alter_settings",
+                    { schema_project_path: PROJECT }],
+                ["msm.set_online_alter_defaults", {
+                    settings: { lockWait: 9 }, schema_project_path: PROJECT }],
                 ["msm.get_online_alter_defaults", {}],
                 ["msm.online_alter_table", { connection_id: "c1",
                     schema: "shop", table: "orders",

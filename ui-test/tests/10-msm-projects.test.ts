@@ -103,8 +103,18 @@ const waitForDescription = async (
 const toolbar = async (label: string): Promise<void> => {
     const section = await view();
     const action = await waitFor(async () => {
-        return await new SideBarView().getTitlePart().getAction(label)
-            ?? await section.getAction(label);
+        // Matched among the buttons there are: the title part's
+        // getAction(label) never answers undefined, but a button made from
+        // the label, which a click then fails to find where the view shares
+        // its container (with Object Details) and has its own header.
+        for (const button of await new SideBarView().getTitlePart()
+            .getActions()) {
+            if (await button.getTitle() === label) {
+                return button;
+            }
+        }
+
+        return await section.getAction(label);
     }, `the toolbar button ${label}`);
     await action!.click();
 };
@@ -147,15 +157,17 @@ describe("MSM Projects view", () => {
         await inDialog("New MSM Project", async (dialog) => {
             // Named by the file dialog.
             assert.equal(await fieldValue(dialog, "schemaName"), SCHEMA);
+            await setField(dialog, "copyrightHolder", "UI Test");
+            await clickButton(dialog, "Next");
             assert.equal(await fieldValue(dialog, "targetPath"),
                 join(WORKSPACE, FOLDER));
-            await setField(dialog, "copyrightHolder", "UI Test");
+            await clickButton(dialog, "Next");
             await setField(dialog, "caption", CAPTION);
             await setField(dialog, "folder", "/Shop");
             // Kept from LLMs unless ticked.
             assert.match(await dialogText(dialog), /Allow MCP Access/u);
             await screenshot("10-new-msm-project-in-view");
-            await submitDialog(dialog, "Create", SERVER_TIMEOUT,
+            await submitDialog(dialog, "Create Project", SERVER_TIMEOUT,
                 "Creating the project...");
         });
 
@@ -218,8 +230,9 @@ describe("MSM Projects view", () => {
         await inDialog(title, async (dialog) => {
             assert.equal(await fieldValue(dialog, "developmentVersion"),
                 "0.0.1");
-            assert.equal(await fieldValue(dialog, "folder"), "/Shop");
             await setField(dialog, "developmentVersion", "0.1.0");
+            await clickButton(dialog, "MSM Projects View");
+            assert.equal(await fieldValue(dialog, "folder"), "/Shop");
             await setField(dialog, "folder", "/");
             await setChecked(dialog, "mcpAccess", true);
             await screenshot("10-edit-msm-project");

@@ -59,8 +59,24 @@
     overflow-wrap: anywhere;
 }
 
-/* --- the MSM Projects view's settings of New and Edit MSM Project -------- */
+/* --- New MSM Project's wizard ------------------------------------------ */
 
-.msm-list .grid {
+/* A step already done, which goes back to its page. */
+.wizard-step {
     padding: 0;
+    border: none;
+    background: none;
+    color: var(--vscode-textLink-foreground);
+    font: inherit;
+    cursor: pointer;
+}
+
+.wizard-step:hover {
+    text-decoration: underline;
+}
+
+.wizard-step:disabled {
+    color: inherit;
+    cursor: default;
+    text-decoration: none;
 }

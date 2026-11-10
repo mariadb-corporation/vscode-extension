@@ -81,6 +81,7 @@ const FOLDER_ENTRIES = ["New MSM Project..."];
 /** The submenu's entries on a project folder. */
 const PROJECT_ENTRIES = [
     "Show MSM Project Information...",
+    "Open Schema Diagram...",
     "Prepare MSM Release...",
     "Generate MSM Deployment Script...",
     "Deploy MSM Schema...",
@@ -98,7 +99,7 @@ const waitForEditor = async (title: string): Promise<void> => {
     }, `the editor ${title}`, SERVER_TIMEOUT);
 };
 
-/** Fills New MSM Project for the suite's project. */
+/** Fills the first page of New MSM Project for the suite's project. */
 const fillCreate = async (view: Parameters<Parameters<
     typeof inDialog>[1]>[0]): Promise<void> => {
     await setField(view, "schemaName", SCHEMA);
@@ -126,14 +127,16 @@ describe("MariaDB Schema Management", () => {
         await openExplorerDialog([FOLDER], [SUBMENU, "New MSM Project..."],
             "New MSM Project");
         await inDialog("New MSM Project", async (view) => {
-            // It starts in the folder right-clicked.
-            assert.equal(await fieldValue(view, "targetPath"),
-                join(WORKSPACE, FOLDER));
             await fillCreate(view);
             assert.match(await dialogText(view),
                 /The project folder is msm_shop\.msm\.project\./u);
             await screenshot("09-new-msm-project");
-            await submitDialog(view, "Create", SERVER_TIMEOUT,
+            await clickButton(view, "Next");
+            // It starts in the folder right-clicked.
+            assert.equal(await fieldValue(view, "targetPath"),
+                join(WORKSPACE, FOLDER));
+            await clickButton(view, "Next");
+            await submitDialog(view, "Create Project", SERVER_TIMEOUT,
                 "Creating the project...");
         });
 
@@ -159,7 +162,9 @@ describe("MariaDB Schema Management", () => {
             "New MSM Project");
         await inDialog("New MSM Project", async (view) => {
             await fillCreate(view);
-            await clickButton(view, "Create");
+            await clickButton(view, "Next");
+            await clickButton(view, "Next");
+            await clickButton(view, "Create Project");
             await waitFor(async () => {
                 return (await dialogText(view)).includes(
                     "exists in this folder already");

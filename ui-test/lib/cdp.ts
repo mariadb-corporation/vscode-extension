@@ -15,7 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import type { WebElement } from "vscode-extension-tester";
+import { By, type WebElement } from "vscode-extension-tester";
 
 import { driver, sleep } from "./ui.js";
 
@@ -25,7 +25,7 @@ import { driver, sleep } from "./ui.js";
  * none, so a drag from a tree row is made here as a user's is: the mouse
  * pressed and moved on the row starts the workbench's own drag, which
  * Chromium hands back (`Input.setInterceptDrags`) with the data VS Code
- * put on it, and which is then moved and dropped where it should go
+ * put on it, and which is then moved where it should go and dropped
  * (`Input.dispatchDragEvent`), with the modifiers a user would hold.
  */
 
@@ -170,12 +170,12 @@ export const middleOf = async (
 };
 
 /**
- * Drags an element of the workbench to a point, as a user does with the
- * mouse, holding Shift over the target as VS Code asks for a drop into a
- * webview.
+ * Drags an element of the workbench over a point, as a user does with the
+ * mouse, holding Shift over the target as VS Code asks for a drag into a
+ * webview, and drops it on the title bar (see below for why not there).
  *
  * @param from The element dragged: a tree row.
- * @param to Where it is dropped, in the page's CSS pixels.
+ * @param to The point dragged over, in the page's CSS pixels.
 
  * @returns The data VS Code put on the drag.
  */
@@ -217,8 +217,22 @@ export const shiftDrag = async (
             await drag("dragOver", to.x - 40 + step * 5, to.y - 20 + step * 2.5);
             await sleep(50);
         }
-        await drag("drop", to.x, to.y);
-        await mouse("mouseReleased", to.x, to.y, 0, SHIFT);
+        // Dropped outside the webview, on the title bar. A drop over the
+        // webview never ends the drag Chromium handed over: Electron
+        // refuses it, and from then on no input at all - mouse or keys,
+        // WebDriver's or the DevTools protocol's - reaches the workbench,
+        // so every test after a drag failed. The diagram does not need the
+        // drop: it learns of the drag from the tree, and places the table
+        // where the pointer next moves over it.
+        const out = await middleOf(await driver().findElement(
+            By.css(".part.titlebar")));
+        for (let step = 1; step <= 4; step += 1) {
+            await drag("dragOver", to.x + (out.x - to.x) * step / 4,
+                to.y + (out.y - to.y) * step / 4);
+            await sleep(30);
+        }
+        await drag("drop", out.x, out.y);
+        await mouse("mouseReleased", out.x, out.y, 0, SHIFT);
 
         return data;
     } finally {

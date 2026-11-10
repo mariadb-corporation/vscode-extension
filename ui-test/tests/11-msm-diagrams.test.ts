@@ -165,8 +165,9 @@ describe("MSM schema diagrams", () => {
     it("places a table dragged from the tree where the pointer comes back",
         async () => {
             // Electron refuses a drop from the workbench into a webview, so
-            // the drag ends in the editor's area, and the diagram places
-            // the table as the pointer next moves in it.
+            // the drag passes over the diagram and ends outside it (see
+            // shiftDrag), and the diagram places the table as the pointer
+            // next moves in it.
             const row = await treeItem(await view(),
                 [...SCHEMA_ROW, "Tables", "orders"]);
             const editor = await driver().findElement(By.css(

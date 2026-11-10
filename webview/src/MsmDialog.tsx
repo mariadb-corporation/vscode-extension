@@ -20,6 +20,7 @@ import { useEffect, useState } from "preact/hooks";
 import {
     msmProblem,
     nextPatchVersion,
+    onlineAlterField,
     projectFolderName,
     type IMsmCreateValues,
     type IMsmDeployValues,
@@ -35,8 +36,21 @@ import type {
     MsmHostMessage,
     MsmWebviewMessage,
 } from "../../src/msm/msmProtocol.js";
+import {
+    COUNT_KEYS,
+    NO_LIMIT,
+    ONLINE_ALTER_LABELS,
+    SIZE_KEYS,
+    sizeText,
+} from "../../src/tableEditor/onlineAlter.js";
 import { newestFirst } from "../../src/versionOrder.js";
-import { ColorSwatches, Field, ProgressBar } from "./dialogParts.js";
+import {
+    ColorSwatches,
+    Field,
+    ProgressBar,
+    TabBody,
+    TabStrip,
+} from "./dialogParts.js";
 import { post } from "./vscodeApi.js";
 
 /**
@@ -52,7 +66,7 @@ import { post } from "./vscodeApi.js";
  * The project information has nothing to do: its one button is Close.
  */
 const ACTIONS: Record<Exclude<MsmDialogKind, "info">, [string, string]> = {
-    create: ["Create", "Creating the project..."],
+    create: ["Create Project", "Creating the project..."],
     edit: ["Update", "Updating the project..."],
     release: ["Prepare Release", "Preparing the release..."],
     deploymentScript: ["Generate", "Generating the deployment script..."],
@@ -64,8 +78,9 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
     create: "Creates a schema project folder: the development script the "
         + "schema is written in, and the folders its releases and "
         + "deployment scripts go to.",
-    edit: "Changes the version development goes on with, and how the MSM "
-        + "Projects view files and shows the project.",
+    edit: "Changes the version development goes on with, how the MSM "
+        + "Projects view files and shows the project, and how its tables "
+        + "are altered online.",
     info: "What the project's files say about it.",
     release: "Writes the development script out as a released version, "
         + "with the update script from the version before, and moves "
@@ -75,6 +90,71 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
         + "version.",
     deploy: "Runs a deployment script on a server, creating the schema or "
         + "updating it to the version chosen.",
+};
+
+/**
+ * The pages of the two dialogs too long for one: New MSM Project, a
+ * wizard that leads through them with Back and Next, and Edit MSM
+ * Project, as tabs. Each page's fields, so a problem can be shown on its
+ * page.
+ */
+type MsmPage = "Project" | "Location" | "MSM Projects View"
+    | "Online Schema Change";
+
+/** The pages of each dialog that has them, in order. */
+const PAGES: Partial<Record<MsmDialogKind, readonly MsmPage[]>> = {
+    create: ["Project", "Location", "MSM Projects View"],
+    edit: ["Project", "MSM Projects View", "Online Schema Change"],
+};
+
+/** The fields on each page. */
+const PAGE_FIELDS: Record<MsmPage, readonly string[]> = {
+    Project: ["schemaName", "license", "copyrightHolder",
+        "allowSpecialChars", "developmentVersion"],
+    Location: ["targetPath", "createTargetPath", "overwriteExisting"],
+    "MSM Projects View": ["folder", "caption", "color", "mcpAccess"],
+    "Online Schema Change": ["enabled", ...SIZE_KEYS, "nboLock",
+        ...COUNT_KEYS].map((key) => {
+        return onlineAlterField(key as keyof typeof ONLINE_ALTER_HINTS);
+    }),
+};
+
+/** What each page holds, as its tab's tooltip. */
+const PAGE_TOOLTIPS: Record<MsmPage, string> = {
+    Project: "The schema, its license and copyright, and its version.",
+    Location: "Where the project folder is created.",
+    "MSM Projects View": "How the MSM Projects view files and shows the "
+        + "project, and whether LLMs may work on it.",
+    "Online Schema Change": "How deployments run the project's ALTER TABLE "
+        + "statements: online, and within which limits.",
+};
+
+/** What each Online Schema Change field is for. */
+const ONLINE_ALTER_HINTS = {
+    enabled: "Off, every ALTER TABLE runs as written.",
+    maxRebuildBytes: "The largest table an online rebuild (ALGORITHM="
+        + "INPLACE or COPY, LOCK=NONE) runs on; 0 never rebuilds.",
+    galeraMaxBytes: "On Galera, the largest table for a step other than "
+        + "INSTANT.",
+    nboLock: "On Galera, the lock a non-blocking operation (NBO) may take: "
+        + "it blocks writes, EXCLUSIVE reads too.",
+    maxLockedBytes: "The largest table a step that blocks writes "
+        + "(LOCK=SHARED or EXCLUSIVE) runs on.",
+    lockWait: "How long each attempt waits for the table's metadata lock.",
+    maxRetries: "How often an attempt whose lock wait ran out is made again.",
+};
+
+/**
+ * @param pages The dialog's pages.
+ * @param field A field's name.
+ *
+ * @returns The index of the page the field is on, or -1 for none.
+ */
+const pageOf = (pages: readonly MsmPage[], field: string | undefined,
+): number => {
+    return field === undefined ? -1 : pages.findIndex((page) => {
+        return PAGE_FIELDS[page].includes(field);
+    });
 };
 
 export const MsmDialog = (): preact.JSX.Element => {
@@ -87,6 +167,8 @@ export const MsmDialog = (): preact.JSX.Element => {
     // A problem the host found: shown until something is changed.
     const [hostProblem, setHostProblem] = useState<IMsmProblem | undefined>();
     const [busy, setBusy] = useState(false);
+    // The page shown, of a dialog that has pages.
+    const [page, setPage] = useState(0);
 
     useEffect(() => {
         const onMessage = (event: MessageEvent<MsmHostMessage>): void => {
@@ -98,6 +180,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                     setTouched(new Set());
                     setSubmitted(false);
                     setHostProblem(undefined);
+                    setPage(0);
                     break;
                 }
 
@@ -134,6 +217,16 @@ export const MsmDialog = (): preact.JSX.Element => {
         return () => { window.removeEventListener("message", onMessage); };
     }, []);
 
+    // The host's problem is shown on its field's page: a wizard's last
+    // page is not where the schema name is.
+    useEffect(() => {
+        const at = pageOf(PAGES[load?.kind ?? "info"] ?? [],
+            hostProblem?.field);
+        if (at !== -1) {
+            setPage(at);
+        }
+    }, [hostProblem, load]);
+
     if (load === undefined) {
         return <div class="editor" />;
     }
@@ -153,7 +246,14 @@ export const MsmDialog = (): preact.JSX.Element => {
 
     const update = (name: string, value: boolean | string): void => {
         setValues((current) => {
-            const next = { ...current, [name]: value } as MsmValues;
+            const [group, key] = name.split(".");
+            const next = (key === undefined
+                ? { ...current, [name]: value }
+                : { ...current, [group]: {
+                    ...(current as unknown as Record<string,
+                        Record<string, unknown>>)[group],
+                    [key]: value,
+                } }) as MsmValues;
             const release = current as IMsmReleaseValues;
             if (kind === "release" && name === "version"
                 && release.nextVersion
@@ -180,19 +280,48 @@ export const MsmDialog = (): preact.JSX.Element => {
 
     /** A field's value, by its name. */
     const field = (name: string): unknown => {
-        return (values as unknown as Record<string, unknown>)[name];
+        return name.split(".").reduce<unknown>((value, key) => {
+            return (value as Record<string, unknown> | undefined)?.[key];
+        }, values);
     };
 
     const cancel = (): void => {
         post<MsmWebviewMessage>({ type: "cancel" });
     };
 
+    const pages = PAGES[kind];
+    const isWizard = kind === "create";
+    const lastPage = (pages?.length ?? 1) - 1;
+
     const submit = (): void => {
         setSubmitted(true);
         if (fieldProblem !== undefined) {
+            // Shown on its page, which may not be the one showing.
+            const at = pageOf(pages ?? [], fieldProblem.field);
+            if (at !== -1) {
+                setPage(at);
+            }
+
             return;
         }
         post<MsmWebviewMessage>({ type: "submit", values });
+    };
+
+    /**
+     * The wizard's Next: on to the next page, unless this page (or one
+     * before it) has a problem, which is then shown. A problem further on
+     * waits for its page: the checks run in the pages' order.
+     */
+    const next = (): void => {
+        const at = pageOf(pages ?? [], fieldProblem?.field);
+        if (fieldProblem?.field !== undefined && at !== -1 && at <= page) {
+            const { field: name } = fieldProblem;
+            setTouched((current) => { return new Set([...current, name]); });
+            setPage(at);
+
+            return;
+        }
+        setPage(Math.min(page + 1, lastPage));
     };
 
     const open = (what: IMsmOpenMessage["what"]): void => {
@@ -203,6 +332,7 @@ export const MsmDialog = (): preact.JSX.Element => {
         name: string,
         placeholder?: string,
         list?: string,
+        off = false,
     ): preact.JSX.Element => {
         return (
             <input
@@ -214,7 +344,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                 value={String(field(name) ?? "")}
                 placeholder={placeholder}
                 spellcheck={false}
-                disabled={busy}
+                disabled={busy || off}
                 onInput={(event) => {
                     update(name, (event.target as HTMLInputElement).value);
                 }}
@@ -248,14 +378,14 @@ export const MsmDialog = (): preact.JSX.Element => {
     };
 
     const select = (name: string, choices: Array<[string, string]>,
-        empty?: string): preact.JSX.Element => {
+        empty?: string, off = false): preact.JSX.Element => {
         return (
             <select
                 name={name}
                 class={invalid(name) ? "invalid" : undefined}
                 aria-invalid={invalid(name)}
                 value={String(field(name) ?? "")}
-                disabled={busy}
+                disabled={busy || off}
                 onChange={(event) => {
                     update(name, (event.target as HTMLSelectElement).value);
                 }}
@@ -289,117 +419,225 @@ export const MsmDialog = (): preact.JSX.Element => {
     /** The MSM Projects list's settings, of New and Edit MSM Project. */
     const listSettings = (): preact.JSX.Element => {
         return (
-            <div class="group wide msm-list">
-                <h2>MSM Projects View</h2>
-                <div class="grid">
-                    <Field caption="Folder" hint={hint("folder",
-                        "The folder of the view it is filed in; / is the top "
-                        + "level.")}>
-                        {text("folder", undefined, "msm-folders")}
-                        <datalist id="msm-folders">
-                            {folders.map((folder) => {
-                                return <option key={folder} value={folder} />;
-                            })}
-                        </datalist>
-                    </Field>
-                    <Field caption="Caption" hint={hint("caption",
-                        "Shown in place of the schema name; empty for none.")}>
-                        {text("caption")}
-                    </Field>
-                    <ColorSwatches
-                        id="msm-color-caption"
-                        value={String(field("color") ?? "")}
-                        disabled={busy}
-                        hint="The color the MSM Projects view draws it in."
-                        onPick={(color) => { update("color", color); }}
-                    />
-                    <div class="group flags">
-                        {box("mcpAccess", "Allow MCP Access",
-                            "Let LLMs work on the project through the MariaDB "
-                            + "MCP server, as Copilot does. Off, only this "
-                            + "extension can.")}
-                    </div>
+            <section class="grid">
+                <Field caption="Folder" hint={hint("folder",
+                    "The folder of the view it is filed in; / is the top "
+                    + "level.")}>
+                    {text("folder", undefined, "msm-folders")}
+                    <datalist id="msm-folders">
+                        {folders.map((folder) => {
+                            return <option key={folder} value={folder} />;
+                        })}
+                    </datalist>
+                </Field>
+                <Field caption="Caption" hint={hint("caption",
+                    "Shown in place of the schema name; empty for none.")}>
+                    {text("caption")}
+                </Field>
+                <ColorSwatches
+                    id="msm-color-caption"
+                    value={String(field("color") ?? "")}
+                    disabled={busy}
+                    hint="The color the MSM Projects view draws it in."
+                    onPick={(color) => { update("color", color); }}
+                />
+                <div class="group flags">
+                    {box("mcpAccess", "Allow MCP Access",
+                        "Let LLMs work on the project through the MariaDB "
+                        + "MCP server, as Copilot does. Off, only this "
+                        + "extension can.")}
                 </div>
-            </div>
+            </section>
         );
+    };
+
+    /** New MSM Project's first page: the schema and whose it is. */
+    const createProject = (): preact.JSX.Element => {
+        const create = values as IMsmCreateValues;
+        const folder = create.schemaName.trim() === ""
+            ? "<schema>.msm.project"
+            : projectFolderName(create.schemaName);
+
+        return (
+            <section class="grid">
+                <Field caption="Schema Name" hint={hint("schemaName",
+                    `The project folder is ${folder}.`)}>
+                    {text("schemaName", "sakila")}
+                </Field>
+                <Field caption="License" hint={"The license the "
+                    + "project's scripts are put under."}>
+                    {select("license", licenses.map((license) => {
+                        return [license, license];
+                    }))}
+                </Field>
+                <Field caption="Copyright Holder" hint={hint(
+                    "copyrightHolder", "Your name, or your company's: "
+                    + "written into every script's header.")}>
+                    {text("copyrightHolder")}
+                </Field>
+                <div class="group flags">
+                    {box("allowSpecialChars",
+                        "Allow Special Characters",
+                        "Allow a schema name that has to be quoted.")}
+                </div>
+            </section>
+        );
+    };
+
+    /** New MSM Project's second page: where the folder is created. */
+    const createLocation = (): preact.JSX.Element => {
+        return (
+            <section class="grid">
+                <div class="wide">
+                    <Field caption="Create In" hint={hint(
+                        "targetPath",
+                        "The folder the project folder is created in.",
+                    )}>
+                        <div class="row path-row">
+                            {text("targetPath")}
+                            {browse("targetPath")}
+                        </div>
+                    </Field>
+                </div>
+                <div class="group flags">
+                    {box("createTargetPath", "Create the Folder",
+                        "Create the folder above where it does not "
+                        + "exist yet.")}
+                    {box("overwriteExisting",
+                        "Replace Existing Project",
+                        "Delete a project folder of the same name "
+                        + "first.")}
+                </div>
+            </section>
+        );
+    };
+
+    /** Edit MSM Project's first tab: the project, and its version. */
+    const editProject = (): preact.JSX.Element => {
+        const last = project?.lastReleasedVersion;
+        const rows: Array<[string, string]> = project === undefined
+            ? [] : [
+                ["Schema", project.schemaName],
+                ["License", project.license],
+                ["Copyright",
+                    project.copyrightHolders.join(", ") || "None"],
+            ];
+
+        return (
+            <section class="grid">
+                {summary(project)}
+                <div class="wide msm-info">{infoRows(rows)}</div>
+                <Field caption="Development Version" hint={hint(
+                    "developmentVersion", last === undefined
+                        ? "The version the development script is for."
+                        : `The last release was ${last}.`)}>
+                    {text("developmentVersion")}
+                </Field>
+            </section>
+        );
+    };
+
+    /**
+     * Edit MSM Project's Online Schema Change tab: the project's general
+     * online ALTER TABLE values, which a table's own take precedence over.
+     */
+    const onlineAlterSettings = (): preact.JSX.Element => {
+        const online = load.onlineAlter;
+        if (online === undefined) {
+            return (
+                <section class="grid">
+                    <p class="wide message error">{load.onlineAlterProblem
+                        ?? "The project's online ALTER TABLE settings could "
+                        + "not be read."}</p>
+                </section>
+            );
+        }
+        const { defaults } = online;
+        const name = (key: keyof typeof ONLINE_ALTER_HINTS): string => {
+            return onlineAlterField(key);
+        };
+        const enabled = field(name("enabled")) !== "off";
+        const input = (key: keyof typeof ONLINE_ALTER_HINTS,
+            placeholder: string): preact.JSX.Element => {
+            return (
+                <Field caption={ONLINE_ALTER_LABELS[key as
+                    keyof typeof ONLINE_ALTER_LABELS]}
+                hint={hint(name(key), ONLINE_ALTER_HINTS[key])}>
+                    {text(name(key), placeholder, undefined, !enabled)}
+                </Field>
+            );
+        };
+        const tables = online.tables;
+
+        return (
+            <section class="grid">
+                <p class="wide field-hint">
+                    {"msm runs each ALTER TABLE of a deployment the least "
+                        + "disruptive way the server accepts: ALGORITHM="
+                        + "INSTANT, then NOCOPY, INPLACE and COPY with "
+                        + "LOCK=NONE, then a Galera NBO where allowed, then "
+                        + "LOCK=SHARED and LOCK=EXCLUSIVE. These are the "
+                        + "project's defaults; a field left empty takes "
+                        + "msm's, shown in it. Sizes as 10 GiB, 512 MiB, 0 "
+                        + `or ${NO_LIMIT}.`}
+                </p>
+                <Field caption="Online ALTER TABLE"
+                    hint={hint(name("enabled"), ONLINE_ALTER_HINTS.enabled)}>
+                    {select(name("enabled"), [["on", "On"],
+                        ["off", "Off: run as written"]],
+                    "As msm's default (on)")}
+                </Field>
+                {SIZE_KEYS.map((key) => {
+                    return input(key, sizeText(defaults[key]));
+                })}
+                <Field caption="Galera NBO Lock"
+                    hint={hint(name("nboLock"), ONLINE_ALTER_HINTS.nboLock)}>
+                    {select(name("nboLock"), [["off", "None"],
+                        ["SHARED", "SHARED"], ["EXCLUSIVE", "EXCLUSIVE"]],
+                    `As msm's default (${defaults.nboLock ?? "none"})`,
+                    !enabled)}
+                </Field>
+                {COUNT_KEYS.map((key) => {
+                    return input(key, String(defaults[key]));
+                })}
+                <p class="wide field-hint">
+                    {tables.length === 0
+                        ? "No table has settings of its own: all take these."
+                        : `${tables.join(", ")} ${tables.length === 1
+                            ? "has settings of its own"
+                            : "have settings of their own"}, set on the `
+                            + "table editor's Online Alter Table tab, which "
+                            + "take precedence."}
+                </p>
+            </section>
+        );
+    };
+
+    /** The page showing, of a dialog that has pages. */
+    const pageBody = (): preact.JSX.Element => {
+        switch (pages?.[page]) {
+            case "Location": {
+                return createLocation();
+            }
+
+            case "MSM Projects View": {
+                return listSettings();
+            }
+            case "Online Schema Change": {
+                return onlineAlterSettings();
+            }
+
+            default: {
+                return kind === "create" ? createProject() : editProject();
+            }
+        }
     };
 
     const body = (): preact.JSX.Element => {
         switch (kind) {
-            case "create": {
-                const create = values as IMsmCreateValues;
-                const folder = create.schemaName.trim() === ""
-                    ? "<schema>.msm.project"
-                    : projectFolderName(create.schemaName);
-
-                return (
-                    <section class="grid">
-                        <Field caption="Schema Name" hint={hint("schemaName",
-                            `The project folder is ${folder}.`)}>
-                            {text("schemaName", "sakila")}
-                        </Field>
-                        <Field caption="License" hint={"The license the "
-                            + "project's scripts are put under."}>
-                            {select("license", licenses.map((license) => {
-                                return [license, license];
-                            }))}
-                        </Field>
-                        <Field caption="Copyright Holder" hint={hint(
-                            "copyrightHolder", "Your name, or your company's: "
-                            + "written into every script's header.")}>
-                            {text("copyrightHolder")}
-                        </Field>
-                        <div class="wide">
-                            <Field caption="Create In" hint={hint(
-                                "targetPath",
-                                "The folder the project folder is created in.",
-                            )}>
-                                <div class="row path-row">
-                                    {text("targetPath")}
-                                    {browse("targetPath")}
-                                </div>
-                            </Field>
-                        </div>
-                        <div class="group flags">
-                            {box("createTargetPath", "Create the Folder",
-                                "Create the folder above where it does not "
-                                + "exist yet.")}
-                            {box("allowSpecialChars",
-                                "Allow Special Characters",
-                                "Allow a schema name that has to be quoted.")}
-                            {box("overwriteExisting",
-                                "Replace Existing Project",
-                                "Delete a project folder of the same name "
-                                + "first.")}
-                        </div>
-                        {listSettings()}
-                    </section>
-                );
-            }
-
+            case "create":
             case "edit": {
-                const last = project?.lastReleasedVersion;
-                const rows: Array<[string, string]> = project === undefined
-                    ? [] : [
-                        ["Schema", project.schemaName],
-                        ["License", project.license],
-                        ["Copyright",
-                            project.copyrightHolders.join(", ") || "None"],
-                    ];
-
-                return (
-                    <section class="grid">
-                        {summary(project)}
-                        <div class="wide msm-info">{infoRows(rows)}</div>
-                        <Field caption="Development Version" hint={hint(
-                            "developmentVersion", last === undefined
-                                ? "The version the development script is for."
-                                : `The last release was ${last}.`)}>
-                            {text("developmentVersion")}
-                        </Field>
-                        {listSettings()}
-                    </section>
-                );
+                return pageBody();
             }
 
             case "info": {
@@ -572,7 +810,50 @@ export const MsmDialog = (): preact.JSX.Element => {
                 <p class="editor-description">{DESCRIPTIONS[kind]}</p>
             </header>
 
-            {body()}
+            {pages === undefined ? body() : (
+                <>
+                    {isWizard ? (
+                        <ol class="wizard-steps">
+                            {pages.map((name, index) => {
+                                return (
+                                    <li
+                                        key={name}
+                                        class={index === page ? "current"
+                                            : index < page ? "done" : ""}
+                                        aria-current={index === page
+                                            ? "step" : undefined}
+                                    >
+                                        {/* Back to a page done, never on
+                                            past Next's checks. */}
+                                        {index < page ? (
+                                            <button
+                                                type="button"
+                                                class="wizard-step"
+                                                disabled={busy}
+                                                onClick={() => {
+                                                    setPage(index);
+                                                }}
+                                            >
+                                                {name}
+                                            </button>
+                                        ) : name}
+                                    </li>
+                                );
+                            })}
+                        </ol>
+                    ) : (
+                        <TabStrip
+                            tabs={pages}
+                            current={pages[page]}
+                            tooltips={PAGE_TOOLTIPS}
+                            onSelect={(name) => {
+                                setPage(pages.indexOf(name));
+                            }}
+                        />
+                    )}
+                    <TabBody>{body()}</TabBody>
+                </>
+            )}
 
             {busy && kind !== "info"
                 ? <ProgressBar label={ACTIONS[kind][1]} /> : null}
@@ -591,17 +872,44 @@ export const MsmDialog = (): preact.JSX.Element => {
                         <button type="button" disabled={busy} onClick={cancel}>
                             Cancel
                         </button>
-                        <button
-                            type="button"
-                            class="primary"
-                            disabled={busy
-                                || (submitted && fieldProblem !== undefined)}
-                            title={submitted && fieldProblem !== undefined
-                                ? fieldProblem.message : undefined}
-                            onClick={submit}
-                        >
-                            {ACTIONS[kind][0]}
-                        </button>
+                        {isWizard ? (
+                            <button
+                                type="button"
+                                disabled={busy || page === 0}
+                                onClick={() => {
+                                    setPage(Math.max(page - 1, 0));
+                                }}
+                            >
+                                Back
+                            </button>
+                        ) : null}
+                        {isWizard && page < lastPage ? (
+                            <button
+                                key="next"
+                                type="button"
+                                class="primary"
+                                disabled={busy}
+                                onClick={next}
+                            >
+                                Next
+                            </button>
+                        ) : (
+                            <button
+                                // Not Next's element: a double click on
+                                // Next must not create the project.
+                                key="submit"
+                                type="button"
+                                class="primary"
+                                disabled={busy
+                                    || (submitted
+                                        && fieldProblem !== undefined)}
+                                title={submitted && fieldProblem !== undefined
+                                    ? fieldProblem.message : undefined}
+                                onClick={submit}
+                            >
+                                {ACTIONS[kind][0]}
+                            </button>
+                        )}
                     </>
                 )}
             </footer>

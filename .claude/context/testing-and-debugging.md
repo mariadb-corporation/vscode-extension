@@ -166,8 +166,22 @@ runner end anyway. A spawn that fails is reported with its error.
   `moveMouse` moves the pointer. It talks to the workbench page found at
   ChromeDriver's `debuggerAddress` (`/json/list`) with Node's own
   `WebSocket`; Selenium's `createCDPConnection` takes the first page
-  target, which need not be the workbench. After such a drag the test VS
-  Code may not open views any more, so a drag test goes last.
+  target, which need not be the workbench. The drag is held over the
+  target with Shift (what VS Code asks for a drag into a webview) but
+  **dropped on the title bar**, outside the webview: Electron refuses a
+  drop into a webview, the drag Chromium handed over then never ends, and
+  no input at all - mouse or keys, ChromeDriver's or the protocol's -
+  reaches the workbench after it (scripts still run), so every test after
+  a drag failed. Neither `Input.cancelDragging`, a `dragCancel` drag event,
+  a `dragend` on the row nor a press and release frees it. The diagram
+  does not need the drop: it places the table where the pointer next moves.
+- **`ViewTitlePart.getAction(label)` never answers undefined**: it makes a
+  button from the label whether there is one or not, and its click then
+  fails with `NoSuchElementError`. A view that shares its container (MSM
+  Projects with Object Details) has its toolbar in its section header, so
+  match the label among `getTitlePart().getActions()` (`getTitle()`) and
+  fall back to the section's `getAction`, as `10-msm-projects`' `toolbar`
+  does.
 - Helpers live in `ui-test/lib/ui.ts`. `openSection` collapses the
   other MariaDB views and expands the one asked for: with three views
   sharing the side bar, deep Connections rows were out of sight (and

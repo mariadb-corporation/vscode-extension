@@ -20,6 +20,18 @@ import {
     isConnectionColor,
 } from "../connections/connectionDetails.js";
 import type { ConnectionColor } from "../mcp/types.js";
+import {
+    COUNT_KEYS,
+    type IOnlineAlterEntry,
+    type IOnlineAlterOptions,
+    NO_LIMIT,
+    ONLINE_ALTER_LABELS,
+    type OnlineAlterTexts,
+    parseCount,
+    parseSize,
+    SIZE_KEYS,
+    textsOf,
+} from "../tableEditor/onlineAlter.js";
 import { compareVersions, newestFirst } from "../versionOrder.js";
 
 /**
@@ -101,6 +113,25 @@ export interface IMsmCreateValues extends IMsmListValues {
 /** What Edit MSM Project asks for. */
 export interface IMsmEditValues extends IMsmListValues {
     developmentVersion: string;
+    /**
+     * The project's general online ALTER TABLE values (msm.project.json's
+     * `onlineAlter`, not its tables'), as typed; a field left empty takes
+     * msm's default.
+     */
+    onlineAlter: OnlineAlterTexts;
+}
+
+/**
+ * What Edit MSM Project's Online Schema Change tab shows of the project's
+ * `onlineAlter` setting.
+ */
+export interface IMsmOnlineAlterContext {
+    /** msm's values, where the project sets none. */
+    defaults: Required<IOnlineAlterOptions>;
+    /** The project's general values, without the tables'. */
+    setting: IOnlineAlterEntry;
+    /** The tables with settings of their own, which take precedence. */
+    tables: string[];
 }
 
 /** What Prepare Release asks for. */
@@ -371,17 +402,20 @@ export const createProblem = (
             message: "The name leaves nothing to name the project folder by.",
         };
     }
-    if (values.targetPath.trim() === "") {
-        return {
-            field: "targetPath",
-            message: "Choose the folder to create the project in.",
-        };
-    }
+    // In the order of the wizard's pages (Project, Location, MSM Projects
+    // View), so the first problem is never on a page after one that has a
+    // problem too: Next goes on while the first problem is further on.
     if (values.copyrightHolder.trim() === "") {
         return {
             field: "copyrightHolder",
             message: "Enter the copyright holder: your name, or your "
                 + "company's.",
+        };
+    }
+    if (values.targetPath.trim() === "") {
+        return {
+            field: "targetPath",
+            message: "Choose the folder to create the project in.",
         };
     }
 
@@ -399,11 +433,58 @@ export const createProblem = (
 export const editDefaults = (
     project: IMsmProjectContext,
     listed: IMsmListValues,
+    onlineAlter: IOnlineAlterEntry = {},
 ): IMsmEditValues => {
     return {
         ...listed,
         developmentVersion: project.currentDevelopmentVersion,
+        onlineAlter: textsOf(onlineAlter),
     };
+};
+
+/**
+ * @param key An online ALTER TABLE value.
+ *
+ * @returns Its field's name in Edit MSM Project.
+ */
+export const onlineAlterField = (key: keyof OnlineAlterTexts): string => {
+    return `onlineAlter.${key}`;
+};
+
+/**
+ * @param texts The Online Schema Change tab's fields.
+ *
+ * @returns The first that is no value, as msm would refuse it.
+ */
+export const onlineAlterProblem = (
+    texts: OnlineAlterTexts,
+): IMsmProblem | undefined => {
+    for (const key of SIZE_KEYS) {
+        if (texts[key].trim() !== "" && parseSize(texts[key]) === undefined) {
+            return {
+                field: onlineAlterField(key),
+                message: `${ONLINE_ALTER_LABELS[key]}: "${texts[key].trim()}" `
+                    + `is no size (e.g. 10 GiB, 512 MiB, 0 or ${NO_LIMIT}).`,
+            };
+        }
+    }
+    for (const key of COUNT_KEYS) {
+        if (texts[key].trim() === "") {
+            continue;
+        }
+        const count = parseCount(texts[key]);
+        if (count === undefined || (key === "lockWait" && count < 1)) {
+            return {
+                field: onlineAlterField(key),
+                message: `${ONLINE_ALTER_LABELS[key]}: "${texts[key].trim()}" `
+                    + (key === "lockWait"
+                        ? "is not a number of seconds from 1."
+                        : "is not a whole number."),
+            };
+        }
+    }
+
+    return undefined;
 };
 
 /**
@@ -431,7 +512,7 @@ export const editProblem = (
         };
     }
 
-    return listProblem(values);
+    return listProblem(values) ?? onlineAlterProblem(values.onlineAlter);
 };
 
 // --- Prepare Release ---------------------------------------------------

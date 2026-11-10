@@ -13,7 +13,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `src/deployments/deploymentChoices.ts` | What each wizard page offers, and which options it can go on from yet. Pure; shared by the webview and the host. |
 | `src/deployments/deploymentProtocol.ts` | The wizard's messages: `new` with the deployment type, `cancel`. |
 | `src/deployments/deploymentWizardPanel.ts` | The wizard's panel; hands on to the dialog of the deployment picked. |
-| `webview/src/DeploymentWizard.tsx` | The wizard itself; `deployment.tsx` is its entry, `deploymentStyles.css` its styles, `vite.deployment.config.ts` its build. |
+| `webview/src/DeploymentWizard.tsx` | The wizard itself; `deployment.tsx` is its entry, `deploymentStyles.css` its styles (the step list, `.wizard-steps`, is in the shared `editorStyles.css`, as New MSM Project's wizard has it too), `vite.deployment.config.ts` its build. |
 
 ## What the user decided
 

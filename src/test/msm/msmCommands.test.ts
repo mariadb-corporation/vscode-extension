@@ -38,6 +38,7 @@ import {
     projectContext,
 } from "../../msm/msmCommands.js";
 import { MSM_DIALOG_VIEW_TYPE } from "../../msm/msmDialogPanel.js";
+import { textsOf } from "../../tableEditor/onlineAlter.js";
 import type {
     IMsmCreateValues,
     IMsmDeployValues,
@@ -115,6 +116,8 @@ interface ISetUp {
     defaultConnection?: string;
     /** What msm.list_projects answers. */
     listed?: IMsmListedProject[];
+    /** msm.project.json's onlineAlter, as msm.get_online_alter_settings has it. */
+    online?: Record<string, unknown>;
 }
 
 /** msm's online ALTER TABLE defaults. */
@@ -166,8 +169,9 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         removeSchemaDiagram: answer("removeSchemaDiagram", []),
         renameSchemaDiagram: answer("renameSchemaDiagram", []),
         getOnlineAlterSettings: answer("getOnlineAlterSettings", {
-            defaults: ONLINE_ALTER_DEFAULTS, setting: {} }),
+            defaults: ONLINE_ALTER_DEFAULTS, setting: options.online ?? {} }),
         setOnlineAlterTable: answer("setOnlineAlterTable", []),
+        setOnlineAlterDefaults: answer("setOnlineAlterDefaults", []),
         onlineAlterDefaults: answer("onlineAlterDefaults",
             ONLINE_ALTER_DEFAULTS),
         onlineAlterTable: answer("onlineAlterTable",
@@ -1196,7 +1200,7 @@ describe("the MSM Projects list", () => {
         expect(load.title).toBe("Edit MSM Project - sakila");
         expect(load.values).toEqual({
             developmentVersion: "1.0.1", folder: "/Shop", caption: "",
-            color: "green", mcpAccess: false,
+            color: "green", mcpAccess: false, onlineAlter: textsOf({}),
         });
 
         recorded.calls.length = 0;
@@ -1213,6 +1217,47 @@ describe("the MSM Projects list", () => {
         expect(panel().disposed).toBe(true);
         expect(recorded.projectsChanged).toBe(1);
     });
+
+    it("sets the project's online schema change defaults, keeping its "
+        + "tables'", async () => {
+        const recorded = setUp({ online: { enabled: true, lockWait: 10,
+            tables: { orders: { enabled: false } } } });
+        await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
+        const load = await loaded();
+
+        expect(recorded.calls).toContainEqual(
+            { name: "getOnlineAlterSettings", args: [PROJECT] });
+        expect(load.onlineAlter).toEqual({ defaults: ONLINE_ALTER_DEFAULTS,
+            setting: { enabled: true, lockWait: 10 }, tables: ["orders"] });
+        const values = load.values as IMsmEditValues;
+        expect(values.onlineAlter.lockWait).toBe("10");
+
+        recorded.calls.length = 0;
+        await receive({ type: "submit", values: { ...values, onlineAlter: {
+            ...values.onlineAlter, lockWait: "", maxRebuildBytes: "2 GiB",
+        } } });
+
+        expect(recorded.calls).toEqual([{ name: "setOnlineAlterDefaults",
+            args: [PROJECT, { enabled: true, maxRebuildBytes: 2 * 1024 ** 3 }],
+        }]);
+        expect(JSON.stringify([...actions(recorded).values()]))
+            .toContain("msm.set_online_alter_defaults(");
+    });
+
+    it("leaves the online schema change defaults alone where msm gives none",
+        async () => {
+            const recorded = setUp({ fail: ["getOnlineAlterSettings",
+                "Unknown tool"] });
+            await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
+            const load = await loaded();
+
+            expect(load.onlineAlter).toBeUndefined();
+            expect(load.onlineAlterProblem).toMatch(/Unknown tool/u);
+            recorded.calls.length = 0;
+            await receive({ type: "submit", values: load.values });
+
+            expect(recorded.calls).toEqual([]);
+        });
 
     it("refuses a development version below the last release", async () => {
         const recorded = setUp();

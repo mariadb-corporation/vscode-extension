@@ -61,11 +61,17 @@ import {
     type IMsmListValues,
     type IMsmDeploymentScriptValues,
     type IMsmDeployValues,
+    type IMsmOnlineAlterContext,
     type IMsmProblem,
     type IMsmProjectContext,
     type IMsmReleaseValues,
     type MsmDialogKind,
 } from "./msmFields.js";
+import {
+    entryKey,
+    type IOnlineAlterEntry,
+    readTexts,
+} from "../tableEditor/onlineAlter.js";
 import { pickFolder } from "../webview/dialogPanel.js";
 import {
     msmFolderOf,
@@ -553,24 +559,53 @@ export class MsmCommands {
             throw new Error(`${basename(projectPath)} is not in the MSM `
                 + "Projects view. Add it there first.");
         }
-        const [project, folders] = await Promise.all([
+        const [project, folders, online] = await Promise.all([
             this.#read(projectPath), this.#folders(),
+            this.#onlineAlter(projectPath),
         ]);
         const before = listValuesOf(listed);
         const title = `${MSM_TITLES.edit} - ${project.schemaName}`;
+        const setting = "context" in online ? online.context.setting
+            : undefined;
         MsmDialogPanel.show(this.host.extensionUri, {
             kind: "edit",
             title,
             project,
-            values: editDefaults(project, before),
+            values: editDefaults(project, before, setting),
             folders,
+            ...("context" in online ? { onlineAlter: online.context }
+                : { onlineAlterProblem: online.problem }),
         }, {
             submit: (values) => {
-                return this.#update(project, before, values);
+                return this.#update(project, before, values, setting);
             },
             onFailed: () => { this.host.showActions(GENERAL_ACTIONS); },
             log: this.host.log,
         });
+    }
+
+    /**
+     * @param projectPath The project folder.
+     *
+     * @returns Its online ALTER TABLE setting, for Edit MSM Project's
+     *          Online Schema Change tab; or why msm gave none.
+     */
+    async #onlineAlter(projectPath: string): Promise<
+        { context: IMsmOnlineAlterContext } | { problem: string }> {
+        try {
+            const read = await (await this.host.msmApi())
+                .getOnlineAlterSettings(projectPath);
+            const { tables, ...setting } = read.setting;
+
+            return { context: {
+                defaults: read.defaults,
+                setting,
+                tables: Object.keys(tables ?? {}).sort(),
+            } };
+        } catch (error) {
+            return { problem: "Online schema change settings need a "
+                + `MariaDB Shell whose msm has them: ${errorText(error)}` };
+        }
     }
 
     /**
@@ -592,14 +627,21 @@ export class MsmCommands {
      * @param project The project, as read.
      * @param before How the list had it.
      * @param values What Edit MSM Project says.
+     * @param onlineBefore The project's online ALTER TABLE values, as
+     *                     read; undefined where msm gave none, which
+     *                     leaves them as they are.
      */
     async #update(
         project: IMsmProjectContext,
         before: IMsmListValues,
         values: IMsmEditValues,
+        onlineBefore?: IOnlineAlterEntry,
     ): Promise<void> {
         const version = values.developmentVersion.trim();
         const details = changedDetails(values, before);
+        const online = readTexts(values.onlineAlter).entry;
+        const onlineChanged = onlineBefore !== undefined
+            && entryKey(online) !== entryKey(onlineBefore);
         const words = {
             doing: `Updating MSM project ${project.schemaName}`,
             done: `Updated MSM project ${project.schemaName}`,
@@ -628,6 +670,19 @@ export class MsmCommands {
                     async () => {
                         return (await this.host.msmApi()).updateProject(
                             projectPath, details);
+                    });
+                }
+                if (onlineChanged) {
+                    const settings = Object.keys(online).length === 0
+                        ? null : online;
+                    await group.step({
+                        doing: "Setting the online schema change defaults",
+                        done: "Set the online schema change defaults",
+                    }, msmCall("msm.set_online_alter_defaults",
+                        msmToolArgs.setOnlineAlterDefaults(projectPath,
+                            settings)), async () => {
+                        return (await this.host.msmApi())
+                            .setOnlineAlterDefaults(projectPath, settings);
                     });
                 }
             }, () => { return projectPath; });

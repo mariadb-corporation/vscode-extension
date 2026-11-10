@@ -246,8 +246,10 @@ export interface IMsmApi {
     createEmptySchemaDiagram(projectPath: string, name: string): Promise<void>;
     removeSchemaDiagram(projectPath: string, name: string): Promise<string[]>;
     getOnlineAlterSettings(projectPath: string,
-        table: string): Promise<IMsmOnlineAlterSettings>;
+        table?: string): Promise<IMsmOnlineAlterSettings>;
     setOnlineAlterTable(projectPath: string, table: string,
+        settings: IOnlineAlterEntry | null): Promise<string[]>;
+    setOnlineAlterDefaults(projectPath: string,
         settings: IOnlineAlterEntry | null): Promise<string[]>;
     onlineAlterDefaults(): Promise<Required<IOnlineAlterOptions>>;
     onlineAlterTable(connectionId: string, schema: string, table: string,
@@ -444,9 +446,18 @@ export const msmToolArgs = {
     },
     getOnlineAlterSettings: (
         projectPath: string,
-        table: string,
+        table?: string,
     ): Record<string, unknown> => {
-        return { table, schema_project_path: projectPath };
+        return {
+            ...(table === undefined ? {} : { table }),
+            schema_project_path: projectPath,
+        };
+    },
+    setOnlineAlterDefaults: (
+        projectPath: string,
+        settings: IOnlineAlterEntry | null,
+    ): Record<string, unknown> => {
+        return { settings, schema_project_path: projectPath };
     },
     setOnlineAlterTable: (
         projectPath: string,
@@ -777,13 +788,13 @@ export class MsmApi implements IMsmApi {
 
     /**
      * @param projectPath The project folder.
-     * @param table A table of it.
+     * @param table A table of it; left out, the setting alone is read.
      *
      * @returns Its online ALTER TABLE setting, and what the table gets.
      */
     public async getOnlineAlterSettings(
         projectPath: string,
-        table: string,
+        table?: string,
     ): Promise<IMsmOnlineAlterSettings> {
         const tool = "msm.get_online_alter_settings";
 
@@ -811,6 +822,27 @@ export class MsmApi implements IMsmApi {
 
         return decodeList<string>(tool, await this.caller.callTool(tool,
             msmToolArgs.setOnlineAlterTable(projectPath, table, settings)));
+    }
+
+    /**
+     * Writes the project's general online ALTER TABLE values of
+     * msm.project.json, which every table without its own takes; the
+     * tables' entries are left as they are.
+     *
+     * @param projectPath The project folder.
+     * @param settings The values; a key left out takes msm's default, and
+     *                 null or empty drops them all.
+     *
+     * @returns The files written.
+     */
+    public async setOnlineAlterDefaults(
+        projectPath: string,
+        settings: IOnlineAlterEntry | null,
+    ): Promise<string[]> {
+        const tool = "msm.set_online_alter_defaults";
+
+        return decodeList<string>(tool, await this.caller.callTool(tool,
+            msmToolArgs.setOnlineAlterDefaults(projectPath, settings)));
     }
 
     /**
