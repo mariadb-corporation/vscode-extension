@@ -16,7 +16,7 @@
  */
 
 import * as assert from "node:assert/strict";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -42,6 +42,7 @@ import {
     menuAction,
     openSection,
     screenshot,
+    selectOption,
     SERVER_TIMEOUT,
     setChecked,
     setField,
@@ -220,7 +221,8 @@ describe("MSM Projects view", () => {
         await waitDialogClosed(title);
     });
 
-    it("edits the project, giving LLMs access", async () => {
+    it("edits the project, giving LLMs access and an online schema change "
+        + "default", async () => {
         const title = `Edit MSM Project - ${SCHEMA}`;
         await menuAction(await view(), ["Shop", CAPTION],
             ["Edit MSM Project..."], async () => {
@@ -236,6 +238,13 @@ describe("MSM Projects view", () => {
             await setField(dialog, "folder", "/");
             await setChecked(dialog, "mcpAccess", true);
             await screenshot("10-edit-msm-project");
+            await clickButton(dialog, "Online Schema Change");
+            // A new project's setting is msm's template: on, no limits.
+            assert.equal(await fieldValue(dialog, "onlineAlter.enabled"),
+                "on");
+            await setField(dialog, "onlineAlter.maxRebuildBytes", "2 GiB");
+            await selectOption(dialog, "onlineAlter.nboLock", "SHARED");
+            await screenshot("10-edit-msm-project-online");
             await submitDialog(dialog, "Update", SERVER_TIMEOUT,
                 "Updating the project...");
         });
@@ -243,6 +252,11 @@ describe("MSM Projects view", () => {
         await waitForAction(/^Updated MSM project msm_view/u);
         // At the top level now, and marked as reachable over MCP.
         await waitForDescription([CAPTION], "0.1.0 · MCP");
+        const settings = JSON.parse(readFileSync(
+            join(projectPath(), "msm.project.json"), "utf8")) as
+            { onlineAlter?: unknown };
+        assert.deepEqual(settings.onlineAlter, { enabled: true,
+            maxRebuildBytes: 2 * 1024 ** 3, nboLock: "SHARED" });
     });
 
     it("removes the project from the view, and the Explorer adds it back",
