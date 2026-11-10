@@ -776,10 +776,11 @@ export const tickedSets = (
  * @param kind The object's kind.
  * @param object An object of the schema, as msm lists it.
  *
- * @returns What of the schema it reads that is not ticked, in the
- *          listing's order (kind, then name): the project would not deploy
- *          it without that. Nothing for an object not ticked itself, or
- *          whose reads msm could not tell (only views have any).
+ * @returns What of the schema it reads that is not ticked, in msm's
+ *          order (the kind's key, then the name): the project would not
+ *          deploy it without that. Nothing for an object not ticked itself,
+ *          or whose reads msm could not tell (only views have any); a read
+ *          of a kind the dialog does not list is not counted.
  */
 export const unticked = (
     ticked: Record<ImportedKind, ReadonlySet<string>>,
@@ -791,8 +792,21 @@ export const unticked = (
     }
 
     return (object.reads ?? []).filter((read) => {
-        return !ticked[read.kind].has(read.name);
+        // An msm newer than the extension may name a kind it does not know.
+        const names = ticked[read.kind] as ReadonlySet<string> | undefined;
+
+        return names?.has(read.name) === false;
     });
+};
+
+/** Each kind's noun, for one of it. */
+const KIND_NOUNS: Record<ImportedKind, string> = {
+    tables: "table",
+    sequences: "sequence",
+    views: "view",
+    procedures: "procedure",
+    functions: "function",
+    events: "event",
 };
 
 /**
@@ -803,9 +817,8 @@ export const unticked = (
  *          view without them."
  */
 export const readsNote = (missing: readonly IMsmViewRead[]): string => {
-    // Each kind's key is its noun's plural.
     const named = missing.map((read) => {
-        return `the ${read.kind.slice(0, -1)} ${read.name}`;
+        return `the ${KIND_NOUNS[read.kind]} ${read.name}`;
     });
     const list = named.length === 1 ? named[0]
         : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;

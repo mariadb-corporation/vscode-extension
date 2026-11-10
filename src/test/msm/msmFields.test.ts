@@ -494,5 +494,4 @@ describe("New MSM Project from Schema's fields", () => {
             .toBe("Reads the function f, the sequence s and the view v, not "
             + "ticked: the project will not deploy the view without them.");
     });
-
 });
