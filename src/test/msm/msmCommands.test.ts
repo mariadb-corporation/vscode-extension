@@ -1269,6 +1269,22 @@ describe("the MSM Projects list", () => {
             .toContain("msm.set_project_settings(");
     });
 
+    it("drops the online setting, cleared, back to msm's defaults",
+        async () => {
+            const recorded = setUp({ online: { lockWait: 10 } });
+            await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
+            const values = (await loaded()).values as IMsmEditValues;
+            recorded.calls.length = 0;
+
+            await receive({ type: "submit", values: { ...values,
+                onlineAlter: { ...values.onlineAlter, lockWait: "" } } });
+
+            expect(recorded.calls.at(-1)).toEqual({ name: "setProjectSettings",
+                args: [PROJECT, { onlineAlter: null }] });
+            expect(JSON.stringify([...actions(recorded).values()]))
+                .toContain("msm.get_online_alter_settings(");
+        });
+
     it("writes changed copyrights and online defaults in one call",
         async () => {
             const recorded = setUp();

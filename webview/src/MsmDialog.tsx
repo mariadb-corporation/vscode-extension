@@ -578,7 +578,10 @@ export const MsmDialog = (): preact.JSX.Element => {
             return (
                 <Field caption={ONLINE_ALTER_LABELS[key]}
                 hint={hint(name(key), ONLINE_ALTER_HINTS[key])}>
-                    {text(name(key), placeholder, undefined, !enabled)}
+                    {/* Off, a field msm refuses still holds Update back:
+                        it stays open to be mended. */}
+                    {text(name(key), placeholder, undefined,
+                        !enabled && !invalid(name(key)))}
                 </Field>
             );
         };
@@ -639,9 +642,8 @@ export const MsmDialog = (): preact.JSX.Element => {
         const setCopyrights = (list: IMsmCopyrightValues[]): void => {
             update("copyrights", list);
         };
-        const listProblem = shownProblem?.field === undefined
-            || !shownProblem.field.startsWith("copyrights.")
-            ? undefined : shownProblem;
+        const listProblem = pageOf(kind, shownProblem?.field)
+            === PAGES.edit?.indexOf("Copyright") ? shownProblem : undefined;
 
         return (
             <section class="msm-copyrights">

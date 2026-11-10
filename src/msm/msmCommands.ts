@@ -696,13 +696,20 @@ export class MsmCommands {
                 // changed; the online setting as a whole, read just now.
                 if (onlineChanged || copyrightsChanged) {
                     const api = await this.host.msmApi();
+                    const onlineAlter = onlineChanged ? await group.step({
+                        doing: "Reading the online ALTER TABLE setting",
+                        done: "Read the online ALTER TABLE setting",
+                    }, msmCall("msm.get_online_alter_settings",
+                        msmToolArgs.getOnlineAlterSettings(projectPath)),
+                    () => {
+                        return changedOnlineAlter(api, projectPath,
+                            (setting) => {
+                                return withGeneral(setting, online);
+                            });
+                    }) : undefined;
                     const settings: IMsmProjectSettings = {
                         ...(copyrightsChanged ? { copyrights } : {}),
-                        ...(onlineChanged ? { onlineAlter:
-                            await changedOnlineAlter(api, projectPath,
-                                (setting) => {
-                                    return withGeneral(setting, online);
-                                }) } : {}),
+                        ...(onlineAlter === undefined ? {} : { onlineAlter }),
                     };
                     await group.step({
                         doing: "Writing the project settings",

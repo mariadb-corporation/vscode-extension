@@ -188,7 +188,7 @@ describe("copyrights", () => {
 
     it("refuses what msm would, by its field", () => {
         expect(copyrightsProblem([ADA])).toBeUndefined();
-        expect(copyrightsProblem([])?.field).toBeUndefined();
+        expect(copyrightsProblem([])?.field).toBe("copyrights");
         expect(copyrightsProblem([ADA, { ...ADA, holder: " " }])?.field)
             .toBe("copyrights.1.holder");
         expect(copyrightsProblem([{ ...ADA, yearOfCreation: "24" }])?.field)

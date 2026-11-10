@@ -190,14 +190,18 @@ export interface IMsmProjectSettings {
  * @param projectPath The project folder.
  * @param change Changes the part: `withTable` or `withGeneral`.
  *
- * @returns The whole setting to write.
+ * @returns The whole setting to write; null where nothing is left, so
+ *          msm.project.json goes back to msm's defaults.
  */
 export const changedOnlineAlter = async (
     api: IMsmApi,
     projectPath: string,
     change: (setting: IOnlineAlterSetting) => IOnlineAlterSetting,
-): Promise<IOnlineAlterSetting> => {
-    return change((await api.getOnlineAlterSettings(projectPath)).setting);
+): Promise<IOnlineAlterSetting | null> => {
+    const changed = change(
+        (await api.getOnlineAlterSettings(projectPath)).setting);
+
+    return Object.keys(changed).length === 0 ? null : changed;
 };
 
 /** A project's online ALTER TABLE setting, as msm gives it for a table. */

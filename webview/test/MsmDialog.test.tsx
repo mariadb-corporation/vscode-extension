@@ -744,6 +744,17 @@ describe("Edit MSM Project", () => {
         expect(input("onlineAlter.nboLock").disabled).toBe(true);
     });
 
+    it("keeps a value msm refuses open to mending, online ALTER off",
+        async () => {
+            await openOnline();
+            await click("Online Schema Change");
+            await change("onlineAlter.lockWait", "0");
+            await change("onlineAlter.enabled", "off");
+
+            expect(input("onlineAlter.lockWait").disabled).toBe(false);
+            expect(input("onlineAlter.maxRetries").disabled).toBe(true);
+        });
+
     it("refuses a value that is no size, on its tab", async () => {
         await openOnline();
         await click("Online Schema Change");

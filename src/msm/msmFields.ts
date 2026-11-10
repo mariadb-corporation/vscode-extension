@@ -409,7 +409,8 @@ export const copyrightsProblem = (
     copyrights: IMsmCopyrightValues[],
 ): IMsmProblem | undefined => {
     if (copyrights.length === 0) {
-        return { message: "A project needs a copyright holder. Add one." };
+        return { field: "copyrights",
+            message: "A project needs a copyright holder. Add one." };
     }
     for (const [index, copyright] of copyrights.entries()) {
         const field = (name: keyof IMsmCopyrightValues): string => {
