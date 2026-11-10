@@ -206,6 +206,15 @@ export const changedOnlineAlter = async (
     return Object.keys(changed).length === 0 ? null : changed;
 };
 
+/** What `msm.layout_schema_diagram` did. */
+export interface IMsmDiagramLayout {
+    name: string;
+    /** The figures laid out, by what they show. */
+    placed: string[];
+    connections_added: number;
+    files: string[];
+}
+
 /** A project's online ALTER TABLE setting, as msm gives it for a table. */
 export interface IMsmOnlineAlterSettings {
     /** The values where nothing is set. */
@@ -290,6 +299,8 @@ export interface IMsmApi {
     onlineAlterDefaults(): Promise<Required<IOnlineAlterOptions>>;
     onlineAlterTable(connectionId: string, schema: string, table: string,
         spec: string, options: IOnlineAlterOptions): Promise<ITaskStarted>;
+    layoutSchemaDiagram(projectPath: string,
+        name: string): Promise<IMsmDiagramLayout>;
     renameSchemaDiagram(projectPath: string, name: string,
         newName: string): Promise<string[]>;
     updateSchemaDefinition(projectPath: string): Promise<void>;
@@ -504,6 +515,13 @@ export const msmToolArgs = {
         options: IOnlineAlterOptions,
     ): Record<string, unknown> => {
         return { connection_id: connectionId, schema, table, spec, options };
+    },
+    layoutSchemaDiagram: (
+        projectPath: string,
+        name: string,
+    ): Record<string, unknown> => {
+        // Every figure laid out again, not only the unplaced.
+        return { name, keep_placed: false, schema_project_path: projectPath };
     },
     renameSchemaDiagram: (
         projectPath: string,
@@ -902,6 +920,26 @@ export class MsmApi implements IMsmApi {
      *
      * @returns The files written.
      */
+    /**
+     * Lays a diagram of a project out again: every table, view, sequence
+     * and group figure; figures on a layer, notes and images keep their
+     * place. Foreign keys not drawn get a connection.
+     *
+     * @param projectPath The project folder.
+     * @param name The diagram.
+     *
+     * @returns What msm placed, and the files it wrote.
+     */
+    public async layoutSchemaDiagram(
+        projectPath: string,
+        name: string,
+    ): Promise<IMsmDiagramLayout> {
+        const tool = "msm.layout_schema_diagram";
+
+        return decodeObject<IMsmDiagramLayout>(tool, await this.caller.callTool(
+            tool, msmToolArgs.layoutSchemaDiagram(projectPath, name)));
+    }
+
     public async renameSchemaDiagram(
         projectPath: string,
         name: string,

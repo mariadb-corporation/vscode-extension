@@ -80,6 +80,48 @@ const modelerTitle = (schema: string, diagram: string): string => {
     return `${diagram} (${schema})`;
 };
 
+/**
+ * Lays a diagram out again, as the toolbar's menu and the diagram's row in
+ * the MSM Projects view ask: after asking, as the positions it had are not
+ * kept. The source's panel, where one is up, reads it again.
+ *
+ * @param source The project's diagrams.
+ * @param name The diagram.
+ * @param log Where a failure is logged.
+ *
+ * @returns Whether it was laid out.
+ */
+export const layOutDiagram = async (
+    source: IModelSource,
+    name: string,
+    log: (message: string) => void,
+): Promise<boolean> => {
+    if (source.layoutDiagram === undefined) {
+        return false;
+    }
+    const confirmed = await vscode.window.showWarningMessage(
+        `Lay out the diagram '${name}' automatically?`,
+        { modal: true, detail: "msm places every table, view, sequence and "
+            + "group figure anew, and connects foreign keys not drawn yet. "
+            + "Figures on a layer, notes and images keep their place. The "
+            + "places the figures have now cannot be restored." },
+        "Auto Layout",
+    );
+    if (confirmed !== "Auto Layout") {
+        return false;
+    }
+    try {
+        await source.layoutDiagram(name);
+    } catch (error) {
+        reportError(log, error, `lay out the diagram ${name}`);
+
+        return false;
+    }
+    await ModelerPanel.reload(source);
+
+    return true;
+};
+
 /** A schema diagram viewer. */
 export class ModelerPanel {
     static readonly #open = new Map<string, ModelerPanel>();
@@ -263,6 +305,12 @@ export class ModelerPanel {
             case "editTable": {
                 this.host.editTable?.(this.source.target(this.#diagram),
                     message.table);
+                break;
+            }
+
+            case "layoutDiagram": {
+                await layOutDiagram(this.source, message.diagram,
+                    this.host.log);
                 break;
             }
 

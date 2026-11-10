@@ -117,6 +117,7 @@ import { DiagramDrafts } from "./modeler/diagramDrafts.js";
 import { DiagramViews } from "./modeler/diagramViews.js";
 import {
     MODELER_VIEW_TYPE,
+    layOutDiagram,
     ModelerPanel,
     type IModelerHost,
 } from "./modeler/modelerPanel.js";
@@ -1501,6 +1502,18 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     await ModelerPanel.renamed(source, name, newName);
                 } catch (error) {
                     reportError(log, error, "rename the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.layout,
+            async (node?: IMsmDiagramNode) => {
+                if (node?.kind !== "diagram") {
+                    return;
+                }
+                const { projectPath, name } = node;
+                if (await layOutDiagram(projectDiagrams(projectPath), name,
+                    log)) {
+                    // Its figure count may grow: connections are added.
+                    msmProjects.refreshProject(projectPath);
                 }
             }),
         vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.remove,

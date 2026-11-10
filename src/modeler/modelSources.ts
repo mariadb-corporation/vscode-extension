@@ -85,6 +85,12 @@ export interface IModelSource {
         documents?: IDiagramDocument[]): Promise<ISchemaEditOutcome>;
     /** Saves what is waiting to be saved, now. */
     flush?(): Promise<void>;
+    /**
+     * Lays a diagram out again, every figure msm places; read again after.
+     *
+     * @param name The diagram.
+     */
+    layoutDiagram?(name: string): Promise<void>;
     /** Where the saves stand, for the viewer to show. */
     onSaveState?: (state: SaveState) => void;
 }
@@ -513,6 +519,33 @@ export class ProjectModelSource implements IModelSource {
             }
             throw error;
         }
+        this.#bases.delete(name);
+    }
+
+    /**
+     * Lays a diagram of the project out again (msm.layout_schema_diagram,
+     * every figure it places, not only the unplaced). Its changes are saved
+     * first, so msm lays out what the viewer shows.
+     *
+     * @param name The diagram's name.
+     *
+     * @returns Once msm wrote the diagram.
+     */
+    public async layoutDiagram(name: string): Promise<void> {
+        await this.flush();
+        await this.#enqueuedAction({
+            doing: `Laying out the diagram ${name} of ${this.#schema}`,
+            done: `Laid out the diagram ${name} of ${this.#schema}`,
+        }, "msm.layout_schema_diagram", { name, keep_placed: false },
+        (api) => {
+            return api.layoutSchemaDiagram(this.projectPath, name);
+        }, (layout) => {
+            return `${counted(layout.placed.length, "figure")} placed`
+                + (layout.connections_added === 0 ? ""
+                    : `, ${counted(layout.connections_added, "connection")} `
+                        + "added");
+        });
+        // msm wrote it: the next read takes it as the project's.
         this.#bases.delete(name);
     }
 

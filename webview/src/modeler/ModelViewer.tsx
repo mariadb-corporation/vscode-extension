@@ -1036,16 +1036,24 @@ export const ModelViewer = (): JSX.Element => {
             onMenu={(button) => {
                 // The menu lives over the canvas host, under the toolbar.
                 const at = pointUnder(button, hostRef.current);
+                // A project's diagram is laid out by msm, which saves it.
+                const shown = loaded?.model.diagrams[diagramIndex]?.name;
                 setMenu({
                     owner: { kind: "toolbar" },
                     items: [{
                         id: "margins",
                         caption: "Show Printable Area",
                         checked: marginsVisible,
-                    }],
+                    }, ...(editable && shown !== undefined ? [{
+                        id: "layout",
+                        caption: "Auto Layout...",
+                    }] : [])],
                     x: at.x,
                     y: Math.max(0, at.y),
                     onCommand: (command) => {
+                        if (command === "layout" && shown !== undefined) {
+                            post({ type: "layoutDiagram", diagram: shown });
+                        }
                         if (command === "margins") {
                             keepState({ margins: !marginsVisible });
                             mirror("marginsVisible", setMarginsVisible)(

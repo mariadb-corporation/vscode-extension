@@ -24,15 +24,20 @@ import {
     CustomTreeSection,
     EditorView,
     InputBox,
+    ModalDialog,
     VSBrowser,
 } from "vscode-extension-tester";
 
 import { middleOf, moveMouse, shiftDrag } from "../lib/cdp.js";
 import {
+    actionRows,
     answerInput,
+    answerModal,
     driver,
     extensionLog,
+    FrontWebView,
     hasTreeItem,
+    inResults,
     menuAction,
     openSection,
     screenshot,
@@ -40,6 +45,7 @@ import {
     sleep,
     treeItem,
     waitFor,
+    waitForAction,
     WORKSPACE,
 } from "../lib/ui.js";
 
@@ -85,6 +91,14 @@ const scriptText = (): string => {
         .filter((name) => { return name.endsWith(".sql"); })
         .map((name) => { return readFileSync(join(folder, name), "utf8"); })
         .join("\n");
+};
+
+/** @returns The saved figures' places, in the order they are written. */
+const places = (): string[] => {
+    return [...scriptText().matchAll(
+        /"(left|top)": (-?[\d.]+)/gu)].map((match) => {
+        return `${match[1]}=${match[2]}`;
+    });
 };
 
 /**
@@ -179,4 +193,59 @@ describe("MSM schema diagrams", () => {
             await screenshot("11-drag-placed");
             await waitForFigure("orders", "by a drag from the tree");
         });
+
+    it("lays the diagram out from its row's menu, once asked", async () => {
+        const before = places();
+        await menuAction(await view(), [...SCHEMA_ROW, "Diagrams", DIAGRAM],
+            ["Auto Layout Schema Diagram..."], async () => {
+                return await new ModalDialog().isDisplayed()
+                    .catch(() => { return false; });
+            }, "the Auto Layout confirmation");
+        assert.equal(await answerModal("Auto Layout"),
+            `Lay out the diagram '${DIAGRAM}' automatically?`);
+
+        await waitForAction(/^Laid out the diagram Main of msm_view/u);
+        // Both tables have new places, saved by msm.
+        await waitFor(async () => {
+            const after = places();
+
+            return after.length > 0 && after.join() !== before.join();
+        }, "the figures' new places saved", SERVER_TIMEOUT);
+        assert.ok(hasFigure("customer") && hasFigure("orders"));
+        await screenshot("11-auto-layout-row");
+    });
+
+    it("lays it out from the diagram toolbar's menu too", async () => {
+        await new EditorView().openEditor(`${DIAGRAM} (${SCHEMA})`);
+        const diagram = new FrontWebView();
+        await diagram.switchToFrame(SERVER_TIMEOUT);
+        try {
+            const menu = await waitFor(async () => {
+                return (await diagram.findWebElements(
+                    By.css("button[aria-label='More Options']")))[0];
+            }, "the toolbar's menu button");
+            await menu!.click();
+            const entry = await waitFor(async () => {
+                return (await diagram.findWebElements(By.xpath(
+                    "//*[@role='menu']//button[normalize-space()="
+                    + "'Auto Layout...']")))[0];
+            }, "the menu's Auto Layout entry");
+            await screenshot("11-auto-layout-menu");
+            await entry!.click();
+        } finally {
+            await diagram.switchBack();
+        }
+        assert.equal(await answerModal("Auto Layout"),
+            `Lay out the diagram '${DIAGRAM}' automatically?`);
+
+        // A second layout, as an action of its own.
+        await inResults(async (results) => {
+            await waitFor(async () => {
+                return (await actionRows(results)).filter((row) => {
+                    return /^Laid out the diagram Main of msm_view/u.test(row);
+                }).length === 2;
+            }, "a second Auto Layout action", SERVER_TIMEOUT);
+        });
+        await screenshot("11-auto-layout-toolbar");
+    });
 });
