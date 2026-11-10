@@ -33,6 +33,7 @@ import {
     ObjectTemplates,
     objectNameProblem,
     SchemaObjectCommands,
+    takenNames,
 } from "../../msm/schemaObjects.js";
 import {
     errorMessages,
@@ -78,18 +79,18 @@ const DEFAULTS: IMsmObjectTemplates = {
 
 describe("objectNameProblem", () => {
     it("refuses a name taken in the kind's namespace, in any case", () => {
-        expect(objectNameProblem("view", SNAPSHOT, " ")).toBe("Enter a name.");
+        expect(objectNameProblem(takenNames("view", SNAPSHOT), " ")).toBe("Enter a name.");
         // Tables, views and sequences share one.
-        expect(objectNameProblem("view", SNAPSHOT, "Orders"))
+        expect(objectNameProblem(takenNames("view", SNAPSHOT), "Orders"))
             .toBe("The schema has a table Orders already.");
-        expect(objectNameProblem("sequence", SNAPSHOT, "open_orders"))
+        expect(objectNameProblem(takenNames("sequence", SNAPSHOT), "open_orders"))
             .toBe("The schema has a view open_orders already.");
         // A procedure may share a function's name.
-        expect(objectNameProblem("procedure", SNAPSHOT, "total"))
+        expect(objectNameProblem(takenNames("procedure", SNAPSHOT), "total"))
             .toBeUndefined();
-        expect(objectNameProblem("function", SNAPSHOT, "TOTAL"))
+        expect(objectNameProblem(takenNames("function", SNAPSHOT), "TOTAL"))
             .toBe("The schema has a function TOTAL already.");
-        expect(objectNameProblem("event", SNAPSHOT, "x".repeat(65)))
+        expect(objectNameProblem(takenNames("event", SNAPSHOT), "x".repeat(65)))
             .toMatch(/64 characters/u);
     });
 });

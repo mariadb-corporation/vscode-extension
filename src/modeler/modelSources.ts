@@ -657,7 +657,7 @@ export class ProjectModelSource implements IModelSource {
         });
         this.#bases = hashesOf(added.rows);
 
-        return { file: added.file, line: added.line };
+        return added;
     }
 
     /**

@@ -376,54 +376,37 @@ export const TableEditor = (): preact.JSX.Element => {
 
     /**
      * Enter or Down in the table's name or comment: on to the first
-     * column's name; a table with none gets its first column, `id`, the
-     * primary key.
-     */
-    const toColumns = (first: boolean): void => {
-        const column = visibleColumns.find((candidate) => {
-            return candidate.dropped !== true;
-        });
-        if (column !== undefined) {
-            setTab("Columns");
-            setColumnFocus({ key: column.key, field: "name" });
-        } else if (first) {
-            const id = firstColumn();
-            setOutcome(undefined);
-            setDraft((now) => {
-                return now === undefined ? now
-                    : { ...now, columns: [...now.columns, id] };
-            });
-            setSearch("");
-            setTab("Columns");
-            setColumnFocus({ key: id.key, field: "name" });
-        } else {
-            addColumn();
-        }
-    };
-
-    /**
-     * @param event A key in the table's name or comment.
+     * column's name, or a column added where there is none. Enter on a new
+     * table adds its first, `id`, the primary key.
      *
-     * @returns Whether it went on to the columns: Enter, or Down.
+     * @param event The key.
      */
-    const headerKey = (event: KeyboardEvent): boolean => {
+    const headerKey = (event: KeyboardEvent): void => {
         const plain = !event.altKey && !event.ctrlKey && !event.metaKey
             && !event.shiftKey;
         if (!plain || (event.key !== "Enter" && event.key !== "ArrowDown")) {
-            return false;
+            return;
         }
         event.preventDefault();
         // The value typed is the draft's before the focus moves.
-        event.currentTarget?.dispatchEvent(new Event("change",
-            { bubbles: true }));
-        toColumns(event.key === "Enter");
-
-        return true;
+        (event.currentTarget as HTMLInputElement).dispatchEvent(
+            new Event("change", { bubbles: true }));
+        const first = visibleColumns.find((column) => {
+            return column.dropped !== true;
+        });
+        if (first !== undefined) {
+            setTab("Columns");
+            setColumnFocus({ key: first.key, field: "name" });
+        } else {
+            addColumn(event.key === "Enter" && data.isNew === true
+                ? firstColumn() : undefined);
+        }
     };
 
-    const addColumn = (): void => {
-        const column: IDraftColumn = { key: newRowKey("c"), name: "",
-            type: "varchar(45)", nullable: true, primary: false };
+    /** @param column The column to add; left out, an empty one. */
+    const addColumn = (column: IDraftColumn = { key: newRowKey("c"),
+        name: "", type: "varchar(45)", nullable: true, primary: false },
+    ): void => {
         setOutcome(undefined);
         // On the draft as it is by then: a commit of the input just left
         // may come first.
@@ -954,7 +937,7 @@ export const TableEditor = (): preact.JSX.Element => {
                                 }} />
                         </span>
                         <button type="button" class="primary"
-                            onClick={addColumn}>
+                            onClick={() => { addColumn(); }}>
                             <span class="codicon codicon-add" />Add Column
                         </button>
                     </>

@@ -29,14 +29,17 @@ import { join } from "node:path";
 import * as vscode from "vscode";
 
 import { reportError } from "../errorMessages.js";
-import type {
-    IMsmApi,
-    IMsmNewObject,
-    MsmObjectKind,
+import {
+    MSM_OBJECT_KINDS,
+    type IMsmApi,
+    type IMsmNewObject,
+    type IMsmObjectTemplates,
+    type MsmObjectKind,
 } from "../mcp/msmApi.js";
 import type { ObjectType } from "../mcp/types.js";
 import type { ISchemaDefinition } from "../modeler/modelFormat.js";
-import { outlineObjects } from "../tree/schemaTree.js";
+import type { IMsmObjectGroupNode } from "../tree/msmProjectsTreeProvider.js";
+import { OBJECT_TYPE_LABELS, outlineObjects } from "../tree/schemaTree.js";
 
 /** Add <Kind>..., by the kind of the group row it is on. */
 export const MSM_ADD_COMMANDS: Record<ObjectType, string> = {
@@ -57,17 +60,6 @@ export const MSM_TEMPLATE_COMMANDS = {
     reset: "mariadb.msm.resetObjectTemplate",
 } as const;
 
-/** How a kind is named in prompts. */
-const KIND_NAMES: Record<ObjectType, string> = {
-    table: "table",
-    view: "view",
-    procedure: "procedure",
-    function: "function",
-    trigger: "trigger",
-    event: "event",
-    sequence: "sequence",
-};
-
 /**
  * The kinds whose names a new object's may not take: tables, views and
  * sequences share one namespace; a procedure and a function may share a
@@ -82,25 +74,33 @@ const NAMESPACES: Record<MsmObjectKind, readonly ObjectType[]> = {
     event: ["event"],
 };
 
-/** A group row of a project's schema, as a command is handed it. */
-interface IGroupRow {
-    kind: "objectGroup";
-    projectPath: string;
-    schema: string;
-    objectType: ObjectType;
-}
-
 /**
  * @param kind A kind msm adds from a template.
  * @param definition The project's snapshot.
+ *
+ * @returns The names a new object of that kind may not take, lower case,
+ *          with the kind that has each.
+ */
+export const takenNames = (
+    kind: MsmObjectKind,
+    definition: ISchemaDefinition,
+): ReadonlyMap<string, ObjectType> => {
+    return new Map(NAMESPACES[kind].flatMap((type) => {
+        return outlineObjects(definition, type).map((object) => {
+            return [object.name.toLowerCase(), type] as const;
+        });
+    }));
+};
+
+/**
+ * @param taken The names taken, as {@link takenNames} gives them.
  * @param value A name typed.
  *
  * @returns Why it cannot be the new object's name, else nothing. msm
  *          checks it again, with every rule an identifier has.
  */
 export const objectNameProblem = (
-    kind: MsmObjectKind,
-    definition: ISchemaDefinition,
+    taken: ReadonlyMap<string, ObjectType>,
     value: string,
 ): string | undefined => {
     const name = value.trim();
@@ -110,16 +110,10 @@ export const objectNameProblem = (
     if (name.length > 64) {
         return "A name can be 64 characters at most.";
     }
-    const wanted = name.toLowerCase();
-    for (const type of NAMESPACES[kind]) {
-        if (outlineObjects(definition, type).some((object) => {
-            return object.name.toLowerCase() === wanted;
-        })) {
-            return `The schema has a ${KIND_NAMES[type]} ${name} already.`;
-        }
-    }
+    const type = taken.get(name.toLowerCase());
 
-    return undefined;
+    return type === undefined ? undefined
+        : `The schema has a ${type} ${name} already.`;
 };
 
 /**
@@ -162,10 +156,14 @@ export class ObjectTemplates {
      */
     public async ensure(kind: MsmObjectKind, start: string): Promise<string> {
         const file = this.fileOf(kind);
-        if (await this.read(kind) === undefined) {
-            await mkdir(this.folder, { recursive: true });
-            await writeFile(file, start, "utf8");
-        }
+        await mkdir(this.folder, { recursive: true });
+        // Only where there is none: the user's is kept.
+        await writeFile(file, start, { encoding: "utf8", flag: "wx" })
+            .catch((error: unknown) => {
+                if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+                    throw error;
+                }
+            });
 
         return file;
     }
@@ -178,10 +176,16 @@ export class ObjectTemplates {
      * @returns Whether there was one.
      */
     public async reset(kind: MsmObjectKind): Promise<boolean> {
-        const had = await this.read(kind) !== undefined;
-        await rm(this.fileOf(kind), { force: true });
+        try {
+            await rm(this.fileOf(kind));
 
-        return had;
+            return true;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                return false;
+            }
+            throw error;
+        }
     }
 }
 
@@ -206,6 +210,9 @@ export interface ISchemaObjectsHost {
 
 /** The commands that add schema objects, and edit their templates. */
 export class SchemaObjectCommands {
+    /** msm's templates, asked for once: they do not change. */
+    #defaults?: Promise<IMsmObjectTemplates>;
+
     public constructor(private readonly host: ISchemaObjectsHost) { }
 
     /**
@@ -214,11 +221,11 @@ export class SchemaObjectCommands {
     public register(): vscode.Disposable[] {
         const onGroup = (
             id: string,
-            handler: (row: IGroupRow) => Promise<void>,
+            handler: (row: IMsmObjectGroupNode) => Promise<void>,
             what: string,
         ): vscode.Disposable => {
             return vscode.commands.registerCommand(id, async (row?: unknown) => {
-                const group = row as IGroupRow | undefined;
+                const group = row as IMsmObjectGroupNode | undefined;
                 // Only on a project's group row: nothing to pick it from.
                 if (group?.kind !== "objectGroup"
                     || typeof group.projectPath !== "string") {
@@ -233,16 +240,21 @@ export class SchemaObjectCommands {
         };
 
         return [
-            ...Object.entries(MSM_ADD_COMMANDS).map(([type, id]) => {
+            // Each on its own kind's rows only: the row says the kind.
+            ...Object.values(MSM_ADD_COMMANDS).map((id) => {
                 return onGroup(id, (row) => {
-                    return this.add({ ...row, objectType: type as ObjectType });
-                }, `add the ${type}`);
+                    return this.add(row);
+                }, "add the schema object");
             }),
-            onGroup(MSM_TEMPLATE_COMMANDS.edit, (row) => {
-                return this.editTemplate(row.objectType);
+            onGroup(MSM_TEMPLATE_COMMANDS.edit, async (row) => {
+                if (isTemplated(row.objectType)) {
+                    await this.editTemplate(row.objectType);
+                }
             }, "open the template"),
-            onGroup(MSM_TEMPLATE_COMMANDS.reset, (row) => {
-                return this.resetTemplate(row.objectType);
+            onGroup(MSM_TEMPLATE_COMMANDS.reset, async (row) => {
+                if (isTemplated(row.objectType)) {
+                    await this.resetTemplate(row.objectType);
+                }
             }, "reset the template"),
         ];
     }
@@ -253,7 +265,7 @@ export class SchemaObjectCommands {
      *
      * @param row The group row.
      */
-    public async add(row: IGroupRow): Promise<void> {
+    public async add(row: IMsmObjectGroupNode): Promise<void> {
         const kind = row.objectType;
         if (kind === "table") {
             this.host.newTable(row.projectPath, row.schema);
@@ -265,11 +277,12 @@ export class SchemaObjectCommands {
             throw new Error("The project has no schema snapshot: run Update "
                 + "Schema Snapshot on its schema row first.");
         }
+        const taken = takenNames(kind, definition);
         const name = await vscode.window.showInputBox({
-            title: `Add ${capitalized(kind)}`,
+            title: `Add ${OBJECT_TYPE_LABELS[kind]}`,
             prompt: `The name of the new ${kind} in ${row.schema}.`,
             validateInput: (value) => {
-                return objectNameProblem(kind, definition, value);
+                return objectNameProblem(taken, value);
             },
         });
         if (name === undefined) {
@@ -310,18 +323,22 @@ export class SchemaObjectCommands {
      * Opens the user's template of a kind, made from msm's where there is
      * none: saving it is changing it.
      *
-     * @param type The group row's kind.
+     * @param type The kind.
      */
-    public async editTemplate(type: ObjectType): Promise<void> {
-        if (type === "table") {
-            return;
-        }
-        const defaults = await (await this.host.msmApi()).getObjectTemplates();
+    public async editTemplate(type: MsmObjectKind): Promise<void> {
+        this.#defaults ??= this.host.msmApi().then((api) => {
+            return api.getObjectTemplates();
+        });
+        // Asked again next time where asking failed.
+        const defaults = await this.#defaults.catch((error: unknown) => {
+            this.#defaults = undefined;
+            throw error;
+        });
         const file = await this.host.templates.ensure(type,
             defaults.templates[type]);
         await vscode.window.showTextDocument(vscode.Uri.file(file),
             { preview: false });
-        const placeholders = (defaults.placeholders[type] ?? [])
+        const placeholders = defaults.placeholders[type]
             .map((name) => { return `\${${name}}`; }).join(", ");
         void vscode.window.showInformationMessage(`The template every new `
             + `${type} starts from; saving it keeps it. msm fills in `
@@ -331,12 +348,9 @@ export class SchemaObjectCommands {
     /**
      * Goes back to msm's template of a kind.
      *
-     * @param type The group row's kind.
+     * @param type The kind.
      */
-    public async resetTemplate(type: ObjectType): Promise<void> {
-        if (type === "table") {
-            return;
-        }
+    public async resetTemplate(type: MsmObjectKind): Promise<void> {
         const had = await this.host.templates.reset(type);
         void vscode.window.showInformationMessage(had
             ? `New ${type}s start from msm's template again.`
@@ -345,10 +359,10 @@ export class SchemaObjectCommands {
 }
 
 /**
- * @param kind A kind.
+ * @param type A kind of schema object.
  *
- * @returns It with a capital: "Procedure".
+ * @returns Whether msm adds it from a template: every kind but tables.
  */
-const capitalized = (kind: string): string => {
-    return kind.charAt(0).toUpperCase() + kind.slice(1);
+const isTemplated = (type: ObjectType): type is MsmObjectKind => {
+    return (MSM_OBJECT_KINDS as readonly string[]).includes(type);
 };

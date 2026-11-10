@@ -135,13 +135,13 @@ read-only Object Details view left editing to this editor.
   (or of the included file its `source` names).
 - **A new table** (a project's only, from Add Table... on its Tables
   row): the target's `table` is `""` until the first Save. The source
-  reads an empty table with `isNew` (msm makes the project's first
-  snapshot where there is none, `makeSnapshot`), the page starts with the
+  reads an empty table with `isNew` (its snapshot is `snapshotOrMake`'s in
+  `extension.ts`: msm makes a project's first, as for Add View...), the page starts with the
   focus on the Table name (placeholder "Enter table name…"), and its
   edits are `newTableEdits`: `add_table` with the columns and the primary
   key, then what `tableEdits` adds to a table so made (indexes, foreign
   keys, the comment, triggers). Enter in the Table name or Comment of a
-  table with no column adds its first, `firstColumn`: `id`, `uuid`, NOT
+  new table with no column adds its first, `firstColumn`: `id`, `uuid`, NOT
   NULL, `DEFAULT UUID()`, the primary key, its name focused; with columns
   Enter goes to the first's name, as Down does (Down on a table with none
   adds an empty column, as before). The Save's `add_table` names the

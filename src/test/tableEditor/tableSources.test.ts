@@ -361,17 +361,10 @@ describe("ProjectTableSource, a new table", () => {
         tables: [{ name: "customers", columns: [{ name: "id",
             type: "uuid" }] }] } as unknown as ISchemaDefinition;
 
-    const newSetUp = (withSnapshot = true) => {
+    const newSetUp = () => {
         const calls: unknown[][] = [];
-        let made = withSnapshot ? definition : undefined;
         const source = new ProjectTableSource("shop", "", {
-            snapshot: () => { return Promise.resolve(made); },
-            makeSnapshot: () => {
-                calls.push(["makeSnapshot"]);
-                made = definition;
-
-                return Promise.resolve();
-            },
+            snapshot: () => { return Promise.resolve(definition); },
             edit: (edits) => {
                 calls.push(["edit", edits.map((edit) => { return edit.op; })]);
 
@@ -393,14 +386,6 @@ describe("ProjectTableSource, a new table", () => {
                 table: { name: "", columns: [] }, triggers: [], ddl: "",
                 tables: { customers: ["id"] } });
             expect(data.onlineAlter).toBeUndefined();
-        });
-
-    it("has msm make the first snapshot of a project that has none",
-        async () => {
-            const { source, calls } = newSetUp(false);
-            await source.read();
-
-            expect(calls).toEqual([["makeSnapshot"]]);
         });
 
     it("is the table it made after its Save", async () => {

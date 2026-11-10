@@ -555,11 +555,6 @@ export class LiveTableSource implements ITableSource {
 export interface IProjectTableDeps {
     /** msm's snapshot of the development script. */
     snapshot(): Promise<ISchemaDefinition | undefined>;
-    /**
-     * Has msm make the snapshot (`msm.update_schema_definition`), for a
-     * new table of a project that has none yet.
-     */
-    makeSnapshot?(): Promise<void>;
     /** Makes the edits through msm (`msm.edit_schema`). */
     edit(edits: IMsmSchemaEdit[], baseHash: string): Promise<string[]>;
     /** The development script, `development/<schema>_next.sql`. */
@@ -625,13 +620,7 @@ export class ProjectTableSource implements ITableSource {
     }
 
     async #definition(): Promise<ISchemaDefinition> {
-        let definition = await this.deps.snapshot();
-        // A new project's first table: there is nothing to have made one.
-        if (definition === undefined && this.#table === ""
-            && this.deps.makeSnapshot !== undefined) {
-            await this.deps.makeSnapshot();
-            definition = await this.deps.snapshot();
-        }
+        const definition = await this.deps.snapshot();
         if (definition === undefined) {
             throw new Error("The project has no schema snapshot: run Update "
                 + "Schema Snapshot on its schema row first.");
