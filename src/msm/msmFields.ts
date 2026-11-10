@@ -24,7 +24,9 @@ import {
     IMPORTED_KINDS,
     liveObjectsOf,
     type IMsmCopyright,
+    type IMsmLiveObject,
     type IMsmLiveSchema,
+    type IMsmViewRead,
     type ImportedKind,
     type MsmLiveObjects,
 } from "../mcp/msmApi.js";
@@ -754,6 +756,28 @@ export const tickedObjects = (
             return set.has(name);
         }),
     };
+};
+
+/**
+ * @param objects The names ticked.
+ * @param view A view of the schema, as msm lists it.
+ *
+ * @returns What of the schema the view reads that is not ticked, in the
+ *          listing's order (kind, then name): the project would not deploy
+ *          the view without it. Nothing for a view not ticked itself, or
+ *          whose reads msm could not tell.
+ */
+export const unticked = (
+    objects: MsmLiveObjects,
+    view: IMsmLiveObject,
+): IMsmViewRead[] => {
+    if (!objects.views.includes(view.name)) {
+        return [];
+    }
+
+    return (view.reads ?? []).filter((read) => {
+        return !objects[read.kind].includes(read.name);
+    });
 };
 
 /**

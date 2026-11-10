@@ -32,6 +32,7 @@ import {
     liveNamesOf,
     projectFolderName,
     tickedObjects,
+    unticked,
     type IMsmCreateValues,
     type IMsmDeployValues,
     type IMsmImportValues,
@@ -45,6 +46,7 @@ import {
     IMPORTED_KINDS,
     liveObjectsOf,
     type ImportedKind,
+    type IMsmViewRead,
 } from "../../src/mcp/msmApi.js";
 import type {
     IMsmLoadMessage,
@@ -653,6 +655,8 @@ export const MsmDialog = (): preact.JSX.Element => {
                             <ul>
                                 {objects.map((object) => {
                                     const triggers = object.triggers ?? [];
+                                    const missing = objectKind === "views"
+                                        ? unticked(ticked, object) : [];
 
                                     return (
                                         <li key={object.name}>
@@ -667,6 +671,11 @@ export const MsmDialog = (): preact.JSX.Element => {
                                                     {"Triggers, with the "
                                                         + "table: "
                                                         + triggers.join(", ")}
+                                                </span>
+                                            )}
+                                            {missing.length > 0 && (
+                                                <span class="field-hint msm-reads">
+                                                    {readsNote(missing)}
                                                 </span>
                                             )}
                                         </li>
@@ -1269,4 +1278,32 @@ const KIND_CAPTIONS: Record<ImportedKind, string> = {
     procedures: "Procedures",
     functions: "Functions",
     events: "Events",
+};
+
+/** A kind's objects as a note names one: singular. */
+const KIND_NOUNS: Record<ImportedKind, string> = {
+    tables: "table",
+    sequences: "sequence",
+    views: "view",
+    procedures: "procedure",
+    functions: "function",
+    events: "event",
+};
+
+/**
+ * @param missing What a ticked view reads that is not ticked.
+ *
+ * @returns The note under the view: "Reads the table film and the
+ *          function twice, not ticked: the project will not deploy the
+ *          view without them."
+ */
+const readsNote = (missing: readonly IMsmViewRead[]): string => {
+    const named = missing.map((read) => {
+        return `the ${KIND_NOUNS[read.kind]} ${read.name}`;
+    });
+    const list = named.length === 1 ? named[0]
+        : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
+
+    return `Reads ${list}, not ticked: the project will not deploy the view `
+        + `without ${missing.length === 1 ? "it" : "them"}.`;
 };

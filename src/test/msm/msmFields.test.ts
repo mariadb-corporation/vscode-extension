@@ -40,6 +40,7 @@ import {
     releaseProblem,
     storedCopyrights,
     tickedObjects,
+    unticked,
     type IMsmCopyrightValues,
     type IMsmCreateValues,
     type IMsmProjectContext,
@@ -458,4 +459,23 @@ describe("New MSM Project from Schema's fields", () => {
             expect(msmProblem("import", undefined, { ...values,
                 copyrightHolder: "Ada" })).toBeUndefined();
         });
+
+    it("names what a ticked view reads that is not ticked", () => {
+        const { objects } = importDefaults("mariadb://x", LIVE, "/work");
+        const view = { name: "v", comment: "", reads: [
+            { kind: "functions" as const, name: "f" },
+            { kind: "tables" as const, name: "a" },
+            { kind: "tables" as const, name: "b" }] };
+        const some = tickedObjects(LIVE, objects, "tables", ["a"], false);
+
+        expect(unticked(objects, view)).toEqual([
+            { kind: "functions", name: "f" }]);
+        expect(unticked(some, view)).toEqual([
+            { kind: "functions", name: "f" }, { kind: "tables", name: "a" }]);
+        // Not ticked itself, or reads not known: nothing to say.
+        expect(unticked(tickedObjects(LIVE, some, "views", ["v"], false),
+            view)).toEqual([]);
+        expect(unticked(some, { ...view, reads: null })).toEqual([]);
+        expect(unticked(some, { name: "v" })).toEqual([]);
+    });
 });

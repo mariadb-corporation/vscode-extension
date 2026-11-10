@@ -866,7 +866,9 @@ describe("MsmDialog, New MSM Project from Schema", () => {
         schema: "sakila",
         tables: [{ name: "actor", comment: "", triggers: ["actor_bi"] },
             { name: "film", comment: "Films", triggers: [] }],
-        views: [{ name: "actor_info", comment: "" }],
+        views: [{ name: "actor_info", comment: "", reads: [
+            { kind: "tables", name: "actor" },
+            { kind: "tables", name: "film" }] }],
         procedures: [], functions: [],
         triggers: [{ name: "actor_bi", table: "actor" }],
         events: [], sequences: [],
@@ -956,4 +958,29 @@ describe("MsmDialog, New MSM Project from Schema", () => {
                     events: [] },
             }) }]);
     });
+
+    it("notes under a ticked view what it reads that is not ticked",
+        async () => {
+            await openImport();
+            const note = (): string | undefined => {
+                return host.querySelector(".msm-reads")?.textContent
+                    ?? undefined;
+            };
+            expect(note()).toBeUndefined();
+
+            await tick(object("tables", "film"), false);
+            expect(note()).toBe("Reads the table film, not ticked: the "
+                + "project will not deploy the view without it.");
+            await tick(object("tables", "actor"), false);
+            expect(note()).toBe("Reads the table actor and the table film, "
+                + "not ticked: the project will not deploy the view without "
+                + "them.");
+
+            // A note, not a problem: Next goes on.
+            await click("Next");
+            expect(currentPage()).toBe("Project");
+            await click("Back");
+            await tick(object("views", "actor_info"), false);
+            expect(note()).toBeUndefined();
+        });
 });

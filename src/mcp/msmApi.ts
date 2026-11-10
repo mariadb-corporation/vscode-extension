@@ -107,6 +107,17 @@ export interface IMsmLiveObject {
     comment?: string;
     /** A table's, which come with it. */
     triggers?: string[];
+    /** A view's sources, see {@link IMsmViewRead}. */
+    reads?: IMsmViewRead[] | null;
+}
+
+/**
+ * An object of the schema a view reads, or calls: a table, a view, a
+ * sequence or a stored function, by the listing's key for its kind.
+ */
+export interface IMsmViewRead {
+    kind: ImportedKind;
+    name: string;
 }
 
 /**
@@ -116,7 +127,13 @@ export interface IMsmLiveObject {
 export interface IMsmLiveSchema {
     schema: string;
     tables: Array<{ name: string; comment: string; triggers: string[] }>;
-    views: Array<{ name: string; comment: string }>;
+    /**
+     * Each view's `reads`: what of the schema it reads, sorted; null
+     * where msm could not read its definition (no SHOW VIEW), left out
+     * by an msm before mariadb-shell-plugins #104.
+     */
+    views: Array<{ name: string; comment: string;
+        reads?: IMsmViewRead[] | null; }>;
     procedures: Array<{ name: string }>;
     functions: Array<{ name: string }>;
     triggers: Array<{ name: string; table: string }>;

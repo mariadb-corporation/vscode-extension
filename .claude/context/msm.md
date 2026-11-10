@@ -228,7 +228,14 @@ group only.
   only: msm imports them with their table, so they are never ticked nor
   sent. The page says the version msm deployed of the schema
   (`schema_version`) and names msm's own objects it leaves out
-  (`left_out`). The schema name is the schema's, shown disabled; no Allow
+  (`left_out`). Under a ticked view, a note names what it reads that is
+  not ticked (`unticked`, the view's `reads` of mariadb-shell-plugins
+  #104: tables, views, sequences and stored functions; null where msm
+  could not read the definition, missing from an older msm, either way
+  no note): the project would not deploy the view without them. A note,
+  not a problem: Create Project is not held back, and msm warns again
+  after the import with the same detection. The schema name is the
+  schema's, shown disabled; no Allow
   Special Characters (msm takes the name as it is). `importProblem`: none
   ticked is refused (an empty project is New MSM Project's), then
   `createProblem`; `#checkCreate` checks the folder as for New.
