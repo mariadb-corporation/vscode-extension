@@ -22,6 +22,7 @@ import type {
 } from "../webview/dialogProtocol.js";
 import type {
     IMsmConnectionChoice,
+    IMsmOnlineAlterContext,
     IMsmProjectContext,
     MsmDialogKind,
     MsmValues,
@@ -35,7 +36,7 @@ export interface IMsmLoadMessage {
     /** The project, for every dialog but New MSM Project. */
     project?: IMsmProjectContext;
     values: MsmValues;
-    /** The licenses New MSM Project offers. */
+    /** The license templates New and Edit MSM Project offer, besides Custom. */
     licenses?: readonly string[];
     /** The connections Deploy Schema offers. */
     connections?: IMsmConnectionChoice[];
@@ -44,6 +45,10 @@ export interface IMsmLoadMessage {
      * Project's Folder field.
      */
     folders?: string[];
+    /** Edit MSM Project's Online Schema Change tab: the project's values. */
+    onlineAlter?: IMsmOnlineAlterContext;
+    /** Why the tab has no values: an msm without the setting's tools. */
+    onlineAlterProblem?: string;
 }
 
 /** A folder picked with Browse, for the field it was picked for. */

@@ -16,14 +16,13 @@
  */
 
 import * as assert from "node:assert/strict";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
     CustomTreeItem,
     CustomTreeSection,
     EditorView,
-    SideBarView,
     VSBrowser,
 } from "vscode-extension-tester";
 
@@ -42,11 +41,14 @@ import {
     menuAction,
     openSection,
     screenshot,
+    selectOption,
+    selectTab,
     SERVER_TIMEOUT,
     setChecked,
     setField,
     submitDialog,
     treeItem,
+    viewAction,
     waitDialogClosed,
     waitFor,
     waitForAction,
@@ -66,6 +68,14 @@ import {
 const CONTAINER = "MariaDB Schema Management";
 const VIEW = "MSM Projects";
 const SCHEMA = "msm_view";
+/** A line of the project's own license. */
+const LICENSE_LINE = " * Licensed for the UI test only.";
+/** The project's own license, as New MSM Project is given it. */
+const LICENSE = `/*\n\${copyright_notices}\n *\n${LICENSE_LINE}\n */`;
+/** This year, which a new project's copyright starts in. */
+const YEAR = String(new Date().getFullYear());
+/** The first year Edit MSM Project gives the copyright instead. */
+const FIRST_YEAR = String(new Date().getFullYear() - 2);
 const CAPTION = "View Shop";
 const FOLDER = "projects";
 const PROJECT_FOLDER = `${SCHEMA}.msm.project`;
@@ -95,18 +105,8 @@ const waitForDescription = async (
         + `'${said}')`, SERVER_TIMEOUT);
 };
 
-/**
- * Presses a button of the view's toolbar: in the side bar's title, where
- * the view is alone in its container (its section's header is there but
- * hidden); in its section's header, should another view join it.
- */
 const toolbar = async (label: string): Promise<void> => {
-    const section = await view();
-    const action = await waitFor(async () => {
-        return await new SideBarView().getTitlePart().getAction(label)
-            ?? await section.getAction(label);
-    }, `the toolbar button ${label}`);
-    await action!.click();
+    await viewAction(await view(), label);
 };
 
 describe("MSM Projects view", () => {
@@ -147,15 +147,22 @@ describe("MSM Projects view", () => {
         await inDialog("New MSM Project", async (dialog) => {
             // Named by the file dialog.
             assert.equal(await fieldValue(dialog, "schemaName"), SCHEMA);
+            await setField(dialog, "copyrightHolder", "UI Test");
+            // A license of the project's own, which msm sets once the
+            // project is made.
+            await selectOption(dialog, "license", "Custom");
+            await setField(dialog, "customLicense", LICENSE);
+            await screenshot("10-new-msm-project-license");
+            await clickButton(dialog, "Next");
             assert.equal(await fieldValue(dialog, "targetPath"),
                 join(WORKSPACE, FOLDER));
-            await setField(dialog, "copyrightHolder", "UI Test");
+            await clickButton(dialog, "Next");
             await setField(dialog, "caption", CAPTION);
             await setField(dialog, "folder", "/Shop");
             // Kept from LLMs unless ticked.
             assert.match(await dialogText(dialog), /Allow MCP Access/u);
             await screenshot("10-new-msm-project-in-view");
-            await submitDialog(dialog, "Create", SERVER_TIMEOUT,
+            await submitDialog(dialog, "Create Project", SERVER_TIMEOUT,
                 "Creating the project...");
         });
 
@@ -163,6 +170,14 @@ describe("MSM Projects view", () => {
         await waitForAction(/^Created MSM project for schema msm_view/u);
         // Filed as asked; no MCP access, so only the version beside it.
         await waitForDescription(["Shop", CAPTION], "0.0.1");
+        await waitForAction(/^Set the custom license of msm_view/u);
+        const script = await waitFor(async () => {
+            const text = readFileSync(join(projectPath(), "development",
+                `${SCHEMA}_next.sql`), "utf8");
+
+            return text.includes(LICENSE_LINE) ? text : undefined;
+        }, "the custom license in the development script", SERVER_TIMEOUT);
+        assert.match(script!, /Copyright \(c\) \d{4}, UI Test/u);
     });
 
     it("shows the project's files, which open with a click", async () => {
@@ -208,7 +223,8 @@ describe("MSM Projects view", () => {
         await waitDialogClosed(title);
     });
 
-    it("edits the project, giving LLMs access", async () => {
+    it("edits the project: LLM access, the copyright's first year and an "
+        + "online schema change default", async () => {
         const title = `Edit MSM Project - ${SCHEMA}`;
         await menuAction(await view(), ["Shop", CAPTION],
             ["Edit MSM Project..."], async () => {
@@ -218,11 +234,24 @@ describe("MSM Projects view", () => {
         await inDialog(title, async (dialog) => {
             assert.equal(await fieldValue(dialog, "developmentVersion"),
                 "0.0.1");
-            assert.equal(await fieldValue(dialog, "folder"), "/Shop");
             await setField(dialog, "developmentVersion", "0.1.0");
+            await selectTab(dialog, "Copyright");
+            assert.equal(await fieldValue(dialog, "copyrights.0.yearOfCreation"),
+                YEAR);
+            await setField(dialog, "copyrights.0.yearOfCreation", FIRST_YEAR);
+            await screenshot("10-edit-msm-project-copyright");
+            await selectTab(dialog, "MSM Projects View");
+            assert.equal(await fieldValue(dialog, "folder"), "/Shop");
             await setField(dialog, "folder", "/");
             await setChecked(dialog, "mcpAccess", true);
             await screenshot("10-edit-msm-project");
+            await selectTab(dialog, "Online Schema Change");
+            // A new project's setting is msm's template: on, no limits.
+            assert.equal(await fieldValue(dialog, "onlineAlter.enabled"),
+                "on");
+            await setField(dialog, "onlineAlter.maxRebuildBytes", "2 GiB");
+            await selectOption(dialog, "onlineAlter.nboLock", "SHARED");
+            await screenshot("10-edit-msm-project-online");
             await submitDialog(dialog, "Update", SERVER_TIMEOUT,
                 "Updating the project...");
         });
@@ -230,6 +259,18 @@ describe("MSM Projects view", () => {
         await waitForAction(/^Updated MSM project msm_view/u);
         // At the top level now, and marked as reachable over MCP.
         await waitForDescription([CAPTION], "0.1.0 · MCP");
+        // One msm.set_project_settings wrote both, and rewrote the notice.
+        const settings = JSON.parse(readFileSync(
+            join(projectPath(), "msm.project.json"), "utf8")) as
+            { onlineAlter?: unknown; copyrights?: Array<{
+                yearOfCreation?: string; }>; };
+        assert.deepEqual(settings.onlineAlter, { enabled: true,
+            maxRebuildBytes: 2 * 1024 ** 3, nboLock: "SHARED" });
+        assert.equal(settings.copyrights?.[0]?.yearOfCreation, FIRST_YEAR);
+        const script = readFileSync(join(projectPath(), "development",
+            `${SCHEMA}_next.sql`), "utf8");
+        assert.match(script, new RegExp(
+            `Copyright \\(c\\) ${FIRST_YEAR}, ${YEAR}, `, "u"));
     });
 
     it("removes the project from the view, and the Explorer adds it back",

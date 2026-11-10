@@ -163,6 +163,12 @@ const setUp = (keep = false): IFake => {
 
             return Promise.resolve(["/work/shop.msm.project/development/x.sql"]);
         },
+        layoutSchemaDiagram: (_path: string, name: string) => {
+            calls.push(["layout", name]);
+
+            return Promise.resolve({ name, placed: ["a", "b"],
+                connections_added: 1, files: [] });
+        },
         renameSchemaDiagram: (_path: string, name: string, newName: string) => {
             calls.push(["rename", name, newName]);
 
@@ -483,6 +489,20 @@ describe("ProjectModelSource", () => {
         expect(fake.calls.slice(-2)).toEqual([["set", "Main"],
             ["rename", "Main", "Overview"]]);
         expect(await fake.drafts.list(PROJECT)).toEqual([]);
+    });
+
+    it("saves a diagram's changes before laying it out", async () => {
+        await fake.source.read();
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        try {
+            fake.source.changed(diagram("Main", 50));
+        } finally {
+            vi.useRealTimers();
+        }
+        await fake.source.layoutDiagram("Main");
+
+        expect(fake.calls.slice(-2)).toEqual([["set", "Main"],
+            ["layout", "Main"]]);
     });
 
     it("reads a picture msm left out", async () => {

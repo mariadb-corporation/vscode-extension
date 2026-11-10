@@ -204,7 +204,9 @@ export type ModelerWebviewMessage =
      */
     | { type: "pointerArrived"; x: number; y: number }
     /** A table card's menu: Edit Table, in the table editor. */
-    | { type: "editTable"; table: string };
+    | { type: "editTable"; table: string }
+    /** The toolbar's menu: Auto Layout, of a project's diagram. */
+    | { type: "layoutDiagram"; diagram: string };
 
 /** Messages from the extension to the viewer. */
 export type ModelerHostMessage =

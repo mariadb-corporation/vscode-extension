@@ -79,6 +79,20 @@ kept outside the repository.
   and they run one at a time per project (msm reads and writes the
   project's files, the connector does not serialize). One source per
   project (`projectSources` in `extension.ts`).
+- **Auto Layout** (a project's diagram only: a live schema's is not
+  saved): msm lays the diagram out again, `msm.layout_schema_diagram` with
+  `keep_placed: false` (every table, view, sequence and group figure; ones
+  on a layer, notes and images keep their place; foreign keys not drawn get
+  a connection). From the diagram row's menu in the MSM Projects view
+  (**Auto Layout Schema Diagram...**, `MSM_DIAGRAM_COMMANDS.layout`, after
+  Rename) and the toolbar's hamburger (**Auto Layout...**, shown where the
+  model is `editable`; the page posts `layoutDiagram`). Both go through
+  `layOutDiagram` in `modelerPanel.ts`: a modal first, as the places it
+  replaces cannot be restored (no undo: the panel reads the model again),
+  then `ProjectModelSource.layoutDiagram` (saves what waits, then the msm
+  call, an action of its own: "N figures placed, M connections added"),
+  then `ModelerPanel.reload`. The UI test lays it out both ways (the end of
+  `11-msm-diagrams`).
 - **The auto-store (the user's decision: "auto-store to a temporary
   location after each major change, so when VS Code is closed and
   re-opened, the edited diagrams can be restored").** After every history
@@ -343,8 +357,6 @@ shortcuts: see [modeler-view.md](modeler-view.md).
   view, the double-click, the pre-selected diagram, the Actions rows on
   the "Diagram" session, the Navigator's zoom list, layer moves with
   their tables and Option + drag.
-- A diagram row has the Diagrams folder's icon (`type-hierarchy-sub`)
-  until the user designs one of its own.
 - A project's diagrams are saved; a live schema's never are (their
   changes last the panel). The history is not shown anywhere yet. Tables
   and columns are renamed; new tables, views, procedures and foreign keys

@@ -41,6 +41,8 @@ import { memoryMemento } from "../../tree/customFolders.js";
 import { DEFAULT_PAGE_SETTINGS } from "../../modeler/pageSettings.js";
 import {
     errorMessages,
+    setWarningMessageAnswer,
+    warningMessageCalls,
     MockWebview,
     MockWebviewPanel,
     resetVscodeMock,
@@ -245,6 +247,36 @@ describe("ModelerPanel", () => {
             // Closed: nothing is up to follow.
             await ModelerPanel.renamed(from, "Other", "Else");
         });
+
+    it("lays the diagram out from the toolbar's menu once asked, and "
+        + "shows it again", async () => {
+        const laidOut: string[] = [];
+        const from = source("world", { layoutDiagram: (name: string) => {
+            laidOut.push(name);
+
+            return Promise.resolve();
+        } });
+        const panel = show("Main", from);
+        await ready(panel);
+        const reads = from.reads;
+
+        setWarningMessageAnswer(undefined);
+        (panel.webview as MockWebview).receive({ type: "layoutDiagram",
+            diagram: "Main" });
+        await flush();
+        expect(laidOut).toEqual([]);
+
+        setWarningMessageAnswer("Auto Layout");
+        (panel.webview as MockWebview).receive({ type: "layoutDiagram",
+            diagram: "Main" });
+        await flush();
+        expect(warningMessageCalls.at(-1)?.message)
+            .toBe("Lay out the diagram 'Main' automatically?");
+        expect(laidOut).toEqual(["Main"]);
+        expect(from.reads).toBe(reads + 1);
+        expect(posted(panel).at(-1)).toMatchObject({ type: "load",
+            diagram: "Main" });
+    });
 
     it("tells the page when the model cannot be read", async () => {
         const panel = show("MRS", source("world", {

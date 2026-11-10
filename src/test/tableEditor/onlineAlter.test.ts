@@ -19,12 +19,15 @@ import { describe, expect, it } from "vitest";
 
 import {
     entryKey,
+    generalOf,
     optionsOf,
     parseCount,
     parseSize,
     readTexts,
     sizeText,
     textsOf,
+    withGeneral,
+    withTable,
 } from "../../tableEditor/onlineAlter.js";
 import {
     ONLINE_ALTER_KEY,
@@ -72,8 +75,12 @@ describe("online ALTER TABLE settings", () => {
             maxRetries: "x", maxLockedBytes: "unlimited", nboLock: "SHARED" });
         expect(bad.entry).toMatchObject({ maxLockedBytes: null,
             nboLock: "SHARED" });
-        expect(bad.problems).toHaveLength(2);
-        expect(bad.problems[0]).toContain("Galera tables up to");
+        expect(bad.problems.map((problem) => { return problem.key; }))
+            .toEqual(["galeraMaxBytes", "maxRetries"]);
+        expect(bad.problems[0].message).toContain("Galera tables up to");
+        // msm waits a second at least.
+        expect(readTexts({ ...texts, lockWait: "0" }).problems[0]?.message)
+            .toMatch(/not a number of seconds from 1/u);
     });
 
     it("tells entries apart by their values, not their key order", () => {
@@ -83,6 +90,23 @@ describe("online ALTER TABLE settings", () => {
             .not.toBe(entryKey({}));
         expect(optionsOf({ enabled: true, lockWait: 5 }))
             .toEqual({ lockWait: 5 });
+    });
+
+    it("changes one part of the whole setting, keeping the rest", () => {
+        const setting = { enabled: true, lockWait: 9,
+            tables: { orders: { enabled: false } } };
+
+        expect(generalOf(setting)).toEqual({ enabled: true, lockWait: 9 });
+        expect(withGeneral(setting, { maxRetries: 1 })).toEqual(
+            { maxRetries: 1, tables: { orders: { enabled: false } } });
+        expect(withTable(setting, "items", { lockWait: 1 })).toEqual({
+            enabled: true, lockWait: 9,
+            tables: { orders: { enabled: false }, items: { lockWait: 1 } } });
+        // The last table's entry dropped leaves no tables at all.
+        expect(withTable(setting, "orders", null))
+            .toEqual({ enabled: true, lockWait: 9 });
+        expect(withTable(setting, "orders", {}))
+            .toEqual({ enabled: true, lockWait: 9 });
     });
 });
 

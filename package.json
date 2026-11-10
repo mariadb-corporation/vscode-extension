@@ -1216,6 +1216,11 @@
         "category": "MariaDB"
       },
       {
+        "command": "mariadb.msm.layoutSchemaDiagram",
+        "title": "Auto Layout Schema Diagram...",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.msm.deleteSchemaDiagram",
         "title": "Delete Schema Diagram...",
         "category": "MariaDB"
@@ -1958,9 +1963,14 @@
           "group": "1_edit@0"
         },
         {
-          "command": "mariadb.msm.deleteSchemaDiagram",
+          "command": "mariadb.msm.layoutSchemaDiagram",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmDiagram",
           "group": "1_edit@1"
+        },
+        {
+          "command": "mariadb.msm.deleteSchemaDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmDiagram",
+          "group": "1_edit@2"
         },
         {
           "command": "mariadb.msm.newSchemaDiagram",
@@ -2065,6 +2075,10 @@
       "commandPalette": [
         {
           "command": "mariadb.msm.renameSchemaDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.layoutSchemaDiagram",
           "when": "false"
         },
         {

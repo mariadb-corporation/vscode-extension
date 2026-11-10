@@ -190,6 +190,8 @@ export const MSM_DIAGRAM_COMMANDS = {
     create: "mariadb.msm.newSchemaDiagram",
     /** Renames a diagram, from its row. */
     rename: "mariadb.msm.renameSchemaDiagram",
+    /** Lays a diagram out again, once confirmed; from its row. */
+    layout: "mariadb.msm.layoutSchemaDiagram",
     /** Deletes a diagram from its project, once confirmed; from its row. */
     remove: "mariadb.msm.deleteSchemaDiagram",
 } as const;

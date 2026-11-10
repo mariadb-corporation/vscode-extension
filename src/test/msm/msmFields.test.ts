@@ -18,8 +18,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    copyrightsProblem,
+    copyrightYears,
     createDefaults,
     createProblem,
+    CUSTOM_LICENSE_START,
+    customLicenseProblem,
     deployDefaults,
     deploymentScriptDefaults,
     deploymentScriptProblem,
@@ -31,6 +35,8 @@ import {
     projectFolderName,
     releaseDefaults,
     releaseProblem,
+    storedCopyrights,
+    type IMsmCopyrightValues,
     type IMsmCreateValues,
     type IMsmProjectContext,
 } from "../../msm/msmFields.js";
@@ -39,7 +45,9 @@ const PROJECT: IMsmProjectContext = {
     projectPath: "/work/sakila.msm.project",
     schemaName: "sakila",
     license: "MIT",
-    copyrightHolders: ["Ada"],
+    customLicense: "",
+    copyrights: [{ holder: "Ada", yearOfCreation: "2024",
+        yearOfLastUpdate: "", tracksUpdates: true }],
     currentDevelopmentVersion: "1.0.1",
     lastReleasedVersion: "1.0.0",
     releasedVersions: ["0.9.0", "1.0.0"],
@@ -100,6 +108,8 @@ describe("New MSM Project", () => {
     it("starts in the folder it was opened on, with no license", () => {
         expect(createDefaults("/work")).toEqual({
             schemaName: "", targetPath: "/work", copyrightHolder: "",
+            yearOfCreation: String(new Date().getFullYear()),
+            customLicense: CUSTOM_LICENSE_START,
             license: "None", allowSpecialChars: false,
             overwriteExisting: false, createTargetPath: false,
             // At the top of the MSM Projects view, kept from LLMs.
@@ -156,6 +166,79 @@ describe("New MSM Project", () => {
             .toBe("targetPath");
         expect(createProblem(create({ copyrightHolder: "" }))?.field)
             .toBe("copyrightHolder");
+    });
+
+    it("takes an earlier year of creation, but none to come", () => {
+        expect(createProblem(create({ yearOfCreation: "2019" })))
+            .toBeUndefined();
+        for (const year of ["19", "twenty", "2999"]) {
+            expect(createProblem(create({ yearOfCreation: year }))?.field)
+                .toBe("yearOfCreation");
+        }
+    });
+});
+
+describe("custom licenses", () => {
+    it("starts with a text msm takes", () => {
+        expect(customLicenseProblem(CUSTOM_LICENSE_START)).toBeUndefined();
+    });
+
+    it("takes msm's placeholders, $$ and line comments", () => {
+        expect(customLicenseProblem("-- (c) $year ${copyright_holder}, $$5\n"
+            + "# ${copyright_notices}")).toBeUndefined();
+    });
+
+    it("refuses what msm, or a script, would not take", () => {
+        expect(customLicenseProblem(" ")).toMatch(/Enter the license's text/u);
+        expect(customLicenseProblem("/* ${author} */"))
+            .toMatch(/does not fill \$\{author\}/u);
+        expect(customLicenseProblem("/* costs $ 5 */"))
+            .toMatch(/write \$\$ for a \$/u);
+        expect(customLicenseProblem("MIT License"))
+            .toMatch(/has to be an SQL comment/u);
+    });
+
+    it("checks the text only for a custom license", () => {
+        expect(createProblem(create({ license: "MIT", customLicense: "" })))
+            .toBeUndefined();
+        expect(createProblem(create({ license: "CUSTOM",
+            customLicense: "" }))?.field).toBe("customLicense");
+    });
+});
+
+describe("copyrights", () => {
+    const ADA: IMsmCopyrightValues = { holder: "Ada", yearOfCreation: "2024",
+        yearOfLastUpdate: "", tracksUpdates: true };
+
+    it("names the years as the notice does", () => {
+        expect(copyrightYears(ADA)).toBe("2024");
+        expect(copyrightYears({ ...ADA, yearOfLastUpdate: "2024" }))
+            .toBe("2024");
+        expect(copyrightYears({ ...ADA, yearOfLastUpdate: "2026" }))
+            .toBe("2024, 2026");
+    });
+
+    it("refuses what msm would, by its field", () => {
+        expect(copyrightsProblem([ADA])).toBeUndefined();
+        expect(copyrightsProblem([])?.field).toBe("copyrights");
+        expect(copyrightsProblem([ADA, { ...ADA, holder: " " }])?.field)
+            .toBe("copyrights.1.holder");
+        expect(copyrightsProblem([{ ...ADA, yearOfCreation: "24" }])?.field)
+            .toBe("copyrights.0.yearOfCreation");
+        expect(copyrightsProblem([{ ...ADA, yearOfLastUpdate: "2999" }])
+            ?.message).toMatch(/2999 lies in the future/u);
+        expect(copyrightsProblem([{ ...ADA, yearOfLastUpdate: "2023" }])
+            ?.message).toMatch(/cannot be before the first, 2024/u);
+    });
+
+    it("stores them trimmed, without an empty last year", () => {
+        expect(storedCopyrights([{ ...ADA, holder: " Ada " },
+            { ...ADA, yearOfLastUpdate: " 2025 ", tracksUpdates: false }]))
+            .toEqual([
+                { holder: "Ada", yearOfCreation: "2024", tracksUpdates: true },
+                { holder: "Ada", yearOfCreation: "2024",
+                    yearOfLastUpdate: "2025", tracksUpdates: false },
+            ]);
     });
 });
 

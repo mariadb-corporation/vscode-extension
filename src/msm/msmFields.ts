@@ -20,6 +20,14 @@ import {
     isConnectionColor,
 } from "../connections/connectionDetails.js";
 import type { ConnectionColor } from "../mcp/types.js";
+import type { IMsmCopyright } from "../mcp/msmApi.js";
+import {
+    type IOnlineAlterEntry,
+    type IOnlineAlterOptions,
+    type OnlineAlterTexts,
+    readTexts,
+    textsOf,
+} from "../tableEditor/onlineAlter.js";
 import { compareVersions, newestFirst } from "../versionOrder.js";
 
 /**
@@ -52,14 +60,31 @@ export interface IMsmConnectionChoice {
     label: string;
 }
 
+/**
+ * A copyright of a project, as msm.project.json has it: who holds it,
+ * and the years its notice names (`2024, 2026`).
+ */
+export interface IMsmCopyrightValues {
+    holder: string;
+    /** `2024`. */
+    yearOfCreation: string;
+    /** "" where the notice names the first year alone. */
+    yearOfLastUpdate: string;
+    /** Whether msm moves the last year on with each year's first change. */
+    tracksUpdates: boolean;
+}
+
 /** What a dialog is opened on: the project, as the server reads it. */
 export interface IMsmProjectContext {
     /** The `<schema>.msm.project` folder. */
     projectPath: string;
     schemaName: string;
+    /** A template's name, or {@link CUSTOM_LICENSE}. */
     license: string;
-    /** Every copyright holder, in the order the project lists them. */
-    copyrightHolders: string[];
+    /** The text of a custom license; "" for none. */
+    customLicense: string;
+    /** Every copyright, in the order the project lists them. */
+    copyrights: IMsmCopyrightValues[];
     currentDevelopmentVersion: string;
     /** "1.0.0", or undefined before the first release. */
     lastReleasedVersion?: string;
@@ -90,7 +115,11 @@ export interface IMsmCreateValues extends IMsmListValues {
     /** The folder the project folder is made in. */
     targetPath: string;
     copyrightHolder: string;
+    /** The copyright's first year: `2024`. */
+    yearOfCreation: string;
     license: string;
+    /** The license's text, where `license` is {@link CUSTOM_LICENSE}. */
+    customLicense: string;
     allowSpecialChars: boolean;
     /** Replace a project folder of the same name. */
     overwriteExisting: boolean;
@@ -101,6 +130,30 @@ export interface IMsmCreateValues extends IMsmListValues {
 /** What Edit MSM Project asks for. */
 export interface IMsmEditValues extends IMsmListValues {
     developmentVersion: string;
+    license: string;
+    /** The license's text, where `license` is {@link CUSTOM_LICENSE}. */
+    customLicense: string;
+    /** The project's copyrights, the first its main one. */
+    copyrights: IMsmCopyrightValues[];
+    /**
+     * The project's general online ALTER TABLE values (msm.project.json's
+     * `onlineAlter`, not its tables'), as typed; a field left empty takes
+     * msm's default.
+     */
+    onlineAlter: OnlineAlterTexts;
+}
+
+/**
+ * What Edit MSM Project's Online Schema Change tab shows of the project's
+ * `onlineAlter` setting.
+ */
+export interface IMsmOnlineAlterContext {
+    /** msm's values, where the project sets none. */
+    defaults: Required<IOnlineAlterOptions>;
+    /** The project's general values, without the tables'. */
+    setting: IOnlineAlterEntry;
+    /** The tables with settings of their own, which take precedence. */
+    tables: string[];
 }
 
 /** What Prepare Release asks for. */
@@ -303,6 +356,190 @@ export const listProblem = (
     return undefined;
 };
 
+// --- Licenses ----------------------------------------------------------
+
+/** msm's name for a license whose text the project holds itself. */
+export const CUSTOM_LICENSE = "CUSTOM";
+
+/** The placeholders msm fills in a license's text. */
+export const LICENSE_PLACEHOLDERS = ["copyright_notices", "copyright_holder",
+    "year"] as const;
+
+/**
+ * What a custom license's text starts with: a comment, as every script's
+ * header is one, with the copyright notices at its top.
+ */
+export const CUSTOM_LICENSE_START = "/*\n${copyright_notices}\n *\n"
+    + " * The terms the project's scripts are licensed under.\n */";
+
+/**
+ * @param text A custom license's text.
+ *
+ * @returns Why msm would refuse it, or why the scripts would not run with
+ *          it: a placeholder msm does not fill (it reads `$name` and
+ *          `${name}`, and `$$` as a `$`), or no SQL comment.
+ */
+export const customLicenseProblem = (text: string): string | undefined => {
+    const trimmed = text.trim();
+    if (trimmed === "") {
+        return "Enter the license's text.";
+    }
+    // As Python's string.Template reads it.
+    for (const match of text.matchAll(
+        /\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\}|)/giu)) {
+        const name = match[2] ?? match[3];
+        if (match[1] === "$") {
+            continue;
+        }
+        if (name === undefined) {
+            return "A $ has to start a placeholder, ${copyright_notices}, "
+                + "${copyright_holder} or ${year}; write $$ for a $ itself.";
+        }
+        if (!(LICENSE_PLACEHOLDERS as readonly string[]).includes(name)) {
+            return `msm does not fill \${${name}}: use `
+                + "${copyright_notices}, ${copyright_holder} or ${year}.";
+        }
+    }
+    const lines = trimmed.split("\n").filter((line) => {
+        return line.trim() !== "";
+    });
+    const isComment = (trimmed.startsWith("/*") && trimmed.endsWith("*/"))
+        || lines.every((line) => { return /^\s*(--|#)/u.test(line); });
+    if (!isComment) {
+        return "The text goes at the top of every script, so it has to be an "
+            + "SQL comment: /* ... */, or lines starting with --.";
+    }
+
+    return undefined;
+};
+
+/**
+ * @param values A dialog's license.
+ *
+ * @returns Why its custom text is refused, on the text's field.
+ */
+const licenseProblem = (values: { license: string; customLicense: string },
+): IMsmProblem | undefined => {
+    if (values.license !== CUSTOM_LICENSE) {
+        return undefined;
+    }
+    const message = customLicenseProblem(values.customLicense);
+
+    return message === undefined ? undefined
+        : { field: "customLicense", message };
+};
+
+// --- Copyright years ---------------------------------------------------
+
+/** @returns This year, as msm writes it into a notice: `2026`. */
+export const currentYear = (): string => {
+    return String(new Date().getFullYear());
+};
+
+/**
+ * @param copyright A copyright.
+ *
+ * @returns The years its notice names, as msm writes them: `2024, 2026`.
+ */
+export const copyrightYears = (copyright: IMsmCopyrightValues): string => {
+    const first = copyright.yearOfCreation.trim();
+    const last = copyright.yearOfLastUpdate.trim();
+
+    return last === "" || last === first ? first : `${first}, ${last}`;
+};
+
+/**
+ * @param index A copyright's place in the list.
+ * @param key One of its values.
+ *
+ * @returns Its field's name in Edit MSM Project: `copyrights.0.holder`.
+ */
+export const copyrightField = (index: number,
+    key: keyof IMsmCopyrightValues): string => {
+    return `copyrights.${index}.${key}`;
+};
+
+/**
+ * @param text A year field.
+ * @param field Its name.
+ * @param what What it is, for the message.
+ *
+ * @returns Why it is no year msm takes: four digits, not in the future.
+ */
+const yearProblem = (text: string, field: string,
+    what: string): IMsmProblem | undefined => {
+    const year = text.trim();
+    if (!/^\d{4}$/u.test(year)) {
+        return { field, message: `Enter the ${what} as four digits: `
+            + `${currentYear()}.` };
+    }
+    if (year > currentYear()) {
+        return { field, message: `The ${what} ${year} lies in the future.` };
+    }
+
+    return undefined;
+};
+
+/**
+ * @param copyrights The copyrights of Edit MSM Project.
+ *
+ * @returns The first that msm would refuse: a holder or year missing, a
+ *          year in the future, or a last year before the first.
+ */
+export const copyrightsProblem = (
+    copyrights: IMsmCopyrightValues[],
+): IMsmProblem | undefined => {
+    if (copyrights.length === 0) {
+        return { field: "copyrights",
+            message: "A project needs a copyright holder. Add one." };
+    }
+    for (const [index, copyright] of copyrights.entries()) {
+        const field = (name: keyof IMsmCopyrightValues): string => {
+            return copyrightField(index, name);
+        };
+        if (copyright.holder.trim() === "") {
+            return { field: field("holder"),
+                message: "Enter the copyright holder." };
+        }
+        const problem = yearProblem(copyright.yearOfCreation,
+            field("yearOfCreation"), "first year")
+            ?? (copyright.yearOfLastUpdate.trim() === "" ? undefined
+                : yearProblem(copyright.yearOfLastUpdate,
+                    field("yearOfLastUpdate"), "last year"));
+        if (problem !== undefined) {
+            return problem;
+        }
+        const first = copyright.yearOfCreation.trim();
+        const last = copyright.yearOfLastUpdate.trim();
+        if (last !== "" && last < first) {
+            return { field: field("yearOfLastUpdate"),
+                message: `The last year cannot be before the first, ${first}.` };
+        }
+    }
+
+    return undefined;
+};
+
+/**
+ * @param copyrights Copyrights as typed.
+ *
+ * @returns Them as msm.project.json has them: trimmed, a last year left
+ *          out where there is none.
+ */
+export const storedCopyrights = (copyrights: IMsmCopyrightValues[],
+): IMsmCopyright[] => {
+    return copyrights.map((copyright) => {
+        const last = copyright.yearOfLastUpdate.trim();
+
+        return {
+            holder: copyright.holder.trim(),
+            yearOfCreation: copyright.yearOfCreation.trim(),
+            ...(last === "" ? {} : { yearOfLastUpdate: last }),
+            tracksUpdates: copyright.tracksUpdates,
+        };
+    });
+};
+
 // --- New MSM Project ---------------------------------------------------
 
 /**
@@ -323,7 +560,9 @@ export const createDefaults = (
         schemaName,
         targetPath: folder,
         copyrightHolder: "",
+        yearOfCreation: currentYear(),
         license: "None",
+        customLicense: CUSTOM_LICENSE_START,
         allowSpecialChars: false,
         overwriteExisting: false,
         createTargetPath: false,
@@ -371,17 +610,25 @@ export const createProblem = (
             message: "The name leaves nothing to name the project folder by.",
         };
     }
-    if (values.targetPath.trim() === "") {
-        return {
-            field: "targetPath",
-            message: "Choose the folder to create the project in.",
-        };
-    }
+    // In the order of the wizard's pages (Project, Location, MSM Projects
+    // View), so the first problem is never on a page after one that has a
+    // problem too: Next goes on while the first problem is further on.
     if (values.copyrightHolder.trim() === "") {
         return {
             field: "copyrightHolder",
             message: "Enter the copyright holder: your name, or your "
                 + "company's.",
+        };
+    }
+    const year = yearProblem(values.yearOfCreation, "yearOfCreation",
+        "year of creation") ?? licenseProblem(values);
+    if (year !== undefined) {
+        return year;
+    }
+    if (values.targetPath.trim() === "") {
+        return {
+            field: "targetPath",
+            message: "Choose the folder to create the project in.",
         };
     }
 
@@ -399,11 +646,42 @@ export const createProblem = (
 export const editDefaults = (
     project: IMsmProjectContext,
     listed: IMsmListValues,
+    onlineAlter: IOnlineAlterEntry = {},
 ): IMsmEditValues => {
     return {
         ...listed,
         developmentVersion: project.currentDevelopmentVersion,
+        license: project.license,
+        customLicense: project.customLicense === ""
+            ? CUSTOM_LICENSE_START : project.customLicense,
+        copyrights: project.copyrights.map((copyright) => {
+            return { ...copyright };
+        }),
+        onlineAlter: textsOf(onlineAlter),
     };
+};
+
+/**
+ * @param key An online ALTER TABLE value.
+ *
+ * @returns Its field's name in Edit MSM Project.
+ */
+export const onlineAlterField = (key: keyof OnlineAlterTexts): string => {
+    return `onlineAlter.${key}`;
+};
+
+/**
+ * @param texts The Online Schema Change tab's fields.
+ *
+ * @returns The first that is no value, as msm would refuse it.
+ */
+export const onlineAlterProblem = (
+    texts: OnlineAlterTexts,
+): IMsmProblem | undefined => {
+    const [first] = readTexts(texts).problems;
+
+    return first === undefined ? undefined
+        : { field: onlineAlterField(first.key), message: first.message };
 };
 
 /**
@@ -431,7 +709,10 @@ export const editProblem = (
         };
     }
 
-    return listProblem(values);
+    // In the order of the tabs.
+    return licenseProblem(values) ?? copyrightsProblem(values.copyrights)
+        ?? listProblem(values)
+        ?? onlineAlterProblem(values.onlineAlter);
 };
 
 // --- Prepare Release ---------------------------------------------------

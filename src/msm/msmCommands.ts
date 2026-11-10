@@ -34,6 +34,7 @@ import { reportError } from "../errorMessages.js";
 import { pathExists } from "../shell/nodeRuntime.js";
 import {
     MSM_LICENSES,
+    changedOnlineAlter,
     msmToolArgs,
     type IMsmApi,
     type IMsmCreateOptions,
@@ -42,12 +43,15 @@ import {
     type IMsmListedProject,
     type IMsmProjectDetails,
     type IMsmProjectInfo,
+    type IMsmProjectSettings,
     type IMsmReleaseOptions,
 } from "../mcp/msmApi.js";
 import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
 import { counted, errorText } from "../text.js";
 import {
     createDefaults,
+    currentYear,
+    CUSTOM_LICENSE,
     deployDefaults,
     deploymentScriptDefaults,
     editDefaults,
@@ -56,16 +60,25 @@ import {
     projectFolderName,
     releaseDefaults,
     schemaNameOfFolder,
+    storedCopyrights,
     type IMsmCreateValues,
     type IMsmEditValues,
     type IMsmListValues,
     type IMsmDeploymentScriptValues,
     type IMsmDeployValues,
+    type IMsmOnlineAlterContext,
     type IMsmProblem,
     type IMsmProjectContext,
     type IMsmReleaseValues,
     type MsmDialogKind,
 } from "./msmFields.js";
+import {
+    entryKey,
+    generalOf,
+    type IOnlineAlterEntry,
+    readTexts,
+    withGeneral,
+} from "../tableEditor/onlineAlter.js";
 import { pickFolder } from "../webview/dialogPanel.js";
 import {
     msmFolderOf,
@@ -296,17 +309,32 @@ export const projectContext = (
     released: string[],
     scripts: string[],
 ): IMsmProjectContext => {
-    const holders = (info.copyrights ?? []).map((copyright) => {
-        return copyright.holder;
-    }).filter((holder) => { return holder !== ""; });
+    const year = info.yearOfCreation ?? currentYear();
+    const listed = (info.copyrights ?? []).filter((copyright) => {
+        return copyright.holder !== "";
+    });
+    // An older msm, or project, has the one holder alone.
+    const stored = listed.length > 0 || info.copyrightHolder === undefined
+        || info.copyrightHolder === "" ? listed
+        : [{ holder: info.copyrightHolder, yearOfCreation: year }];
+    const copyrights = stored.map((copyright) => {
+        return {
+            holder: copyright.holder,
+            yearOfCreation: String(copyright.yearOfCreation ?? year),
+            yearOfLastUpdate: copyright.yearOfLastUpdate === undefined
+                ? "" : String(copyright.yearOfLastUpdate),
+            tracksUpdates: copyright.tracksUpdates ?? false,
+        };
+    });
 
     return {
         projectPath,
         schemaName: info.schemaName,
-        license: info.license ?? "None",
-        copyrightHolders: holders.length > 0 ? holders
-            : info.copyrightHolder === undefined || info.copyrightHolder === ""
-                ? [] : [info.copyrightHolder],
+        // msm reads the name in any case.
+        license: info.license?.toUpperCase() === CUSTOM_LICENSE
+            ? CUSTOM_LICENSE : info.license ?? "None",
+        customLicense: info.customLicense ?? "",
+        copyrights,
         currentDevelopmentVersion: info.currentDevelopmentVersion,
         ...(info.lastReleasedVersion === null
             ? {} : { lastReleasedVersion: info.lastReleasedVersion }),
@@ -553,24 +581,53 @@ export class MsmCommands {
             throw new Error(`${basename(projectPath)} is not in the MSM `
                 + "Projects view. Add it there first.");
         }
-        const [project, folders] = await Promise.all([
+        const [project, folders, online] = await Promise.all([
             this.#read(projectPath), this.#folders(),
+            this.#onlineAlter(projectPath),
         ]);
         const before = listValuesOf(listed);
         const title = `${MSM_TITLES.edit} - ${project.schemaName}`;
+        const general = "context" in online ? online.context.setting
+            : undefined;
         MsmDialogPanel.show(this.host.extensionUri, {
             kind: "edit",
             title,
             project,
-            values: editDefaults(project, before),
+            values: editDefaults(project, before, general),
+            licenses: MSM_LICENSES,
             folders,
+            ...("context" in online ? { onlineAlter: online.context }
+                : { onlineAlterProblem: online.problem }),
         }, {
             submit: (values) => {
-                return this.#update(project, before, values);
+                return this.#update(project, before, values, general);
             },
             onFailed: () => { this.host.showActions(GENERAL_ACTIONS); },
             log: this.host.log,
         });
+    }
+
+    /**
+     * @param projectPath The project folder.
+     *
+     * @returns Its online ALTER TABLE setting, for Edit MSM Project's
+     *          Online Schema Change tab; or why msm gave none.
+     */
+    async #onlineAlter(projectPath: string): Promise<
+        { context: IMsmOnlineAlterContext } | { problem: string }> {
+        try {
+            const read = await (await this.host.msmApi())
+                .getOnlineAlterSettings(projectPath);
+
+            return { context: {
+                defaults: read.defaults,
+                setting: generalOf(read.setting),
+                tables: Object.keys(read.setting.tables ?? {}).sort(),
+            } };
+        } catch (error) {
+            return { problem: "Online schema change settings need a "
+                + `MariaDB Shell whose msm has them: ${errorText(error)}` };
+        }
     }
 
     /**
@@ -592,14 +649,30 @@ export class MsmCommands {
      * @param project The project, as read.
      * @param before How the list had it.
      * @param values What Edit MSM Project says.
+     * @param onlineBefore The project's general online ALTER TABLE
+     *                     values, as read; undefined where msm gave none,
+     *                     which leaves them as they are.
      */
     async #update(
         project: IMsmProjectContext,
         before: IMsmListValues,
         values: IMsmEditValues,
+        onlineBefore?: IOnlineAlterEntry,
     ): Promise<void> {
         const version = values.developmentVersion.trim();
         const details = changedDetails(values, before);
+        const online = readTexts(values.onlineAlter).entry;
+        const onlineChanged = onlineBefore !== undefined
+            && entryKey(online) !== entryKey(onlineBefore);
+        const copyrights = storedCopyrights(values.copyrights);
+        const copyrightsChanged = JSON.stringify(copyrights)
+            !== JSON.stringify(storedCopyrights(project.copyrights));
+        // A template drops the text; msm wants both in one call.
+        const license = values.license === CUSTOM_LICENSE
+            ? { license: CUSTOM_LICENSE, customLicense: values.customLicense }
+            : { license: values.license, customLicense: null };
+        const licenseChanged = license.license !== project.license
+            || (license.customLicense ?? "") !== project.customLicense;
         const words = {
             doing: `Updating MSM project ${project.schemaName}`,
             done: `Updated MSM project ${project.schemaName}`,
@@ -628,6 +701,35 @@ export class MsmCommands {
                     async () => {
                         return (await this.host.msmApi()).updateProject(
                             projectPath, details);
+                    });
+                }
+                // One call for what msm.project.json holds, with what
+                // changed; the online setting as a whole, read just now.
+                if (onlineChanged || copyrightsChanged || licenseChanged) {
+                    const api = await this.host.msmApi();
+                    const onlineAlter = onlineChanged ? await group.step({
+                        doing: "Reading the online ALTER TABLE setting",
+                        done: "Read the online ALTER TABLE setting",
+                    }, msmCall("msm.get_online_alter_settings",
+                        msmToolArgs.getOnlineAlterSettings(projectPath)),
+                    () => {
+                        return changedOnlineAlter(api, projectPath,
+                            (setting) => {
+                                return withGeneral(setting, online);
+                            });
+                    }) : undefined;
+                    const settings: IMsmProjectSettings = {
+                        ...(licenseChanged ? license : {}),
+                        ...(copyrightsChanged ? { copyrights } : {}),
+                        ...(onlineAlter === undefined ? {} : { onlineAlter }),
+                    };
+                    await group.step({
+                        doing: "Writing the project settings",
+                        done: "Wrote the project settings",
+                    }, msmCall("msm.set_project_settings",
+                        msmToolArgs.setProjectSettings(projectPath,
+                            settings)), () => {
+                        return api.setProjectSettings(projectPath, settings);
                     });
                 }
             }, () => { return projectPath; });
@@ -896,12 +998,16 @@ export class MsmCommands {
         // caption or color - is sent.
         const folder = normalizeFolder(values.folder);
         const caption = values.caption.trim();
+        // msm creates no project with a license text: it is made with
+        // none, then given the text.
+        const custom = values.license === CUSTOM_LICENSE;
         const options: IMsmCreateOptions = {
             schemaName, targetPath, copyrightHolder,
-            license: values.license,
+            license: custom ? "None" : values.license,
             allowSpecialChars: values.allowSpecialChars,
             overwriteExisting: values.overwriteExisting,
             enforceTargetPath: values.createTargetPath,
+            yearOfCreation: values.yearOfCreation.trim(),
             mcpAccess: values.mcpAccess,
             ...(folder === ROOT_FOLDER ? {} : { folder }),
             ...(caption === "" ? {} : { caption }),
@@ -922,6 +1028,10 @@ export class MsmCommands {
         // its development script, is not the creation failing - pressing
         // Create again would be refused, the folder being there.
         this.#afterwards(async () => {
+            if (custom) {
+                await this.#setCustomLicense(projectPath,
+                    values.customLicense);
+            }
             const info = await this.#readBack(projectPath);
             await this.#showFile(info.schemaDevelopmentFilePath);
             if (from === "view") {
@@ -929,6 +1039,33 @@ export class MsmCommands {
             } else {
                 await this.#reveal(projectPath);
             }
+        });
+    }
+
+    /**
+     * Gives a project just created its custom license, as an action of its
+     * own: the project is made already, with none, should this fail.
+     *
+     * @param projectPath The project folder.
+     * @param text The license's text.
+     */
+    async #setCustomLicense(projectPath: string, text: string): Promise<void> {
+        const name = basename(projectPath);
+        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, {
+            doing: `Setting the custom license of ${name}`,
+            done: `Set the custom license of ${name}`,
+        });
+        const settings = { license: CUSTOM_LICENSE, customLicense: text };
+        await group.run(() => {
+            return group.step({
+                doing: "Writing the project settings",
+                done: "Wrote the project settings",
+            }, msmCall("msm.set_project_settings",
+                msmToolArgs.setProjectSettings(projectPath, settings)),
+            async () => {
+                return (await this.host.msmApi()).setProjectSettings(
+                    projectPath, settings);
+            });
         });
     }
 

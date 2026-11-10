@@ -59,8 +59,59 @@
     overflow-wrap: anywhere;
 }
 
-/* --- the MSM Projects view's settings of New and Edit MSM Project -------- */
+/* --- New MSM Project's wizard ------------------------------------------ */
 
-.msm-list .grid {
+/* A step already done, which goes back to its page. */
+.wizard-step {
     padding: 0;
+    border: none;
+    background: none;
+    color: var(--vscode-textLink-foreground);
+    font: inherit;
+    cursor: pointer;
+}
+
+.wizard-step:hover {
+    text-decoration: underline;
+}
+
+.wizard-step:disabled {
+    color: inherit;
+    cursor: default;
+    text-decoration: none;
+}
+
+/* Edit MSM Project's Copyright tab: a row per holder. */
+.msm-copyrights {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.msm-copyright-grid {
+    display: grid;
+    grid-template-columns: minmax(10rem, 1fr) 6rem 6rem max-content max-content;
+    align-items: center;
+    gap: 6px 10px;
+}
+
+.msm-copyright-grid input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.msm-copyright-grid .checkbox {
+    justify-content: center;
+}
+
+/* A custom license's text, as the scripts' headers show it. */
+.msm-license {
+    box-sizing: border-box;
+    resize: vertical;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+}
+
+.msm-license.invalid {
+    border-color: var(--vscode-inputValidation-errorBorder);
 }

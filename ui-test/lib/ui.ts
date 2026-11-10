@@ -507,6 +507,37 @@ export const inlineAction = async (
     await button.click();
 };
 
+/**
+ * Presses a button of a view's toolbar: in the side bar's title, where
+ * the view is alone in its container (its section's header is there but
+ * hidden); in its section's header, should another view join it.
+ *
+ * @param section The view.
+ * @param label The button's tooltip.
+ *
+ * @returns Nothing.
+ */
+export const viewAction = async (
+    section: CustomTreeSection,
+    label: string,
+): Promise<void> => {
+    const action = await waitFor(async () => {
+        // Matched among the buttons there are: the title part's
+        // getAction(label) never answers undefined, but a button made from
+        // the label, which a click then fails to find where the view shares
+        // its container and has its own header.
+        for (const button of await new SideBarView().getTitlePart()
+            .getActions()) {
+            if (await button.getTitle() === label) {
+                return button;
+            }
+        }
+
+        return await section.getAction(label);
+    }, `the toolbar button ${label}`);
+    await action!.click();
+};
+
 // --- the Explorer -------------------------------------------------------
 
 /**

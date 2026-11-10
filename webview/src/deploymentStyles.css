@@ -30,33 +30,6 @@
     line-height: 1.4;
 }
 
-/* --- the steps above the page ----------------------------------------- */
-
-.wizard-steps {
-    display: flex;
-    gap: 1.5rem;
-    margin: 0;
-    padding: 0 0 0.5rem;
-    list-style: none;
-    counter-reset: step;
-    border-bottom: 1px solid var(--vscode-panel-border,
-            var(--vscode-editorWidget-border));
-}
-
-.wizard-steps li {
-    counter-increment: step;
-    color: var(--vscode-descriptionForeground);
-}
-
-.wizard-steps li::before {
-    content: counter(step) ". ";
-}
-
-.wizard-steps li.current {
-    color: var(--vscode-foreground);
-    font-weight: 600;
-}
-
 /* --- the page and its choices ------------------------------------------ */
 
 .wizard-page {

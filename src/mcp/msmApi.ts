@@ -27,8 +27,8 @@ import type {
     IDiagramRow,
 } from "../modeler/modelFormat.js";
 import type {
-    IOnlineAlterEntry,
     IOnlineAlterOptions,
+    IOnlineAlterSetting,
 } from "../tableEditor/onlineAlter.js";
 import type { ITaskStarted } from "./taskApi.js";
 import { CONNECTION_COLORS, type ConnectionColor } from "./types.js";
@@ -76,6 +76,8 @@ export interface IMsmCreateOptions {
     allowSpecialChars?: boolean;
     /** Make `targetPath` where it does not exist yet. */
     enforceTargetPath?: boolean;
+    /** The copyright's first year, `2024`; left out, the current one. */
+    yearOfCreation?: string;
     /**
      * Whether LLMs may work on it through an MCP server without `--gui`;
      * left out, they may not.
@@ -166,14 +168,59 @@ export const MSM_LICENSES = ["None", "BSD", "GPL-2.0", "MIT"] as const;
  */
 export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * The settings of msm.project.json that `msm.set_project_settings`
+ * writes; only those given change.
+ */
+export interface IMsmProjectSettings {
+    /** Every holder, the first one the project's main one. */
+    copyrights?: IMsmCopyright[];
+    /** A template's name, or CUSTOM with `customLicense` in one call. */
+    license?: string;
+    /** The text of a CUSTOM license; null drops it, for a template. */
+    customLicense?: string | null;
+    /** The whole setting, the tables' entries too; null for msm's. */
+    onlineAlter?: IOnlineAlterSetting | null;
+}
+
+/**
+ * msm.set_project_settings takes the `onlineAlter` setting only as a
+ * whole, so a writer of one part reads it just before: what another
+ * writer changed since is kept.
+ *
+ * @param api The msm API.
+ * @param projectPath The project folder.
+ * @param change Changes the part: `withTable` or `withGeneral`.
+ *
+ * @returns The whole setting to write; null where nothing is left, so
+ *          msm.project.json goes back to msm's defaults.
+ */
+export const changedOnlineAlter = async (
+    api: IMsmApi,
+    projectPath: string,
+    change: (setting: IOnlineAlterSetting) => IOnlineAlterSetting,
+): Promise<IOnlineAlterSetting | null> => {
+    const changed = change(
+        (await api.getOnlineAlterSettings(projectPath)).setting);
+
+    return Object.keys(changed).length === 0 ? null : changed;
+};
+
+/** What `msm.layout_schema_diagram` did. */
+export interface IMsmDiagramLayout {
+    name: string;
+    /** The figures laid out, by what they show. */
+    placed: string[];
+    connections_added: number;
+    files: string[];
+}
+
 /** A project's online ALTER TABLE setting, as msm gives it for a table. */
 export interface IMsmOnlineAlterSettings {
     /** The values where nothing is set. */
     defaults: Required<IOnlineAlterOptions>;
     /** msm.project.json's `onlineAlter`, normalized. */
-    setting: IOnlineAlterEntry & {
-        tables?: Record<string, IOnlineAlterEntry>;
-    };
+    setting: IOnlineAlterSetting;
     table?: string | null;
     /** Whether it is on for the table. */
     enabled?: boolean;
@@ -246,12 +293,14 @@ export interface IMsmApi {
     createEmptySchemaDiagram(projectPath: string, name: string): Promise<void>;
     removeSchemaDiagram(projectPath: string, name: string): Promise<string[]>;
     getOnlineAlterSettings(projectPath: string,
-        table: string): Promise<IMsmOnlineAlterSettings>;
-    setOnlineAlterTable(projectPath: string, table: string,
-        settings: IOnlineAlterEntry | null): Promise<string[]>;
+        table?: string): Promise<IMsmOnlineAlterSettings>;
+    setProjectSettings(projectPath: string,
+        settings: IMsmProjectSettings): Promise<string[]>;
     onlineAlterDefaults(): Promise<Required<IOnlineAlterOptions>>;
     onlineAlterTable(connectionId: string, schema: string, table: string,
         spec: string, options: IOnlineAlterOptions): Promise<ITaskStarted>;
+    layoutSchemaDiagram(projectPath: string,
+        name: string): Promise<IMsmDiagramLayout>;
     renameSchemaDiagram(projectPath: string, name: string,
         newName: string): Promise<string[]>;
     updateSchemaDefinition(projectPath: string): Promise<void>;
@@ -361,6 +410,7 @@ export const msmToolArgs = {
             overwrite_existing: options.overwriteExisting,
             allow_special_chars: options.allowSpecialChars,
             enforce_target_path: options.enforceTargetPath,
+            year_of_creation: options.yearOfCreation,
             mcp_access: options.mcpAccess,
             folder: options.folder,
             caption: options.caption,
@@ -444,16 +494,18 @@ export const msmToolArgs = {
     },
     getOnlineAlterSettings: (
         projectPath: string,
-        table: string,
+        table?: string,
     ): Record<string, unknown> => {
-        return { table, schema_project_path: projectPath };
+        return {
+            ...(table === undefined ? {} : { table }),
+            schema_project_path: projectPath,
+        };
     },
-    setOnlineAlterTable: (
+    setProjectSettings: (
         projectPath: string,
-        table: string,
-        settings: IOnlineAlterEntry | null,
+        settings: IMsmProjectSettings,
     ): Record<string, unknown> => {
-        return { table, settings, schema_project_path: projectPath };
+        return { settings, schema_project_path: projectPath };
     },
     onlineAlterTable: (
         connectionId: string,
@@ -463,6 +515,13 @@ export const msmToolArgs = {
         options: IOnlineAlterOptions,
     ): Record<string, unknown> => {
         return { connection_id: connectionId, schema, table, spec, options };
+    },
+    layoutSchemaDiagram: (
+        projectPath: string,
+        name: string,
+    ): Record<string, unknown> => {
+        // Every figure laid out again, not only the unplaced.
+        return { name, keep_placed: false, schema_project_path: projectPath };
     },
     renameSchemaDiagram: (
         projectPath: string,
@@ -777,13 +836,13 @@ export class MsmApi implements IMsmApi {
 
     /**
      * @param projectPath The project folder.
-     * @param table A table of it.
+     * @param table A table of it; left out, the setting alone is read.
      *
      * @returns Its online ALTER TABLE setting, and what the table gets.
      */
     public async getOnlineAlterSettings(
         projectPath: string,
-        table: string,
+        table?: string,
     ): Promise<IMsmOnlineAlterSettings> {
         const tool = "msm.get_online_alter_settings";
 
@@ -793,24 +852,24 @@ export class MsmApi implements IMsmApi {
     }
 
     /**
-     * Writes a table's online ALTER TABLE entry of msm.project.json.
+     * Writes settings of msm.project.json: each one given replaces what is
+     * stored as a whole, null drops an optional one, and the rest stay.
+     * msm checks them all first, and rewrites the development files'
+     * notices for a change of the copyrights or the license.
      *
      * @param projectPath The project folder.
-     * @param table The table, as the scripts name it.
-     * @param settings Its entry; null or empty drops it, so the table
-     *                 follows the project's values.
+     * @param settings The settings to change.
      *
-     * @returns The files written.
+     * @returns The files written; none where nothing changed.
      */
-    public async setOnlineAlterTable(
+    public async setProjectSettings(
         projectPath: string,
-        table: string,
-        settings: IOnlineAlterEntry | null,
+        settings: IMsmProjectSettings,
     ): Promise<string[]> {
-        const tool = "msm.set_online_alter_table";
+        const tool = "msm.set_project_settings";
 
         return decodeList<string>(tool, await this.caller.callTool(tool,
-            msmToolArgs.setOnlineAlterTable(projectPath, table, settings)));
+            msmToolArgs.setProjectSettings(projectPath, settings)));
     }
 
     /**
@@ -861,6 +920,26 @@ export class MsmApi implements IMsmApi {
      *
      * @returns The files written.
      */
+    /**
+     * Lays a diagram of a project out again: every table, view, sequence
+     * and group figure; figures on a layer, notes and images keep their
+     * place. Foreign keys not drawn get a connection.
+     *
+     * @param projectPath The project folder.
+     * @param name The diagram.
+     *
+     * @returns What msm placed, and the files it wrote.
+     */
+    public async layoutSchemaDiagram(
+        projectPath: string,
+        name: string,
+    ): Promise<IMsmDiagramLayout> {
+        const tool = "msm.layout_schema_diagram";
+
+        return decodeObject<IMsmDiagramLayout>(tool, await this.caller.callTool(
+            tool, msmToolArgs.layoutSchemaDiagram(projectPath, name)));
+    }
+
     public async renameSchemaDiagram(
         projectPath: string,
         name: string,

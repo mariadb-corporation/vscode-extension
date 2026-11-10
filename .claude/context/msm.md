@@ -18,7 +18,7 @@ MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
 | `src/msm/msmProtocol.ts`, `msmDialogPanel.ts` | The dialog's messages and panel, a `DialogPanel` typed by the dialog's kind: one at a time, checks the values again (and `host.check`, the disk) before `host.submit`; a failure stays in the dialog, or is notified once it was closed. |
 | `src/msm/msmCommands.ts` | `MsmCommands`: the dialogs' six commands and the list's four (`MSM_LIST_COMMANDS`), reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`); `changedDetails`, what an add or update sends. |
 | `src/msm/msmProjectsCommands.ts` | The MSM Projects view's refresh and folder commands (`MSM_FOLDER_COMMANDS`): New / Rename Folder, Set Folder Color, Remove Folder. |
-| `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds; its own bundle, on `dialogStyles.css` as Dump and Load's and New Sandbox's. |
+| `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds (New and Edit MSM Project in pages, see below); its own bundle, on `dialogStyles.css` as Dump and Load's and New Sandbox's. |
 | `src/tree/msmProjectsTreeProvider.ts` | The MSM Projects view: folders, projects, each project's schema row (its Diagrams folder from `msm.list_schema_diagrams`, a shell without it shows none and logs it; its tables, views and routines from msm's snapshot, see [object-details.md](object-details.md)) and files; drag and drop; the folders, collapsed folders and folder colors it keeps itself. |
 
 ## The MSM Projects view
@@ -107,8 +107,44 @@ MSM Projects (`mariadb.msmProjects`).
   the folder is made, mariadb-shell-plugins #80); only what differs from a
   new project's place - the top level, no caption or color - is sent. The
   Explorer's New MSM Project has them too.
+- **Pages**: New and Edit MSM Project hold too much for one page, so their
+  fields are split (`PAGES` / `PAGE_FIELDS` in `MsmDialog.tsx`; a
+  `PAGE_FIELDS` name also covers `<name>.…`): Project (schema, license,
+  copyright holder, Year of Creation, Allow Special Characters; Edit: what
+  was read and the development version), Copyright (Edit only; below),
+  Location (New only: Create In, Create the Folder, Replace Existing
+  Project), MSM Projects View (the list settings) and Online Schema Change
+  (Edit only; below). New is a **wizard**: numbered steps (`.wizard-steps`, shared
+  with New Deployment in `editorStyles.css`; a step done is a button back
+  to it), Back, Next, and Create Project on the last page only. Next goes on
+  unless the first problem is on this page or before it, then marks that
+  field and stays; `createProblem` checks in the pages' order (copyright
+  holder and year before the target folder) for this to hold. Edit has tabs (`TabStrip` /
+  `TabBody`). A problem found on Create Project / Update, or sent by the
+  host (the project exists: `schemaName`; no folder: `targetPath`), turns
+  to its field's page. Only the page shown is rendered, so a test reaches a
+  field by going to its page first.
+- **Custom license** (New's Project step, Edit's Project tab,
+  `licenseFields`): the License list is msm's templates (`MSM_LICENSES`,
+  now sent to Edit too) plus Custom (`CUSTOM_LICENSE`, msm's `CUSTOM`),
+  which shows a License Text box, prefilled with `CUSTOM_LICENSE_START`.
+  `customLicenseProblem` checks it as msm does (not empty; only
+  `${copyright_notices}`, `${copyright_holder}`, `${year}` as `$name` or
+  `${name}`, `$$` for a `$`, Python's string.Template) and that it is an SQL
+  comment (`/* ... */`, or every line `--` / `#`), as it heads every script.
+  msm.create_project refuses CUSTOM, so New creates with None and then, as
+  an action of its own in `#afterwards` (`#setCustomLicense`), sends
+  `{license: CUSTOM, customLicense}` through `msm.set_project_settings`; a
+  failure there leaves a project with no license, mended in Edit. Edit
+  sends license and text together where either changed, a template with
+  `customLicense: null`. `projectContext` reads the name in any case.
+  Textareas take the input colours from `editorStyles.css`.
+- **Year of Creation** (New's Project step, `yearOfCreation`, starting at
+  `currentYear()`): sent as `msm.create_project`'s `year_of_creation`, for
+  work begun in an earlier year; four digits, not in the future
+  (`yearProblem`, msm's `check_copyright_year`).
 - **Edit MSM Project** (a project row's menu; `MSM_COMMANDS.edit`, kind
-  `edit`) shows the schema, license and copyright as read, and edits the
+  `edit`) shows the schema and license as read, and edits the
   development version (`msm.set_development_version`, not below the last
   release) and the list settings; Update sends only what changed
   (`changedDetails`, the folder through `normalizeFolder` and the caption
@@ -117,6 +153,52 @@ MSM Projects (`mariadb.msmProjects`).
   view's last listing (`listedProject`, the host's hook over `projectAt`):
   no second listing. It is not in the Explorer submenu: it edits a list
   entry, which an Explorer folder may not have.
+- **One settings call**: everything Edit changes in msm.project.json - the
+  copyrights and the Online Schema Change values - goes in one
+  `msm.set_project_settings(settings)` (mariadb-shell-plugins #102), with
+  only the keys that changed; each value replaces the stored one as a
+  whole. msm has no per-setting writers any more (the user's decision: no
+  MCP function per msm.project.json parameter), and reads them all with
+  `msm.get_project_information`. The development version (the development
+  script) and the list entry (`msm.update_project`) are not msm.project.json
+  and keep their own calls.
+- **Copyright** (Edit's second tab, `copyrightSettings`): a row per holder
+  - Holder, First Year, Last Year, Follows Updates (`tracksUpdates`),
+  Remove (never the last) - and Add Holder. `IMsmProjectContext.copyrights`
+  and `IMsmEditValues.copyrights` are `IMsmCopyrightValues` (years as
+  strings, "" for no last year); `projectContext` falls back to the single
+  `copyrightHolder` of an older project. Fields are `copyrights.<i>.<key>`
+  (`withPath` sets a dotted path through arrays too); `copyrightsProblem`
+  checks first in `editProblem` (holder, four-digit years not in the
+  future, last not before first). Update sends `storedCopyrights` (trimmed,
+  no empty last year) where they differ from what was read; msm rewrites
+  the development files' notices (the license block too for a changed
+  holder). An empty Last Year shows what it becomes: this year for a
+  holder that follows updates, as msm moves it on with the change, else
+  the first year. The information dialog shows `Ada (2024, 2026); Bob
+  (2025)` (`copyrightYears`, as the notice writes them).
+- **Online Schema Change** (Edit's last tab): the project's general
+  `onlineAlter` values of msm.project.json (`enabled` plus msm's limits,
+  the table editor's Online Alter Table keys and parsing from
+  `src/tableEditor/onlineAlter.ts`), which every table without its own
+  entry takes; a field left empty takes msm's default, shown as its
+  placeholder. The tab names the tables with entries of their own. Read
+  with `msm.get_online_alter_settings` without a table (`#onlineAlter`,
+  not an action of its own); the tab gets the general values
+  (`generalOf`) and the tables' names. Update, only where `entryKey` of
+  the general values differs, reads the setting again and sends
+  `withGeneral(setting, values)` (`changedOnlineAlter` in `msmApi.ts`, the
+  one read-change-write of the setting, also the table editor's), so a
+  table entry saved in the meantime is kept. Values are `IMsmEditValues.onlineAlter` (`OnlineAlterTexts`),
+  fields named `onlineAlter.<key>` (the dialog's `update` / `field` take a
+  dotted name; `PAGE_FIELDS` names the `onlineAlter` prefix);
+  `onlineAlterProblem` is `readTexts`' first keyed problem, checked after
+  the list settings. The hints are `ONLINE_ALTER_HINTS` of `onlineAlter.ts`,
+  shared with the table editor's tab.
+  An msm that cannot read the setting gives `onlineAlterProblem` on the load
+  message, shown on the tab, and Update then leaves the setting alone.
+  An msm without `msm.set_project_settings` fails such an Update with its
+  error.
 - **MCP access**: the server refuses every path of a project whose entry
   says no to any MCP server without `--gui` (see mcp_plugin's
   `context/siblings.md`), so the `--gui` server of this extension is the

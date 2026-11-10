@@ -23,6 +23,8 @@ import { posted } from "./setup.js";
 import { MsmDialog } from "../src/MsmDialog.js";
 import {
     createDefaults,
+    currentYear,
+    CUSTOM_LICENSE_START,
     deployDefaults,
     deploymentScriptDefaults,
     editDefaults,
@@ -31,6 +33,7 @@ import {
     type IMsmConnectionChoice,
     type IMsmProjectContext,
 } from "../../src/msm/msmFields.js";
+import { textsOf } from "../../src/tableEditor/onlineAlter.js";
 import type {
     IMsmLoadMessage,
     MsmHostMessage,
@@ -42,7 +45,13 @@ const PROJECT: IMsmProjectContext = {
     projectPath: "/work/sakila.msm.project",
     schemaName: "sakila",
     license: "MIT",
-    copyrightHolders: ["Ada", "Bob"],
+    customLicense: "",
+    copyrights: [
+        { holder: "Ada", yearOfCreation: "2024", yearOfLastUpdate: "2026",
+            tracksUpdates: true },
+        { holder: "Bob", yearOfCreation: "2025", yearOfLastUpdate: "",
+            tracksUpdates: false },
+    ],
     currentDevelopmentVersion: "1.0.1",
     lastReleasedVersion: "1.0.0",
     releasedVersions: ["0.9.0", "1.0.0"],
@@ -128,6 +137,23 @@ const submitted = (): unknown[] => {
     return posted.filter((message) => { return message.type === "submit"; });
 };
 
+/** The wizard's step, or the tab, showing. */
+const currentPage = (): string => {
+    return (host.querySelector(".wizard-steps .current, .tab.selected")
+        ?.textContent ?? "").trim();
+};
+
+/** Clicks Next until the wizard is on its last page. */
+const toLastPage = async (): Promise<void> => {
+    while (currentPage() !== "MSM Projects View") {
+        const before = currentPage();
+        await click("Next");
+        if (currentPage() === before) {
+            throw new Error(`Next stays on ${before}.`);
+        }
+    }
+};
+
 const optionsOf = (name: string): string[] => {
     return [...host.querySelectorAll(`[name='${name}'] option`)]
         .map((option) => { return option.textContent ?? ""; });
@@ -151,14 +177,20 @@ describe("New MSM Project", () => {
 
             expect(posted[0]).toEqual({ type: "ready" });
             expect(host.querySelector("h1")?.textContent).toBe("New MSM Project");
-            expect(input("targetPath").value).toBe("/work");
+            expect(currentPage()).toBe("Project");
             expect(optionsOf("license")).toEqual(
-                ["None", "BSD", "GPL-2.0", "MIT"]);
+                ["None", "BSD", "GPL-2.0", "MIT", "Custom"]);
 
             await change("schemaName", "sakila");
             await change("copyrightHolder", "Ada");
             await change("license", "MIT");
-            await click("Create");
+            await click("Next");
+            expect(currentPage()).toBe("Location");
+            expect(input("targetPath").value).toBe("/work");
+            await click("Next");
+            expect(currentPage()).toBe("MSM Projects View");
+            expect(() => { return button("Next"); }).toThrow();
+            await click("Create Project");
 
             expect(submitted()).toEqual([{
                 type: "submit",
@@ -189,28 +221,69 @@ describe("New MSM Project", () => {
             expect(host.textContent).toContain("cannot be digits only");
 
             await change("copyrightHolder", "Ada");
-            await click("Create");
-            expect(submitted()).toEqual([]);
-            expect(button("Create").disabled).toBe(true);
+            // Next does not go past a page with a problem.
+            await click("Next");
+            expect(currentPage()).toBe("Project");
 
             await change("allowSpecialChars", true);
-            expect(button("Create").disabled).toBe(false);
-            await click("Create");
+            await toLastPage();
+            await click("Create Project");
             expect(submitted()).toHaveLength(1);
         });
 
-    it("marks every field missing once Create is pressed", async () => {
+    it("shows the page's first problem on Next, and stays", async () => {
         await openCreate();
-        await click("Create");
+        await click("Next");
 
+        expect(currentPage()).toBe("Project");
         expect(input("schemaName").getAttribute("aria-invalid")).toBe("true");
         expect(host.textContent).toContain("Enter the schema's name.");
-        expect(submitted()).toEqual([]);
+
+        await change("schemaName", "sakila");
+        await click("Next");
+        expect(host.textContent).toContain("Enter the copyright holder");
+        expect(currentPage()).toBe("Project");
+    });
+
+    it("goes back with Back and with a step done, keeping the values",
+        async () => {
+            await openCreate();
+            expect(button("Back").disabled).toBe(true);
+            await change("schemaName", "sakila");
+            await change("copyrightHolder", "Ada");
+            await click("Next");
+            await change("targetPath", "/elsewhere");
+            await click("Next");
+
+            await click("Back");
+            expect(currentPage()).toBe("Location");
+            expect(input("targetPath").value).toBe("/elsewhere");
+
+            // The steps done are buttons; the ones ahead are not.
+            expect(() => { return button("MSM Projects View"); }).toThrow();
+            await click("Project");
+            expect(currentPage()).toBe("Project");
+            expect(input("schemaName").value).toBe("sakila");
+        });
+
+    it("does not go on from Location without a folder", async () => {
+        await openCreate();
+        await change("schemaName", "sakila");
+        await change("copyrightHolder", "Ada");
+        await click("Next");
+        await change("targetPath", "");
+        await click("Next");
+
+        expect(currentPage()).toBe("Location");
+        expect(host.textContent).toContain("Choose the folder to create");
     });
 
     it("asks the extension to browse, and takes the folder it picked",
         async () => {
             await openCreate();
+            await change("schemaName", "sakila");
+            await change("copyrightHolder", "Ada");
+            await click("Next");
             await click("Browse...");
             expect(posted.at(-1)).toEqual({
                 type: "browse", field: "targetPath", current: "/work",
@@ -225,16 +298,33 @@ describe("New MSM Project", () => {
             await openCreate();
             await change("schemaName", "sakila");
             await change("copyrightHolder", "Ada");
-            // The host's answer to Create.
-            await click("Create");
+            await toLastPage();
+            // The host's answer to Create Project, shown on its field's
+            // page.
+            await click("Create Project");
             await send({ type: "error", field: "targetPath",
                 message: "This folder does not exist." });
 
+            expect(currentPage()).toBe("Location");
             expect(input("targetPath").getAttribute("aria-invalid")).toBe("true");
             expect(host.textContent).toContain("This folder does not exist.");
 
             await change("createTargetPath", true);
             expect(host.textContent).not.toContain("This folder does not exist.");
+        });
+
+    it("goes back to the schema name where the project exists already",
+        async () => {
+            await openCreate();
+            await change("schemaName", "sakila");
+            await change("copyrightHolder", "Ada");
+            await toLastPage();
+            await click("Create Project");
+            await send({ type: "error", field: "schemaName",
+                message: "sakila.msm.project exists in this folder already." });
+
+            expect(currentPage()).toBe("Project");
+            expect(host.textContent).toContain("exists in this folder already");
         });
 
     it("shows a failure, and a progress bar while it works", async () => {
@@ -243,7 +333,8 @@ describe("New MSM Project", () => {
 
         expect(host.querySelector("[role='progressbar']")?.getAttribute(
             "aria-label")).toBe("Creating the project...");
-        expect(button("Create").disabled).toBe(true);
+        expect(button("Next").disabled).toBe(true);
+        expect(button("Back").disabled).toBe(true);
         expect(button("Cancel").disabled).toBe(true);
 
         await send({ type: "busy", busy: false });
@@ -280,7 +371,7 @@ describe("MSM Project Information", () => {
             ["Schema", "sakila"],
             ["Project Folder", "/work/sakila.msm.project"],
             ["License", "MIT"],
-            ["Copyright", "Ada, Bob"],
+            ["Copyright", "Ada (2024, 2026); Bob (2025)"],
             ["Development Version", "1.0.1"],
             ["Last Release", "1.0.0"],
             ["Released Versions", "1.0.0, 0.9.0"],
@@ -477,13 +568,14 @@ describe("the MSM Projects view's settings", () => {
         });
 
         expect(input("schemaName").value).toBe("shop");
+        await change("copyrightHolder", "Ada");
+        await toLastPage();
         expect(input("folder").value).toBe("/Shop");
         expect([...host.querySelectorAll("#msm-folders option")]
             .map((option) => { return (option as HTMLOptionElement).value; }))
             .toEqual(["/Archive", "/Shop"]);
         expect(input("mcpAccess").checked).toBe(false);
 
-        await change("copyrightHolder", "Ada");
         await change("caption", "Shop (prod)");
         await change("mcpAccess", true);
         await act(async () => {
@@ -491,7 +583,7 @@ describe("the MSM Projects view's settings", () => {
                 "button[role='radio'][value='green']")!.click();
             await Promise.resolve();
         });
-        await click("Create");
+        await click("Create Project");
 
         expect(submitted()).toEqual([{
             type: "submit",
@@ -507,11 +599,55 @@ describe("the MSM Projects view's settings", () => {
         await openCreate();
         await change("schemaName", "shop");
         await change("copyrightHolder", "Ada");
+        await toLastPage();
         await change("caption", "x".repeat(101));
-        await click("Create");
+        await click("Create Project");
 
         expect(submitted()).toEqual([]);
         expect(host.textContent).toContain("at most 100 characters");
+    });
+});
+
+describe("a custom license", () => {
+    it("is chosen and written on New MSM Project's first step", async () => {
+        await open({ kind: "create", title: "New MSM Project",
+            values: createDefaults("/work"), licenses: ["None", "MIT"] });
+        await change("schemaName", "sakila");
+        await change("copyrightHolder", "Ada");
+        expect(input("customLicense")).toBeNull();
+
+        await change("license", "CUSTOM");
+        expect(input("customLicense").value).toBe(CUSTOM_LICENSE_START);
+        await change("customLicense", "/* ${author} */");
+        await click("Next");
+
+        expect(currentPage()).toBe("Project");
+        expect(host.textContent).toContain("does not fill ${author}");
+
+        await change("customLicense", "/* ${copyright_notices} Ours. */");
+        await toLastPage();
+        await click("Create Project");
+
+        expect(submitted()).toEqual([{ type: "submit",
+            values: expect.objectContaining({ license: "CUSTOM",
+                customLicense: "/* ${copyright_notices} Ours. */" }) as unknown,
+        }]);
+    });
+
+    it("is offered on Edit MSM Project's Project tab", async () => {
+        await open({
+            kind: "edit", title: "Edit MSM Project - sakila",
+            project: { ...PROJECT, license: "CUSTOM",
+                customLicense: "-- ours" },
+            values: editDefaults({ ...PROJECT, license: "CUSTOM",
+                customLicense: "-- ours" }, LIST_DEFAULTS),
+            folders: [], licenses: ["None", "MIT"],
+        });
+
+        expect(input("license").value).toBe("CUSTOM");
+        expect(input("customLicense").value).toBe("-- ours");
+        await change("license", "MIT");
+        expect(input("customLicense")).toBeNull();
     });
 });
 
@@ -527,12 +663,14 @@ describe("Edit MSM Project", () => {
     it("shows what cannot change, and updates what can", async () => {
         await openEdit();
 
-        expect(host.textContent).toContain("Copyright");
-        expect(host.textContent).toContain("Ada, Bob");
+        expect(host.textContent).toContain("License");
         expect(input("schemaName")).toBeNull();
         expect(input("developmentVersion").value).toBe("1.0.1");
 
+        expect(currentPage()).toBe("Project");
         await change("developmentVersion", "1.1.0");
+        expect(input("mcpAccess")).toBeNull();
+        await click("MSM Projects View");
         await change("mcpAccess", true);
         await click("Update");
 
@@ -540,9 +678,151 @@ describe("Edit MSM Project", () => {
             type: "submit",
             values: {
                 developmentVersion: "1.1.0", folder: "/", caption: "",
-                color: "red", mcpAccess: true,
+                color: "red", mcpAccess: true, onlineAlter: textsOf({}),
+                copyrights: PROJECT.copyrights,
+                license: "MIT", customLicense: CUSTOM_LICENSE_START,
             },
         }]);
+    });
+
+    it("edits the holders and their years on the Copyright tab", async () => {
+        await openEdit();
+        await click("Copyright");
+
+        expect(input("copyrights.0.holder").value).toBe("Ada");
+        expect(input("copyrights.0.yearOfLastUpdate").value).toBe("2026");
+        expect(input("copyrights.1.yearOfLastUpdate").placeholder)
+            .toBe("2025");
+        await change("copyrights.1.yearOfCreation", "2023");
+        await click("Add Holder");
+        await change("copyrights.2.holder", "Cy");
+        await click("Update");
+
+        expect(submitted()).toEqual([{
+            type: "submit",
+            values: expect.objectContaining({ copyrights: [
+                PROJECT.copyrights[0],
+                { ...PROJECT.copyrights[1], yearOfCreation: "2023" },
+                { holder: "Cy", yearOfCreation: currentYear(),
+                    yearOfLastUpdate: "", tracksUpdates: true },
+            ] }) as unknown,
+        }]);
+    });
+
+    it("refuses a copyright year in the future, on its tab", async () => {
+        await openEdit();
+        await click("Copyright");
+        await change("copyrights.0.yearOfCreation", "2999");
+        await click("Project");
+        await click("Update");
+
+        expect(submitted()).toEqual([]);
+        expect(currentPage()).toBe("Copyright");
+        expect(host.textContent).toContain("2999 lies in the future");
+        expect(input("copyrights.0.yearOfCreation")
+            .getAttribute("aria-invalid")).toBe("true");
+    });
+
+    it("removes a holder, but never the last one", async () => {
+        await openEdit();
+        await click("Copyright");
+        await act(async () => {
+            [...host.querySelectorAll("button")].filter((button) => {
+                return button.textContent === "Remove";
+            })[1].click();
+            await Promise.resolve();
+        });
+
+        expect(input("copyrights.1.holder")).toBeNull();
+        expect(button("Remove").disabled).toBe(true);
+    });
+
+    const ONLINE = {
+        defaults: {
+            maxRebuildBytes: 10 * 1024 ** 3, galeraMaxBytes: 1024 ** 3,
+            nboLock: null, maxLockedBytes: 100 * 1024 ** 2, lockWait: 5,
+            maxRetries: 3,
+        },
+        setting: { enabled: true, lockWait: 10 },
+        tables: ["orders"],
+    };
+
+    const openOnline = (): Promise<void> => {
+        return open({
+            kind: "edit", title: "Edit MSM Project - sakila", project: PROJECT,
+            values: editDefaults(PROJECT, LIST_DEFAULTS, ONLINE.setting),
+            folders: [], onlineAlter: ONLINE,
+        });
+    };
+
+    it("sets the project's online schema change defaults on a tab", async () => {
+        await openOnline();
+        await click("Online Schema Change");
+
+        expect(currentPage()).toBe("Online Schema Change");
+        expect(input("onlineAlter.enabled").value).toBe("on");
+        expect(input("onlineAlter.lockWait").value).toBe("10");
+        expect(input("onlineAlter.maxRebuildBytes").placeholder)
+            .toBe("10 GiB");
+        expect(host.textContent).toContain("orders has settings of its own");
+
+        await change("onlineAlter.maxRebuildBytes", "2 GiB");
+        await change("onlineAlter.nboLock", "SHARED");
+        await click("Update");
+
+        expect(submitted()).toEqual([{
+            type: "submit",
+            values: expect.objectContaining({
+                onlineAlter: {
+                    ...textsOf(ONLINE.setting), maxRebuildBytes: "2 GiB",
+                    nboLock: "SHARED",
+                },
+            }) as unknown,
+        }]);
+    });
+
+    it("turns the limits off with online ALTER TABLE", async () => {
+        await openOnline();
+        await click("Online Schema Change");
+        await change("onlineAlter.enabled", "off");
+
+        expect(input("onlineAlter.lockWait").disabled).toBe(true);
+        expect(input("onlineAlter.nboLock").disabled).toBe(true);
+    });
+
+    it("keeps a value msm refuses open to mending, online ALTER off",
+        async () => {
+            await openOnline();
+            await click("Online Schema Change");
+            await change("onlineAlter.lockWait", "0");
+            await change("onlineAlter.enabled", "off");
+
+            expect(input("onlineAlter.lockWait").disabled).toBe(false);
+            expect(input("onlineAlter.maxRetries").disabled).toBe(true);
+        });
+
+    it("refuses a value that is no size, on its tab", async () => {
+        await openOnline();
+        await click("Online Schema Change");
+        await change("onlineAlter.galeraMaxBytes", "lots");
+        await click("Project");
+        await click("Update");
+
+        expect(submitted()).toEqual([]);
+        expect(currentPage()).toBe("Online Schema Change");
+        expect(host.textContent).toContain('"lots" is no size');
+    });
+
+    it("says why the tab has no values, msm giving none", async () => {
+        await open({
+            kind: "edit", title: "Edit MSM Project - sakila", project: PROJECT,
+            values: editDefaults(PROJECT, LIST_DEFAULTS), folders: [],
+            onlineAlterProblem: "needs a newer msm",
+        });
+        await click("Online Schema Change");
+
+        expect(host.textContent).toContain("needs a newer msm");
+        expect(input("onlineAlter.enabled")).toBeNull();
     });
 
     it("refuses a development version below the last release", async () => {
@@ -553,5 +833,17 @@ describe("Edit MSM Project", () => {
         expect(submitted()).toEqual([]);
         expect(host.textContent).toContain("cannot be lower than the last "
             + "released one, 1.0.0");
+    });
+
+    it("shows a problem on another tab by going to it", async () => {
+        await openEdit();
+        await change("developmentVersion", "0.9.9");
+        await click("MSM Projects View");
+        await click("Update");
+
+        expect(submitted()).toEqual([]);
+        expect(currentPage()).toBe("Project");
+        expect(input("developmentVersion").getAttribute("aria-invalid"))
+            .toBe("true");
     });
 });
