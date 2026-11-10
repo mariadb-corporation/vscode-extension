@@ -179,11 +179,35 @@ export const textsOf = (entry: IOnlineAlterEntry): OnlineAlterTexts => {
     };
 };
 
+/** A field that holds no value msm takes, and why. */
+export interface IOnlineAlterProblem {
+    key: SizeKey | CountKey;
+    message: string;
+}
+
 /** The tab's fields read back: the entry, or why a field is not one. */
 export interface IReadTexts {
     entry: IOnlineAlterEntry;
-    problems: string[];
+    problems: IOnlineAlterProblem[];
 }
+
+/** How a size is written, as the fields' hints say. */
+export const SIZE_EXAMPLES = `10 GiB, 512 MiB, 0 or ${NO_LIMIT}`;
+
+/** What each field is for, as both tabs that set them say. */
+export const ONLINE_ALTER_HINTS: Record<keyof OnlineAlterTexts, string> = {
+    enabled: "Off, every ALTER TABLE runs as written.",
+    maxRebuildBytes: "The largest table an online rebuild (ALGORITHM="
+        + "INPLACE or COPY, LOCK=NONE) runs on; 0 never rebuilds.",
+    galeraMaxBytes: "On Galera, the largest table for a step other than "
+        + "INSTANT.",
+    nboLock: "On Galera, the lock a non-blocking operation (NBO) may take: "
+        + "it blocks writes, EXCLUSIVE reads too.",
+    maxLockedBytes: "The largest table a step that blocks writes "
+        + "(LOCK=SHARED or EXCLUSIVE) runs on.",
+    lockWait: "How long each attempt waits for the table's metadata lock.",
+    maxRetries: "How often an attempt whose lock wait ran out is made again.",
+};
 
 /** The fields' names, as the tab labels them. */
 export const ONLINE_ALTER_LABELS: Record<SizeKey | CountKey, string> = {
@@ -201,7 +225,7 @@ export const ONLINE_ALTER_LABELS: Record<SizeKey | CountKey, string> = {
  */
 export const readTexts = (texts: OnlineAlterTexts): IReadTexts => {
     const entry: IOnlineAlterEntry = {};
-    const problems: string[] = [];
+    const problems: IOnlineAlterProblem[] = [];
     if (texts.enabled !== "") {
         entry.enabled = texts.enabled === "on";
     }
@@ -211,8 +235,8 @@ export const readTexts = (texts: OnlineAlterTexts): IReadTexts => {
         }
         const size = parseSize(texts[key]);
         if (size === undefined) {
-            problems.push(`${ONLINE_ALTER_LABELS[key]}: "${texts[key]}" is `
-                + `no size (e.g. 10 GiB, 512 MiB, 0 or ${NO_LIMIT}).`);
+            problems.push({ key, message: `${ONLINE_ALTER_LABELS[key]}: `
+                + `"${texts[key].trim()}" is no size (e.g. ${SIZE_EXAMPLES}).` });
         } else {
             entry[key] = size;
         }
@@ -225,9 +249,12 @@ export const readTexts = (texts: OnlineAlterTexts): IReadTexts => {
             continue;
         }
         const count = parseCount(texts[key]);
-        if (count === undefined) {
-            problems.push(`${ONLINE_ALTER_LABELS[key]}: "${texts[key]}" is `
-                + "not a whole number.");
+        // msm waits a second at least.
+        if (count === undefined || (key === "lockWait" && count < 1)) {
+            problems.push({ key, message: `${ONLINE_ALTER_LABELS[key]}: `
+                + `"${texts[key].trim()}" is ${key === "lockWait"
+                    ? "not a number of seconds from 1"
+                    : "not a whole number"}.` });
         } else {
             entry[key] = count;
         }

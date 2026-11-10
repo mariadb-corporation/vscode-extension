@@ -21,7 +21,7 @@ read-only Object Details view left editing to this editor.
 | --- | --- |
 | `src/tableEditor/tableDraft.ts` | Pure, shared with the page: the draft (`draftOf`; each row's `origin`, its place in the table as read, so a rename is not a drop and an add, and an unnamed index can still be dropped; `dropped` rows), `tableEdits` (draft → ops), `draftProblems`, the type and key-part text helpers |
 | `src/tableEditor/lspEdit.ts` | `LspEdit`: `mariadb-lsp edit` on a script's text (stdin) or a file, the request in a temp file; no edits reads the outline. `mergesAlters` asks `edit --ops` once whether the binary merges a table's ALTERs (`merge_alters`, lsp-server #33), then each ALTER TABLE has `table` and `spec` |
-| `src/tableEditor/onlineAlter.ts`, `onlineAlterStore.ts` | The Online Alter Table tab's model, pure, shared with the page (msm's camelCase option keys, sizes as `10 GiB` / `unlimited`, `textsOf` / `readTexts`, `entryKey`); `OnlineAlterStore`, a live table's entry in workspace state (`mariadb.onlineAlterTables`, by connection, schema and table; a rename moves it) |
+| `src/tableEditor/onlineAlter.ts`, `onlineAlterStore.ts` | The Online Alter Table tab's model, pure, shared with the page (msm's camelCase option keys, sizes as `10 GiB` / `unlimited`, `textsOf` / `readTexts` with problems keyed by field and a lock wait from 1 s, `entryKey`, the shared `ONLINE_ALTER_HINTS`, `withGeneral` / `withTable` for the whole setting); `OnlineAlterStore`, a live table's entry in workspace state (`mariadb.onlineAlterTables`, by connection, schema and table; a rename moves it) |
 | `src/tableEditor/tableSources.ts` | `LiveTableSource`, `ProjectTableSource` (read, preview, apply), `COMMON_COLLATIONS` |
 | `src/tableEditor/tableEditorPanel.ts`, `tableEditorProtocol.ts` | The panel (one per table, `tableEditorKey`) and its messages |
 | `webview/src/tableEditor/OnlineAlterTab.tsx` | The Online Alter Table tab: on / off / inherited, the five limits and the NBO lock, each field empty = the inherited value shown as its placeholder |
@@ -163,9 +163,9 @@ table, agreed with the msm session:
     project's general values over msm's `defaults`. Save runs
     msm.edit_schema first, then the table's entry under the name the Save
     leaves (`ProjectTableSource.#keepOnlineAlter`): msm takes the setting
-    only as a whole, so `extension.ts` reads it
-    (`msm.get_online_alter_settings`), changes the entry (`withTable`) and
-    sends it all with `msm.set_project_settings({onlineAlter})`;
+    only as a whole, so `extension.ts` reads it again
+    (`changedOnlineAlter`), changes the entry (`withTable`) and sends it all
+    with `msm.set_project_settings({onlineAlter})`;
     msm.edit_schema itself carries an entry over a `rename_table` and drops
     it with a `drop_table`. Deployments use it. The SQL preview asks for
     merged ALTERs, as msm.edit_schema does. Where the settings write

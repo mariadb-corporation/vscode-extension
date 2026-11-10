@@ -23,7 +23,6 @@ import {
     CustomTreeItem,
     CustomTreeSection,
     EditorView,
-    SideBarView,
     VSBrowser,
 } from "vscode-extension-tester";
 
@@ -43,11 +42,13 @@ import {
     openSection,
     screenshot,
     selectOption,
+    selectTab,
     SERVER_TIMEOUT,
     setChecked,
     setField,
     submitDialog,
     treeItem,
+    viewAction,
     waitDialogClosed,
     waitFor,
     waitForAction,
@@ -100,28 +101,8 @@ const waitForDescription = async (
         + `'${said}')`, SERVER_TIMEOUT);
 };
 
-/**
- * Presses a button of the view's toolbar: in the side bar's title, where
- * the view is alone in its container (its section's header is there but
- * hidden); in its section's header, should another view join it.
- */
 const toolbar = async (label: string): Promise<void> => {
-    const section = await view();
-    const action = await waitFor(async () => {
-        // Matched among the buttons there are: the title part's
-        // getAction(label) never answers undefined, but a button made from
-        // the label, which a click then fails to find where the view shares
-        // its container (with Object Details) and has its own header.
-        for (const button of await new SideBarView().getTitlePart()
-            .getActions()) {
-            if (await button.getTitle() === label) {
-                return button;
-            }
-        }
-
-        return await section.getAction(label);
-    }, `the toolbar button ${label}`);
-    await action!.click();
+    await viewAction(await view(), label);
 };
 
 describe("MSM Projects view", () => {
@@ -237,17 +218,17 @@ describe("MSM Projects view", () => {
             assert.equal(await fieldValue(dialog, "developmentVersion"),
                 "0.0.1");
             await setField(dialog, "developmentVersion", "0.1.0");
-            await clickButton(dialog, "Copyright");
+            await selectTab(dialog, "Copyright");
             assert.equal(await fieldValue(dialog, "copyrights.0.yearOfCreation"),
                 YEAR);
             await setField(dialog, "copyrights.0.yearOfCreation", FIRST_YEAR);
             await screenshot("10-edit-msm-project-copyright");
-            await clickButton(dialog, "MSM Projects View");
+            await selectTab(dialog, "MSM Projects View");
             assert.equal(await fieldValue(dialog, "folder"), "/Shop");
             await setField(dialog, "folder", "/");
             await setChecked(dialog, "mcpAccess", true);
             await screenshot("10-edit-msm-project");
-            await clickButton(dialog, "Online Schema Change");
+            await selectTab(dialog, "Online Schema Change");
             // A new project's setting is msm's template: on, no limits.
             assert.equal(await fieldValue(dialog, "onlineAlter.enabled"),
                 "on");

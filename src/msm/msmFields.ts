@@ -20,16 +20,12 @@ import {
     isConnectionColor,
 } from "../connections/connectionDetails.js";
 import type { ConnectionColor } from "../mcp/types.js";
+import type { IMsmCopyright } from "../mcp/msmApi.js";
 import {
-    COUNT_KEYS,
     type IOnlineAlterEntry,
     type IOnlineAlterOptions,
-    NO_LIMIT,
-    ONLINE_ALTER_LABELS,
     type OnlineAlterTexts,
-    parseCount,
-    parseSize,
-    SIZE_KEYS,
+    readTexts,
     textsOf,
 } from "../tableEditor/onlineAlter.js";
 import { compareVersions, newestFirst } from "../versionOrder.js";
@@ -365,11 +361,21 @@ export const currentYear = (): string => {
  * @returns The years its notice names, as msm writes them: `2024, 2026`.
  */
 export const copyrightYears = (copyright: IMsmCopyrightValues): string => {
+    const first = copyright.yearOfCreation.trim();
     const last = copyright.yearOfLastUpdate.trim();
 
-    return last === "" || last === copyright.yearOfCreation.trim()
-        ? copyright.yearOfCreation.trim()
-        : `${copyright.yearOfCreation.trim()}, ${last}`;
+    return last === "" || last === first ? first : `${first}, ${last}`;
+};
+
+/**
+ * @param index A copyright's place in the list.
+ * @param key One of its values.
+ *
+ * @returns Its field's name in Edit MSM Project: `copyrights.0.holder`.
+ */
+export const copyrightField = (index: number,
+    key: keyof IMsmCopyrightValues): string => {
+    return `copyrights.${index}.${key}`;
 };
 
 /**
@@ -407,30 +413,25 @@ export const copyrightsProblem = (
     }
     for (const [index, copyright] of copyrights.entries()) {
         const field = (name: keyof IMsmCopyrightValues): string => {
-            return `copyrights.${index}.${name}`;
+            return copyrightField(index, name);
         };
         if (copyright.holder.trim() === "") {
             return { field: field("holder"),
                 message: "Enter the copyright holder." };
         }
-        const first = yearProblem(copyright.yearOfCreation,
-            field("yearOfCreation"), "first year");
-        if (first !== undefined) {
-            return first;
+        const problem = yearProblem(copyright.yearOfCreation,
+            field("yearOfCreation"), "first year")
+            ?? (copyright.yearOfLastUpdate.trim() === "" ? undefined
+                : yearProblem(copyright.yearOfLastUpdate,
+                    field("yearOfLastUpdate"), "last year"));
+        if (problem !== undefined) {
+            return problem;
         }
-        if (copyright.yearOfLastUpdate.trim() === "") {
-            continue;
-        }
-        const last = yearProblem(copyright.yearOfLastUpdate,
-            field("yearOfLastUpdate"), "last year");
-        if (last !== undefined) {
-            return last;
-        }
-        if (copyright.yearOfLastUpdate.trim()
-            < copyright.yearOfCreation.trim()) {
+        const first = copyright.yearOfCreation.trim();
+        const last = copyright.yearOfLastUpdate.trim();
+        if (last !== "" && last < first) {
             return { field: field("yearOfLastUpdate"),
-                message: "The last year cannot be before the first, "
-                    + `${copyright.yearOfCreation.trim()}.` };
+                message: `The last year cannot be before the first, ${first}.` };
         }
     }
 
@@ -444,8 +445,7 @@ export const copyrightsProblem = (
  *          out where there is none.
  */
 export const storedCopyrights = (copyrights: IMsmCopyrightValues[],
-): Array<{ holder: string; yearOfCreation: string;
-    yearOfLastUpdate?: string; tracksUpdates: boolean; }> => {
+): IMsmCopyright[] => {
     return copyrights.map((copyright) => {
         const last = copyright.yearOfLastUpdate.trim();
 
@@ -592,32 +592,10 @@ export const onlineAlterField = (key: keyof OnlineAlterTexts): string => {
 export const onlineAlterProblem = (
     texts: OnlineAlterTexts,
 ): IMsmProblem | undefined => {
-    for (const key of SIZE_KEYS) {
-        if (texts[key].trim() !== "" && parseSize(texts[key]) === undefined) {
-            return {
-                field: onlineAlterField(key),
-                message: `${ONLINE_ALTER_LABELS[key]}: "${texts[key].trim()}" `
-                    + `is no size (e.g. 10 GiB, 512 MiB, 0 or ${NO_LIMIT}).`,
-            };
-        }
-    }
-    for (const key of COUNT_KEYS) {
-        if (texts[key].trim() === "") {
-            continue;
-        }
-        const count = parseCount(texts[key]);
-        if (count === undefined || (key === "lockWait" && count < 1)) {
-            return {
-                field: onlineAlterField(key),
-                message: `${ONLINE_ALTER_LABELS[key]}: "${texts[key].trim()}" `
-                    + (key === "lockWait"
-                        ? "is not a number of seconds from 1."
-                        : "is not a whole number."),
-            };
-        }
-    }
+    const [first] = readTexts(texts).problems;
 
-    return undefined;
+    return first === undefined ? undefined
+        : { field: onlineAlterField(first.key), message: first.message };
 };
 
 /**

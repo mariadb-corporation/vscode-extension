@@ -42,7 +42,7 @@ import {
     TasksTreeProvider,
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
-import type { IMsmApi } from "./mcp/msmApi.js";
+import { changedOnlineAlter, type IMsmApi } from "./mcp/msmApi.js";
 import {
     diagramNameProblem, MsmCommands, newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
@@ -1282,14 +1282,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         return await (await msmApi()).getOnlineAlterSettings(
                             projectPath, table);
                     },
-                    // msm takes the setting only as a whole: read, the
-                    // table's entry changed, written back.
                     set: async (table, entry) => {
                         const api = await msmApi();
-                        const { setting } = await api.getOnlineAlterSettings(
-                            projectPath);
                         await api.setProjectSettings(projectPath, {
-                            onlineAlter: withTable(setting, table, entry),
+                            onlineAlter: await changedOnlineAlter(api,
+                                projectPath, (setting) => {
+                                    return withTable(setting, table, entry);
+                                }),
                         });
                     },
                 },

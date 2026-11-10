@@ -168,9 +168,6 @@ export const MSM_LICENSES = ["None", "BSD", "GPL-2.0", "MIT"] as const;
  */
 export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** An `onlineAlter` setting of msm.project.json, normalized. */
-export type IMsmOnlineAlterSetting = IOnlineAlterSetting;
-
 /**
  * The settings of msm.project.json that `msm.set_project_settings`
  * writes; only those given change.
@@ -181,15 +178,34 @@ export interface IMsmProjectSettings {
     license?: string;
     customLicense?: string;
     /** The whole setting, the tables' entries too; null for msm's. */
-    onlineAlter?: IMsmOnlineAlterSetting | null;
+    onlineAlter?: IOnlineAlterSetting | null;
 }
+
+/**
+ * msm.set_project_settings takes the `onlineAlter` setting only as a
+ * whole, so a writer of one part reads it just before: what another
+ * writer changed since is kept.
+ *
+ * @param api The msm API.
+ * @param projectPath The project folder.
+ * @param change Changes the part: `withTable` or `withGeneral`.
+ *
+ * @returns The whole setting to write.
+ */
+export const changedOnlineAlter = async (
+    api: IMsmApi,
+    projectPath: string,
+    change: (setting: IOnlineAlterSetting) => IOnlineAlterSetting,
+): Promise<IOnlineAlterSetting> => {
+    return change((await api.getOnlineAlterSettings(projectPath)).setting);
+};
 
 /** A project's online ALTER TABLE setting, as msm gives it for a table. */
 export interface IMsmOnlineAlterSettings {
     /** The values where nothing is set. */
     defaults: Required<IOnlineAlterOptions>;
     /** msm.project.json's `onlineAlter`, normalized. */
-    setting: IMsmOnlineAlterSetting;
+    setting: IOnlineAlterSetting;
     table?: string | null;
     /** Whether it is on for the table. */
     enabled?: boolean;

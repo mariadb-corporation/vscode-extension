@@ -75,8 +75,12 @@ describe("online ALTER TABLE settings", () => {
             maxRetries: "x", maxLockedBytes: "unlimited", nboLock: "SHARED" });
         expect(bad.entry).toMatchObject({ maxLockedBytes: null,
             nboLock: "SHARED" });
-        expect(bad.problems).toHaveLength(2);
-        expect(bad.problems[0]).toContain("Galera tables up to");
+        expect(bad.problems.map((problem) => { return problem.key; }))
+            .toEqual(["galeraMaxBytes", "maxRetries"]);
+        expect(bad.problems[0].message).toContain("Galera tables up to");
+        // msm waits a second at least.
+        expect(readTexts({ ...texts, lockWait: "0" }).problems[0]?.message)
+            .toMatch(/not a number of seconds from 1/u);
     });
 
     it("tells entries apart by their values, not their key order", () => {

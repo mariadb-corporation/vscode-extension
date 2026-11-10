@@ -18,6 +18,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import {
+    copyrightField,
     copyrightYears,
     currentYear,
     type IMsmCopyrightValues,
@@ -42,8 +43,11 @@ import type {
 } from "../../src/msm/msmProtocol.js";
 import {
     COUNT_KEYS,
-    NO_LIMIT,
+    type CountKey,
+    ONLINE_ALTER_HINTS,
     ONLINE_ALTER_LABELS,
+    SIZE_EXAMPLES,
+    type SizeKey,
     SIZE_KEYS,
     sizeText,
 } from "../../src/tableEditor/onlineAlter.js";
@@ -120,10 +124,8 @@ const PAGE_FIELDS: Record<MsmPage, readonly string[]> = {
     Copyright: ["copyrights"],
     Location: ["targetPath", "createTargetPath", "overwriteExisting"],
     "MSM Projects View": ["folder", "caption", "color", "mcpAccess"],
-    "Online Schema Change": ["enabled", ...SIZE_KEYS, "nboLock",
-        ...COUNT_KEYS].map((key) => {
-        return onlineAlterField(key as keyof typeof ONLINE_ALTER_HINTS);
-    }),
+    // Each value's field: `onlineAlter.lockWait`.
+    "Online Schema Change": ["onlineAlter"],
 };
 
 /** What each page holds, as its tab's tooltip. */
@@ -138,34 +140,21 @@ const PAGE_TOOLTIPS: Record<MsmPage, string> = {
         + "statements: online, and within which limits.",
 };
 
-/** What each Online Schema Change field is for. */
-const ONLINE_ALTER_HINTS = {
-    enabled: "Off, every ALTER TABLE runs as written.",
-    maxRebuildBytes: "The largest table an online rebuild (ALGORITHM="
-        + "INPLACE or COPY, LOCK=NONE) runs on; 0 never rebuilds.",
-    galeraMaxBytes: "On Galera, the largest table for a step other than "
-        + "INSTANT.",
-    nboLock: "On Galera, the lock a non-blocking operation (NBO) may take: "
-        + "it blocks writes, EXCLUSIVE reads too.",
-    maxLockedBytes: "The largest table a step that blocks writes "
-        + "(LOCK=SHARED or EXCLUSIVE) runs on.",
-    lockWait: "How long each attempt waits for the table's metadata lock.",
-    maxRetries: "How often an attempt whose lock wait ran out is made again.",
-};
 
 /**
- * @param pages The dialog's pages.
+ * @param kind The dialog.
  * @param field A field's name.
  *
- * @returns The index of the page the field is on, or -1 for none.
+ * @returns The index of its page among the dialog's, or -1 for none.
  */
-const pageOf = (pages: readonly MsmPage[], field: string | undefined,
+const pageOf = (kind: MsmDialogKind | undefined, field: string | undefined,
 ): number => {
-    return field === undefined ? -1 : pages.findIndex((page) => {
-        return PAGE_FIELDS[page].some((name) => {
-            return field === name || field.startsWith(`${name}.`);
+    return field === undefined ? -1 : (PAGES[kind ?? "info"] ?? []).findIndex(
+        (page) => {
+            return PAGE_FIELDS[page].some((name) => {
+                return field === name || field.startsWith(`${name}.`);
+            });
         });
-    });
 };
 
 /**
@@ -253,8 +242,7 @@ export const MsmDialog = (): preact.JSX.Element => {
     // The host's problem is shown on its field's page: a wizard's last
     // page is not where the schema name is.
     useEffect(() => {
-        const at = pageOf(PAGES[load?.kind ?? "info"] ?? [],
-            hostProblem?.field);
+        const at = pageOf(load?.kind, hostProblem?.field);
         if (at !== -1) {
             setPage(at);
         }
@@ -277,7 +265,7 @@ export const MsmDialog = (): preact.JSX.Element => {
     const shownProblem = problem !== undefined && (problem.field === undefined
         || submitted || touched.has(problem.field)) ? problem : undefined;
 
-    const update = (name: string, value: boolean | string): void => {
+    const update = (name: string, value: unknown): void => {
         setValues((current) => {
             const next = withPath(current, name.split("."),
                 value) as MsmValues;
@@ -324,7 +312,7 @@ export const MsmDialog = (): preact.JSX.Element => {
         setSubmitted(true);
         if (fieldProblem !== undefined) {
             // Shown on its page, which may not be the one showing.
-            const at = pageOf(pages ?? [], fieldProblem.field);
+            const at = pageOf(kind, fieldProblem.field);
             if (at !== -1) {
                 setPage(at);
             }
@@ -340,7 +328,7 @@ export const MsmDialog = (): preact.JSX.Element => {
      * waits for its page: the checks run in the pages' order.
      */
     const next = (): void => {
-        const at = pageOf(pages ?? [], fieldProblem?.field);
+        const at = pageOf(kind, fieldProblem?.field);
         if (fieldProblem?.field !== undefined && at !== -1 && at <= page) {
             const { field: name } = fieldProblem;
             setTouched((current) => { return new Set([...current, name]); });
@@ -583,15 +571,12 @@ export const MsmDialog = (): preact.JSX.Element => {
             );
         }
         const { defaults } = online;
-        const name = (key: keyof typeof ONLINE_ALTER_HINTS): string => {
-            return onlineAlterField(key);
-        };
+        const name = onlineAlterField;
         const enabled = field(name("enabled")) !== "off";
-        const input = (key: keyof typeof ONLINE_ALTER_HINTS,
+        const input = (key: SizeKey | CountKey,
             placeholder: string): preact.JSX.Element => {
             return (
-                <Field caption={ONLINE_ALTER_LABELS[key as
-                    keyof typeof ONLINE_ALTER_LABELS]}
+                <Field caption={ONLINE_ALTER_LABELS[key]}
                 hint={hint(name(key), ONLINE_ALTER_HINTS[key])}>
                     {text(name(key), placeholder, undefined, !enabled)}
                 </Field>
@@ -608,8 +593,8 @@ export const MsmDialog = (): preact.JSX.Element => {
                         + "LOCK=NONE, then a Galera NBO where allowed, then "
                         + "LOCK=SHARED and LOCK=EXCLUSIVE. These are the "
                         + "project's defaults; a field left empty takes "
-                        + "msm's, shown in it. Sizes as 10 GiB, 512 MiB, 0 "
-                        + `or ${NO_LIMIT}.`}
+                        + "msm's, shown in it. Sizes as "
+                        + `${SIZE_EXAMPLES}.`}
                 </p>
                 <Field caption="Online ALTER TABLE"
                     hint={hint(name("enabled"), ONLINE_ALTER_HINTS.enabled)}>
@@ -650,14 +635,9 @@ export const MsmDialog = (): preact.JSX.Element => {
      */
     const copyrightSettings = (): preact.JSX.Element => {
         const copyrights = (values as IMsmEditValues).copyrights;
+        const year = currentYear();
         const setCopyrights = (list: IMsmCopyrightValues[]): void => {
-            setValues((current) => {
-                return { ...current, copyrights: list } as MsmValues;
-            });
-            setTouched((current) => {
-                return new Set([...current, "copyrights"]);
-            });
-            setHostProblem(undefined);
+            update("copyrights", list);
         };
         const listProblem = shownProblem?.field === undefined
             || !shownProblem.field.startsWith("copyrights.")
@@ -674,7 +654,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                     {copyrights.map((copyright, index) => {
                         const name = (key: keyof IMsmCopyrightValues,
                         ): string => {
-                            return `copyrights.${index}.${key}`;
+                            return copyrightField(index, key);
                         };
 
                         return [
@@ -683,14 +663,14 @@ export const MsmDialog = (): preact.JSX.Element => {
                                     + "company's")}
                             </span>,
                             <span key={`${index}-first`}>
-                                {text(name("yearOfCreation"), currentYear())}
+                                {text(name("yearOfCreation"), year)}
                             </span>,
                             <span key={`${index}-last`}>
                                 {/* What it becomes when left empty: msm
                                     moves a holder that follows updates on
                                     to this year with the change. */}
                                 {text(name("yearOfLastUpdate"),
-                                    copyright.tracksUpdates ? currentYear()
+                                    copyright.tracksUpdates ? year
                                         : copyright.yearOfCreation)}
                             </span>,
                             <span key={`${index}-tracks`}>
@@ -720,7 +700,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                 <div class="row">
                     <button type="button" disabled={busy} onClick={() => {
                         setCopyrights([...copyrights, { holder: "",
-                            yearOfCreation: currentYear(),
+                            yearOfCreation: year,
                             yearOfLastUpdate: "", tracksUpdates: true }]);
                     }}>
                         Add Holder

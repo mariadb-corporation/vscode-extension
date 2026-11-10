@@ -1236,9 +1236,10 @@ describe("the MSM Projects list", () => {
     });
 
     it("sets the project's online schema change defaults, keeping its "
-        + "tables'", async () => {
+        + "tables' as they are when it does", async () => {
+        const tables: Record<string, unknown> = { orders: { enabled: false } };
         const recorded = setUp({ online: { enabled: true, lockWait: 10,
-            tables: { orders: { enabled: false } } } });
+            tables } });
         await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
         const load = await loaded();
 
@@ -1249,17 +1250,21 @@ describe("the MSM Projects list", () => {
         const values = load.values as IMsmEditValues;
         expect(values.onlineAlter.lockWait).toBe("10");
 
+        // A table's entry set in the table editor while the dialog is open.
+        tables.items = { lockWait: 1 };
         recorded.calls.length = 0;
         await receive({ type: "submit", values: { ...values, onlineAlter: {
             ...values.onlineAlter, lockWait: "", maxRebuildBytes: "2 GiB",
         } } });
 
-        // The whole setting: msm takes it only so; the tables' kept.
-        expect(recorded.calls).toEqual([{ name: "setProjectSettings",
-            args: [PROJECT, { onlineAlter: { enabled: true,
-                maxRebuildBytes: 2 * 1024 ** 3,
-                tables: { orders: { enabled: false } } } }],
-        }]);
+        // The whole setting, read again: msm takes it only so.
+        expect(recorded.calls).toEqual([
+            { name: "getOnlineAlterSettings", args: [PROJECT] },
+            { name: "setProjectSettings", args: [PROJECT, { onlineAlter: {
+                enabled: true, maxRebuildBytes: 2 * 1024 ** 3,
+                tables: { orders: { enabled: false },
+                    items: { lockWait: 1 } } } }] },
+        ]);
         expect(JSON.stringify([...actions(recorded).values()]))
             .toContain("msm.set_project_settings(");
     });
@@ -1281,8 +1286,9 @@ describe("the MSM Projects list", () => {
                 onlineAlter: { ...values.onlineAlter, enabled: "off" },
             } });
 
-            expect(recorded.calls).toEqual([{ name: "setProjectSettings",
-                args: [PROJECT, {
+            expect(recorded.calls).toEqual([
+                { name: "getOnlineAlterSettings", args: [PROJECT] },
+                { name: "setProjectSettings", args: [PROJECT, {
                     onlineAlter: { enabled: false },
                     copyrights: [
                         { holder: "Ada", yearOfCreation: "2023",
@@ -1290,8 +1296,8 @@ describe("the MSM Projects list", () => {
                         { holder: "Bob", yearOfCreation: "2025",
                             tracksUpdates: false },
                     ],
-                }],
-            }]);
+                }] },
+            ]);
         });
 
     it("refuses a last copyright year before the first", async () => {

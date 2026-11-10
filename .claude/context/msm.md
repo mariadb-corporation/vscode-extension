@@ -169,12 +169,17 @@ MSM Projects (`mariadb.msmProjects`).
   entry takes; a field left empty takes msm's default, shown as its
   placeholder. The tab names the tables with entries of their own. Read
   with `msm.get_online_alter_settings` without a table (`#onlineAlter`,
-  not an action of its own); its `tables` are split off for the tab, and
-  the whole setting is kept for Update, which sends
-  `withGeneral(setting, values)` - the tables' entries as read - only where
-  `entryKey` of the general values differs. Values are `IMsmEditValues.onlineAlter` (`OnlineAlterTexts`),
+  not an action of its own); the tab gets the general values
+  (`generalOf`) and the tables' names. Update, only where `entryKey` of
+  the general values differs, reads the setting again and sends
+  `withGeneral(setting, values)` (`changedOnlineAlter` in `msmApi.ts`, the
+  one read-change-write of the setting, also the table editor's), so a
+  table entry saved in the meantime is kept. Values are `IMsmEditValues.onlineAlter` (`OnlineAlterTexts`),
   fields named `onlineAlter.<key>` (the dialog's `update` / `field` take a
-  dotted name); `onlineAlterProblem` checks them after the list settings.
+  dotted name; `PAGE_FIELDS` names the `onlineAlter` prefix);
+  `onlineAlterProblem` is `readTexts`' first keyed problem, checked after
+  the list settings. The hints are `ONLINE_ALTER_HINTS` of `onlineAlter.ts`,
+  shared with the table editor's tab.
   An msm that cannot read the setting gives `onlineAlterProblem` on the load
   message, shown on the tab, and Update then leaves the setting alone.
   An msm without `msm.set_project_settings` fails such an Update with its

@@ -24,27 +24,13 @@
 import {
     COUNT_KEYS,
     type IOnlineAlterData,
-    NO_LIMIT,
+    ONLINE_ALTER_HINTS,
     ONLINE_ALTER_LABELS,
     type OnlineAlterTexts,
+    SIZE_EXAMPLES,
     SIZE_KEYS,
     sizeText,
 } from "../../../src/tableEditor/onlineAlter.js";
-
-/** What each field is for. */
-const HINTS: Record<keyof OnlineAlterTexts, string> = {
-    enabled: "",
-    maxRebuildBytes: "The largest table an online rebuild (ALGORITHM="
-        + "INPLACE or COPY, LOCK=NONE) runs on; 0 never rebuilds.",
-    galeraMaxBytes: "On Galera, the largest table for a step other than "
-        + "INSTANT.",
-    nboLock: "On Galera, the lock a non-blocking operation (NBO) may take: "
-        + "it blocks writes, EXCLUSIVE reads too.",
-    maxLockedBytes: "The largest table a step that blocks writes "
-        + "(LOCK=SHARED or EXCLUSIVE) runs on.",
-    lockWait: "How long each attempt waits for the table's metadata lock.",
-    maxRetries: "How often an attempt whose lock wait ran out is made again.",
-};
 
 /** What a field shows where msm gave no inherited value for it. */
 const NO_INHERITED = "default";
@@ -133,7 +119,7 @@ export const OnlineAlterTab = (props: IOnlineAlterTabProps):
                                 change({ [key]: event.currentTarget.value });
                             }} />,
                         <span key={`${key}-hint`} class="muted hint">
-                            {HINTS[key]}
+                            {ONLINE_ALTER_HINTS[key]}
                         </span>,
                     ];
                 })}
@@ -152,7 +138,7 @@ export const OnlineAlterTab = (props: IOnlineAlterTabProps):
                     <option value="SHARED">SHARED</option>
                     <option value="EXCLUSIVE">EXCLUSIVE</option>
                 </select>
-                <span class="muted hint">{HINTS.nboLock}</span>
+                <span class="muted hint">{ONLINE_ALTER_HINTS.nboLock}</span>
                 {COUNT_KEYS.map((key) => {
                     return [
                         <label key={`${key}-label`} class="field-label"
@@ -168,13 +154,13 @@ export const OnlineAlterTab = (props: IOnlineAlterTabProps):
                                 change({ [key]: event.currentTarget.value });
                             }} />,
                         <span key={`${key}-hint`} class="muted hint">
-                            {HINTS[key]}
+                            {ONLINE_ALTER_HINTS[key]}
                         </span>,
                     ];
                 })}
             </div>
             <p class="muted">
-                {`Sizes as 10 GiB, 512 MiB, 0 or ${NO_LIMIT}; a field left `
+                {`Sizes as ${SIZE_EXAMPLES}; a field left `
                     + `empty takes the ${from}'s value it shows. `}
                 {data.keptIn === "project"
                     ? "Saved in the project's msm.project.json: deployments "

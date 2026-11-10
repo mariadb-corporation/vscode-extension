@@ -260,7 +260,8 @@ export const TableEditor = (): preact.JSX.Element => {
         return draft === undefined ? [] : draftProblems(draft);
     }, [draft]);
     const problems = useMemo(() => {
-        return [...draftProblemsOnly, ...alter?.problems ?? []];
+        return [...draftProblemsOnly, ...(alter?.problems ?? []).map(
+            (problem) => { return problem.message; })];
     }, [draftProblemsOnly, alter]);
 
     // The tab's entry where it changed it to a valid one: the preview
