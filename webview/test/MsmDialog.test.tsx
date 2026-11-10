@@ -23,6 +23,7 @@ import { posted } from "./setup.js";
 import { MsmDialog } from "../src/MsmDialog.js";
 import {
     createDefaults,
+    currentYear,
     deployDefaults,
     deploymentScriptDefaults,
     editDefaults,
@@ -43,7 +44,12 @@ const PROJECT: IMsmProjectContext = {
     projectPath: "/work/sakila.msm.project",
     schemaName: "sakila",
     license: "MIT",
-    copyrightHolders: ["Ada", "Bob"],
+    copyrights: [
+        { holder: "Ada", yearOfCreation: "2024", yearOfLastUpdate: "2026",
+            tracksUpdates: true },
+        { holder: "Bob", yearOfCreation: "2025", yearOfLastUpdate: "",
+            tracksUpdates: false },
+    ],
     currentDevelopmentVersion: "1.0.1",
     lastReleasedVersion: "1.0.0",
     releasedVersions: ["0.9.0", "1.0.0"],
@@ -363,7 +369,7 @@ describe("MSM Project Information", () => {
             ["Schema", "sakila"],
             ["Project Folder", "/work/sakila.msm.project"],
             ["License", "MIT"],
-            ["Copyright", "Ada, Bob"],
+            ["Copyright", "Ada (2024, 2026); Bob (2025)"],
             ["Development Version", "1.0.1"],
             ["Last Release", "1.0.0"],
             ["Released Versions", "1.0.0, 0.9.0"],
@@ -612,8 +618,7 @@ describe("Edit MSM Project", () => {
     it("shows what cannot change, and updates what can", async () => {
         await openEdit();
 
-        expect(host.textContent).toContain("Copyright");
-        expect(host.textContent).toContain("Ada, Bob");
+        expect(host.textContent).toContain("License");
         expect(input("schemaName")).toBeNull();
         expect(input("developmentVersion").value).toBe("1.0.1");
 
@@ -629,8 +634,61 @@ describe("Edit MSM Project", () => {
             values: {
                 developmentVersion: "1.1.0", folder: "/", caption: "",
                 color: "red", mcpAccess: true, onlineAlter: textsOf({}),
+                copyrights: PROJECT.copyrights,
             },
         }]);
+    });
+
+    it("edits the holders and their years on the Copyright tab", async () => {
+        await openEdit();
+        await click("Copyright");
+
+        expect(input("copyrights.0.holder").value).toBe("Ada");
+        expect(input("copyrights.0.yearOfLastUpdate").value).toBe("2026");
+        expect(input("copyrights.1.yearOfLastUpdate").placeholder)
+            .toBe("2025");
+        await change("copyrights.1.yearOfCreation", "2023");
+        await click("Add Holder");
+        await change("copyrights.2.holder", "Cy");
+        await click("Update");
+
+        expect(submitted()).toEqual([{
+            type: "submit",
+            values: expect.objectContaining({ copyrights: [
+                PROJECT.copyrights[0],
+                { ...PROJECT.copyrights[1], yearOfCreation: "2023" },
+                { holder: "Cy", yearOfCreation: currentYear(),
+                    yearOfLastUpdate: "", tracksUpdates: true },
+            ] }) as unknown,
+        }]);
+    });
+
+    it("refuses a copyright year in the future, on its tab", async () => {
+        await openEdit();
+        await click("Copyright");
+        await change("copyrights.0.yearOfCreation", "2999");
+        await click("Project");
+        await click("Update");
+
+        expect(submitted()).toEqual([]);
+        expect(currentPage()).toBe("Copyright");
+        expect(host.textContent).toContain("2999 lies in the future");
+        expect(input("copyrights.0.yearOfCreation")
+            .getAttribute("aria-invalid")).toBe("true");
+    });
+
+    it("removes a holder, but never the last one", async () => {
+        await openEdit();
+        await click("Copyright");
+        await act(async () => {
+            [...host.querySelectorAll("button")].filter((button) => {
+                return button.textContent === "Remove";
+            })[1].click();
+            await Promise.resolve();
+        });
+
+        expect(input("copyrights.1.holder")).toBeNull();
+        expect(button("Remove").disabled).toBe(true);
     });
 
     const ONLINE = {

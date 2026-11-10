@@ -161,8 +161,11 @@ table, agreed with the msm session:
   whose inherited value msm left out shows "default".
   - Project table: `msm.get_online_alter_settings(table)`; inherited = the
     project's general values over msm's `defaults`. Save runs
-    msm.edit_schema first, then `msm.set_online_alter_table` under the
-    name the Save leaves (`ProjectTableSource.#keepOnlineAlter`);
+    msm.edit_schema first, then the table's entry under the name the Save
+    leaves (`ProjectTableSource.#keepOnlineAlter`): msm takes the setting
+    only as a whole, so `extension.ts` reads it
+    (`msm.get_online_alter_settings`), changes the entry (`withTable`) and
+    sends it all with `msm.set_project_settings({onlineAlter})`;
     msm.edit_schema itself carries an entry over a `rename_table` and drops
     it with a `drop_table`. Deployments use it. The SQL preview asks for
     merged ALTERs, as msm.edit_schema does. Where the settings write

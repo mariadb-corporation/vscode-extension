@@ -67,6 +67,10 @@ import {
 const CONTAINER = "MariaDB Schema Management";
 const VIEW = "MSM Projects";
 const SCHEMA = "msm_view";
+/** This year, which a new project's copyright starts in. */
+const YEAR = String(new Date().getFullYear());
+/** The first year Edit MSM Project gives the copyright instead. */
+const FIRST_YEAR = String(new Date().getFullYear() - 2);
 const CAPTION = "View Shop";
 const FOLDER = "projects";
 const PROJECT_FOLDER = `${SCHEMA}.msm.project`;
@@ -221,8 +225,8 @@ describe("MSM Projects view", () => {
         await waitDialogClosed(title);
     });
 
-    it("edits the project, giving LLMs access and an online schema change "
-        + "default", async () => {
+    it("edits the project: LLM access, the copyright's first year and an "
+        + "online schema change default", async () => {
         const title = `Edit MSM Project - ${SCHEMA}`;
         await menuAction(await view(), ["Shop", CAPTION],
             ["Edit MSM Project..."], async () => {
@@ -233,6 +237,11 @@ describe("MSM Projects view", () => {
             assert.equal(await fieldValue(dialog, "developmentVersion"),
                 "0.0.1");
             await setField(dialog, "developmentVersion", "0.1.0");
+            await clickButton(dialog, "Copyright");
+            assert.equal(await fieldValue(dialog, "copyrights.0.yearOfCreation"),
+                YEAR);
+            await setField(dialog, "copyrights.0.yearOfCreation", FIRST_YEAR);
+            await screenshot("10-edit-msm-project-copyright");
             await clickButton(dialog, "MSM Projects View");
             assert.equal(await fieldValue(dialog, "folder"), "/Shop");
             await setField(dialog, "folder", "/");
@@ -252,11 +261,18 @@ describe("MSM Projects view", () => {
         await waitForAction(/^Updated MSM project msm_view/u);
         // At the top level now, and marked as reachable over MCP.
         await waitForDescription([CAPTION], "0.1.0 · MCP");
+        // One msm.set_project_settings wrote both, and rewrote the notice.
         const settings = JSON.parse(readFileSync(
             join(projectPath(), "msm.project.json"), "utf8")) as
-            { onlineAlter?: unknown };
+            { onlineAlter?: unknown; copyrights?: Array<{
+                yearOfCreation?: string; }>; };
         assert.deepEqual(settings.onlineAlter, { enabled: true,
             maxRebuildBytes: 2 * 1024 ** 3, nboLock: "SHARED" });
+        assert.equal(settings.copyrights?.[0]?.yearOfCreation, FIRST_YEAR);
+        const script = readFileSync(join(projectPath(), "development",
+            `${SCHEMA}_next.sql`), "utf8");
+        assert.match(script, new RegExp(
+            `Copyright \\(c\\) ${FIRST_YEAR}, ${YEAR}, `, "u"));
     });
 
     it("removes the project from the view, and the Explorer adds it back",

@@ -64,14 +64,28 @@ export interface IMsmConnectionChoice {
     label: string;
 }
 
+/**
+ * A copyright of a project, as msm.project.json has it: who holds it,
+ * and the years its notice names (`2024, 2026`).
+ */
+export interface IMsmCopyrightValues {
+    holder: string;
+    /** `2024`. */
+    yearOfCreation: string;
+    /** "" where the notice names the first year alone. */
+    yearOfLastUpdate: string;
+    /** Whether msm moves the last year on with each year's first change. */
+    tracksUpdates: boolean;
+}
+
 /** What a dialog is opened on: the project, as the server reads it. */
 export interface IMsmProjectContext {
     /** The `<schema>.msm.project` folder. */
     projectPath: string;
     schemaName: string;
     license: string;
-    /** Every copyright holder, in the order the project lists them. */
-    copyrightHolders: string[];
+    /** Every copyright, in the order the project lists them. */
+    copyrights: IMsmCopyrightValues[];
     currentDevelopmentVersion: string;
     /** "1.0.0", or undefined before the first release. */
     lastReleasedVersion?: string;
@@ -102,6 +116,8 @@ export interface IMsmCreateValues extends IMsmListValues {
     /** The folder the project folder is made in. */
     targetPath: string;
     copyrightHolder: string;
+    /** The copyright's first year: `2024`. */
+    yearOfCreation: string;
     license: string;
     allowSpecialChars: boolean;
     /** Replace a project folder of the same name. */
@@ -113,6 +129,8 @@ export interface IMsmCreateValues extends IMsmListValues {
 /** What Edit MSM Project asks for. */
 export interface IMsmEditValues extends IMsmListValues {
     developmentVersion: string;
+    /** The project's copyrights, the first its main one. */
+    copyrights: IMsmCopyrightValues[];
     /**
      * The project's general online ALTER TABLE values (msm.project.json's
      * `onlineAlter`, not its tables'), as typed; a field left empty takes
@@ -334,6 +352,112 @@ export const listProblem = (
     return undefined;
 };
 
+// --- Copyright years ---------------------------------------------------
+
+/** @returns This year, as msm writes it into a notice: `2026`. */
+export const currentYear = (): string => {
+    return String(new Date().getFullYear());
+};
+
+/**
+ * @param copyright A copyright.
+ *
+ * @returns The years its notice names, as msm writes them: `2024, 2026`.
+ */
+export const copyrightYears = (copyright: IMsmCopyrightValues): string => {
+    const last = copyright.yearOfLastUpdate.trim();
+
+    return last === "" || last === copyright.yearOfCreation.trim()
+        ? copyright.yearOfCreation.trim()
+        : `${copyright.yearOfCreation.trim()}, ${last}`;
+};
+
+/**
+ * @param text A year field.
+ * @param field Its name.
+ * @param what What it is, for the message.
+ *
+ * @returns Why it is no year msm takes: four digits, not in the future.
+ */
+const yearProblem = (text: string, field: string,
+    what: string): IMsmProblem | undefined => {
+    const year = text.trim();
+    if (!/^\d{4}$/u.test(year)) {
+        return { field, message: `Enter the ${what} as four digits: `
+            + `${currentYear()}.` };
+    }
+    if (year > currentYear()) {
+        return { field, message: `The ${what} ${year} lies in the future.` };
+    }
+
+    return undefined;
+};
+
+/**
+ * @param copyrights The copyrights of Edit MSM Project.
+ *
+ * @returns The first that msm would refuse: a holder or year missing, a
+ *          year in the future, or a last year before the first.
+ */
+export const copyrightsProblem = (
+    copyrights: IMsmCopyrightValues[],
+): IMsmProblem | undefined => {
+    if (copyrights.length === 0) {
+        return { message: "A project needs a copyright holder. Add one." };
+    }
+    for (const [index, copyright] of copyrights.entries()) {
+        const field = (name: keyof IMsmCopyrightValues): string => {
+            return `copyrights.${index}.${name}`;
+        };
+        if (copyright.holder.trim() === "") {
+            return { field: field("holder"),
+                message: "Enter the copyright holder." };
+        }
+        const first = yearProblem(copyright.yearOfCreation,
+            field("yearOfCreation"), "first year");
+        if (first !== undefined) {
+            return first;
+        }
+        if (copyright.yearOfLastUpdate.trim() === "") {
+            continue;
+        }
+        const last = yearProblem(copyright.yearOfLastUpdate,
+            field("yearOfLastUpdate"), "last year");
+        if (last !== undefined) {
+            return last;
+        }
+        if (copyright.yearOfLastUpdate.trim()
+            < copyright.yearOfCreation.trim()) {
+            return { field: field("yearOfLastUpdate"),
+                message: "The last year cannot be before the first, "
+                    + `${copyright.yearOfCreation.trim()}.` };
+        }
+    }
+
+    return undefined;
+};
+
+/**
+ * @param copyrights Copyrights as typed.
+ *
+ * @returns Them as msm.project.json has them: trimmed, a last year left
+ *          out where there is none.
+ */
+export const storedCopyrights = (copyrights: IMsmCopyrightValues[],
+): Array<{ holder: string; yearOfCreation: string;
+    yearOfLastUpdate?: string; tracksUpdates: boolean; }> => {
+    return copyrights.map((copyright) => {
+        const last = copyright.yearOfLastUpdate.trim();
+
+        return {
+            holder: copyright.holder.trim(),
+            yearOfCreation: copyright.yearOfCreation.trim(),
+            ...(last === "" ? {} : { yearOfLastUpdate: last }),
+            tracksUpdates: copyright.tracksUpdates,
+        };
+    });
+};
+
 // --- New MSM Project ---------------------------------------------------
 
 /**
@@ -354,6 +478,7 @@ export const createDefaults = (
         schemaName,
         targetPath: folder,
         copyrightHolder: "",
+        yearOfCreation: currentYear(),
         license: "None",
         allowSpecialChars: false,
         overwriteExisting: false,
@@ -412,6 +537,11 @@ export const createProblem = (
                 + "company's.",
         };
     }
+    const year = yearProblem(values.yearOfCreation, "yearOfCreation",
+        "year of creation");
+    if (year !== undefined) {
+        return year;
+    }
     if (values.targetPath.trim() === "") {
         return {
             field: "targetPath",
@@ -438,6 +568,9 @@ export const editDefaults = (
     return {
         ...listed,
         developmentVersion: project.currentDevelopmentVersion,
+        copyrights: project.copyrights.map((copyright) => {
+            return { ...copyright };
+        }),
         onlineAlter: textsOf(onlineAlter),
     };
 };
@@ -512,7 +645,9 @@ export const editProblem = (
         };
     }
 
-    return listProblem(values) ?? onlineAlterProblem(values.onlineAlter);
+    // In the order of the tabs.
+    return copyrightsProblem(values.copyrights) ?? listProblem(values)
+        ?? onlineAlterProblem(values.onlineAlter);
 };
 
 // --- Prepare Release ---------------------------------------------------

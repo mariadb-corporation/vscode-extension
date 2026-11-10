@@ -18,6 +18,10 @@
 import { useEffect, useState } from "preact/hooks";
 
 import {
+    copyrightYears,
+    currentYear,
+    type IMsmCopyrightValues,
+    type IMsmEditValues,
     msmProblem,
     nextPatchVersion,
     onlineAlterField,
@@ -78,9 +82,9 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
     create: "Creates a schema project folder: the development script the "
         + "schema is written in, and the folders its releases and "
         + "deployment scripts go to.",
-    edit: "Changes the version development goes on with, how the MSM "
-        + "Projects view files and shows the project, and how its tables "
-        + "are altered online.",
+    edit: "Changes the version development goes on with, the project's "
+        + "copyrights, how the MSM Projects view files and shows it, and how "
+        + "its tables are altered online.",
     info: "What the project's files say about it.",
     release: "Writes the development script out as a released version, "
         + "with the update script from the version before, and moves "
@@ -98,19 +102,22 @@ const DESCRIPTIONS: Record<MsmDialogKind, string> = {
  * Project, as tabs. Each page's fields, so a problem can be shown on its
  * page.
  */
-type MsmPage = "Project" | "Location" | "MSM Projects View"
+type MsmPage = "Project" | "Copyright" | "Location" | "MSM Projects View"
     | "Online Schema Change";
 
 /** The pages of each dialog that has them, in order. */
 const PAGES: Partial<Record<MsmDialogKind, readonly MsmPage[]>> = {
     create: ["Project", "Location", "MSM Projects View"],
-    edit: ["Project", "MSM Projects View", "Online Schema Change"],
+    edit: ["Project", "Copyright", "MSM Projects View",
+        "Online Schema Change"],
 };
 
 /** The fields on each page. */
 const PAGE_FIELDS: Record<MsmPage, readonly string[]> = {
-    Project: ["schemaName", "license", "copyrightHolder",
+    Project: ["schemaName", "license", "copyrightHolder", "yearOfCreation",
         "allowSpecialChars", "developmentVersion"],
+    // Each holder's fields: `copyrights.0.holder`.
+    Copyright: ["copyrights"],
     Location: ["targetPath", "createTargetPath", "overwriteExisting"],
     "MSM Projects View": ["folder", "caption", "color", "mcpAccess"],
     "Online Schema Change": ["enabled", ...SIZE_KEYS, "nboLock",
@@ -122,6 +129,8 @@ const PAGE_FIELDS: Record<MsmPage, readonly string[]> = {
 /** What each page holds, as its tab's tooltip. */
 const PAGE_TOOLTIPS: Record<MsmPage, string> = {
     Project: "The schema, its license and copyright, and its version.",
+    Copyright: "Who holds the project's copyright, and the years its "
+        + "notices name.",
     Location: "Where the project folder is created.",
     "MSM Projects View": "How the MSM Projects view files and shows the "
         + "project, and whether LLMs may work on it.",
@@ -153,8 +162,32 @@ const ONLINE_ALTER_HINTS = {
 const pageOf = (pages: readonly MsmPage[], field: string | undefined,
 ): number => {
     return field === undefined ? -1 : pages.findIndex((page) => {
-        return PAGE_FIELDS[page].includes(field);
+        return PAGE_FIELDS[page].some((name) => {
+            return field === name || field.startsWith(`${name}.`);
+        });
     });
+};
+
+/**
+ * @param object An object or array.
+ * @param path The keys down to a value: `copyrights`, `0`, `holder`.
+ * @param value The value to put there.
+ *
+ * @returns A copy with it, each object on the way copied too.
+ */
+const withPath = (object: unknown, path: string[], value: unknown,
+): unknown => {
+    const [key, ...rest] = path;
+    const at = rest.length === 0 ? value
+        : withPath((object as Record<string, unknown>)[key], rest, value);
+    if (Array.isArray(object)) {
+        const copy = [...object] as unknown[];
+        copy[Number(key)] = at;
+
+        return copy;
+    }
+
+    return { ...(object as Record<string, unknown>), [key]: at };
 };
 
 export const MsmDialog = (): preact.JSX.Element => {
@@ -246,14 +279,8 @@ export const MsmDialog = (): preact.JSX.Element => {
 
     const update = (name: string, value: boolean | string): void => {
         setValues((current) => {
-            const [group, key] = name.split(".");
-            const next = (key === undefined
-                ? { ...current, [name]: value }
-                : { ...current, [group]: {
-                    ...(current as unknown as Record<string,
-                        Record<string, unknown>>)[group],
-                    [key]: value,
-                } }) as MsmValues;
+            const next = withPath(current, name.split("."),
+                value) as MsmValues;
             const release = current as IMsmReleaseValues;
             if (kind === "release" && name === "version"
                 && release.nextVersion
@@ -475,6 +502,11 @@ export const MsmDialog = (): preact.JSX.Element => {
                     + "written into every script's header.")}>
                     {text("copyrightHolder")}
                 </Field>
+                <Field caption="Year of Creation" hint={hint(
+                    "yearOfCreation", "The first year the copyright "
+                    + "notices name: an earlier one for work begun before.")}>
+                    {text("yearOfCreation", currentYear())}
+                </Field>
                 <div class="group flags">
                     {box("allowSpecialChars",
                         "Allow Special Characters",
@@ -519,8 +551,6 @@ export const MsmDialog = (): preact.JSX.Element => {
             ? [] : [
                 ["Schema", project.schemaName],
                 ["License", project.license],
-                ["Copyright",
-                    project.copyrightHolders.join(", ") || "None"],
             ];
 
         return (
@@ -613,6 +643,100 @@ export const MsmDialog = (): preact.JSX.Element => {
         );
     };
 
+    /**
+     * Edit MSM Project's Copyright tab: each holder, with the years the
+     * notices name. msm rewrites the development files' notices on
+     * Update; released files keep theirs.
+     */
+    const copyrightSettings = (): preact.JSX.Element => {
+        const copyrights = (values as IMsmEditValues).copyrights;
+        const setCopyrights = (list: IMsmCopyrightValues[]): void => {
+            setValues((current) => {
+                return { ...current, copyrights: list } as MsmValues;
+            });
+            setTouched((current) => {
+                return new Set([...current, "copyrights"]);
+            });
+            setHostProblem(undefined);
+        };
+        const listProblem = shownProblem?.field === undefined
+            || !shownProblem.field.startsWith("copyrights.")
+            ? undefined : shownProblem;
+
+        return (
+            <section class="msm-copyrights">
+                <div class="msm-copyright-grid" role="table">
+                    <span class="field-caption">Holder</span>
+                    <span class="field-caption">First Year</span>
+                    <span class="field-caption">Last Year</span>
+                    <span class="field-caption">Follows Updates</span>
+                    <span />
+                    {copyrights.map((copyright, index) => {
+                        const name = (key: keyof IMsmCopyrightValues,
+                        ): string => {
+                            return `copyrights.${index}.${key}`;
+                        };
+
+                        return [
+                            <span key={`${index}-holder`}>
+                                {text(name("holder"), "Your name, or your "
+                                    + "company's")}
+                            </span>,
+                            <span key={`${index}-first`}>
+                                {text(name("yearOfCreation"), currentYear())}
+                            </span>,
+                            <span key={`${index}-last`}>
+                                {/* What it becomes when left empty: msm
+                                    moves a holder that follows updates on
+                                    to this year with the change. */}
+                                {text(name("yearOfLastUpdate"),
+                                    copyright.tracksUpdates ? currentYear()
+                                        : copyright.yearOfCreation)}
+                            </span>,
+                            <span key={`${index}-tracks`}>
+                                {box(name("tracksUpdates"), "",
+                                    "msm moves the last year on with the "
+                                    + "first change of each new year.")}
+                            </span>,
+                            <button key={`${index}-remove`} type="button"
+                                disabled={busy || copyrights.length === 1}
+                                title={`Remove ${copyright.holder || "the "
+                                    + "holder"}`}
+                                onClick={() => {
+                                    setCopyrights(copyrights.filter((_, at) => {
+                                        return at !== index;
+                                    }));
+                                }}>
+                                Remove
+                            </button>,
+                        ];
+                    })}
+                </div>
+                {listProblem === undefined ? null : (
+                    <p class="field-hint field-problem">
+                        {listProblem.message}
+                    </p>
+                )}
+                <div class="row">
+                    <button type="button" disabled={busy} onClick={() => {
+                        setCopyrights([...copyrights, { holder: "",
+                            yearOfCreation: currentYear(),
+                            yearOfLastUpdate: "", tracksUpdates: true }]);
+                    }}>
+                        Add Holder
+                    </button>
+                </div>
+                <p class="field-hint">
+                    {"Each notice reads Copyright (c) <first year>, <last "
+                        + "year>, <holder>; the last year is left out where "
+                        + "it is empty or the same. On Update, msm rewrites "
+                        + "the notices of the development files; released "
+                        + "files keep theirs."}
+                </p>
+            </section>
+        );
+    };
+
     /** The page showing, of a dialog that has pages. */
     const pageBody = (): preact.JSX.Element => {
         switch (pages?.[page]) {
@@ -625,6 +749,9 @@ export const MsmDialog = (): preact.JSX.Element => {
             }
             case "Online Schema Change": {
                 return onlineAlterSettings();
+            }
+            case "Copyright": {
+                return copyrightSettings();
             }
 
             default: {
@@ -758,7 +885,9 @@ export const MsmDialog = (): preact.JSX.Element => {
             ["Schema", shown.schemaName],
             ["Project Folder", shown.projectPath],
             ["License", shown.license],
-            ["Copyright", shown.copyrightHolders.join(", ") || "None"],
+            ["Copyright", shown.copyrights.map((copyright) => {
+                return `${copyright.holder} (${copyrightYears(copyright)})`;
+            }).join("; ") || "None"],
             ["Development Version", shown.currentDevelopmentVersion],
             ["Last Release", shown.lastReleasedVersion ?? "Not released yet"],
             ["Released Versions", released.join(", ") || "None"],

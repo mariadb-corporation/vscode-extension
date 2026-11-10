@@ -27,8 +27,8 @@ import type {
     IDiagramRow,
 } from "../modeler/modelFormat.js";
 import type {
-    IOnlineAlterEntry,
     IOnlineAlterOptions,
+    IOnlineAlterSetting,
 } from "../tableEditor/onlineAlter.js";
 import type { ITaskStarted } from "./taskApi.js";
 import { CONNECTION_COLORS, type ConnectionColor } from "./types.js";
@@ -76,6 +76,8 @@ export interface IMsmCreateOptions {
     allowSpecialChars?: boolean;
     /** Make `targetPath` where it does not exist yet. */
     enforceTargetPath?: boolean;
+    /** The copyright's first year, `2024`; left out, the current one. */
+    yearOfCreation?: string;
     /**
      * Whether LLMs may work on it through an MCP server without `--gui`;
      * left out, they may not.
@@ -166,14 +168,28 @@ export const MSM_LICENSES = ["None", "BSD", "GPL-2.0", "MIT"] as const;
  */
 export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 
+/** An `onlineAlter` setting of msm.project.json, normalized. */
+export type IMsmOnlineAlterSetting = IOnlineAlterSetting;
+
+/**
+ * The settings of msm.project.json that `msm.set_project_settings`
+ * writes; only those given change.
+ */
+export interface IMsmProjectSettings {
+    /** Every holder, the first one the project's main one. */
+    copyrights?: IMsmCopyright[];
+    license?: string;
+    customLicense?: string;
+    /** The whole setting, the tables' entries too; null for msm's. */
+    onlineAlter?: IMsmOnlineAlterSetting | null;
+}
+
 /** A project's online ALTER TABLE setting, as msm gives it for a table. */
 export interface IMsmOnlineAlterSettings {
     /** The values where nothing is set. */
     defaults: Required<IOnlineAlterOptions>;
     /** msm.project.json's `onlineAlter`, normalized. */
-    setting: IOnlineAlterEntry & {
-        tables?: Record<string, IOnlineAlterEntry>;
-    };
+    setting: IMsmOnlineAlterSetting;
     table?: string | null;
     /** Whether it is on for the table. */
     enabled?: boolean;
@@ -247,10 +263,8 @@ export interface IMsmApi {
     removeSchemaDiagram(projectPath: string, name: string): Promise<string[]>;
     getOnlineAlterSettings(projectPath: string,
         table?: string): Promise<IMsmOnlineAlterSettings>;
-    setOnlineAlterTable(projectPath: string, table: string,
-        settings: IOnlineAlterEntry | null): Promise<string[]>;
-    setOnlineAlterDefaults(projectPath: string,
-        settings: IOnlineAlterEntry | null): Promise<string[]>;
+    setProjectSettings(projectPath: string,
+        settings: IMsmProjectSettings): Promise<string[]>;
     onlineAlterDefaults(): Promise<Required<IOnlineAlterOptions>>;
     onlineAlterTable(connectionId: string, schema: string, table: string,
         spec: string, options: IOnlineAlterOptions): Promise<ITaskStarted>;
@@ -363,6 +377,7 @@ export const msmToolArgs = {
             overwrite_existing: options.overwriteExisting,
             allow_special_chars: options.allowSpecialChars,
             enforce_target_path: options.enforceTargetPath,
+            year_of_creation: options.yearOfCreation,
             mcp_access: options.mcpAccess,
             folder: options.folder,
             caption: options.caption,
@@ -453,18 +468,11 @@ export const msmToolArgs = {
             schema_project_path: projectPath,
         };
     },
-    setOnlineAlterDefaults: (
+    setProjectSettings: (
         projectPath: string,
-        settings: IOnlineAlterEntry | null,
+        settings: IMsmProjectSettings,
     ): Record<string, unknown> => {
         return { settings, schema_project_path: projectPath };
-    },
-    setOnlineAlterTable: (
-        projectPath: string,
-        table: string,
-        settings: IOnlineAlterEntry | null,
-    ): Record<string, unknown> => {
-        return { table, settings, schema_project_path: projectPath };
     },
     onlineAlterTable: (
         connectionId: string,
@@ -804,45 +812,24 @@ export class MsmApi implements IMsmApi {
     }
 
     /**
-     * Writes a table's online ALTER TABLE entry of msm.project.json.
+     * Writes settings of msm.project.json: each one given replaces what is
+     * stored as a whole, null drops an optional one, and the rest stay.
+     * msm checks them all first, and rewrites the development files'
+     * notices for a change of the copyrights or the license.
      *
      * @param projectPath The project folder.
-     * @param table The table, as the scripts name it.
-     * @param settings Its entry; null or empty drops it, so the table
-     *                 follows the project's values.
+     * @param settings The settings to change.
      *
-     * @returns The files written.
+     * @returns The files written; none where nothing changed.
      */
-    public async setOnlineAlterTable(
+    public async setProjectSettings(
         projectPath: string,
-        table: string,
-        settings: IOnlineAlterEntry | null,
+        settings: IMsmProjectSettings,
     ): Promise<string[]> {
-        const tool = "msm.set_online_alter_table";
+        const tool = "msm.set_project_settings";
 
         return decodeList<string>(tool, await this.caller.callTool(tool,
-            msmToolArgs.setOnlineAlterTable(projectPath, table, settings)));
-    }
-
-    /**
-     * Writes the project's general online ALTER TABLE values of
-     * msm.project.json, which every table without its own takes; the
-     * tables' entries are left as they are.
-     *
-     * @param projectPath The project folder.
-     * @param settings The values; a key left out takes msm's default, and
-     *                 null or empty drops them all.
-     *
-     * @returns The files written.
-     */
-    public async setOnlineAlterDefaults(
-        projectPath: string,
-        settings: IOnlineAlterEntry | null,
-    ): Promise<string[]> {
-        const tool = "msm.set_online_alter_defaults";
-
-        return decodeList<string>(tool, await this.caller.callTool(tool,
-            msmToolArgs.setOnlineAlterDefaults(projectPath, settings)));
+            msmToolArgs.setProjectSettings(projectPath, settings)));
     }
 
     /**

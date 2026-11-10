@@ -260,3 +260,70 @@ export const optionsOf = (entry: IOnlineAlterEntry): IOnlineAlterOptions => {
 
     return options;
 };
+
+/**
+ * msm.project.json's whole `onlineAlter` setting: the project's general
+ * values, and the tables' own entries. msm.set_project_settings takes it
+ * only as a whole, so each writer changes its part and sends all of it.
+ */
+export interface IOnlineAlterSetting extends IOnlineAlterEntry {
+    tables?: Record<string, IOnlineAlterEntry>;
+}
+
+/**
+ * @param general The general values.
+ * @param tables The tables' entries.
+ *
+ * @returns The setting they make: an empty entry, and tables when none
+ *          has one, are left out.
+ */
+const settingOf = (general: IOnlineAlterEntry,
+    tables: Record<string, IOnlineAlterEntry>): IOnlineAlterSetting => {
+    const kept = Object.fromEntries(Object.entries(tables).filter(
+        ([, entry]) => { return Object.keys(entry).length > 0; }));
+
+    return Object.keys(kept).length === 0 ? { ...general }
+        : { ...general, tables: kept };
+};
+
+/**
+ * @param setting The setting, as read.
+ *
+ * @returns Its general values alone.
+ */
+export const generalOf = (setting: IOnlineAlterSetting): IOnlineAlterEntry => {
+    const { tables: _tables, ...general } = setting;
+
+    return general;
+};
+
+/**
+ * @param setting The setting, as read.
+ * @param general The project's new general values.
+ *
+ * @returns The setting with them, the tables' entries kept.
+ */
+export const withGeneral = (setting: IOnlineAlterSetting,
+    general: IOnlineAlterEntry): IOnlineAlterSetting => {
+    return settingOf(general, setting.tables ?? {});
+};
+
+/**
+ * @param setting The setting, as read.
+ * @param table A table.
+ * @param entry Its new entry; null or empty drops it, so the table takes
+ *              the general values.
+ *
+ * @returns The setting with it, the rest kept.
+ */
+export const withTable = (setting: IOnlineAlterSetting, table: string,
+    entry: IOnlineAlterEntry | null): IOnlineAlterSetting => {
+    const tables = { ...setting.tables ?? {} };
+    if (entry === null) {
+        delete tables[table];
+    } else {
+        tables[table] = entry;
+    }
+
+    return settingOf(generalOf(setting), tables);
+};

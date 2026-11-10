@@ -233,6 +233,7 @@ import {
     type ILiveTable,
     OnlineAlterStore,
 } from "./tableEditor/onlineAlterStore.js";
+import { withTable } from "./tableEditor/onlineAlter.js";
 import type { TableEditorTarget } from "./tableEditor/tableEditorProtocol.js";
 import { TableEditorPanel } from "./tableEditor/tableEditorPanel.js";
 import {
@@ -1281,9 +1282,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         return await (await msmApi()).getOnlineAlterSettings(
                             projectPath, table);
                     },
+                    // msm takes the setting only as a whole: read, the
+                    // table's entry changed, written back.
                     set: async (table, entry) => {
-                        await (await msmApi()).setOnlineAlterTable(
-                            projectPath, table, entry);
+                        const api = await msmApi();
+                        const { setting } = await api.getOnlineAlterSettings(
+                            projectPath);
+                        await api.setProjectSettings(projectPath, {
+                            onlineAlter: withTable(setting, table, entry),
+                        });
                     },
                 },
             });

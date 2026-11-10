@@ -42,12 +42,14 @@ import {
     type IMsmListedProject,
     type IMsmProjectDetails,
     type IMsmProjectInfo,
+    type IMsmProjectSettings,
     type IMsmReleaseOptions,
 } from "../mcp/msmApi.js";
 import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
 import { counted, errorText } from "../text.js";
 import {
     createDefaults,
+    currentYear,
     deployDefaults,
     deploymentScriptDefaults,
     editDefaults,
@@ -56,6 +58,7 @@ import {
     projectFolderName,
     releaseDefaults,
     schemaNameOfFolder,
+    storedCopyrights,
     type IMsmCreateValues,
     type IMsmEditValues,
     type IMsmListValues,
@@ -69,8 +72,10 @@ import {
 } from "./msmFields.js";
 import {
     entryKey,
-    type IOnlineAlterEntry,
+    generalOf,
+    type IOnlineAlterSetting,
     readTexts,
+    withGeneral,
 } from "../tableEditor/onlineAlter.js";
 import { pickFolder } from "../webview/dialogPanel.js";
 import {
@@ -302,17 +307,29 @@ export const projectContext = (
     released: string[],
     scripts: string[],
 ): IMsmProjectContext => {
-    const holders = (info.copyrights ?? []).map((copyright) => {
-        return copyright.holder;
-    }).filter((holder) => { return holder !== ""; });
+    const year = info.yearOfCreation ?? currentYear();
+    const listed = (info.copyrights ?? []).filter((copyright) => {
+        return copyright.holder !== "";
+    });
+    // An older msm, or project, has the one holder alone.
+    const stored = listed.length > 0 || info.copyrightHolder === undefined
+        || info.copyrightHolder === "" ? listed
+        : [{ holder: info.copyrightHolder, yearOfCreation: year }];
+    const copyrights = stored.map((copyright) => {
+        return {
+            holder: copyright.holder,
+            yearOfCreation: String(copyright.yearOfCreation ?? year),
+            yearOfLastUpdate: copyright.yearOfLastUpdate === undefined
+                ? "" : String(copyright.yearOfLastUpdate),
+            tracksUpdates: copyright.tracksUpdates ?? false,
+        };
+    });
 
     return {
         projectPath,
         schemaName: info.schemaName,
         license: info.license ?? "None",
-        copyrightHolders: holders.length > 0 ? holders
-            : info.copyrightHolder === undefined || info.copyrightHolder === ""
-                ? [] : [info.copyrightHolder],
+        copyrights,
         currentDevelopmentVersion: info.currentDevelopmentVersion,
         ...(info.lastReleasedVersion === null
             ? {} : { lastReleasedVersion: info.lastReleasedVersion }),
@@ -565,13 +582,13 @@ export class MsmCommands {
         ]);
         const before = listValuesOf(listed);
         const title = `${MSM_TITLES.edit} - ${project.schemaName}`;
-        const setting = "context" in online ? online.context.setting
-            : undefined;
+        const setting = "context" in online ? online.setting : undefined;
         MsmDialogPanel.show(this.host.extensionUri, {
             kind: "edit",
             title,
             project,
-            values: editDefaults(project, before, setting),
+            values: editDefaults(project, before,
+                setting === undefined ? undefined : generalOf(setting)),
             folders,
             ...("context" in online ? { onlineAlter: online.context }
                 : { onlineAlterProblem: online.problem }),
@@ -590,18 +607,24 @@ export class MsmCommands {
      * @returns Its online ALTER TABLE setting, for Edit MSM Project's
      *          Online Schema Change tab; or why msm gave none.
      */
-    async #onlineAlter(projectPath: string): Promise<
-        { context: IMsmOnlineAlterContext } | { problem: string }> {
+    async #onlineAlter(projectPath: string): Promise<{
+        context: IMsmOnlineAlterContext;
+        /** The whole setting, which Update writes back. */
+        setting: IOnlineAlterSetting;
+    } | { problem: string }> {
         try {
             const read = await (await this.host.msmApi())
                 .getOnlineAlterSettings(projectPath);
             const { tables, ...setting } = read.setting;
 
-            return { context: {
-                defaults: read.defaults,
-                setting,
-                tables: Object.keys(tables ?? {}).sort(),
-            } };
+            return {
+                context: {
+                    defaults: read.defaults,
+                    setting,
+                    tables: Object.keys(tables ?? {}).sort(),
+                },
+                setting: read.setting,
+            };
         } catch (error) {
             return { problem: "Online schema change settings need a "
                 + `MariaDB Shell whose msm has them: ${errorText(error)}` };
@@ -627,21 +650,30 @@ export class MsmCommands {
      * @param project The project, as read.
      * @param before How the list had it.
      * @param values What Edit MSM Project says.
-     * @param onlineBefore The project's online ALTER TABLE values, as
+     * @param onlineBefore The project's online ALTER TABLE setting, as
      *                     read; undefined where msm gave none, which
-     *                     leaves them as they are.
+     *                     leaves it as it is.
      */
     async #update(
         project: IMsmProjectContext,
         before: IMsmListValues,
         values: IMsmEditValues,
-        onlineBefore?: IOnlineAlterEntry,
+        onlineBefore?: IOnlineAlterSetting,
     ): Promise<void> {
         const version = values.developmentVersion.trim();
         const details = changedDetails(values, before);
         const online = readTexts(values.onlineAlter).entry;
-        const onlineChanged = onlineBefore !== undefined
-            && entryKey(online) !== entryKey(onlineBefore);
+        // One call for what msm.project.json holds, with what changed.
+        const settings: IMsmProjectSettings = {};
+        if (onlineBefore !== undefined
+            && entryKey(online) !== entryKey(generalOf(onlineBefore))) {
+            settings.onlineAlter = withGeneral(onlineBefore, online);
+        }
+        const copyrights = storedCopyrights(values.copyrights);
+        if (JSON.stringify(copyrights)
+            !== JSON.stringify(storedCopyrights(project.copyrights))) {
+            settings.copyrights = copyrights;
+        }
         const words = {
             doing: `Updating MSM project ${project.schemaName}`,
             done: `Updated MSM project ${project.schemaName}`,
@@ -672,17 +704,15 @@ export class MsmCommands {
                             projectPath, details);
                     });
                 }
-                if (onlineChanged) {
-                    const settings = Object.keys(online).length === 0
-                        ? null : online;
+                if (Object.keys(settings).length > 0) {
                     await group.step({
-                        doing: "Setting the online schema change defaults",
-                        done: "Set the online schema change defaults",
-                    }, msmCall("msm.set_online_alter_defaults",
-                        msmToolArgs.setOnlineAlterDefaults(projectPath,
+                        doing: "Writing the project settings",
+                        done: "Wrote the project settings",
+                    }, msmCall("msm.set_project_settings",
+                        msmToolArgs.setProjectSettings(projectPath,
                             settings)), async () => {
                         return (await this.host.msmApi())
-                            .setOnlineAlterDefaults(projectPath, settings);
+                            .setProjectSettings(projectPath, settings);
                     });
                 }
             }, () => { return projectPath; });
@@ -957,6 +987,7 @@ export class MsmCommands {
             allowSpecialChars: values.allowSpecialChars,
             overwriteExisting: values.overwriteExisting,
             enforceTargetPath: values.createTargetPath,
+            yearOfCreation: values.yearOfCreation.trim(),
             mcpAccess: values.mcpAccess,
             ...(folder === ROOT_FOLDER ? {} : { folder }),
             ...(caption === "" ? {} : { caption }),

@@ -76,7 +76,8 @@ const LISTED: IMsmListedProject = {
 const info = (changes: Partial<IMsmProjectInfo> = {}): IMsmProjectInfo => {
     return {
         schemaName: "sakila", schemaFileName: "sakila",
-        copyrights: [{ holder: "Ada" }], copyrightHolder: "Ada",
+        copyrights: [{ holder: "Ada", yearOfCreation: "2024",
+            tracksUpdates: true }], copyrightHolder: "Ada",
         license: "MIT", currentDevelopmentVersion: "1.0.1",
         lastReleasedVersion: "1.0.0",
         schemaDevelopmentFilePath: `${PROJECT}/development/sakila_next.sql`,
@@ -170,8 +171,7 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         renameSchemaDiagram: answer("renameSchemaDiagram", []),
         getOnlineAlterSettings: answer("getOnlineAlterSettings", {
             defaults: ONLINE_ALTER_DEFAULTS, setting: options.online ?? {} }),
-        setOnlineAlterTable: answer("setOnlineAlterTable", []),
-        setOnlineAlterDefaults: answer("setOnlineAlterDefaults", []),
+        setProjectSettings: answer("setProjectSettings", []),
         onlineAlterDefaults: answer("onlineAlterDefaults",
             ONLINE_ALTER_DEFAULTS),
         onlineAlterTable: answer("onlineAlterTable",
@@ -336,17 +336,28 @@ describe("msmCall", () => {
 });
 
 describe("projectContext", () => {
-    it("takes the holders from the copyright list", () => {
+    it("takes the holders and their years from the copyright list", () => {
         expect(projectContext(info({
-            copyrights: [{ holder: "Ada" }, { holder: "Bob" }],
-        }), PROJECT, ["1.0.0"], []).copyrightHolders).toEqual(["Ada", "Bob"]);
+            copyrights: [
+                { holder: "Ada", yearOfCreation: "2024",
+                    yearOfLastUpdate: "2026", tracksUpdates: true },
+                { holder: "Bob", yearOfCreation: "2025" },
+            ],
+        }), PROJECT, ["1.0.0"], []).copyrights).toEqual([
+            { holder: "Ada", yearOfCreation: "2024", yearOfLastUpdate: "2026",
+                tracksUpdates: true },
+            { holder: "Bob", yearOfCreation: "2025", yearOfLastUpdate: "",
+                tracksUpdates: false },
+        ]);
     });
 
     it("falls back to the one holder of an older project", () => {
-        const context = projectContext(info({ copyrights: [] }), PROJECT,
-            [], []);
+        const context = projectContext(info({ copyrights: [],
+            yearOfCreation: "2023" }), PROJECT, [], []);
 
-        expect(context.copyrightHolders).toEqual(["Ada"]);
+        expect(context.copyrights).toEqual([{ holder: "Ada",
+            yearOfCreation: "2023", yearOfLastUpdate: "",
+            tracksUpdates: false }]);
     });
 
     it("leaves the last release out before there is one", () => {
@@ -391,6 +402,7 @@ describe("New MSM Project", () => {
             await receive({ type: "submit", values: {
                 ...(load.values as IMsmCreateValues), schemaName: "sakila",
                 copyrightHolder: " Ada ", license: "MIT",
+                yearOfCreation: " 2024 ",
             } });
 
             expect(recorded.calls.map((call) => { return call.name; }))
@@ -399,7 +411,8 @@ describe("New MSM Project", () => {
                 schemaName: "sakila", targetPath: "/work",
                 copyrightHolder: "Ada", license: "MIT",
                 allowSpecialChars: false, overwriteExisting: false,
-                enforceTargetPath: false, mcpAccess: false,
+                enforceTargetPath: false, yearOfCreation: "2024",
+                mcpAccess: false,
             }]);
             expect(panel().disposed).toBe(true);
             expect(shownDocuments.map((document) => {
@@ -768,7 +781,9 @@ describe("MSM Project Information", () => {
         expect(load.kind).toBe("info");
         expect(load.project).toEqual({
             projectPath: PROJECT, schemaName: "sakila", license: "MIT",
-            copyrightHolders: ["Ada"], currentDevelopmentVersion: "1.0.1",
+            copyrights: [{ holder: "Ada", yearOfCreation: "2024",
+                yearOfLastUpdate: "", tracksUpdates: true }],
+            currentDevelopmentVersion: "1.0.1",
             lastReleasedVersion: "1.0.0", releasedVersions: ["0.9.0", "1.0.0"],
             deploymentScriptVersions: ["0.9.0"],
             schemaDevelopmentFilePath: `${PROJECT}/development/sakila_next.sql`,
@@ -1201,6 +1216,8 @@ describe("the MSM Projects list", () => {
         expect(load.values).toEqual({
             developmentVersion: "1.0.1", folder: "/Shop", caption: "",
             color: "green", mcpAccess: false, onlineAlter: textsOf({}),
+            copyrights: [{ holder: "Ada", yearOfCreation: "2024",
+                yearOfLastUpdate: "", tracksUpdates: true }],
         });
 
         recorded.calls.length = 0;
@@ -1237,11 +1254,58 @@ describe("the MSM Projects list", () => {
             ...values.onlineAlter, lockWait: "", maxRebuildBytes: "2 GiB",
         } } });
 
-        expect(recorded.calls).toEqual([{ name: "setOnlineAlterDefaults",
-            args: [PROJECT, { enabled: true, maxRebuildBytes: 2 * 1024 ** 3 }],
+        // The whole setting: msm takes it only so; the tables' kept.
+        expect(recorded.calls).toEqual([{ name: "setProjectSettings",
+            args: [PROJECT, { onlineAlter: { enabled: true,
+                maxRebuildBytes: 2 * 1024 ** 3,
+                tables: { orders: { enabled: false } } } }],
         }]);
         expect(JSON.stringify([...actions(recorded).values()]))
-            .toContain("msm.set_online_alter_defaults(");
+            .toContain("msm.set_project_settings(");
+    });
+
+    it("writes changed copyrights and online defaults in one call",
+        async () => {
+            const recorded = setUp();
+            await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
+            const values = (await loaded()).values as IMsmEditValues;
+            recorded.calls.length = 0;
+
+            await receive({ type: "submit", values: { ...values,
+                copyrights: [
+                    { ...values.copyrights[0], yearOfCreation: "2023",
+                        yearOfLastUpdate: " 2025 " },
+                    { holder: " Bob ", yearOfCreation: "2025",
+                        yearOfLastUpdate: "", tracksUpdates: false },
+                ],
+                onlineAlter: { ...values.onlineAlter, enabled: "off" },
+            } });
+
+            expect(recorded.calls).toEqual([{ name: "setProjectSettings",
+                args: [PROJECT, {
+                    onlineAlter: { enabled: false },
+                    copyrights: [
+                        { holder: "Ada", yearOfCreation: "2023",
+                            yearOfLastUpdate: "2025", tracksUpdates: true },
+                        { holder: "Bob", yearOfCreation: "2025",
+                            tracksUpdates: false },
+                    ],
+                }],
+            }]);
+        });
+
+    it("refuses a last copyright year before the first", async () => {
+        const recorded = setUp();
+        await run(MSM_COMMANDS.edit, { kind: "project", project: LISTED });
+        const values = (await loaded()).values as IMsmEditValues;
+        recorded.calls.length = 0;
+
+        await receive({ type: "submit", values: { ...values, copyrights: [
+            { ...values.copyrights[0], yearOfLastUpdate: "2020" }] } });
+
+        expect(recorded.calls).toEqual([]);
+        expect(errorsPosted().join("\n"))
+            .toMatch(/cannot be before the first, 2024/u);
     });
 
     it("leaves the online schema change defaults alone where msm gives none",
