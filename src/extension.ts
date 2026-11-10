@@ -34,6 +34,11 @@ import { applyKeybindings } from "./editor/keybindings.js";
 import type { ITaskApi } from "./mcp/taskApi.js";
 import type { IUtilApi } from "./mcp/utilApi.js";
 import { TaskActionLog } from "./util/taskActions.js";
+import type { ISchemaDefinition } from "./modeler/modelFormat.js";
+import {
+    ObjectTemplates,
+    SchemaObjectCommands,
+} from "./msm/schemaObjects.js";
 import { TaskLogs } from "./util/taskLogs.js";
 import { TaskMonitor } from "./util/taskMonitor.js";
 import {
@@ -1123,6 +1128,24 @@ export const activate = (context: vscode.ExtensionContext): void => {
         objectDetails.refreshed();
         await ModelerPanel.reload(projectDiagrams(projectPath));
     };
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns Its snapshot, which msm makes first for a project that has
+     *          none yet: a new one's first object is added against it.
+     */
+    const snapshotOrMake = async (
+        projectPath: string,
+    ): Promise<ISchemaDefinition | undefined> => {
+        const kept = await msmProjects.snapshot(projectPath);
+        if (kept !== undefined) {
+            return kept;
+        }
+        await projectDiagrams(projectPath).updateSnapshot();
+        await snapshotUpdated(projectPath);
+
+        return await msmProjects.snapshot(projectPath);
+    };
     const scriptSaves = new SettledSaves(async (projectPath) => {
         try {
             if (await projectDiagrams(projectPath).updateSnapshot(true)) {
@@ -1271,7 +1294,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
             const projectPath = target.projectPath;
 
             return new ProjectTableSource(target.schema, target.table, {
-                snapshot: () => { return msmProjects.snapshot(projectPath); },
+                // A new table may be the project's first object.
+                snapshot: () => {
+                    return target.table === "" ? snapshotOrMake(projectPath)
+                        : msmProjects.snapshot(projectPath);
+                },
                 edit: async (edits, baseHash) => {
                     return (await projectDiagrams(projectPath)
                         .edit(edits, baseHash)).notes;
@@ -1386,6 +1413,21 @@ export const activate = (context: vscode.ExtensionContext): void => {
             reportError(log, error, "open the table editor");
         });
     };
+    // Add Table... and the other kinds' Add on a project's group rows.
+    context.subscriptions.push(...new SchemaObjectCommands({
+        msmApi,
+        snapshot: snapshotOrMake,
+        addObject: (projectPath, object, baseHash) => {
+            return projectDiagrams(projectPath).addObject(object, baseHash);
+        },
+        newTable: (projectPath, schema) => {
+            editTable({ kind: "project", projectPath, schema, table: "" });
+        },
+        snapshotUpdated,
+        templates: new ObjectTemplates(path.join(
+            context.globalStorageUri.fsPath, "msm-object-templates")),
+        log,
+    }).register());
     modelerHost.editTable = (target, table) => {
         editTable(target.kind === "project"
             ? { kind: "project", projectPath: target.projectPath,

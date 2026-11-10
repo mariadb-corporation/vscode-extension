@@ -157,6 +157,34 @@ export const quoteString = (text: string): string => {
 };
 
 /**
+ * @param edits A Save's edits.
+ *
+ * @returns The name of the table they make, where they make one.
+ */
+const createdTable = (edits: IMsmSchemaEdit[]): string | undefined => {
+    const created = edits.find((edit) => {
+        return edit.op === "add_table";
+    })?.table as { name?: unknown } | undefined;
+
+    return typeof created?.name === "string" ? created.name : undefined;
+};
+
+/**
+ * @param definition A project's snapshot.
+ *
+ * @returns Its tables' columns, by table, for the foreign keys' pickers.
+ */
+const tableColumns = (
+    definition: ISchemaDefinition,
+): Record<string, string[]> => {
+    return Object.fromEntries(definition.tables.map((entry) => {
+        return [entry.name, entry.columns.map((column) => {
+            return column.name;
+        })];
+    }));
+};
+
+/**
  * @param edits Edits.
  *
  * @returns The table's name after them, where one renames it.
@@ -576,6 +604,7 @@ export const COMMON_COLLATIONS: readonly ICollationChoice[] = [
 
 /** A table of an MSM project. */
 export class ProjectTableSource implements ITableSource {
+    /** "" for a new table, until a Save made it. */
     #table: string;
 
     public constructor(
@@ -611,6 +640,17 @@ export class ProjectTableSource implements ITableSource {
 
     public async read(): Promise<ITableEditorData> {
         const definition = await this.#definition();
+        if (this.#table === "") {
+            return {
+                live: false,
+                isNew: true,
+                table: { name: "", columns: [] },
+                triggers: [],
+                ddl: "",
+                tables: tableColumns(definition),
+                collations: [...COMMON_COLLATIONS],
+            };
+        }
         const lower = this.#table.toLowerCase();
         const table = definition.tables.find((entry) => {
             return entry.name.toLowerCase() === lower;
@@ -619,13 +659,6 @@ export class ProjectTableSource implements ITableSource {
             throw new Error(`The project's schema has no table ${
                 this.#table}.`);
         }
-        const tables: Record<string, string[]> = {};
-        for (const entry of definition.tables) {
-            tables[entry.name] = entry.columns.map((column) => {
-                return column.name;
-            });
-        }
-
         return {
             live: false,
             table,
@@ -636,7 +669,7 @@ export class ProjectTableSource implements ITableSource {
                 return `-- The CREATE TABLE could not be read: ${
                     error instanceof Error ? error.message : String(error)}`;
             }),
-            tables,
+            tables: tableColumns(definition),
             collations: [...COMMON_COLLATIONS],
             ...await this.#onlineAlterData(table.name),
         };
@@ -705,7 +738,8 @@ export class ProjectTableSource implements ITableSource {
                     + "to edit against: run Update Schema Snapshot first.");
             }
             notes = await this.deps.edit(edits, definition.source_hash);
-            this.#table = renamedTo(edits) ?? this.#table;
+            this.#table = renamedTo(edits) ?? createdTable(edits)
+                ?? this.#table;
         }
         try {
             await this.#keepOnlineAlter(onlineAlter);

@@ -20,6 +20,7 @@ import { basename } from "node:path";
 
 import type {
     IMsmApi,
+    IMsmNewObject,
     IMsmSchemaEdit,
 } from "../mcp/msmApi.js";
 import {
@@ -626,6 +627,37 @@ export class ProjectModelSource implements IModelSource {
             model: assembleSchemaModel(result.rows),
             notes: result.notes.map((note) => { return note.message; }),
         };
+    }
+
+    /**
+     * Adds a schema object from a SQL template, as an edit of the schema
+     * in turn with the viewer's: the diagrams' changes go first, and the
+     * snapshot it leaves is the one the next edit is made against.
+     *
+     * @param object What to add.
+     * @param baseHash The snapshot's `source_hash` it was named against.
+     *
+     * @returns Where msm wrote the new statement.
+     */
+    public async addObject(
+        object: IMsmNewObject,
+        baseHash: string,
+    ): Promise<{ file: string; line: number }> {
+        await this.flush();
+        const added = await this.#enqueuedAction({
+            doing: `Adding the ${object.kind} ${object.name} to ${this.#schema}`,
+            done: `Added the ${object.kind} ${object.name} to ${this.#schema}`,
+        }, "msm.add_schema_object", { kind: object.kind, name: object.name,
+            ...(object.table === undefined ? {} : { table: object.table }),
+            ...(object.template === undefined ? {} : { template: "(yours)" }) },
+        (api) => {
+            return api.addSchemaObject(this.projectPath, object, baseHash);
+        }, (result) => {
+            return `${result.file}:${String(result.line)}`;
+        });
+        this.#bases = hashesOf(added.rows);
+
+        return added;
     }
 
     /**

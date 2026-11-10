@@ -24,6 +24,10 @@ import { describe, expect, it } from "vitest";
 import { MSM_COMMANDS, MSM_LIST_COMMANDS } from "../../msm/msmCommands.js";
 import { MSM_FOLDER_COMMANDS } from "../../msm/msmProjectsCommands.js";
 import {
+    MSM_ADD_COMMANDS,
+    MSM_TEMPLATE_COMMANDS,
+} from "../../msm/schemaObjects.js";
+import {
     MSM_DIAGRAM_COMMANDS,
     MSM_SCHEMA_COMMANDS,
 } from "../../tree/msmProjectsTreeProvider.js";
@@ -71,6 +75,40 @@ const shownOn = (when: string, folder: string): boolean => {
     return !clause.includes("false");
 };
 
+describe("adding schema objects to a project", () => {
+    const rowMenu = menus["view/item/context"];
+
+    it("puts an Add on each object group row, inline and in its menu",
+        () => {
+            for (const [type, id] of Object.entries(MSM_ADD_COMMANDS)) {
+                const when = "view == mariadb.msmProjects && viewItem == "
+                    + `mariadbMsmObjectGroup.${type}`;
+                expect(rowMenu.filter((entry) => {
+                    return entry.command === id;
+                }), id).toEqual([{ command: id, when, group: "inline@0" },
+                    { command: id, when, group: "0_add@0" }]);
+                expect(commands.find((entry) => {
+                    return entry.command === id;
+                })).toMatchObject({ icon: "$(add)",
+                    title: expect.stringMatching(/^Add \w+\.\.\.$/u) });
+                expect(menus.commandPalette).toContainEqual(
+                    { command: id, when: "false" });
+            }
+        });
+
+    it("offers a template's commands on every group row but Tables", () => {
+        for (const id of Object.values(MSM_TEMPLATE_COMMANDS)) {
+            const when = rowMenu.find((entry) => {
+                return entry.command === id;
+            })?.when ?? "";
+            const pattern = new RegExp(/=~ \/(.*)\/$/u.exec(when)![1], "u");
+            expect(pattern.test("mariadbMsmObjectGroup.view"), id).toBe(true);
+            expect(pattern.test("mariadbMsmObjectGroup.sequence")).toBe(true);
+            expect(pattern.test("mariadbMsmObjectGroup.table")).toBe(false);
+        }
+    });
+});
+
 describe("the MariaDB Schema Management menu", () => {
     it("contributes every command, in the MariaDB category", () => {
         for (const id of Object.values(MSM_COMMANDS)) {
@@ -85,7 +123,9 @@ describe("the MariaDB Schema Management menu", () => {
             ...Object.values(MSM_LIST_COMMANDS),
             ...Object.values(MSM_FOLDER_COMMANDS),
             ...Object.values(MSM_DIAGRAM_COMMANDS),
-            ...Object.values(MSM_SCHEMA_COMMANDS)];
+            ...Object.values(MSM_SCHEMA_COMMANDS),
+            ...Object.values(MSM_ADD_COMMANDS),
+            ...Object.values(MSM_TEMPLATE_COMMANDS)];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
         }).map((entry) => { return entry.command; }).sort())

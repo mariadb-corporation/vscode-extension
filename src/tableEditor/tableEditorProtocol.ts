@@ -30,7 +30,9 @@ import type { IOnlineAlterData, IOnlineAlterEntry } from "./onlineAlter.js";
 /** Which table an editor edits. */
 export type TableEditorTarget =
     | { kind: "connection"; connection: string; schema: string; table: string }
-    | { kind: "project"; projectPath: string; schema: string; table: string };
+    | { kind: "project"; projectPath: string; schema: string;
+        /** "" for a new table, until its Save made it. */
+        table: string };
 
 /** A collation the column editor offers, with its character set. */
 export interface ICollationChoice {
@@ -42,6 +44,11 @@ export interface ICollationChoice {
 export interface ITableEditorData {
     /** Whether Save changes a live database (ALTER statements run). */
     live: boolean;
+    /**
+     * A table not made yet: Save creates it (`add_table`), and the page
+     * starts on its name.
+     */
+    isNew?: boolean;
     table: IOutlineTable;
     triggers: IOutlineTrigger[];
     /** The table's CREATE TABLE as written. */
