@@ -40,7 +40,8 @@ read-only Object Details view left editing to this editor.
   editor area, the active group. Asking for an open table's editor
   reveals it.
 - **Layout (DBX's, without its path bar, for room)**: Table name and
-  Comment; tabs DDL, Columns, Indexes, Foreign Keys, Triggers drawn as
+  Comment (the rest of the row); tabs DDL, Columns, Indexes, Foreign
+  Keys, Triggers, Online Alter Table drawn as
   the MariaDB Panel's (`.tab` in `styles.css`) but turned over, the bar
   above its content, the tab on show open downwards into it; the bar
   and the tab's content run edge to edge (the page has no side padding,
@@ -93,8 +94,8 @@ read-only Object Details view left editing to this editor.
   red, index green, fulltext purple, spatial cyan; not "changed". A
   dropped row stays, struck out, with Restore; a new row removed goes.
 - **Columns**: #, Actions (Copy Column, Drop / Restore), Column, Type (the
-  type without its parentheses, `smallint unsigned`), Length (what is in
-  them), Nullable, Primary Key (ticking it clears Nullable; the primary
+  type without its parentheses, `smallint unsigned`), Length/Values (what
+  is in them), Nullable, Primary Key (ticking it clears Nullable; the primary
   key comes from these boxes, not the Indexes tab), Default (presets),
   Comment, Charset, Collation, Extended (Virtual: the generated
   expression and its storage; Auto Increment; Auto Update Time: `ON
@@ -109,7 +110,8 @@ read-only Object Details view left editing to this editor.
   outline's default), add new columns after the one before them (or
   `first`), then the primary key, indexes, foreign keys, the comment,
   trigger renames and (re)creates. A changed trigger is dropped and
-  created. Existing columns cannot be reordered (no op for it).
+  created. Existing columns cannot be reordered: mariadb-lsp's
+  `modify_column` takes no `first` / `after` (only `add_column` does).
 - **The preview** posts the edits 250 ms after the draft settles; the
   extension answers with the migration statements.
 - **A live table** is read as its `SHOW CREATE TABLE`, the tables a
@@ -182,7 +184,7 @@ table, agreed with the msm session:
   reason, the statements before it kept (`PartlyAppliedError`); a
   binary without `merge_alters` gives no `spec`, so all runs as written.
   Dropping and re-adding a foreign key of one name stays two statements
-  only with lsp-server #34: an older binary merges them.
+  only in a binary with lsp-server #34; an older one merges them.
 - **Live SQL Preview**: each statement Apply runs online gets
   `ONLINE_ALTER_COMMENT` above it, a SQL comment saying msm runs it
   through the steps and leaves the table as it is where none can.
@@ -196,8 +198,13 @@ table, agreed with the msm session:
 
 - DBX's Copy Fields from Another Table, Paste fields, Insert Preset
   Fields, the column settings gear, the table's engine / charset /
-  collation, column reordering by drag, an ENUM values popover, a
-  multi-select column picker for indexes, the DDL tab being editable.
+  collation, an ENUM values popover, a multi-select column picker for
+  indexes, the DDL tab being editable.
+- Column reordering: first mariadb-lsp's `modify_column` taking `first`
+  / `after` (asked of the lsp-server session), then the draft sending a
+  position only for the columns that moved, then Alt+Up/Down, row
+  buttons or drag in the grid. A move cannot run INSTANT on most
+  servers: online ALTER rebuilds the table for it.
 - Apply asks nothing first (DBX asks for production connections only).
 - A live Apply is not on the Actions tab; it is logged.
 - An AUTO_INCREMENT column that only becomes a key in the same Save fails
@@ -222,6 +229,10 @@ table, agreed with the msm session:
 - Online ALTER: `src/test/tableEditor/onlineAlter.test.ts`,
   `tableSources.test.ts` (fake binary and msm), the tab in
   `webview/test/TableEditor.test.tsx`.
+- The grid's controls alone (`webview/test/ControlGrid.test.tsx`: the
+  combo's list and keys, select on focus, one commit per value). The
+  row keys (Up/Down/Enter, a new row) and the focus requests need the
+  built grid: no unit test, tried in VS Code only.
 - Online ALTER end to end, opt-in: `src/test/tableEditor/
   onlineAlter.e2e.test.ts` runs a live table's preview and Saves on a
   sandbox through the real MCP server and mariadb-lsp (INPLACE for an
@@ -233,6 +244,5 @@ table, agreed with the msm session:
   on the PATH, the plugins from `MARIADB_SHELL_PLUGINS` or the checkout
   next to this repository. The project side (settings tools,
   msm.edit_schema moving an entry) has no end-to-end test.
-- **Not yet tried in a running VS Code**: opening below the editor, a
-  project's Save through msm, the diagram menu entry, the Online Alter
-  Table tab itself.
+- **Not yet tried in a running VS Code**: a project's Save through msm,
+  the Online Alter Table tab itself.
