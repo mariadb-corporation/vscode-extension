@@ -36,7 +36,7 @@ export interface IMsmLoadMessage {
     /** The project, for every dialog but New MSM Project. */
     project?: IMsmProjectContext;
     values: MsmValues;
-    /** The licenses New MSM Project offers. */
+    /** The license templates New and Edit MSM Project offer, besides Custom. */
     licenses?: readonly string[];
     /** The connections Deploy Schema offers. */
     connections?: IMsmConnectionChoice[];

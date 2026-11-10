@@ -79,7 +79,10 @@ export interface IMsmProjectContext {
     /** The `<schema>.msm.project` folder. */
     projectPath: string;
     schemaName: string;
+    /** A template's name, or {@link CUSTOM_LICENSE}. */
     license: string;
+    /** The text of a custom license; "" for none. */
+    customLicense: string;
     /** Every copyright, in the order the project lists them. */
     copyrights: IMsmCopyrightValues[];
     currentDevelopmentVersion: string;
@@ -115,6 +118,8 @@ export interface IMsmCreateValues extends IMsmListValues {
     /** The copyright's first year: `2024`. */
     yearOfCreation: string;
     license: string;
+    /** The license's text, where `license` is {@link CUSTOM_LICENSE}. */
+    customLicense: string;
     allowSpecialChars: boolean;
     /** Replace a project folder of the same name. */
     overwriteExisting: boolean;
@@ -125,6 +130,9 @@ export interface IMsmCreateValues extends IMsmListValues {
 /** What Edit MSM Project asks for. */
 export interface IMsmEditValues extends IMsmListValues {
     developmentVersion: string;
+    license: string;
+    /** The license's text, where `license` is {@link CUSTOM_LICENSE}. */
+    customLicense: string;
     /** The project's copyrights, the first its main one. */
     copyrights: IMsmCopyrightValues[];
     /**
@@ -348,6 +356,79 @@ export const listProblem = (
     return undefined;
 };
 
+// --- Licenses ----------------------------------------------------------
+
+/** msm's name for a license whose text the project holds itself. */
+export const CUSTOM_LICENSE = "CUSTOM";
+
+/** The placeholders msm fills in a license's text. */
+export const LICENSE_PLACEHOLDERS = ["copyright_notices", "copyright_holder",
+    "year"] as const;
+
+/**
+ * What a custom license's text starts with: a comment, as every script's
+ * header is one, with the copyright notices at its top.
+ */
+export const CUSTOM_LICENSE_START = "/*\n${copyright_notices}\n *\n"
+    + " * The terms the project's scripts are licensed under.\n */";
+
+/**
+ * @param text A custom license's text.
+ *
+ * @returns Why msm would refuse it, or why the scripts would not run with
+ *          it: a placeholder msm does not fill (it reads `$name` and
+ *          `${name}`, and `$$` as a `$`), or no SQL comment.
+ */
+export const customLicenseProblem = (text: string): string | undefined => {
+    const trimmed = text.trim();
+    if (trimmed === "") {
+        return "Enter the license's text.";
+    }
+    // As Python's string.Template reads it.
+    for (const match of text.matchAll(
+        /\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\}|)/giu)) {
+        const name = match[2] ?? match[3];
+        if (match[1] === "$") {
+            continue;
+        }
+        if (name === undefined) {
+            return "A $ has to start a placeholder, ${copyright_notices}, "
+                + "${copyright_holder} or ${year}; write $$ for a $ itself.";
+        }
+        if (!(LICENSE_PLACEHOLDERS as readonly string[]).includes(name)) {
+            return `msm does not fill \${${name}}: use `
+                + "${copyright_notices}, ${copyright_holder} or ${year}.";
+        }
+    }
+    const lines = trimmed.split("\n").filter((line) => {
+        return line.trim() !== "";
+    });
+    const isComment = (trimmed.startsWith("/*") && trimmed.endsWith("*/"))
+        || lines.every((line) => { return /^\s*(--|#)/u.test(line); });
+    if (!isComment) {
+        return "The text goes at the top of every script, so it has to be an "
+            + "SQL comment: /* ... */, or lines starting with --.";
+    }
+
+    return undefined;
+};
+
+/**
+ * @param values A dialog's license.
+ *
+ * @returns Why its custom text is refused, on the text's field.
+ */
+const licenseProblem = (values: { license: string; customLicense: string },
+): IMsmProblem | undefined => {
+    if (values.license !== CUSTOM_LICENSE) {
+        return undefined;
+    }
+    const message = customLicenseProblem(values.customLicense);
+
+    return message === undefined ? undefined
+        : { field: "customLicense", message };
+};
+
 // --- Copyright years ---------------------------------------------------
 
 /** @returns This year, as msm writes it into a notice: `2026`. */
@@ -481,6 +562,7 @@ export const createDefaults = (
         copyrightHolder: "",
         yearOfCreation: currentYear(),
         license: "None",
+        customLicense: CUSTOM_LICENSE_START,
         allowSpecialChars: false,
         overwriteExisting: false,
         createTargetPath: false,
@@ -539,7 +621,7 @@ export const createProblem = (
         };
     }
     const year = yearProblem(values.yearOfCreation, "yearOfCreation",
-        "year of creation");
+        "year of creation") ?? licenseProblem(values);
     if (year !== undefined) {
         return year;
     }
@@ -569,6 +651,9 @@ export const editDefaults = (
     return {
         ...listed,
         developmentVersion: project.currentDevelopmentVersion,
+        license: project.license,
+        customLicense: project.customLicense === ""
+            ? CUSTOM_LICENSE_START : project.customLicense,
         copyrights: project.copyrights.map((copyright) => {
             return { ...copyright };
         }),
@@ -625,7 +710,8 @@ export const editProblem = (
     }
 
     // In the order of the tabs.
-    return copyrightsProblem(values.copyrights) ?? listProblem(values)
+    return licenseProblem(values) ?? copyrightsProblem(values.copyrights)
+        ?? listProblem(values)
         ?? onlineAlterProblem(values.onlineAlter);
 };
 

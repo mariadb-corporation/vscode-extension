@@ -22,6 +22,8 @@ import {
     copyrightYears,
     createDefaults,
     createProblem,
+    CUSTOM_LICENSE_START,
+    customLicenseProblem,
     deployDefaults,
     deploymentScriptDefaults,
     deploymentScriptProblem,
@@ -43,6 +45,7 @@ const PROJECT: IMsmProjectContext = {
     projectPath: "/work/sakila.msm.project",
     schemaName: "sakila",
     license: "MIT",
+    customLicense: "",
     copyrights: [{ holder: "Ada", yearOfCreation: "2024",
         yearOfLastUpdate: "", tracksUpdates: true }],
     currentDevelopmentVersion: "1.0.1",
@@ -106,6 +109,7 @@ describe("New MSM Project", () => {
         expect(createDefaults("/work")).toEqual({
             schemaName: "", targetPath: "/work", copyrightHolder: "",
             yearOfCreation: String(new Date().getFullYear()),
+            customLicense: CUSTOM_LICENSE_START,
             license: "None", allowSpecialChars: false,
             overwriteExisting: false, createTargetPath: false,
             // At the top of the MSM Projects view, kept from LLMs.
@@ -171,6 +175,34 @@ describe("New MSM Project", () => {
             expect(createProblem(create({ yearOfCreation: year }))?.field)
                 .toBe("yearOfCreation");
         }
+    });
+});
+
+describe("custom licenses", () => {
+    it("starts with a text msm takes", () => {
+        expect(customLicenseProblem(CUSTOM_LICENSE_START)).toBeUndefined();
+    });
+
+    it("takes msm's placeholders, $$ and line comments", () => {
+        expect(customLicenseProblem("-- (c) $year ${copyright_holder}, $$5\n"
+            + "# ${copyright_notices}")).toBeUndefined();
+    });
+
+    it("refuses what msm, or a script, would not take", () => {
+        expect(customLicenseProblem(" ")).toMatch(/Enter the license's text/u);
+        expect(customLicenseProblem("/* ${author} */"))
+            .toMatch(/does not fill \$\{author\}/u);
+        expect(customLicenseProblem("/* costs $ 5 */"))
+            .toMatch(/write \$\$ for a \$/u);
+        expect(customLicenseProblem("MIT License"))
+            .toMatch(/has to be an SQL comment/u);
+    });
+
+    it("checks the text only for a custom license", () => {
+        expect(createProblem(create({ license: "MIT", customLicense: "" })))
+            .toBeUndefined();
+        expect(createProblem(create({ license: "CUSTOM",
+            customLicense: "" }))?.field).toBe("customLicense");
     });
 });
 

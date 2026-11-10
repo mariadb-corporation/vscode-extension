@@ -103,3 +103,15 @@
 .msm-copyright-grid .checkbox {
     justify-content: center;
 }
+
+/* A custom license's text, as the scripts' headers show it. */
+.msm-license {
+    box-sizing: border-box;
+    resize: vertical;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+}
+
+.msm-license.invalid {
+    border-color: var(--vscode-inputValidation-errorBorder);
+}

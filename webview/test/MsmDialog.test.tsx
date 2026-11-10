@@ -24,6 +24,7 @@ import { MsmDialog } from "../src/MsmDialog.js";
 import {
     createDefaults,
     currentYear,
+    CUSTOM_LICENSE_START,
     deployDefaults,
     deploymentScriptDefaults,
     editDefaults,
@@ -44,6 +45,7 @@ const PROJECT: IMsmProjectContext = {
     projectPath: "/work/sakila.msm.project",
     schemaName: "sakila",
     license: "MIT",
+    customLicense: "",
     copyrights: [
         { holder: "Ada", yearOfCreation: "2024", yearOfLastUpdate: "2026",
             tracksUpdates: true },
@@ -177,7 +179,7 @@ describe("New MSM Project", () => {
             expect(host.querySelector("h1")?.textContent).toBe("New MSM Project");
             expect(currentPage()).toBe("Project");
             expect(optionsOf("license")).toEqual(
-                ["None", "BSD", "GPL-2.0", "MIT"]);
+                ["None", "BSD", "GPL-2.0", "MIT", "Custom"]);
 
             await change("schemaName", "sakila");
             await change("copyrightHolder", "Ada");
@@ -606,6 +608,49 @@ describe("the MSM Projects view's settings", () => {
     });
 });
 
+describe("a custom license", () => {
+    it("is chosen and written on New MSM Project's first step", async () => {
+        await open({ kind: "create", title: "New MSM Project",
+            values: createDefaults("/work"), licenses: ["None", "MIT"] });
+        await change("schemaName", "sakila");
+        await change("copyrightHolder", "Ada");
+        expect(input("customLicense")).toBeNull();
+
+        await change("license", "CUSTOM");
+        expect(input("customLicense").value).toBe(CUSTOM_LICENSE_START);
+        await change("customLicense", "/* ${author} */");
+        await click("Next");
+
+        expect(currentPage()).toBe("Project");
+        expect(host.textContent).toContain("does not fill ${author}");
+
+        await change("customLicense", "/* ${copyright_notices} Ours. */");
+        await toLastPage();
+        await click("Create Project");
+
+        expect(submitted()).toEqual([{ type: "submit",
+            values: expect.objectContaining({ license: "CUSTOM",
+                customLicense: "/* ${copyright_notices} Ours. */" }) as unknown,
+        }]);
+    });
+
+    it("is offered on Edit MSM Project's Project tab", async () => {
+        await open({
+            kind: "edit", title: "Edit MSM Project - sakila",
+            project: { ...PROJECT, license: "CUSTOM",
+                customLicense: "-- ours" },
+            values: editDefaults({ ...PROJECT, license: "CUSTOM",
+                customLicense: "-- ours" }, LIST_DEFAULTS),
+            folders: [], licenses: ["None", "MIT"],
+        });
+
+        expect(input("license").value).toBe("CUSTOM");
+        expect(input("customLicense").value).toBe("-- ours");
+        await change("license", "MIT");
+        expect(input("customLicense")).toBeNull();
+    });
+});
+
 describe("Edit MSM Project", () => {
     const openEdit = (): Promise<void> => {
         return open({
@@ -635,6 +680,7 @@ describe("Edit MSM Project", () => {
                 developmentVersion: "1.1.0", folder: "/", caption: "",
                 color: "red", mcpAccess: true, onlineAlter: textsOf({}),
                 copyrights: PROJECT.copyrights,
+                license: "MIT", customLicense: CUSTOM_LICENSE_START,
             },
         }]);
     });

@@ -51,6 +51,7 @@ import { counted, errorText } from "../text.js";
 import {
     createDefaults,
     currentYear,
+    CUSTOM_LICENSE,
     deployDefaults,
     deploymentScriptDefaults,
     editDefaults,
@@ -329,7 +330,10 @@ export const projectContext = (
     return {
         projectPath,
         schemaName: info.schemaName,
-        license: info.license ?? "None",
+        // msm reads the name in any case.
+        license: info.license?.toUpperCase() === CUSTOM_LICENSE
+            ? CUSTOM_LICENSE : info.license ?? "None",
+        customLicense: info.customLicense ?? "",
         copyrights,
         currentDevelopmentVersion: info.currentDevelopmentVersion,
         ...(info.lastReleasedVersion === null
@@ -590,6 +594,7 @@ export class MsmCommands {
             title,
             project,
             values: editDefaults(project, before, general),
+            licenses: MSM_LICENSES,
             folders,
             ...("context" in online ? { onlineAlter: online.context }
                 : { onlineAlterProblem: online.problem }),
@@ -662,6 +667,12 @@ export class MsmCommands {
         const copyrights = storedCopyrights(values.copyrights);
         const copyrightsChanged = JSON.stringify(copyrights)
             !== JSON.stringify(storedCopyrights(project.copyrights));
+        // A template drops the text; msm wants both in one call.
+        const license = values.license === CUSTOM_LICENSE
+            ? { license: CUSTOM_LICENSE, customLicense: values.customLicense }
+            : { license: values.license, customLicense: null };
+        const licenseChanged = license.license !== project.license
+            || (license.customLicense ?? "") !== project.customLicense;
         const words = {
             doing: `Updating MSM project ${project.schemaName}`,
             done: `Updated MSM project ${project.schemaName}`,
@@ -694,7 +705,7 @@ export class MsmCommands {
                 }
                 // One call for what msm.project.json holds, with what
                 // changed; the online setting as a whole, read just now.
-                if (onlineChanged || copyrightsChanged) {
+                if (onlineChanged || copyrightsChanged || licenseChanged) {
                     const api = await this.host.msmApi();
                     const onlineAlter = onlineChanged ? await group.step({
                         doing: "Reading the online ALTER TABLE setting",
@@ -708,6 +719,7 @@ export class MsmCommands {
                             });
                     }) : undefined;
                     const settings: IMsmProjectSettings = {
+                        ...(licenseChanged ? license : {}),
                         ...(copyrightsChanged ? { copyrights } : {}),
                         ...(onlineAlter === undefined ? {} : { onlineAlter }),
                     };
@@ -986,9 +998,12 @@ export class MsmCommands {
         // caption or color - is sent.
         const folder = normalizeFolder(values.folder);
         const caption = values.caption.trim();
+        // msm creates no project with a license text: it is made with
+        // none, then given the text.
+        const custom = values.license === CUSTOM_LICENSE;
         const options: IMsmCreateOptions = {
             schemaName, targetPath, copyrightHolder,
-            license: values.license,
+            license: custom ? "None" : values.license,
             allowSpecialChars: values.allowSpecialChars,
             overwriteExisting: values.overwriteExisting,
             enforceTargetPath: values.createTargetPath,
@@ -1013,6 +1028,10 @@ export class MsmCommands {
         // its development script, is not the creation failing - pressing
         // Create again would be refused, the folder being there.
         this.#afterwards(async () => {
+            if (custom) {
+                await this.#setCustomLicense(projectPath,
+                    values.customLicense);
+            }
             const info = await this.#readBack(projectPath);
             await this.#showFile(info.schemaDevelopmentFilePath);
             if (from === "view") {
@@ -1020,6 +1039,33 @@ export class MsmCommands {
             } else {
                 await this.#reveal(projectPath);
             }
+        });
+    }
+
+    /**
+     * Gives a project just created its custom license, as an action of its
+     * own: the project is made already, with none, should this fail.
+     *
+     * @param projectPath The project folder.
+     * @param text The license's text.
+     */
+    async #setCustomLicense(projectPath: string, text: string): Promise<void> {
+        const name = basename(projectPath);
+        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, {
+            doing: `Setting the custom license of ${name}`,
+            done: `Set the custom license of ${name}`,
+        });
+        const settings = { license: CUSTOM_LICENSE, customLicense: text };
+        await group.run(() => {
+            return group.step({
+                doing: "Writing the project settings",
+                done: "Wrote the project settings",
+            }, msmCall("msm.set_project_settings",
+                msmToolArgs.setProjectSettings(projectPath, settings)),
+            async () => {
+                return (await this.host.msmApi()).setProjectSettings(
+                    projectPath, settings);
+            });
         });
     }
 

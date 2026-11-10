@@ -20,6 +20,8 @@ import { useEffect, useState } from "preact/hooks";
 import {
     copyrightField,
     copyrightYears,
+    CUSTOM_LICENSE,
+    LICENSE_PLACEHOLDERS,
     currentYear,
     type IMsmCopyrightValues,
     type IMsmEditValues,
@@ -118,7 +120,8 @@ const PAGES: Partial<Record<MsmDialogKind, readonly MsmPage[]>> = {
 
 /** The fields on each page. */
 const PAGE_FIELDS: Record<MsmPage, readonly string[]> = {
-    Project: ["schemaName", "license", "copyrightHolder", "yearOfCreation",
+    Project: ["schemaName", "license", "customLicense", "copyrightHolder",
+        "yearOfCreation",
         "allowSpecialChars", "developmentVersion"],
     // Each holder's fields: `copyrights.0.holder`.
     Copyright: ["copyrights"],
@@ -466,6 +469,52 @@ export const MsmDialog = (): preact.JSX.Element => {
         );
     };
 
+    /**
+     * The license, of New and Edit MSM Project: a template, or Custom with
+     * the text the project's scripts start with.
+     */
+    const licenseFields = (): preact.JSX.Element => {
+        const custom = field("license") === CUSTOM_LICENSE;
+
+        return (
+            <>
+                <Field caption="License" hint={custom
+                    ? "The project's own license, the text below."
+                    : "The license the project's scripts are put under."}>
+                    {select("license", [...licenses.map(
+                        (license): [string, string] => {
+                            return [license, license];
+                        }), [CUSTOM_LICENSE, "Custom"]])}
+                </Field>
+                {custom ? (
+                    <div class="wide">
+                        <Field caption="License Text" hint={hint(
+                            "customLicense", "An SQL comment at the top of "
+                            + "every script. msm fills in "
+                            + LICENSE_PLACEHOLDERS.map((name) => {
+                                return `\${${name}}`;
+                            }).join(", ") + "; $$ is a $.")}>
+                            <textarea
+                                name="customLicense"
+                                class={`msm-license${invalid("customLicense")
+                                    ? " invalid" : ""}`}
+                                aria-invalid={invalid("customLicense")}
+                                rows={8}
+                                spellcheck={false}
+                                disabled={busy}
+                                value={String(field("customLicense") ?? "")}
+                                onInput={(event) => {
+                                    update("customLicense",
+                                        event.currentTarget.value);
+                                }}
+                            />
+                        </Field>
+                    </div>
+                ) : null}
+            </>
+        );
+    };
+
     /** New MSM Project's first page: the schema and whose it is. */
     const createProject = (): preact.JSX.Element => {
         const create = values as IMsmCreateValues;
@@ -479,12 +528,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                     `The project folder is ${folder}.`)}>
                     {text("schemaName", "sakila")}
                 </Field>
-                <Field caption="License" hint={"The license the "
-                    + "project's scripts are put under."}>
-                    {select("license", licenses.map((license) => {
-                        return [license, license];
-                    }))}
-                </Field>
+                {licenseFields()}
                 <Field caption="Copyright Holder" hint={hint(
                     "copyrightHolder", "Your name, or your company's: "
                     + "written into every script's header.")}>
@@ -538,7 +582,6 @@ export const MsmDialog = (): preact.JSX.Element => {
         const rows: Array<[string, string]> = project === undefined
             ? [] : [
                 ["Schema", project.schemaName],
-                ["License", project.license],
             ];
 
         return (
@@ -551,6 +594,7 @@ export const MsmDialog = (): preact.JSX.Element => {
                         : `The last release was ${last}.`)}>
                     {text("developmentVersion")}
                 </Field>
+                {licenseFields()}
             </section>
         );
     };

@@ -175,8 +175,10 @@ export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 export interface IMsmProjectSettings {
     /** Every holder, the first one the project's main one. */
     copyrights?: IMsmCopyright[];
+    /** A template's name, or CUSTOM with `customLicense` in one call. */
     license?: string;
-    customLicense?: string;
+    /** The text of a CUSTOM license; null drops it, for a template. */
+    customLicense?: string | null;
     /** The whole setting, the tables' entries too; null for msm's. */
     onlineAlter?: IOnlineAlterSetting | null;
 }

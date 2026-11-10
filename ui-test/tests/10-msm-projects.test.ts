@@ -68,6 +68,10 @@ import {
 const CONTAINER = "MariaDB Schema Management";
 const VIEW = "MSM Projects";
 const SCHEMA = "msm_view";
+/** A line of the project's own license. */
+const LICENSE_LINE = " * Licensed for the UI test only.";
+/** The project's own license, as New MSM Project is given it. */
+const LICENSE = `/*\n\${copyright_notices}\n *\n${LICENSE_LINE}\n */`;
 /** This year, which a new project's copyright starts in. */
 const YEAR = String(new Date().getFullYear());
 /** The first year Edit MSM Project gives the copyright instead. */
@@ -144,6 +148,11 @@ describe("MSM Projects view", () => {
             // Named by the file dialog.
             assert.equal(await fieldValue(dialog, "schemaName"), SCHEMA);
             await setField(dialog, "copyrightHolder", "UI Test");
+            // A license of the project's own, which msm sets once the
+            // project is made.
+            await selectOption(dialog, "license", "Custom");
+            await setField(dialog, "customLicense", LICENSE);
+            await screenshot("10-new-msm-project-license");
             await clickButton(dialog, "Next");
             assert.equal(await fieldValue(dialog, "targetPath"),
                 join(WORKSPACE, FOLDER));
@@ -161,6 +170,14 @@ describe("MSM Projects view", () => {
         await waitForAction(/^Created MSM project for schema msm_view/u);
         // Filed as asked; no MCP access, so only the version beside it.
         await waitForDescription(["Shop", CAPTION], "0.0.1");
+        await waitForAction(/^Set the custom license of msm_view/u);
+        const script = await waitFor(async () => {
+            const text = readFileSync(join(projectPath(), "development",
+                `${SCHEMA}_next.sql`), "utf8");
+
+            return text.includes(LICENSE_LINE) ? text : undefined;
+        }, "the custom license in the development script", SERVER_TIMEOUT);
+        assert.match(script!, /Copyright \(c\) \d{4}, UI Test/u);
     });
 
     it("shows the project's files, which open with a click", async () => {

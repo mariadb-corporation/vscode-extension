@@ -124,6 +124,21 @@ MSM Projects (`mariadb.msmProjects`).
   host (the project exists: `schemaName`; no folder: `targetPath`), turns
   to its field's page. Only the page shown is rendered, so a test reaches a
   field by going to its page first.
+- **Custom license** (New's Project step, Edit's Project tab,
+  `licenseFields`): the License list is msm's templates (`MSM_LICENSES`,
+  now sent to Edit too) plus Custom (`CUSTOM_LICENSE`, msm's `CUSTOM`),
+  which shows a License Text box, prefilled with `CUSTOM_LICENSE_START`.
+  `customLicenseProblem` checks it as msm does (not empty; only
+  `${copyright_notices}`, `${copyright_holder}`, `${year}` as `$name` or
+  `${name}`, `$$` for a `$`, Python's string.Template) and that it is an SQL
+  comment (`/* ... */`, or every line `--` / `#`), as it heads every script.
+  msm.create_project refuses CUSTOM, so New creates with None and then, as
+  an action of its own in `#afterwards` (`#setCustomLicense`), sends
+  `{license: CUSTOM, customLicense}` through `msm.set_project_settings`; a
+  failure there leaves a project with no license, mended in Edit. Edit
+  sends license and text together where either changed, a template with
+  `customLicense: null`. `projectContext` reads the name in any case.
+  Textareas take the input colours from `editorStyles.css`.
 - **Year of Creation** (New's Project step, `yearOfCreation`, starting at
   `currentYear()`): sent as `msm.create_project`'s `year_of_creation`, for
   work begun in an earlier year; four digits, not in the future

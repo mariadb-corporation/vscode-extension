@@ -227,7 +227,8 @@ body {
 
 input[type="text"],
 input[type="password"],
-select {
+select,
+textarea {
     width: 100%;
     padding: 0.35rem 0.5rem;
     border: 1px solid var(--vscode-input-border, transparent);
