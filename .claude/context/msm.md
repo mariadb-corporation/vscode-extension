@@ -16,7 +16,7 @@ MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
 | `src/mcp/msmApi.ts` | `IMsmApi` / `MsmApi`: the `msm.*` tools used, typed (two of them, `list_live_schema_objects` and `import_live_schema`, with `IMPORTED_KINDS`, New MSM Project from Schema's, below) (the five of the schema diagrams - `list_` / `get_` / `set_schema_diagram(s)`, `get_schema_diagram_image`, `edit_schema` - are the diagram viewer's, see modeler.md) (the list's four, read with `listedProject`: an unknown color dropped, a missing `mcp_access` read as true, as the server reads an old entry); `msmToolArgs`, each tool's arguments by the server's names, which the Actions tab shows the call with (all but `connection_id`). `MSM_LICENSES` (no tool lists them: kept in step with `msm_plugin/templates/license`, which a test checks when a plugins checkout is beside this repo). Deploy gets 30 min. |
 | `src/msm/msmFields.ts` | Pure, shared with the webview: per dialog its values, defaults and `*Problem` checks, version parsing / comparing (numbers, so 1.10 > 1.9), `projectFolderName` as the plugin names it. |
 | `src/msm/msmProtocol.ts`, `msmDialogPanel.ts` | The dialog's messages and panel, a `DialogPanel` typed by the dialog's kind: one at a time, checks the values again (and `host.check`, the disk) before `host.submit`; a failure stays in the dialog, or is notified once it was closed. |
-| `src/msm/msmCommands.ts` | `MsmCommands`: the dialogs' six commands and the list's four (`MSM_LIST_COMMANDS`), reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`); `changedDetails`, what an add or update sends. |
+| `src/msm/msmCommands.ts` | `MsmCommands`: the dialogs' six commands and the list's four (`MSM_LIST_COMMANDS`), reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`); `msmAction`, one msm call as a one-step action of the General Actions that brings the Actions tab up on a failure (the list's add / remove, and Rename Schema from `extension.ts`); `changedDetails`, what an add or update sends. |
 | `src/msm/msmProjectsCommands.ts` | The MSM Projects view's refresh and folder commands (`MSM_FOLDER_COMMANDS`): New / Rename Folder, Set Folder Color, Remove Folder. |
 | `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds (New and Edit MSM Project in pages, see below); its own bundle, on `dialogStyles.css` as Dump and Load's and New Sandbox's. |
 | `src/tree/msmProjectsTreeProvider.ts` | The MSM Projects view: folders, projects, and under each project its Diagrams folder first (from `msm.list_schema_diagrams`; a shell without it shows none and logs it), its schema row (its tables, views and routines from msm's snapshot, see [object-details.md](object-details.md)) and its files; drag and drop; the folders, collapsed folders and folder colors it keeps itself. |
@@ -71,7 +71,7 @@ MSM Projects (`mariadb.msmProjects`).
   and drawn expanded after a restart, which VS Code does not do for an
   extension's tree; the rows of projects no longer listed are forgotten
   on the next listing (`rowIdOf` makes the ids, `isRowOf` matches a
-  project's, so `/a/p` is not taken for `/a/p2`). Drag and drop on a MIME of
+  project's, so `/a/p` is not taken for `/a/p2`; a project folder that moved has its rows' ids rewritten with the same match, `projectMoved`, which re-reads the list and that project only). Drag and drop on a MIME of
   its own (`application/vnd.mariadb.msmprojects`) moves projects and whole
   folders with one `msm.update_project(new_folder=)` per project that moves,
   sent one at a time: each call rewrites the server's one `projects.json`
@@ -206,89 +206,9 @@ MSM Projects (`mariadb.msmProjects`).
   `context/siblings.md`), so the `--gui` server of this extension is the
   only one that reaches it; only that server offers the argument.
 
-## New MSM Project from Schema
+## New MSM Project from Schema, adding schema objects
 
-The reverse of a deploy (mariadb-shell-plugins #103): a project made from
-a schema on a server. On a Connections view schema row only
-(`MSM_IMPORT_COMMAND`, `mariadb.msm.importLiveSchema`, group `6_msm@1`;
-hidden from the palette, as it needs the row). Both tools come with the db
-group only.
-
-- **The listing** (`MsmCommands.importLiveSchema`): an action of the
-  connection's, "Read schema <s> for an MSM project", with `db.connect`
-  and `msm.list_live_schema_objects` as its steps, on a session of its own
-  (`MSM Import <n>`, as Deploy's), closed once listed: the wizard may stay
-  open a long while. A failure (no such schema) opens no wizard.
-- **The wizard** is New MSM Project's (kind `import`, `IMsmImportValues`:
-  the create values plus `connection` and `objects`), with a first page,
-  **Schema Objects**: a box per kind the schema has (tables, sequences,
-  views, procedures, functions, events), each object ticked by default and
-  the box's legend ticking the kind as a whole (`tickedObjects`, in the
-  listing's order). A table's triggers are named under it as information
-  only: msm imports them with their table, so they are never ticked nor
-  sent. The page says the version msm deployed of the schema
-  (`schema_version`) and names msm's own objects it leaves out
-  (`left_out`). Under a ticked view, a note names what it reads that is
-  not ticked (`unticked`, the view's `reads` of mariadb-shell-plugins
-  #104: tables, views, sequences and stored functions; null where msm
-  could not read the definition, missing from an older msm, either way
-  no note): the project would not deploy the view without them. A note,
-  not a problem: Create Project is not held back, and msm warns again
-  after the import with the same detection. The schema name is the
-  schema's, shown disabled; no Allow
-  Special Characters (msm takes the name as it is). `importProblem`: none
-  ticked is refused (an empty project is New MSM Project's), then
-  `createProblem`; `#checkCreate` checks the folder as for New.
-- **Create Project** connects a second `MSM Import <n>` session and starts
-  `msm.import_live_schema`. `objects` is left out where everything is
-  ticked, so objects made meanwhile come too (`importedObjects`); else
-  every kind is sent, an empty list for none, never a `triggers` key. msm
-  refuses what it would refuse (folder, license, selection, no
-  mariadb-lsp) before a task starts: the refusal stays in the wizard and
-  is a row of its own (`startFailed`), the session closed. Started, the
-  wizard closes and the task is followed (`followTask`, the
-  `TaskMonitor`: Tasks view, notification, its Actions row); its session
-  is closed once it ended. Completed: the MSM Projects view reads the list
-  (msm added the project, folder, caption and color), a custom license is
-  set as New sets it, the development script opens and the project is
-  revealed in the MSM Projects view. msm's `warnings` (a foreign key to a
-  table not imported, a definition the account cannot read) are one
-  warning notification, the first with a count of the rest. A failed or
-  cancelled import leaves no project (msm removes it); nothing opens.
-
-## Adding schema objects
-
-Each object group row of a project's schema in the MSM Projects view
-(`mariadbMsmObjectGroup.<type>`) has an Add of its kind: a `$(add)` inline
-and the first entry of its menu (`MSM_ADD_COMMANDS` in
-`src/msm/schemaObjects.ts`, `mariadb.msm.addTable` ... `addSequence`;
-hidden from the palette: they need the row).
-
-- **Add Table...** opens the table editor on a new table of the project
-  (target `table: ""`, see table-editor.md).
-- **The other kinds** (`SchemaObjectCommands.add`): a name asked for
-  (`objectNameProblem`: not empty, 64 at most, not taken in the kind's
-  namespace - tables, views and sequences share one; a procedure and a
-  function may share a name), a trigger's table picked from the
-  snapshot's tables, then `msm.add_schema_object(kind, name, base_hash,
-  template?, table?)` through `ProjectModelSource.addObject`, in the
-  project's queue after the diagrams' changes (as `edit`), against the
-  snapshot's `source_hash`. msm fills the template, places the statement
-  where it keeps that kind (its section, or the section's breakout file)
-  as an `add_*` edit of `msm.edit_schema`, and answers with `file` and
-  `line`: the editor opens there for the body to be written, and the tree,
-  Object Details and diagrams follow (`snapshotUpdated`). A project with no
-  snapshot yet has msm make its first.
-- **Templates** are msm's (`msm.get_object_templates`: a plain CREATE per
-  kind, string.Template placeholders `${name}`, a trigger's `${table}`,
-  `${schema}`), unless the user changed one: `ObjectTemplates` keeps the
-  user's as `<kind>.sql` in the extension's global storage
-  (`msm-object-templates/`), sent as `template`; a kind without a file
-  sends none and msm takes its own. **Edit Template...** on a group row
-  (every kind but tables) opens the kind's file, made from msm's template
-  the first time; saving it is changing it; a notification names the
-  placeholders msm fills. **Reset Template to msm's Default** deletes the
-  file.
+See [msm-schema-objects.md](msm-schema-objects.md).
 
 ## The commands
 
@@ -302,7 +222,7 @@ hidden from the palette: they need the row).
 | `mariadb.msm.deploySchema` | `*.msm.project` | Connection (the configured ones; the default connection, or the only one, preselected), version (those with a script), Back Up the Schema First (default on) and its folder (empty: the project's `backups`). Refreshes the tree and the language server's catalog after. |
 | `mariadb.msm.openSchemaDiagram` | `*.msm.project`, a project row, its Diagrams folder and diagrams | Open Schema Diagram...: the diagram viewer on one of the project's schema diagrams (a pick where it has several; a project without any offers New Schema Diagram...), saved through msm as it is changed; see [modeler.md](modeler.md). |
 | `mariadb.msm.newSchemaDiagram` | A project row, its schema row, and its Diagrams folder (inline `$(add)`, before Open) | New Schema Diagram...: asks for a name ("Diagram 1", numbered past the names in use; a taken one is refused), adds an empty diagram with `msm.create_schema_diagram` and `tables: []` (left out, msm would place every table), refreshes the view and opens the diagram to model on with the tool palette. msm makes the schema snapshot first where the script changed, so a brand-new project with no tables gets one too, and the palette's edits work at once. |
-| `mariadb.msm.renameSchema` | A project row (`1_edit@1`) and its schema row (`1_edit@0`); not in the palette | Rename Schema...: `msm.rename_schema` (mariadb-shell-plugins, which needs mariadb-lsp's `rename_schema` edit op), for a project without a release only (the user's choice: databases deployed from a release keep the old name; a migrating rename of released projects is to come as msm's `migrate`, filling the answer's `migration`, which the confirmation already lists). `src/msm/schemaRename.ts`, run on a host so it is tested without VS Code: `last_released_version` from `msm.list_projects` refuses at once (the item stays enabled: VS Code cannot grey out one row's item with a tooltip); a dry run without a name asks msm what does not depend on one (`released`, `restricted`, `lsp-missing`), then the name, a dry run with it (`invalid-name`, `same-name`, `folder-exists`), a modal confirmation saying what changes, then the editors open on the project's files are saved and closed (`projectEditors.ts`: left open, they would show the old files as deleted; one that will not save stops the rename before anything closes) and the open viewer is saved and closed (`ModelerPanel.close`), the rename runs as an action of the Actions tab (`Renamed the schema <old> to <new>`, its files and the new folder; the dry runs are not ones), and what is kept per project folder follows `project_path` (msm moves the folder only where it still has msm's name): the diagrams' views (`DiagramViews.moveSource`), the rows left open (`MsmProjectsTreeProvider.projectMoved`, `ExpandedRows.rename`), the source dropped; the editors open again in their groups on the files' new paths (`movedFile`: the new folder, a name that started with the schema's starting with the new one), then the viewer on its diagram; msm's `warnings` (dependents, dynamic SQL, dev servers) are shown. A failed rename opens the editors and the viewer where they were. An older shell's unknown tool reads as "update the MariaDB Shell". |
+| `mariadb.msm.renameSchema` | A project row (`1_edit@1`) and its schema row (`1_edit@0`); not in the palette | Rename Schema...: `msm.rename_schema` (mariadb-shell-plugins, which needs mariadb-lsp's `rename_schema` edit op), for a project without a release only (the user's choice: databases deployed from a release keep the old name; a migrating rename of released projects is to come as msm's `migrate`, filling the answer's `migration`, which the confirmation already lists). `src/msm/schemaRename.ts`, run on a host so it is tested without VS Code: `last_released_version` from `msm.list_projects` refuses at once (the item stays enabled: VS Code cannot grey out one row's item with a tooltip); a dry run without a name asks msm what does not depend on one (`released`, `restricted`, `lsp-missing`), then the name, a dry run with it (`invalid-name`, `same-name`, `folder-exists`), a modal confirmation saying what changes, then the editors open on the project's files are saved and closed (`projectEditors.ts`: left open, they would show the old files as deleted; one that will not save stops the rename before anything closes; the snapshot update their saves set off is cancelled, `SettledSaves.cancel`, as it would run in the folder msm moves) and the open viewer is closed, then saved (`ModelerPanel.close`: closed first, so no change comes in after the save), the rename runs as an action of the Actions tab (`msmAction`, `renameWords` / `renameSummary`: `Renamed the schema <old> to <new>`, its files and the new folder; the dry runs are not ones; an answer `allowed: false` to the real rename is a failure), and what is kept per project folder follows `project_path` (msm moves the folder only where it still has msm's name): the diagrams' views (`DiagramViews.moveSource`), the rows left open (`MsmProjectsTreeProvider.projectMoved`, `ExpandedRows.rename`), the source dropped; the editors open again in their groups on the files' new paths (`movedFile`: the new folder, a name that started with the schema's starting with the new one), then the viewer on its diagram, so the tabs keep their order (they open again even where following the folder fails); msm's `warnings` (dependents, dynamic SQL, dev servers) are shown. A failed rename (or a viewer that would not close) opens the editors and the viewer where they were. An older shell's unknown tool reads as "update the MariaDB Shell". |
 | `mariadb.msm.renameSchemaDiagram` | A diagram row (`1_edit@0`; not in the palette) | Rename Schema Diagram...: asks for the new name (`diagramNameProblem`, shared with New Schema Diagram: empty, `schema_definition` (the snapshot row's) or another diagram's in any case are refused; a case-only rename is one), then `ProjectModelSource.renameDiagram`: saves what waits, `msm.rename_schema_diagram` (one write, pictures kept: get + set + remove would lose them, `set_diagram` keeps pictures only under the same name), changes made meanwhile follow the name. Its kept view moves (`DiagramViews.rename`), the tree refreshes, an open viewer follows (`ModelerPanel.renamed`). Needs the msm tool; without it msm's unknown-tool error is reported. |
 | `mariadb.msm.deleteSchemaDiagram` | A diagram row (`1_edit@1`; not in the palette) | Delete Schema Diagram...: a modal confirmation, then `ProjectModelSource.removeDiagram`: drops the diagram's pending save and draft (either would make it again), `msm.remove_schema_diagram` after a save under way. Its kept view goes, the tree refreshes; an open viewer follows (`ModelerPanel.removed`): it closes where that was its last diagram (a model read with none is an error), else reads the model again, showing the first diagram where the shown one went. |
 | `mariadb.msm.updateSchemaSnapshot` | A project's schema row (inline `$(refresh)`, and its menu) | Update Schema Snapshot: `msm.update_schema_definition`, then the view and the project's open viewer read it again. Hidden from the palette. |
@@ -376,6 +296,18 @@ first four with input boxes one after another; Deploy is new.
   be deployed from here; `msm.set_development_version` is not offered.
 - The scripts the plugin writes still carry MySQL settings
   (`utf8mb4_0900_ai_ci`, `NO_AUTO_CREATE_USER`); MariaDB 12.3 accepts them.
+- Rename Schema guesses where an open file went (`movedFile`: a name
+  starting `<schema>_` or `<schema>.` takes the new name). A user file named
+  so (`shop_notes.md`) that msm leaves alone is guessed wrong, and its
+  editor stays closed. The fix is msm answering a `{from, to}` list of what
+  it renamed, to ask of mariadb-shell-plugins; its `files` lists only the
+  files written, not unchanged ones.
+- Rename Schema matches editors to the project by a case-sensitive path
+  prefix; on Windows VS Code's `fsPath` lowercases the drive letter, which
+  msm's path may not. Unconfirmed.
+- A listing of MSM Projects under way while a rename finishes may prune
+  the rows `projectMoved` just moved, with the old list: their open state
+  is lost. A narrow window; the fix is in `#list`'s pruning.
 
 ## Tests
 
@@ -392,6 +324,14 @@ first four with input boxes one after another; Deploy is new.
 - `webview/test/MsmDialog.test.tsx` (the Schema Objects page too);
   `msmCommands.test.ts`' "New MSM Project from Schema" (sessions,
   arguments, refusals, warnings, a cancelled task).
+- `src/test/msm/schemaRename.test.ts`: Rename Schema's flow on a recording
+  host (refusals before and after the name, the confirmation, editors and
+  viewer closed and reopened, a late refusal and a failed follow-up, the
+  action's words), and `movedFile`.
+- UI: `ui-test/tests/11-msm-diagrams.test.ts` renames the schema with its
+  diagram open, from the schema row and back from the project row, and
+  the same name doing nothing; `09-msm` has Rename Schema refused on its
+  released project before a name is asked.
 - UI: `ui-test/tests/10-msm-projects.test.ts`, in suite `msm` before
   `09-msm`, whose create lists its project, see testing-and-debugging.md.
 - UI: `ui-test/tests/09-msm.test.ts`, suite `msm` (`npm run ui-test:msm`):
