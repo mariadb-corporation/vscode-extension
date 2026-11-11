@@ -96,6 +96,8 @@ interface IToken {
     parts: string[];
     /** Whether it is a text in single or double quotes. */
     quoted: boolean;
+    /** Whether any of it is in backticks: a name, never a keyword. */
+    identifier: boolean;
 }
 
 /**
@@ -168,8 +170,9 @@ const afterBlock = (sql: string, at: number): number => {
 const tokensOf = (sql: string): IToken[] => {
     const tokens: IToken[] = [];
     let current: IToken | undefined;
-    const part = (text: string): void => {
-        current ??= { text: "", parts: [""], quoted: false };
+    const part = (text: string, identifier = false): void => {
+        current ??= { text: "", parts: [""], quoted: false, identifier };
+        current.identifier ||= identifier;
         current.parts[current.parts.length - 1] += text;
     };
     const close = (): void => {
@@ -194,12 +197,18 @@ const tokensOf = (sql: string): IToken[] => {
         } else if (char === "'" || char === "\"") {
             close();
             const { text, next } = quotedAt(sql, i);
-            tokens.push({ text, parts: [text], quoted: true });
+            tokens.push({ text, parts: [text], quoted: true,
+                identifier: false });
             i = next;
         } else if (char === "`") {
             const { text, next } = quotedAt(sql, i);
-            part(text);
+            part(text, true);
             i = next;
+        } else if (char === "," && current !== undefined
+            && i + 1 < sql.length && !/[\s;(),]/u.test(sql[i + 1]!)) {
+            // A service's developers, `mike,anna@/svc`: one path.
+            part(char);
+            i += 1;
         } else if (char === "{") {
             close();
             i = afterBlock(sql, i);
@@ -234,7 +243,7 @@ class Words {
         const found = keywords.every((keyword, index) => {
             const token = this.tokens[this.#at + index];
 
-            return token !== undefined && !token.quoted
+            return token !== undefined && !token.quoted && !token.identifier
                 && token.text.toUpperCase() === keyword;
         });
         if (found) {
@@ -256,7 +265,7 @@ class Words {
     public at(...keywords: string[]): boolean {
         const token = this.tokens[this.#at];
 
-        return token !== undefined && !token.quoted
+        return token !== undefined && !token.quoted && !token.identifier
             && keywords.includes(token.text.toUpperCase());
     }
 
@@ -274,7 +283,8 @@ class Words {
 const flagsOf = (tokens: IToken[]): Pick<IRestEntryBase,
     "enabled" | "requiresAuth" | "published" | "comments"> => {
     const words = tokens.map((token) => {
-        return token.quoted ? "" : token.text.toUpperCase();
+        return token.quoted || token.identifier ? ""
+            : token.text.toUpperCase();
     });
     const has = (...sequence: string[]): boolean => {
         return words.some((_, at) => {
@@ -545,6 +555,24 @@ export const objectOf = (entry: IRestObjectEntry): IMrsObject => {
 };
 
 /**
+ * @param entries Entries of a script.
+ *
+ * @returns Each thing they create once, by its last statement: a script
+ *          run in order leaves what its last `CREATE OR REPLACE` made, and
+ *          the tree's rows are told apart by their paths.
+ */
+const latest = <T extends IRestScriptEntry>(entries: T[]): T[] => {
+    const byKey = new Map<string, T>();
+    for (const entry of entries) {
+        const key = entryKey(entry);
+        byKey.delete(key);
+        byKey.set(key, entry);
+    }
+
+    return [...byKey.values()];
+};
+
+/**
  * @param entries What a script creates.
  *
  * @returns The `CREATE REST SERVICE`s among it.
@@ -552,9 +580,9 @@ export const objectOf = (entry: IRestObjectEntry): IMrsObject => {
 export const serviceEntries = (
     entries: IRestScriptEntry[],
 ): IRestServiceEntry[] => {
-    return entries.filter((entry): entry is IRestServiceEntry => {
+    return latest(entries.filter((entry): entry is IRestServiceEntry => {
         return entry.kind === "service";
-    });
+    }));
 };
 
 /**
@@ -567,10 +595,10 @@ export const schemaEntries = (
     entries: IRestScriptEntry[],
     servicePath: string,
 ): IRestSchemaEntry[] => {
-    return entries.filter((entry): entry is IRestSchemaEntry => {
+    return latest(entries.filter((entry): entry is IRestSchemaEntry => {
         return entry.kind === "schema"
             && samePath(entry.servicePath, servicePath);
-    });
+    }));
 };
 
 /**
@@ -585,11 +613,11 @@ export const objectEntries = (
     servicePath: string,
     schemaPath: string,
 ): IRestObjectEntry[] => {
-    return entries.filter((entry): entry is IRestObjectEntry => {
+    return latest(entries.filter((entry): entry is IRestObjectEntry => {
         return entry.kind === "object"
             && samePath(entry.servicePath, servicePath)
             && samePath(entry.schemaPath, schemaPath);
-    });
+    }));
 };
 
 /**
@@ -610,14 +638,17 @@ export const withRestStatements = (
 ): string => {
     const tail = /\s*$/u.exec(sql)?.[0] ?? "";
     let body = sql.slice(0, sql.length - tail.length);
+    // A script with CRLF line ends keeps them.
+    const eol = sql.includes("\r\n") ? "\r\n" : "\n";
+    const lines = (statement: string): string => {
+        return statement.trim().replace(/\r?\n/gu, eol);
+    };
 
-    // One parse: a schema saved with its objects is many statements.
+    // One parse: a schema saved with its objects is many statements. The
+    // last of a thing created twice is replaced: it is what a run leaves.
     const existing = new Map<string, IRestScriptEntry>();
     for (const entry of parseRestScript(body)) {
-        const key = entryKey(entry);
-        if (!existing.has(key)) {
-            existing.set(key, entry);
-        }
+        existing.set(entryKey(entry), entry);
     }
     const replaced = new Map<IRestScriptEntry, string>();
     // By key, so a statement saved twice in one go is written once.
@@ -627,9 +658,9 @@ export const withRestStatements = (
         const key = added === undefined ? `#${String(index)}` : entryKey(added);
         const entry = existing.get(key);
         if (entry === undefined) {
-            appended.set(key, statement.trim());
+            appended.set(key, lines(statement));
         } else {
-            replaced.set(entry, statement.trim());
+            replaced.set(entry, lines(statement));
         }
     });
 
@@ -640,10 +671,10 @@ export const withRestStatements = (
         body = body.slice(0, entry.start) + statement + body.slice(entry.end);
     }
     for (const statement of appended.values()) {
-        body += `${body === "" ? "\n" : "\n\n"}${statement}`;
+        body += `${body === "" ? eol : eol + eol}${statement}`;
     }
 
-    return body + (tail.includes("\n") ? tail : "\n");
+    return body + (tail.includes("\n") ? tail : eol);
 };
 
 /** Where a section's body is in a development script. */

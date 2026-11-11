@@ -308,8 +308,16 @@ export const projectRestSource = (host: IProjectRestHost): IRestSource => {
     // is read once, until something is written to it.
     let read: Promise<IRestScriptEntry[]> | undefined;
     const entries = (): Promise<IRestScriptEntry[]> => {
-        read ??= host.restSql().then(parseRestScript);
-        read.catch(() => { read = undefined; });
+        if (read === undefined) {
+            const reading = host.restSql().then(parseRestScript);
+            // A failed read is tried again; a later one is not dropped.
+            reading.catch(() => {
+                if (read === reading) {
+                    read = undefined;
+                }
+            });
+            read = reading;
+        }
 
         return read;
     };

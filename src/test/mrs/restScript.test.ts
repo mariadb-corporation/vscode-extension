@@ -144,6 +144,36 @@ describe("parseRestScript", () => {
             "CREATE REST SCHEMA /orphan FROM `x`;",
         ].join("\n"))).toEqual([]);
     });
+
+    it("reads a service of several developers as one path", () => {
+        const entries = parseRestScript([
+            "CREATE REST SERVICE mike,anna@/svc;",
+            "CREATE REST SCHEMA /s ON SERVICE `mike`,`anna`@/svc FROM `s`;",
+        ].join("\n"));
+
+        expect(serviceEntries(entries).map((entry) => {
+            return entry.servicePath;
+        })).toEqual(["mike,anna@/svc"]);
+        expect(schemaEntries(entries, "mike,anna@/svc")).toHaveLength(1);
+    });
+
+    it("takes no name in backticks for a flag", () => {
+        const [entry] = parseRestScript("CREATE REST VIEW /v ON SERVICE /s "
+            + "SCHEMA /x AS `x`.`v` CLASS `Disabled` {};");
+
+        expect(entry).toMatchObject({ kind: "object", enabled: 1 });
+    });
+
+    it("lists a thing created twice once, by its last statement", () => {
+        const entries = parseRestScript([
+            "CREATE OR REPLACE REST SERVICE /svc;",
+            "CREATE OR REPLACE REST SERVICE /SVC DISABLED;",
+        ].join("\n"));
+
+        expect(serviceEntries(entries)).toMatchObject([
+            { servicePath: "/SVC", line: 1 },
+        ]);
+    });
 });
 
 describe("withRestStatements", () => {
@@ -197,6 +227,14 @@ describe("withRestStatements", () => {
                 return entry.kind;
             })).toEqual(["service", "schema", "object"]);
         });
+
+    it("keeps a script's CRLF line ends", () => {
+        const sql = withRestStatements("\r\n-- REST\r\n\r\n",
+            ["CREATE OR REPLACE REST SERVICE /svc\n    ENABLED;"]);
+
+        expect(sql).toBe("\r\n-- REST\r\n\r\nCREATE OR REPLACE REST SERVICE "
+            + "/svc\r\n    ENABLED;\r\n\r\n");
+    });
 });
 
 describe("a development script's sections", () => {

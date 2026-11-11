@@ -60,7 +60,14 @@ export const restDefinitionOf = async (
     if (file === undefined) {
         return undefined;
     }
-    const section = restSectionOf(await readFile(file, "utf8"));
+    let script: string;
+    try {
+        script = await readFile(file, "utf8");
+    } catch {
+        // msm.project.json names a script that is not there (yet).
+        return undefined;
+    }
+    const section = restSectionOf(script);
 
     return section === undefined ? undefined : { file, ...section };
 };
