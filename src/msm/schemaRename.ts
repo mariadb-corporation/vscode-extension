@@ -58,6 +58,21 @@ export interface ISchemaRenameHost {
     /** Says what the user is left to do, after the rename. */
     warn(message: string): void;
     /**
+     * Saves and closes the editors open on the project's files, which
+     * msm renames and moves: left open, they would show the old files as
+     * deleted.
+     *
+     * @returns Where they were, to open again.
+     */
+    closeEditors(projectPath: string): Promise<IEditorPlace[]>;
+    /**
+     * Opens editors again, each where it was; a file no longer there is
+     * left out.
+     *
+     * @returns Once they are open, so the viewer opens after them.
+     */
+    openEditors(places: IEditorPlace[]): Promise<void>;
+    /**
      * Saves and closes the project's open diagram viewer, which works on
      * the folder that may move.
      *
@@ -66,6 +81,17 @@ export interface ISchemaRenameHost {
      */
     closeViewer(projectPath: string): Promise<string | undefined>;
     /**
+     * Runs the rename itself as an action of the Actions tab, as the
+     * other msm operations are; the dry runs are not ones.
+     *
+     * @param target The project and the names.
+     * @param work The rename.
+     *
+     * @returns What msm answered.
+     */
+    asAction(target: { projectPath: string; schema: string; newName: string },
+        work: () => Promise<IMsmSchemaRename>): Promise<IMsmSchemaRename>;
+    /**
      * Moves what the extension keeps per project folder to the new one:
      * the diagrams' views, rows left open; and redraws the view.
      */
@@ -73,6 +99,42 @@ export interface ISchemaRenameHost {
     /** Opens a diagram of a project again. */
     openDiagram(projectPath: string, diagram: string): void;
 }
+
+/** An editor open on a file: the file, and the editor group it is in. */
+export interface IEditorPlace {
+    path: string;
+    /** The group's view column. */
+    column: number;
+}
+
+/**
+ * Where a project's file is after a rename: under the new folder, its
+ * names that started with the schema's starting with the new name, as
+ * msm names a script `<schema>_next.sql`.
+ *
+ * @param file The file, in the old folder.
+ * @param rename The folders and names.
+ * @param rename.from The project's old folder.
+ * @param rename.to Its new folder.
+ * @param rename.schema The schema's old name.
+ * @param rename.newName Its new name.
+ *
+ * @returns Its path now; the old one where it is not in the project.
+ */
+export const movedFile = (file: string, rename: { from: string; to: string;
+    schema: string; newName: string; }): string => {
+    const { from, to, schema, newName } = rename;
+    const sep = from.includes("\\") && !from.includes("/") ? "\\" : "/";
+    if (!file.startsWith(from + sep)) {
+        return file;
+    }
+    const parts = file.slice(from.length + 1).split(sep).map((part) => {
+        return part.startsWith(`${schema}_`) || part.startsWith(`${schema}.`)
+            ? newName + part.slice(schema.length) : part;
+    });
+
+    return [to, ...parts].join(sep);
+};
 
 /** The project whose schema is renamed. */
 export interface ISchemaRenameTarget {
@@ -179,19 +241,27 @@ export const renameSchema = async (
         return undefined;
     }
 
-    // Its viewer saves first: msm renames what is on disk.
+    // Its editors and viewer save first: msm renames what is on disk.
+    const editors = await host.closeEditors(projectPath);
     const shown = await host.closeViewer(projectPath);
     let done: IMsmSchemaRename;
     try {
-        done = await host.api.renameSchema(projectPath, newName, false);
+        done = await host.asAction({ projectPath, schema, newName }, () => {
+            return host.api.renameSchema(projectPath, newName, false);
+        });
     } catch (error) {
-        // Nothing moved: the viewer comes back where it was.
+        // Nothing moved: the editors and viewer come back where they were.
+        await host.openEditors(editors);
         if (shown !== undefined) {
             host.openDiagram(projectPath, shown);
         }
         throw error;
     }
     await host.moved(projectPath, done.projectPath);
+    await host.openEditors(editors.map((place) => {
+        return { ...place, path: movedFile(place.path, { from: projectPath,
+            to: done.projectPath, schema, newName }) };
+    }));
     if (shown !== undefined) {
         host.openDiagram(done.projectPath, shown);
     }

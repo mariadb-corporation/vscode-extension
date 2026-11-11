@@ -19,6 +19,8 @@ import { describe, expect, it } from "vitest";
 
 import type { IMsmSchemaRename } from "../../mcp/msmApi.js";
 import {
+    type IEditorPlace,
+    movedFile,
     releasedMessage,
     renameDetail,
     renameSchema,
@@ -45,6 +47,7 @@ const answer = (extra: Partial<IMsmSchemaRename> = {}): IMsmSchemaRename => {
  * @param options.name The name typed.
  * @param options.confirmed Whether the rename is confirmed.
  * @param options.shown The diagram the open viewer shows.
+ * @param options.editors The editors open on the project's files.
  */
 const setUp = (options: {
     check?: IMsmSchemaRename;
@@ -53,6 +56,7 @@ const setUp = (options: {
     name?: string;
     confirmed?: boolean;
     shown?: string;
+    editors?: IEditorPlace[];
 } = {}) => {
     const steps: string[] = [];
     const host: ISchemaRenameHost = {
@@ -83,6 +87,23 @@ const setUp = (options: {
         },
         refuse: (message) => { steps.push(`refuse ${message}`); },
         warn: (message) => { steps.push(`warn ${message}`); },
+        closeEditors: (projectPath) => {
+            steps.push(`close editors ${projectPath}`);
+
+            return Promise.resolve(options.editors ?? []);
+        },
+        openEditors: (places) => {
+            steps.push(`open editors ${places.map((place) => {
+                return `${place.path}@${String(place.column)}`;
+            }).join(" ")}`);
+
+            return Promise.resolve();
+        },
+        asAction: (target, work) => {
+            steps.push(`action ${target.schema} -> ${target.newName}`);
+
+            return work();
+        },
         closeViewer: (projectPath) => {
             steps.push(`close ${projectPath}`);
 
@@ -105,6 +126,8 @@ describe("Rename Schema", () => {
     it("asks msm, confirms, closes the viewer, renames and follows the "
         + "folder", async () => {
         const { host, steps } = setUp({ shown: "Main",
+            editors: [{ path: `${OLD}/development/shop_next.sql`, column: 1 },
+                { path: `${OLD}/msm.project.json`, column: 2 }],
             done: answer({ warnings: ["Project shop2 depends on shop."] }) });
 
         expect(await renameSchema({ projectPath: OLD, schema: "shop" }, host))
@@ -118,9 +141,13 @@ describe("Rename Schema", () => {
                 + "SQL scripts, the schema snapshot and the project list.\n"
                 + `The project folder moves to ${NEW}.\n1 file(s) will be `
                 + "written.",
+            `close editors ${OLD}`,
             `close ${OLD}`,
+            "action shop -> store",
             `rename ${OLD} store`,
             `moved ${OLD} -> ${NEW}`,
+            `open editors ${NEW}/development/store_next.sql@1 `
+                + `${NEW}/msm.project.json@2`,
             `open ${NEW} Main`,
             "warn The schema shop is now store. Left to you: Project shop2 "
                 + "depends on shop.",
@@ -164,14 +191,63 @@ describe("Rename Schema", () => {
         }
     });
 
-    it("opens the viewer where it was when the rename fails", async () => {
-        const { host, steps } = setUp({ shown: "Main",
-            done: new Error("msm refused") });
+    it("opens the editors and viewer where they were when the rename fails",
+        async () => {
+            const { host, steps } = setUp({ shown: "Main",
+                editors: [{ path: `${OLD}/development/shop_next.sql`,
+                    column: 1 }],
+                done: new Error("msm refused") });
 
-        await expect(renameSchema({ projectPath: OLD, schema: "shop" }, host))
-            .rejects.toThrow("msm refused");
-        expect(steps.slice(-2)).toEqual([`rename ${OLD} store`,
-            `open ${OLD} Main`]);
+            await expect(renameSchema({ projectPath: OLD, schema: "shop" },
+                host)).rejects.toThrow("msm refused");
+            expect(steps.slice(-3)).toEqual([`rename ${OLD} store`,
+                `open editors ${OLD}/development/shop_next.sql@1`,
+                `open ${OLD} Main`]);
+        });
+
+    it("closes no editor before msm agrees and the user confirms",
+        async () => {
+            const { host, steps } = setUp({ confirmed: false });
+            await renameSchema({ projectPath: OLD, schema: "shop" }, host);
+            expect(steps.some((step) => {
+                return step.startsWith("close editors");
+            })).toBe(false);
+        });
+
+    describe("movedFile", () => {
+        const rename = { from: OLD, to: NEW, schema: "shop",
+            newName: "store" };
+
+        it("moves a file to the new folder, renaming what starts with the "
+            + "schema's name", () => {
+            expect(movedFile(`${OLD}/development/shop_next.sql`, rename))
+                .toBe(`${NEW}/development/store_next.sql`);
+            expect(movedFile(`${OLD}/README.md`, rename))
+                .toBe(`${NEW}/README.md`);
+            // Only a name that starts with the schema's, and is not longer.
+            expect(movedFile(`${OLD}/development/shopping.sql`, rename))
+                .toBe(`${NEW}/development/shopping.sql`);
+        });
+
+        it("renames the files of a folder that stays", () => {
+            expect(movedFile(`${OLD}/development/shop_next.sql`,
+                { ...rename, to: OLD }))
+                .toBe(`${OLD}/development/store_next.sql`);
+        });
+
+        it("leaves a file outside the project", () => {
+            expect(movedFile("/work/other.msm.project/shop_next.sql", rename))
+                .toBe("/work/other.msm.project/shop_next.sql");
+            expect(movedFile(`${OLD}2/shop_next.sql`, rename))
+                .toBe(`${OLD}2/shop_next.sql`);
+        });
+
+        it("works with Windows paths", () => {
+            expect(movedFile("C:\\w\\shop.msm.project\\shop_next.sql", {
+                ...rename, from: "C:\\w\\shop.msm.project",
+                to: "C:\\w\\store.msm.project" }))
+                .toBe("C:\\w\\store.msm.project\\store_next.sql");
+        });
     });
 
     it("lists the migration where msm has one", () => {

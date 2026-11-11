@@ -334,19 +334,27 @@ describe("MSM schema diagrams", () => {
             await treeItem(await view(), [schema, schema], SERVER_TIMEOUT);
             assert.ok(!await hasTreeItem(await view(), [old]),
                 `no row of ${old} left`);
-            // The viewer, opened again on the same diagram.
+            // The viewer, opened again on the same diagram, and the script's
+            // editor on the renamed file, none left on a deleted one.
             await waitFor(async () => {
                 const titles = await new EditorView().getOpenEditorTitles();
 
                 return titles.includes(`${DIAGRAM} (${schema})`)
-                    && !titles.includes(`${DIAGRAM} (${old})`);
-            }, `the diagram reopened as ${DIAGRAM} (${schema})`,
-            SERVER_TIMEOUT);
+                    && !titles.includes(`${DIAGRAM} (${old})`)
+                    && titles.includes(`${schema}_next.sql`)
+                    && !titles.includes(`${old}_next.sql`);
+            }, `the diagram reopened as ${DIAGRAM} (${schema}), and the `
+                + `script as ${schema}_next.sql`, SERVER_TIMEOUT);
+            await waitForAction(new RegExp(
+                `^Renamed the schema ${old} to ${schema}`, "u"));
         };
 
         it("renames it from the schema row, the diagram open", async () => {
-            assert.ok((await new EditorView().getOpenEditorTitles())
-                .includes(`${DIAGRAM} (${SCHEMA})`), "the diagram open");
+            const titles = await new EditorView().getOpenEditorTitles();
+            assert.ok(titles.includes(`${DIAGRAM} (${SCHEMA})`),
+                "the diagram open");
+            assert.ok(titles.includes(`${SCHEMA}_next.sql`),
+                "the script open, since 10-msm-projects");
             await rename(SCHEMA_ROW, SCHEMA, RENAMED);
             await renamedTo(RENAMED, SCHEMA);
             // The diagram kept its figures.

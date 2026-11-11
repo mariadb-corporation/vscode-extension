@@ -47,11 +47,15 @@ import {
     TasksTreeProvider,
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
-import { changedOnlineAlter, type IMsmApi } from "./mcp/msmApi.js";
+import { ActionGroup } from "./restd/actionGroup.js";
 import {
-    diagramNameProblem, MsmCommands, newDiagramName, projectPathOf,
+    changedOnlineAlter, type IMsmApi, type IMsmSchemaRename, msmToolArgs,
+} from "./mcp/msmApi.js";
+import {
+    diagramNameProblem, msmCall, MsmCommands, newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
 import { projectOfScriptFile, schemaNameOfFolder } from "./msm/msmFields.js";
+import { closeEditorsIn, openEditorsAt } from "./msm/projectEditors.js";
 import { renameSchema } from "./msm/schemaRename.js";
 import { SettledSaves } from "./msm/settledSaves.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
@@ -1571,9 +1575,37 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         warn: (message) => {
                             void vscode.window.showWarningMessage(message);
                         },
+                        closeEditors: closeEditorsIn,
+                        openEditors: openEditorsAt,
                         closeViewer: async (folder) => {
                             return await ModelerPanel.close(
                                 projectDiagrams(folder));
+                        },
+                        asAction: async (rename, work) => {
+                            const words = {
+                                doing: `Renaming the schema ${rename.schema} `
+                                    + `to ${rename.newName}`,
+                                done: `Renamed the schema ${rename.schema} `
+                                    + `to ${rename.newName}`,
+                            };
+                            const group = new ActionGroup(putAction,
+                                GENERAL_ACTIONS, words);
+                            const detail = (done: IMsmSchemaRename): string => {
+                                return [counted(done.files.length, "file"),
+                                    done.projectPath === done
+                                        .previousProjectPath ? undefined
+                                        : done.projectPath]
+                                    .filter((part) => {
+                                        return part !== undefined;
+                                    }).join(", ");
+                            };
+
+                            return await group.run(() => {
+                                return group.step(words, msmCall(
+                                    "msm.rename_schema", msmToolArgs.renameSchema(
+                                        rename.projectPath, rename.newName,
+                                        false)), work, { detail });
+                            }, detail);
                         },
                         moved: async (from, to) => {
                             projectSources.delete(from);
