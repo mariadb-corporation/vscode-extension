@@ -34,9 +34,22 @@ type (`FIGURE_COLORS`) where a figure has none.
   Until it is there, a dashed frame says why.
 - Any other type is a frame saying the viewer does not show it.
 - **Connections** are drawn between table figures only (views and
-  routines have none, as Workbench); the foreign key is found by name,
-  case-insensitive; a key that is not `many` gets a bar at its start
-  instead of a crow's foot.
+  routines have none, as Workbench); a key that is not `many` gets a bar
+  at its start instead of a crow's foot. **Lines follow the foreign key
+  definitions, not their names** (the user's rule, after a table editor
+  save dropped and re-added keys and msm's `reconcile_diagram` deleted
+  the lines): `connectionSync.ts` matches each stored connection (child =
+  start figure's table, parent = end figure's) to the child's key of its
+  name that references the parent, else to the child's first key onto
+  the parent no other connection between those two figures has (keys had
+  per figure pair; keys onto another schema's tables match nothing);
+  re-points `foreignKey` / `table`, keeping offset, split and visibility;
+  drops one with no key left; adds a line for each key between two
+  table figures shown that has none. Run on mount and on every `#refresh`
+  (any catalog change); a change is saved (`onConnectionsSynced`).
+  msm's `reconcile_diagram` follows the same rule (agreed with the
+  mariadb-shell-plugins session, its branch
+  `msm/diagram-connections-by-definition`), but never adds.
 - **A figure without a width** gets its content's (`cardWidth`: msm's
   rule, the longest row or the title rounded up to 10, 120..360, measured
   in the card fonts on a canvas, `estimateText` = msm's per-character

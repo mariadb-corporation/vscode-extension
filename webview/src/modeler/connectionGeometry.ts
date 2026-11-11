@@ -28,13 +28,68 @@ import type { IPoint, Segment } from "../canvas/geometry.js";
 /** The side of a figure a connection leaves or enters. */
 export type Side = "left" | "right" | "top" | "bottom";
 
+/** The size of the end markers in diagram units. */
+export const MARKER_SIZE = 12;
+
+/**
+ * A route's middle segment, which can be moved towards either figure: the
+ * axis it moves along, where it sits halfway between them, and how far it
+ * can go each way.
+ */
+export interface IMiddleSegment {
+    axis: "x" | "y";
+    /** Where it is halfway between the figures. */
+    base: number;
+    /** Where it is now. */
+    at: number;
+    min: number;
+    max: number;
+}
+
 /** A connection's route. */
 export interface IRoute {
     /** The polyline, from the start figure's edge to the end figure's. */
     points: IPoint[];
     startSide: Side;
     endSide: Side;
+    /** The middle segment, where the route has one between the figures. */
+    middle?: IMiddleSegment;
 }
+
+/**
+ * How close the middle segment comes to a figure: room for the end
+ * markers (a crow's foot and its bar) and a little line beyond them.
+ */
+export const MIDDLE_CLEARANCE = 2 * MARKER_SIZE;
+
+/**
+ * Where a middle segment between two edges sits, moved by an offset from
+ * halfway and kept clear of both figures.
+ *
+ * @param axis The axis it moves along.
+ * @param from The start figure's edge.
+ * @param to The end figure's edge.
+ * @param offset How far from halfway, towards larger coordinates.
+ *
+ * @returns The middle segment.
+ */
+export const middleSegment = (
+    axis: "x" | "y",
+    from: number,
+    to: number,
+    offset: number,
+): IMiddleSegment => {
+    const base = (from + to) / 2;
+    let min = Math.min(from, to) + MIDDLE_CLEARANCE;
+    let max = Math.max(from, to) - MIDDLE_CLEARANCE;
+    // Too close for any room: it stays halfway.
+    if (min > max) {
+        min = max = base;
+    }
+
+    return { axis, base, at: Math.min(max, Math.max(min, base + offset)),
+        min, max };
+};
 
 /**
  * Routes a connection between two figures as an orthogonal line: out of
@@ -44,10 +99,17 @@ export interface IRoute {
  *
  * @param start The start figure's rectangle (the foreign key's table).
  * @param end The end figure's rectangle (the referenced table).
+ * @param offset How far the middle segment is moved from halfway between
+ *               them, towards larger coordinates (Workbench's
+ *               `middleSegmentOffset`).
  *
  * @returns The route.
  */
-export const routeConnection = (start: IRect, end: IRect): IRoute => {
+export const routeConnection = (
+    start: IRect,
+    end: IRect,
+    offset = 0,
+): IRoute => {
     const startRight = start.left + start.width;
     const startBottom = start.top + start.height;
     const endRight = end.left + end.width;
@@ -85,34 +147,36 @@ export const routeConnection = (start: IRect, end: IRect): IRoute => {
         const startIsLeft = startCenter.x < endCenter.x;
         const x1 = startIsLeft ? startRight : start.left;
         const x2 = startIsLeft ? end.left : endRight;
-        const middle = (x1 + x2) / 2;
+        const middle = middleSegment("x", x1, x2, offset);
 
         return {
             points: [
                 { x: x1, y: startCenter.y },
-                { x: middle, y: startCenter.y },
-                { x: middle, y: endCenter.y },
+                { x: middle.at, y: startCenter.y },
+                { x: middle.at, y: endCenter.y },
                 { x: x2, y: endCenter.y },
             ],
             startSide: startIsLeft ? "right" : "left",
             endSide: startIsLeft ? "left" : "right",
+            middle,
         };
     }
 
     const startIsAbove = startCenter.y < endCenter.y;
     const y1 = startIsAbove ? startBottom : start.top;
     const y2 = startIsAbove ? end.top : endBottom;
-    const middle = (y1 + y2) / 2;
+    const middle = middleSegment("y", y1, y2, offset);
 
     return {
         points: [
             { x: startCenter.x, y: y1 },
-            { x: startCenter.x, y: middle },
-            { x: endCenter.x, y: middle },
+            { x: startCenter.x, y: middle.at },
+            { x: endCenter.x, y: middle.at },
             { x: endCenter.x, y: y2 },
         ],
         startSide: startIsAbove ? "bottom" : "top",
         endSide: startIsAbove ? "top" : "bottom",
+        middle,
     };
 };
 
@@ -131,9 +195,6 @@ const outward = (side: Side): IPoint => {
         default: { return { x: 0, y: 1 }; }
     }
 };
-
-/** The size of the end markers in diagram units. */
-export const MARKER_SIZE = 12;
 
 /**
  * The crow's foot at the "many" end of a connection: three prongs from a
@@ -238,4 +299,21 @@ export const splitStubs = (
         stub(route.points[0], route.startSide),
         stub(route.points[route.points.length - 1], route.endSide),
     ];
+};
+
+/**
+ * @param point A point.
+ * @param segment A line segment.
+ *
+ * @returns How far the point is from the nearest point of the segment.
+ */
+export const distanceToSegment = (point: IPoint, segment: Segment): number => {
+    const [from, to] = segment;
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const length = dx * dx + dy * dy;
+    const t = length === 0 ? 0 : Math.min(1, Math.max(0,
+        ((point.x - from.x) * dx + (point.y - from.y) * dy) / length));
+
+    return Math.hypot(point.x - (from.x + t * dx), point.y - (from.y + t * dy));
 };

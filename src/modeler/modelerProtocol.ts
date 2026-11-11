@@ -20,6 +20,10 @@
  * Shared by both sides, so free of `vscode`.
  */
 
+import type {
+    DiagramItem,
+    DiagramItemChange,
+} from "../details/objectDetails.js";
 import type { IDetailEdits } from "../details/detailEdits.js";
 import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
 import { OBJECT_TYPES, type ObjectType } from "../mcp/types.js";
@@ -188,7 +192,9 @@ export type ModelerWebviewMessage =
      * The schema objects the selected figures show, for the Object Details
      * view: tables, views, and a routine group's routines.
      */
-    | { type: "selection"; objects: ISchemaObjectRef[] }
+    | { type: "selection"; objects: ISchemaObjectRef[]; item?: DiagramItem }
+    /** The one item selected changed: moved, resized, undone. */
+    | { type: "item"; item?: DiagramItem }
     /**
      * Something without schema objects the page can read was dropped at
      * this point of the page (client coordinates): rows of a tree, whose
@@ -227,6 +233,8 @@ export type ModelerHostMessage =
     }
     /** Show another of the model's diagrams: opened again in the tree. */
     | { type: "showDiagram"; name: string }
+    /** Object Details changed the selected item. */
+    | { type: "changeItem"; id: string; change: DiagramItemChange }
     /** The model could not be read. */
     | { type: "error"; message: string }
     /** An image figure's picture, or why there is none. */

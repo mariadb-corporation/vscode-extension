@@ -108,8 +108,33 @@ viewer is [`modeler.md`](modeler.md), its palette
   dimmed italics, cut short with the whole row as a tooltip), indexes and foreign keys; a view's columns;
   a routine's parameters and what it returns; a trigger's, an event's and
   a sequence's settings; SQL (a view's SELECT, a body) folded away in a
-  `<details>`. Changing an object is the object editor's: the view sends
-  only `ready`. `detailEdits.ts` (a table change as edits and their
+  `<details>`. Changing an object is the object editor's.
+- **The diagram item selected** (one item, `DiagramItem`): a card
+  figure's X / Y (on the page, its layer's position included), Z (its own
+  `elevation` above its layer, the viewer's field like a layer's), W / H
+  and Auto (height from content, `manualSizing` off), laid out as a design
+  tool's transform panel, last, after the object's details; a layer's tables (filed under it) and
+  X / Y / Z / W / H, changed as a drag would (its tables follow); a
+  relationship line's source and target tables, its kind (1:1 / 1:n,
+  identifying: a schema change, `relationshipKindChange` - the primary
+  key and a `<fk>_UNIQUE` index as the relationship tools make them -
+  sent through `DiagramTools.changeSchema`, undone and taken back as
+  theirs; refused where the key's columns are the whole primary key, or
+  where an unnamed column UNIQUE makes it 1:1, which `mariadb-lsp edit`
+  drops by its columns with no migration, so deployed schemas would keep
+  it). A unique index the key relies on cannot be dropped while the key
+  is there (MariaDB 1553; the binary refuses `referenced`), so 1:n and
+  the undo of 1:1 drop the key, the index, and add the key again; with
+  `merge_alters` the two drops merge into one ALTER and the key comes
+  back in its own. Checked against the real binary.
+  middle segment offset and Split, the line alone with no schema object.
+  `DiagramItemFields.tsx`; a field commits on Enter or blur, Escape puts it
+  back; read only on a live schema's diagram. The viewer posts it with
+  `selection` and again as `item` after every history change (moves,
+  undo); the provider keeps it per side with the panel's editor
+  (`ISelectedItem`) and sends the view's `changeItem` to that diagram,
+  where `EerFigureSet.changeItem` makes it one undoable action. A tree row
+  selected drops it. `detailEdits.ts` (a table change as edits and their
   inverse) stays for it, and the diagram uses it
   (`ModelerPanel.applySchemaChange`). After a schema edit, made or
   refused as the project changed, the view reads the object again

@@ -947,14 +947,21 @@ export const activate = (context: vscode.ExtensionContext): void => {
             objectDetails.refreshed();
         },
         draggedObjects: () => { return draggedObjects.take(); },
-        selected: (target, objects) => {
+        selected: (target, objects, item, edit) => {
+            const place = target.kind === "project"
+                ? { projectPath: target.projectPath }
+                : { connection: target.connection, schema: target.schema };
             const [first] = objects;
-            if (first !== undefined) {
-                objectDetails.show(target.kind === "project"
-                    ? { projectPath: target.projectPath }
-                    : { connection: target.connection,
-                        schema: target.schema }, first);
+            if (first !== undefined || item !== undefined) {
+                objectDetails.show(place, first, item === undefined
+                    ? undefined : { item, edit });
             }
+        },
+        itemChanged: (target, item) => {
+            objectDetails.itemChanged(target.kind === "project"
+                ? { projectPath: target.projectPath }
+                : { connection: target.connection, schema: target.schema },
+            item);
         },
     };
     const restdCommands = new RestdCommands({

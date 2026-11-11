@@ -40,6 +40,7 @@ import type {
     INavigatorState,
     IProbe,
     IResizeSession,
+    IGrabSession,
     IToolSession,
     EditCommit,
     ItemPlane,
@@ -214,6 +215,7 @@ type PointerState =
         before: unknown;
     }
     | { kind: "tool"; session: IToolSession }
+    | { kind: "grab"; session: IGrabSession; cursor: string; before: unknown }
     | {
         kind: "resize";
         handle: IHandle;
@@ -1400,6 +1402,7 @@ export class Canvas {
     }
 
     #render(): void {
+        this.#set?.beforeRender?.();
         this.#updateDecorations();
         this.#renderer.render(this.#scene, this.#camera);
         this.#renderNavigator();
@@ -1449,6 +1452,7 @@ export class Canvas {
                 this.#selected.add(id);
             }
         }
+        this.#set?.selectionChanged?.([...this.#selected]);
         this.#events.onSelection?.([...this.#selected]);
         this.#invalidate();
     }
@@ -1469,7 +1473,7 @@ export class Canvas {
         const scale = this.#scale();
         for (const id of this.#selected) {
             const item = this.#set?.item(id);
-            if (item === undefined) {
+            if (item === undefined || item.outlined === false) {
                 continue;
             }
             let decoration = this.#decorations.get(id);
@@ -1756,6 +1760,8 @@ export class Canvas {
             canvas.style.cursor = "grab";
         } else if (pointer?.kind === "resize") {
             canvas.style.cursor = pointer.handle.cursor;
+        } else if (pointer?.kind === "grab") {
+            canvas.style.cursor = pointer.cursor;
         } else if (this.#figureTool()) {
             canvas.style.cursor = "crosshair";
         } else {
@@ -1852,6 +1858,22 @@ export class Canvas {
             }
         }
 
+        // A handle the figure set draws itself, such as a connection's.
+        const grab = this.#locked ? undefined
+            : set?.grabAt?.(this.#probe(screen));
+        if (grab !== undefined && set !== undefined) {
+            const before = set.snapshot();
+            this.#pointer = {
+                kind: "grab",
+                session: grab.begin(),
+                cursor: grab.cursor,
+                before,
+            };
+            this.#updateCursor();
+
+            return;
+        }
+
         const item = this.#itemAt(screen);
         if (item === undefined) {
             this.#select([], false);
@@ -1900,7 +1922,9 @@ export class Canvas {
             return;
         }
         if (pointer === undefined) {
-            const cursor = this.#handleAt(screen)?.handle.cursor;
+            const cursor = this.#handleAt(screen)?.handle.cursor
+                ?? (this.#locked ? undefined
+                    : this.#set?.grabAt?.(this.#probe(screen))?.cursor);
             if (cursor !== this.#hoverCursor) {
                 this.#hoverCursor = cursor;
                 this.#updateCursor();
@@ -1939,6 +1963,12 @@ export class Canvas {
 
             case "tool": {
                 pointer.session.move?.(this.#probe(screen));
+                this.#invalidate();
+                break;
+            }
+
+            case "grab": {
+                pointer.session.move(this.#probe(screen));
                 this.#invalidate();
                 break;
             }
@@ -2082,7 +2112,8 @@ export class Canvas {
             }
 
             case "resize":
-            case "elevate": {
+            case "elevate":
+            case "grab": {
                 this.#recordSnapshot(pointer.session.finish(), pointer.before);
                 break;
             }

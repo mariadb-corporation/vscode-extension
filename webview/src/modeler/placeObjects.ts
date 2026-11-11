@@ -40,6 +40,7 @@ import {
 } from "../../../src/modeler/modelFormat.js";
 import type { ISchemaObjectLists } from "./schemaEdits.js";
 import { numberedName } from "./schemaEdits.js";
+import { sameName } from "./catalog.js";
 
 /** What placing objects adds, and what it leaves out and why. */
 export interface IPlacement {
@@ -268,8 +269,8 @@ const connectionsOf = (
         for (const key of table.foreign_keys ?? []) {
             const parent = figureOf.get(key.references.table);
             const drawn = diagram.connections.some((connection) => {
-                return connection.table === table.name
-                    && connection.foreignKey === key.name;
+                return sameName(connection.table, table.name)
+                    && sameName(connection.foreignKey, key.name);
             });
             if (parent === undefined || drawn || !(isNew.has(table.name)
                 || isNew.has(key.references.table))) {

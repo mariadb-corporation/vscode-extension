@@ -36,6 +36,7 @@ import triggerIcon from "../assets/modeler/schemaTrigger.svg?raw";
 import eventIcon from "../assets/modeler/schemaEvent.svg?raw";
 import sequenceIcon from "../assets/modeler/schemaSequence.svg?raw";
 
+import type { DiagramItem } from "../../../src/details/objectDetails.js";
 import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
 import {
     diagramDocument,
@@ -306,11 +307,51 @@ const readPicture = async (file: File): Promise<IPickedImage> => {
     return { dataUrl, ...size };
 };
 
+/**
+ * @param shown The model shown.
+ * @param shown.set Its figure set.
+ * @param shown.editable Whether its diagrams can be changed.
+ * @param ids The items selected.
+ *
+ * @returns The one item selected, as Object Details shows it.
+ */
+const selectedItemOf = (
+    shown: { set: EerFigureSet; editable: boolean },
+    ids: readonly string[],
+): DiagramItem | undefined => {
+    return ids.length === 1
+        ? shown.set.itemProps(ids[0], shown.editable) : undefined;
+};
+
 export const ModelViewer = (): JSX.Element => {
     const hostRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<Canvas>();
     const inputRef = useRef<HTMLInputElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
+    /**
+     * Sends every diagram of a project whose document differs from what
+     * was sent last: kept and saved.
+     */
+    const saveChanged = (): void => {
+        const shown = loadedRef.current;
+        if (shown === undefined || !shown.editable) {
+            return;
+        }
+        for (const diagram of shown.model.diagrams) {
+            const saved = diagramDocument(diagram, shown.model);
+            const text = JSON.stringify(saved);
+            if (shown.sent.get(diagram.name) !== text) {
+                shown.sent.set(diagram.name, text);
+                post({ type: "diagramChanged", document: saved });
+            }
+        }
+    };
+    /** The items selected, for the one Object Details shows. */
+    const selectedRef = useRef<string[]>([]);
+    const selectedItem = (shown: { set: EerFigureSet; editable: boolean })
+        : DiagramItem | undefined => {
+        return selectedItemOf(shown, selectedRef.current);
+    };
     /**
      * What takes back each schema edit sent, in order (msm answers them
      * one at a time): nothing for one the project is read again for.
@@ -521,13 +562,19 @@ export const ModelViewer = (): JSX.Element => {
             onTool: (next) => { setTool(next); },
             onHint: setHint,
             onSelection: (ids) => {
+                selectedRef.current = ids;
                 const shown = loadedRef.current;
                 if (shown === undefined || ids.length === 0) {
                     return;
                 }
-                // What the figures show, for the Object Details view.
-                post({ type: "selection", objects: objectsOfFigures(
-                    shown.set.diagram, ids, shown.set.objects()) });
+                // What the figures show, for the Object Details view, and
+                // the one item selected as itself.
+                post({
+                    type: "selection",
+                    objects: objectsOfFigures(shown.set.diagram, ids,
+                        shown.set.objects()),
+                    item: selectedItem(shown),
+                });
             },
             onEditPlacement: (placement) => {
                 // The input follows its text as the view pans, zooms or
@@ -566,17 +613,14 @@ export const ModelViewer = (): JSX.Element => {
             // whose document differs from what was sent last go.
             onHistory: () => {
                 const shown = loadedRef.current;
-                if (shown === undefined || !shown.editable) {
+                if (shown === undefined) {
                     return;
                 }
-                for (const diagram of shown.model.diagrams) {
-                    const saved = diagramDocument(diagram, shown.model);
-                    const text = JSON.stringify(saved);
-                    if (shown.sent.get(diagram.name) !== text) {
-                        shown.sent.set(diagram.name, text);
-                        post({ type: "diagramChanged", document: saved });
-                    }
+                // Moved, resized, undone: Object Details follows.
+                if (selectedRef.current.length === 1) {
+                    post({ type: "item", item: selectedItem(shown) });
                 }
+                saveChanged();
             },
         });
         canvas.setIsoAngles(presetFor(isoPresetId));
@@ -619,6 +663,9 @@ export const ModelViewer = (): JSX.Element => {
                         onEditTable: (table: string) => {
                             post({ type: "editTable", table });
                         },
+                        // The lines followed the foreign keys: saved, as an
+                        // action would be.
+                        onConnectionsSynced: saveChanged,
                         onSchemaEdit: (schemaEdits: IMsmSchemaEdit[],
                             changed?: IModelDiagram[],
                             failed?: (message: string) => void) => {
@@ -712,6 +759,14 @@ export const ModelViewer = (): JSX.Element => {
 
                 case "applySchemaChange": {
                     loadedRef.current?.set.applySchemaChange(message.change);
+                    break;
+                }
+
+                case "changeItem": {
+                    if (loadedRef.current?.editable === true) {
+                        loadedRef.current.set.changeItem(message.id,
+                            message.change);
+                    }
                     break;
                 }
 

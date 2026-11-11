@@ -15,6 +15,10 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import type {
+    DiagramItem,
+    DiagramItemChange,
+} from "../details/objectDetails.js";
 import * as vscode from "vscode";
 
 import { reportError } from "../errorMessages.js";
@@ -42,6 +46,15 @@ import { DEFAULT_PAGE_SETTINGS } from "./pageSettings.js";
  * What is drawn, and how, lives in the webview (`webview/src/modeler/`).
  */
 
+/**
+ * Changes an item of the diagram it was selected on.
+ *
+ * @param id The item.
+ * @param change What changes.
+ */
+export type DiagramItemEditor = (id: string, change: DiagramItemChange)
+    => void;
+
 /** What a panel needs from the outside, so a test can supply its own. */
 export interface IModelerHost {
     log(message: string): void;
@@ -55,7 +68,10 @@ export interface IModelerHost {
      * Called as the figures selected change: the schema objects they
      * show, and what the viewer shows (whose schema they are of).
      */
-    selected?(target: ModelerTarget, objects: ISchemaObjectRef[]): void;
+    selected?(target: ModelerTarget, objects: ISchemaObjectRef[],
+        item?: DiagramItem, edit?: DiagramItemEditor): void;
+    /** The one item selected changed: moved, resized, undone. */
+    itemChanged?(target: ModelerTarget, item?: DiagramItem): void;
     /**
      * The objects of the last drag from a tree, as `text/uri-list`, once:
      * what rows dropped on the page were.
@@ -298,7 +314,15 @@ export class ModelerPanel {
 
             case "selection": {
                 this.host.selected?.(this.source.target(this.#diagram),
-                    message.objects);
+                    message.objects, message.item, (id, change) => {
+                        this.#post({ type: "changeItem", id, change });
+                    });
+                break;
+            }
+
+            case "item": {
+                this.host.itemChanged?.(this.source.target(this.#diagram),
+                    message.item);
                 break;
             }
 

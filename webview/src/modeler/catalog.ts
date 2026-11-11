@@ -51,6 +51,8 @@ export interface ISchemaCatalog {
     triggersOf(table: string): IOutlineTrigger[];
     /** @returns Every table, view and routine, as the snapshot has them. */
     objects(): ISchemaObjectLists;
+    /** @returns The snapshot's schema, where known. */
+    schema?(): string;
     /**
      * Renames a table, here and in the other tables' foreign keys: what
      * the viewer shows at once, while msm makes the change in the SQL.
@@ -135,6 +137,7 @@ export const catalogFromModel = (model: ISchemaModel): ISchemaCatalog => {
             });
         },
         objects: () => { return model; },
+        schema: () => { return model.schema; },
         renameTable: (name, newName) => {
             const table = tables.get(name.toLowerCase());
             if (table === undefined || newName === name) {

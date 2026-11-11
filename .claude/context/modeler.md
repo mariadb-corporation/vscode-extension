@@ -305,12 +305,23 @@ shortcuts: see [modeler-view.md](modeler-view.md).
 - **Draw order is fixed** (`DRAW_ORDER`: pages, grid, base, shadows,
   lifted, connections, decorations), since three.js sorts transparent
   meshes by distance, which put tilted plates over shadows.
-- **Connections are fat lines** (`LineSegments2` / `LineMaterial`, 0.8 CSS
+- **Connections are fat lines** (`LineSegments2` / `LineMaterial`, 1.6 CSS
   px, `CONNECTION_WIDTH`): WebGL's own lines are a pixel wide whatever is
   asked. Their material needs the canvas's size (`host.viewport()`, set
   in `viewChanged`); in the Navigator they come out thinner.
-- Connections ignore `middleSegmentOffset`; `drawSplit` ones are a 40-unit
-  stub out of each table.
+  Each connection is two of them: the route, dashed (5 on, 4 off,
+  `CONNECTION_DASH`) for a non-identifying relationship as Workbench
+  draws it, and its end markers, always solid (a dashed material dashes
+  every segment it holds). `identifying` is read from the catalog
+  (`relationshipKindOf`) when built and on `#refresh`.
+- **A connection is an item** (`outlined: false`): a click selects it as
+  it does a table, and the canvas leaves its marking to the set
+  (`selectionChanged`) - the line in the selection colour and, on a Z, a
+  handle in the middle of the middle segment (`grabAt`, sized in pixels in
+  `beforeRender`). Dragging it moves the segment towards either table,
+  kept `MIDDLE_CLEARANCE` (two markers) clear of both, and stores
+  Workbench's `middleSegmentOffset` (from halfway), which the snapshot
+  undoes. `drawSplit` ones are a 40-unit stub out of each table, no handle.
 
 - **Layer plates are solid**: the layer's tint over the paper, mixed in
   sRGB as the old 35% / 60% see-through plate was blended (`tintOver`),

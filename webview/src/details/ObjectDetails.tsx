@@ -29,6 +29,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import type {
     DetailsHostMessage,
+    DiagramItem,
     IObjectDetailsView,
     ObjectDetailsBody,
 } from "../../../src/details/objectDetails.js";
@@ -48,6 +49,7 @@ import foreignKeySvg from "../assets/modeler/schemaTableForeignKey.svg?raw";
 import indexSvg from "../assets/modeler/schemaTableIndex.svg?raw";
 import { primaryKeyColumns } from "../modeler/catalog.js";
 import { post } from "../vscodeApi.js";
+import { DiagramItemFields, ItemHeader } from "./DiagramItemFields.js";
 
 /**
  * @param svg An icon's markup.
@@ -359,9 +361,11 @@ const Body = ({ object }: { object: ObjectDetailsBody }): JSX.Element => {
     }
 };
 
-/** The whole object. */
-const Details = ({ details }: { details: IObjectDetailsView }):
-    JSX.Element => {
+/** The whole object, with the figure it was selected as on a diagram. */
+const Details = ({ details, figure }: {
+    details: IObjectDetailsView;
+    figure?: JSX.Element;
+}): JSX.Element => {
     const object = details.object;
 
     return <>
@@ -372,16 +376,24 @@ const Details = ({ details }: { details: IObjectDetailsView }):
                 {details.schema} · {details.where}</span>
         </header>
         <Body object={object} />
+        {figure}
     </>;
 };
 
+type ShowMessage = Extract<DetailsHostMessage, { type: "show" }>;
+
 /** The view's page. */
 export const ObjectDetails = (): JSX.Element => {
-    const [shown, setShown] = useState<DetailsHostMessage>();
+    const [shown, setShown] = useState<ShowMessage>();
+    const [item, setItem] = useState<DiagramItem>();
 
     useEffect(() => {
         const onMessage = (event: MessageEvent<DetailsHostMessage>): void => {
-            setShown(event.data);
+            const message = event.data;
+            if (message.type === "show") {
+                setShown(message);
+            }
+            setItem(message.item);
         };
         window.addEventListener("message", onMessage);
         post({ type: "ready" });
@@ -389,9 +401,17 @@ export const ObjectDetails = (): JSX.Element => {
         return () => { window.removeEventListener("message", onMessage); };
     }, []);
 
+    const fields = item === undefined ? undefined
+        : <DiagramItemFields item={item} change={(change) => {
+            post({ type: "changeItem", id: item.id, change });
+        }} />;
+
     return <div className="objectDetails">
-        {shown?.details === undefined
-            ? <div className="detailsNote">{shown?.message ?? ""}</div>
-            : <Details details={shown.details} />}
+        {shown?.details !== undefined
+            ? <Details details={shown.details}
+                figure={item?.kind === "figure" ? fields : undefined} />
+            : item !== undefined && item.kind !== "figure"
+                ? <><ItemHeader item={item} />{fields}</>
+                : <div className="detailsNote">{shown?.message ?? ""}</div>}
     </div>;
 };

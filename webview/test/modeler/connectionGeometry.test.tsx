@@ -19,7 +19,9 @@ import { describe, expect, it } from "vitest";
 
 import {
     crowsFoot,
+    distanceToSegment,
     MARKER_SIZE,
+    MIDDLE_CLEARANCE,
     oneMarker,
     routeConnection,
     splitStubs,
@@ -53,6 +55,33 @@ describe("routeConnection", () => {
         expect(route.endSide).toBe("top");
         expect(route.points[0]).toEqual({ x: 50, y: 50 });
         expect(route.points[3]).toEqual({ x: 70, y: 200 });
+    });
+
+    it("moves the middle segment by its offset, clear of both figures", () => {
+        const b = { left: 300, top: 100, width: 100, height: 50 };
+
+        const moved = routeConnection(a, b, -60);
+        expect(moved.points[1].x).toBe(140);
+        expect(moved.points[2].x).toBe(140);
+        expect(moved.middle).toMatchObject({ axis: "x", base: 200, at: 140 });
+
+        // Never closer to a figure than the end markers need.
+        const near = routeConnection(a, b, -1000);
+        expect(near.points[1].x).toBe(100 + MIDDLE_CLEARANCE);
+        const far = routeConnection(a, b, 1000);
+        expect(far.points[1].x).toBe(300 - MIDDLE_CLEARANCE);
+
+        const below = { left: 20, top: 200, width: 100, height: 50 };
+        const vertical = routeConnection(a, below, 30);
+        expect(vertical.middle?.axis).toBe("y");
+        expect(vertical.points[1].y).toBe(155);
+    });
+
+    it("keeps the middle segment halfway where there is no room", () => {
+        const close = { left: 120, top: 30, width: 100, height: 50 };
+        const route = routeConnection(a, close, 50);
+
+        expect(route.points[1].x).toBe(110);
     });
 
     it("loops out and back in for a self reference", () => {
@@ -109,5 +138,16 @@ describe("the crow's foot notation", () => {
         // Across the line, which leaves to the left.
         expect(two[0][0].x).toBeCloseTo(-MARKER_SIZE / 2, 5);
         expect(two[0][0].x).toBeCloseTo(two[0][1].x, 5);
+    });
+});
+
+describe("distanceToSegment", () => {
+    it("measures to the segment's nearest point, its ends included", () => {
+        const segment = [{ x: 0, y: 0 }, { x: 10, y: 0 }] as const;
+
+        expect(distanceToSegment({ x: 5, y: 3 }, [...segment])).toBe(3);
+        expect(distanceToSegment({ x: 13, y: 4 }, [...segment])).toBe(5);
+        expect(distanceToSegment({ x: 2, y: 2 },
+            [{ x: 2, y: 2 }, { x: 2, y: 2 }])).toBe(0);
     });
 });

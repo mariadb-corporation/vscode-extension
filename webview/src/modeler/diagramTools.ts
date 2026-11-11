@@ -699,6 +699,20 @@ export class DiagramTools {
     // --- Schema objects ----------------------------------------------------
 
     /**
+     * Makes a schema change that places nothing, such as a relationship's
+     * new kind: shown at once, sent, and undoable as the tools' are.
+     *
+     * @param change The change.
+     */
+    public changeSchema(change: ISchemaChange): void {
+        const target = this.#target;
+        target.catalog.edit(change.edits);
+        target.refresh();
+        this.#recordSchemaChange(change, () => { /* nothing placed */ },
+            () => { /* nothing to take away */ });
+    }
+
+    /**
      * Records a schema change already shown, and sends it: undone, the
      * figures go and the inverse edits are sent; redone, both again.
      *

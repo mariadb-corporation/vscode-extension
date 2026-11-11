@@ -218,6 +218,11 @@ export interface IModelFigure {
     color?: string;
     /** The id of the layer the figure lies on, if any. */
     layer?: string;
+    /**
+     * How far the figure stands above its layer (or the page) in the 3D
+     * view. The viewer's own, as a layer's `elevation`.
+     */
+    elevation?: number;
     /** A TableFigure's table. */
     table?: string;
     /** A ViewFigure's view. */
