@@ -69,14 +69,22 @@ import {
     type ISchemaRow,
 } from "./schemaTree.js";
 import {
+    objectEntries,
+    objectOf,
     parseRestScript,
-    scriptObjects,
-    scriptSchemas,
-    scriptServices,
+    schemaEntries,
+    schemaOf,
+    serviceEntries,
+    serviceOf,
     type IRestScriptEntry,
 } from "../mrs/restScript.js";
 import type { IMrsObject, IMrsSchema, IMrsService } from "../mrs/mrsTypes.js";
-import { MRS_ROOT_LABEL, MrsTreeItem } from "./mrsTreeItems.js";
+import {
+    MRS_ROOT_LABEL,
+    objectLook,
+    schemaLook,
+    serviceLook,
+} from "./mrsTreeItems.js";
 import { FolderTreeItem } from "./treeItems.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
 import { errorText } from "../text.js";
@@ -459,6 +467,19 @@ export class MsmProjectsTreeProvider
     }
 
     /**
+     * Reads a project's REST SQL again and redraws the view; its snapshot
+     * and the list of projects are kept.
+     *
+     * @param projectPath The project whose Section 180 changed.
+     *
+     * @returns Nothing.
+     */
+    public refreshRest(projectPath: string): void {
+        this.#rest.delete(projectPath);
+        this.#onDidChangeTreeData.fire(undefined);
+    }
+
+    /**
      * @returns The projects, as last listed (listing them where they were
      *          not yet).
      */
@@ -723,59 +744,33 @@ export class MsmProjectsTreeProvider
             return [];
         }
         const { definition, entries } = read;
-        // What a list of the script's holds, each with its statement's
-        // place: the lists keep the entries' order.
-        const placed = <T>(kind: IRestScriptEntry["kind"], items: T[],
-            belongs: (entry: IRestScriptEntry) => boolean,
-        ): Array<{ item: T; place: IMsmRestPlace }> => {
-            const of = entries.filter((entry) => {
-                return entry.kind === kind && belongs(entry);
-            });
-
-            return items.map((item, index) => {
-                return { item, place: {
-                    projectPath, file: definition.file,
-                    line: definition.line + definition.sql
-                        .slice(0, of[index]?.start ?? 0).split("\n").length - 1,
-                } };
-            });
-        };
-        const same = (left?: string, right?: string): boolean => {
-            return left?.toLowerCase() === right?.toLowerCase();
+        const place = (entry: IRestScriptEntry): IMsmRestPlace => {
+            return { projectPath, file: definition.file,
+                line: definition.line + entry.line };
         };
 
         switch (node.kind) {
             case "restRoot": {
-                return placed("service", scriptServices(entries), () => {
-                    return true;
-                }).map(({ item, place }) => {
-                    return { kind: "restService", ...place, service: item };
+                return serviceEntries(entries).map((entry) => {
+                    return { kind: "restService", ...place(entry),
+                        service: serviceOf(entry) };
                 });
             }
 
             case "restService": {
-                const path = node.service.full_service_path;
-
-                return placed("schema", scriptSchemas(entries, path),
-                    (entry) => { return same(entry.servicePath, path); },
-                ).map(({ item, place }) => {
-                    return { kind: "restSchema", ...place,
-                        service: node.service, schema: item };
-                });
+                return schemaEntries(entries, node.service.full_service_path)
+                    .map((entry) => {
+                        return { kind: "restSchema", ...place(entry),
+                            service: node.service, schema: schemaOf(entry) };
+                    });
             }
 
             default: {
-                const path = node.service.full_service_path;
-                const schemaPath = node.schema.request_path;
-
-                return placed("object",
-                    scriptObjects(entries, path, schemaPath), (entry) => {
-                        return same(entry.servicePath, path)
-                            && same(entry.schemaPath, schemaPath);
-                    }).map(({ item, place }) => {
-                    return { kind: "restObject", ...place,
+                return objectEntries(entries, node.service.full_service_path,
+                    node.schema.request_path).map((entry) => {
+                    return { kind: "restObject", ...place(entry),
                         service: node.service, schema: node.schema,
-                        object: item };
+                        object: objectOf(entry) };
                 });
             }
         }
@@ -1356,7 +1351,7 @@ const diagramItem = (
 };
 
 /** The context values of a project's REST rows, which their menus go by. */
-export const MSM_REST_CONTEXT = {
+const MSM_REST_CONTEXT = {
     restRoot: "mariadbMsmRestRoot",
     restService: "mariadbMsmRestService",
     restSchema: "mariadbMsmRestSchema",
@@ -1367,7 +1362,7 @@ export const MSM_REST_CONTEXT = {
  * @param node A project's MariaDB REST Service row, or a row under it.
  * @param resolveIcon The icons' lookup.
  *
- * @returns Its row, drawn as the Connections view draws a server's - the
+ * @returns Its row, looking as the Connections view's of a server - the
  *          same icons, labels and descriptions - with a context value of
  *          its own, so a server's menus stay off it; a click opens the
  *          development script on its statement.
@@ -1388,16 +1383,15 @@ const restItem = (
         return item;
     }
 
-    const base = { uri: node.projectPath, showPrivate: true };
-    const item: vscode.TreeItem = new MrsTreeItem(
-        node.kind === "restService"
-            ? { ...base, kind: "mrsService", service: node.service }
-            : node.kind === "restSchema"
-                ? { ...base, kind: "mrsSchema", service: node.service,
-                    schema: node.schema }
-                : { ...base, kind: "mrsObject", service: node.service,
-                    schema: node.schema, object: node.object },
-        resolveIcon);
+    const look = node.kind === "restService" ? serviceLook(node.service)
+        : node.kind === "restSchema" ? schemaLook(node.schema)
+            : objectLook(node.object);
+    const item = new vscode.TreeItem(look.label, node.kind === "restObject"
+        ? vscode.TreeItemCollapsibleState.None
+        : vscode.TreeItemCollapsibleState.Collapsed);
+    item.description = look.description;
+    item.tooltip = look.tooltip;
+    item.iconPath = resolveIcon(look.icon);
     item.id = rowIdOf(node);
     item.contextValue = MSM_REST_CONTEXT[node.kind];
     item.command = {

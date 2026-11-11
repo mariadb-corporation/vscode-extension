@@ -24,6 +24,7 @@ import {
     type IMrsService,
     type MrsObjectType,
 } from "./mrsTypes.js";
+import { servicePathParts } from "./restSql.js";
 
 /**
  * REST SQL kept in a script instead of a server's metadata: the REST
@@ -39,29 +40,53 @@ import {
 /** The MSM section a project's REST statements are kept in. */
 export const REST_SECTION = "180";
 
-/** What a `CREATE REST ...` statement of a script creates. */
-export interface IRestScriptEntry {
-    kind: "service" | "schema" | "object";
+/** What every `CREATE REST ...` statement of a script says. */
+interface IRestEntryBase {
     /** Where the statement starts in the text read, comments before it left out. */
     start: number;
     /** Where it ends, its delimiter included. */
     end: number;
+    /** The line it starts on in the text read, counted from 0. */
+    line: number;
     /** The service's `[devs@]/path`. */
     servicePath: string;
-    /** The REST schema's path; a service has none. */
-    schemaPath?: string;
-    /** The REST object's path. */
-    requestPath?: string;
-    /** The database schema a REST schema or object is of. */
-    dbSchema?: string;
-    /** The database object a REST object is of. */
-    dbObject?: string;
-    objectType?: MrsObjectType;
     enabled: EnabledState;
     requiresAuth: boolean;
     published: boolean;
     comments: string | null;
 }
+
+/** A `CREATE REST SERVICE`. */
+export interface IRestServiceEntry extends IRestEntryBase {
+    kind: "service";
+}
+
+/** A `CREATE REST SCHEMA`. */
+export interface IRestSchemaEntry extends IRestEntryBase {
+    kind: "schema";
+    schemaPath: string;
+    /** The database schema it is of. */
+    dbSchema: string;
+}
+
+/** A `CREATE REST VIEW`, `PROCEDURE` or `FUNCTION`. */
+export interface IRestObjectEntry extends IRestEntryBase {
+    kind: "object";
+    schemaPath: string;
+    requestPath: string;
+    /** Where the statement names one. */
+    dbSchema?: string;
+    dbObject: string;
+    objectType: MrsObjectType;
+}
+
+/** What a `CREATE REST ...` statement of a script creates. */
+export type IRestScriptEntry = IRestServiceEntry | IRestSchemaEntry
+    | IRestObjectEntry;
+
+/** An entry as one statement says it, before it is placed in a text. */
+type RestStatement<T> = T extends unknown
+    ? Omit<T, "start" | "end" | "line"> : never;
 
 /** A word of a statement: a keyword, a name, a path or a text. */
 interface IToken {
@@ -246,7 +271,7 @@ class Words {
  *
  * @returns The access flags among them.
  */
-const flagsOf = (tokens: IToken[]): Pick<IRestScriptEntry,
+const flagsOf = (tokens: IToken[]): Pick<IRestEntryBase,
     "enabled" | "requiresAuth" | "published" | "comments"> => {
     const words = tokens.map((token) => {
         return token.quoted ? "" : token.text.toUpperCase();
@@ -288,7 +313,7 @@ const OBJECT_KEYWORDS: Record<string, MrsObjectType> = {
 const entryOf = (
     sql: string,
     last: { servicePath?: string; schemaPath?: string },
-): Omit<IRestScriptEntry, "start" | "end"> | undefined => {
+): RestStatement<IRestScriptEntry> | undefined => {
     const words = new Words(tokensOf(sql));
     if (!words.take("CREATE")) {
         return undefined;
@@ -360,6 +385,29 @@ const entryOf = (
 };
 
 /**
+ * @param text A text.
+ * @param offset A place in it.
+ * @param from A place before it, and the line that is on.
+ * @param from.offset The place.
+ * @param from.line Its line.
+ *
+ * @returns The line the place is on, counted from 0.
+ */
+export const lineOf = (
+    text: string,
+    offset: number,
+    from = { offset: 0, line: 0 },
+): number => {
+    let line = from.line;
+    for (let at = text.indexOf("\n", from.offset); at >= 0 && at < offset;
+        at = text.indexOf("\n", at + 1)) {
+        line += 1;
+    }
+
+    return line;
+};
+
+/**
  * @param sql REST SQL: a project's MSM Section 180.
  *
  * @returns The REST services, schemas and objects it creates, in the
@@ -368,6 +416,7 @@ const entryOf = (
 export const parseRestScript = (sql: string): IRestScriptEntry[] => {
     const entries: IRestScriptEntry[] = [];
     const last: { servicePath?: string; schemaPath?: string } = {};
+    let counted = { offset: 0, line: 0 };
 
     for (const span of scanStatements(sql)) {
         if (!hasContent(span)) {
@@ -385,97 +434,142 @@ export const parseRestScript = (sql: string): IRestScriptEntry[] => {
             last.servicePath = entry.servicePath;
             last.schemaPath = entry.schemaPath;
         }
-        entries.push({ ...entry, start: span.contentStart, end });
+        // Counted on from the last entry: the statements come in order.
+        counted = { offset: span.contentStart,
+            line: lineOf(sql, span.contentStart, counted) };
+        entries.push({ ...entry, start: span.contentStart, end,
+            line: counted.line });
     }
 
     return entries;
 };
 
-/** Paths are compared as the server compares them: whatever their case. */
-const samePath = (left?: string, right?: string): boolean => {
-    return left?.toLowerCase() === right?.toLowerCase();
+/**
+ * @param left A path.
+ * @param right Another one.
+ *
+ * @returns Whether both are the same, as the server compares paths:
+ *          whatever their case.
+ */
+export const samePath = (left: string, right: string): boolean => {
+    return left.toLowerCase() === right.toLowerCase();
 };
 
 /**
- * @param left What a statement creates.
- * @param right What another one does.
+ * @param entry What a statement creates.
  *
- * @returns Whether both create the same thing.
+ * @returns What tells it from everything else a script creates: its kind
+ *          and paths, as the server compares them.
  */
-const sameEntry = (
-    left: Omit<IRestScriptEntry, "start" | "end">,
-    right: Omit<IRestScriptEntry, "start" | "end">,
-): boolean => {
-    return left.kind === right.kind
-        && samePath(left.servicePath, right.servicePath)
-        && samePath(left.schemaPath, right.schemaPath)
-        && samePath(left.requestPath, right.requestPath);
+const entryKey = (entry: RestStatement<IRestScriptEntry>): string => {
+    const paths = entry.kind === "service" ? [entry.servicePath]
+        : entry.kind === "schema" ? [entry.servicePath, entry.schemaPath]
+            : [entry.servicePath, entry.schemaPath, entry.requestPath];
+
+    return [entry.kind, ...paths].join("\n").toLowerCase();
 };
 
 /**
- * @param path A service's `[devs@]/path`.
+ * @param entry A `CREATE REST SERVICE` of a script.
  *
- * @returns Its request path.
+ * @returns The service, as far as the script says what a server would
+ *          report of it.
  */
-const contextRoot = (path: string): string => {
-    return path.slice(path.lastIndexOf("@/") + 1);
+export const serviceOf = (entry: IRestServiceEntry): IMrsService => {
+    const path = servicePathParts(entry.servicePath).path;
+
+    return {
+        id: `service:${entry.servicePath}`,
+        url_context_root: path,
+        full_service_path: entry.servicePath,
+        name: path,
+        enabled: entry.enabled === ENABLED_STATE.disabled ? 0 : 1,
+        published: entry.published,
+        comments: entry.comments,
+        options: null,
+        metadata: null,
+        auth_path: null,
+        auth_completed_url: null,
+        auth_completed_url_validation: null,
+        auth_completed_page_content: null,
+        in_development: null,
+    };
+};
+
+/**
+ * @param entry A `CREATE REST SCHEMA` of a script.
+ *
+ * @returns The REST schema, as a server would report it.
+ */
+export const schemaOf = (entry: IRestSchemaEntry): IMrsSchema => {
+    return {
+        id: `schema:${entry.servicePath}:${entry.schemaPath}`,
+        service_id: `service:${entry.servicePath}`,
+        name: entry.dbSchema,
+        schema_type: "DATABASE_SCHEMA",
+        request_path: entry.schemaPath,
+        requires_auth: entry.requiresAuth,
+        enabled: entry.enabled,
+        items_per_page: null,
+        comments: entry.comments,
+        options: null,
+        metadata: null,
+    };
+};
+
+/**
+ * @param entry A `CREATE REST VIEW`, `PROCEDURE` or `FUNCTION` of a script.
+ *
+ * @returns The REST object, as a server would report it.
+ */
+export const objectOf = (entry: IRestObjectEntry): IMrsObject => {
+    return {
+        id: `object:${entry.servicePath}:${entry.schemaPath}:`
+            + entry.requestPath,
+        rest_schema_id: `schema:${entry.servicePath}:${entry.schemaPath}`,
+        name: entry.dbObject,
+        schema_name: entry.dbSchema ?? "",
+        request_path: entry.requestPath,
+        object_type: entry.objectType,
+        crud_operations: [],
+        format: "FEED",
+        enabled: entry.enabled,
+        requires_auth: entry.requiresAuth,
+        items_per_page: null,
+        media_type: null,
+        auth_stored_procedure: null,
+        comments: entry.comments,
+        options: null,
+        metadata: null,
+    };
 };
 
 /**
  * @param entries What a script creates.
  *
- * @returns Its REST services, as far as the script says what a server
- *          would report of them.
+ * @returns The `CREATE REST SERVICE`s among it.
  */
-export const scriptServices = (entries: IRestScriptEntry[]): IMrsService[] => {
-    return entries.filter((entry) => { return entry.kind === "service"; })
-        .map((entry) => {
-            return {
-                id: `service:${entry.servicePath}`,
-                url_context_root: contextRoot(entry.servicePath),
-                full_service_path: entry.servicePath,
-                name: contextRoot(entry.servicePath),
-                enabled: entry.enabled === ENABLED_STATE.disabled ? 0 : 1,
-                published: entry.published,
-                comments: entry.comments,
-                options: null,
-                metadata: null,
-                auth_path: null,
-                auth_completed_url: null,
-                auth_completed_url_validation: null,
-                auth_completed_page_content: null,
-                in_development: null,
-            };
-        });
+export const serviceEntries = (
+    entries: IRestScriptEntry[],
+): IRestServiceEntry[] => {
+    return entries.filter((entry): entry is IRestServiceEntry => {
+        return entry.kind === "service";
+    });
 };
 
 /**
  * @param entries What a script creates.
  * @param servicePath A service.
  *
- * @returns The REST schemas the script creates on it.
+ * @returns The `CREATE REST SCHEMA`s on it.
  */
-export const scriptSchemas = (
+export const schemaEntries = (
     entries: IRestScriptEntry[],
     servicePath: string,
-): IMrsSchema[] => {
-    return entries.filter((entry) => {
+): IRestSchemaEntry[] => {
+    return entries.filter((entry): entry is IRestSchemaEntry => {
         return entry.kind === "schema"
             && samePath(entry.servicePath, servicePath);
-    }).map((entry) => {
-        return {
-            id: `schema:${entry.servicePath}:${entry.schemaPath!}`,
-            service_id: `service:${entry.servicePath}`,
-            name: entry.dbSchema!,
-            schema_type: "DATABASE_SCHEMA",
-            request_path: entry.schemaPath!,
-            requires_auth: entry.requiresAuth,
-            enabled: entry.enabled,
-            items_per_page: null,
-            comments: entry.comments,
-            options: null,
-            metadata: null,
-        };
     });
 };
 
@@ -484,37 +578,17 @@ export const scriptSchemas = (
  * @param servicePath A service.
  * @param schemaPath A REST schema on it.
  *
- * @returns The REST objects the script creates on it.
+ * @returns The REST objects created on it.
  */
-export const scriptObjects = (
+export const objectEntries = (
     entries: IRestScriptEntry[],
     servicePath: string,
     schemaPath: string,
-): IMrsObject[] => {
-    return entries.filter((entry) => {
+): IRestObjectEntry[] => {
+    return entries.filter((entry): entry is IRestObjectEntry => {
         return entry.kind === "object"
             && samePath(entry.servicePath, servicePath)
             && samePath(entry.schemaPath, schemaPath);
-    }).map((entry) => {
-        return {
-            id: `object:${entry.servicePath}:${entry.schemaPath!}:`
-                + entry.requestPath!,
-            rest_schema_id: `schema:${entry.servicePath}:${entry.schemaPath!}`,
-            name: entry.dbObject!,
-            schema_name: entry.dbSchema ?? "",
-            request_path: entry.requestPath!,
-            object_type: entry.objectType!,
-            crud_operations: [],
-            format: "FEED",
-            enabled: entry.enabled,
-            requires_auth: entry.requiresAuth,
-            items_per_page: null,
-            media_type: null,
-            auth_stored_procedure: null,
-            comments: entry.comments,
-            options: null,
-            metadata: null,
-        };
     });
 };
 
@@ -537,23 +611,43 @@ export const withRestStatements = (
     const tail = /\s*$/u.exec(sql)?.[0] ?? "";
     let body = sql.slice(0, sql.length - tail.length);
 
-    for (const statement of statements) {
+    // One parse: a schema saved with its objects is many statements.
+    const existing = new Map<string, IRestScriptEntry>();
+    for (const entry of parseRestScript(body)) {
+        const key = entryKey(entry);
+        if (!existing.has(key)) {
+            existing.set(key, entry);
+        }
+    }
+    const replaced = new Map<IRestScriptEntry, string>();
+    // By key, so a statement saved twice in one go is written once.
+    const appended = new Map<string, string>();
+    statements.forEach((statement, index) => {
         const added = entryOf(statement, {});
-        const existing = added === undefined ? undefined
-            : parseRestScript(body).find((entry) => {
-                return sameEntry(entry, added);
-            });
-        body = existing === undefined
-            ? `${body}${body === "" ? "\n" : "\n\n"}${statement.trim()}`
-            : body.slice(0, existing.start) + statement.trim()
-                + body.slice(existing.end);
+        const key = added === undefined ? `#${String(index)}` : entryKey(added);
+        const entry = existing.get(key);
+        if (entry === undefined) {
+            appended.set(key, statement.trim());
+        } else {
+            replaced.set(entry, statement.trim());
+        }
+    });
+
+    // The last first, so the places of those before it hold.
+    for (const [entry, statement] of [...replaced].sort((left, right) => {
+        return right[0].start - left[0].start;
+    })) {
+        body = body.slice(0, entry.start) + statement + body.slice(entry.end);
+    }
+    for (const statement of appended.values()) {
+        body += `${body === "" ? "\n" : "\n\n"}${statement}`;
     }
 
     return body + (tail.includes("\n") ? tail : "\n");
 };
 
 /** Where a section's body is in a development script. */
-export interface ISectionSpan {
+interface ISectionSpan {
     /** After the section's header. */
     start: number;
     /** Before the next section's header, or the script's end. */
@@ -605,7 +699,7 @@ export const restSectionOf = (
 
     return {
         sql: script.slice(span.start, span.end),
-        line: script.slice(0, span.start).split("\n").length - 1,
+        line: lineOf(script, span.start),
     };
 };
 

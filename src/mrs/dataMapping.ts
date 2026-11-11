@@ -960,6 +960,8 @@ export const objectSql = (
                 // Where a script's object has no column known at all -
                 // a project's view without a column list - the fields
                 // are left to the server, which makes one of each column.
+                // A live object always has its columns: one without
+                // fields keeps its empty mapping.
                 + (forScript && document.fields.length === 0
                     ? "" : ` ${mappingText(document.fields, 4)}`)),
         ]

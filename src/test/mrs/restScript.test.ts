@@ -21,9 +21,12 @@ import {
     parseRestScript,
     restSectionEdit,
     restSectionOf,
-    scriptObjects,
-    scriptSchemas,
-    scriptServices,
+    objectEntries,
+    objectOf,
+    schemaEntries,
+    schemaOf,
+    serviceEntries,
+    serviceOf,
     sectionSpan,
     withRestStatements,
 } from "../../mrs/restScript.js";
@@ -81,26 +84,28 @@ describe("parseRestScript", () => {
 
         expect(entries.map((entry) => { return entry.kind; }))
             .toEqual(["service", "schema", "object"]);
-        expect(scriptServices(entries)).toMatchObject([{
+        expect(serviceEntries(entries).map(serviceOf)).toMatchObject([{
             full_service_path: "/myService/v1",
             url_context_root: "/myService/v1",
             enabled: 1, published: true, comments: "it's; here",
         }]);
-        expect(scriptSchemas(entries, "/myService/v1")).toMatchObject([{
+        expect(schemaEntries(entries, "/myService/v1").map(schemaOf)).toMatchObject([{
             request_path: "/shop", name: "shop", enabled: 2,
             requires_auth: false,
         }]);
-        expect(scriptObjects(entries, "/myService/v1", "/shop"))
+        expect(objectEntries(entries, "/myService/v1", "/shop").map(objectOf))
             .toMatchObject([{
                 request_path: "/item", name: "item", schema_name: "shop",
                 object_type: "VIEW", enabled: 1, requires_auth: true,
             }]);
     });
 
-    it("starts a statement after the comments before it", () => {
-        const [, schema] = parseRestScript(BODY);
+    it("starts a statement after the comments before it, on its line", () => {
+        const entries = parseRestScript(BODY);
 
-        expect(BODY.slice(schema!.start, schema!.end)).toBe(SCHEMA);
+        expect(BODY.slice(entries[1]!.start, entries[1]!.end)).toBe(SCHEMA);
+        expect(entries.map((entry) => { return entry.line; }))
+            .toEqual([3, 13, 17]);
     });
 
     it("reads quoted paths, developers, routines and the short forms", () => {
@@ -113,13 +118,13 @@ describe("parseRestScript", () => {
             "CREATE OR REPLACE REST FUNCTION /total AS total;",
         ].join("\n"));
 
-        expect(scriptServices(entries)).toMatchObject([{
+        expect(serviceEntries(entries).map(serviceOf)).toMatchObject([{
             full_service_path: "mike@/my-service",
             url_context_root: "/my-service", enabled: 0,
         }]);
-        expect(scriptSchemas(entries, "mike@/my-service")).toMatchObject([
+        expect(schemaEntries(entries, "mike@/my-service").map(schemaOf)).toMatchObject([
             { request_path: "/1st", name: "my shop" }]);
-        expect(scriptObjects(entries, "mike@/my-service", "/1st").map(
+        expect(objectEntries(entries, "mike@/my-service", "/1st").map(objectOf).map(
             (object) => {
                 return [object.object_type, object.request_path,
                     object.schema_name, object.name];
@@ -169,6 +174,16 @@ describe("withRestStatements", () => {
 
             expect(sql).toBe(BODY.replace(VIEW, changed));
             expect(parseRestScript(sql)).toHaveLength(3);
+        });
+
+    it("writes a statement saved twice in one go once, the last one",
+        () => {
+            const first = "CREATE OR REPLACE REST SCHEMA /b ON SERVICE "
+                + "/myService/v1 FROM `b`;";
+            const second = first.replace(";", " DISABLED;");
+
+            expect(withRestStatements(BODY, [first, VIEW, second])).toBe(
+                BODY.replace(`${VIEW}\n`, `${VIEW}\n\n${second}\n`));
         });
 
     it("replaces a service's statement too, whatever its case and form",

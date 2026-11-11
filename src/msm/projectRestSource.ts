@@ -21,10 +21,15 @@ import type {
     ISchemaDefinition,
 } from "../modeler/modelFormat.js";
 import type { IDbObject } from "../mrs/mrsDialogs.js";
+import { outlineDetails } from "../details/objectDetails.js";
+import type { ObjectType } from "../mcp/types.js";
 import {
     parseRestScript,
-    scriptSchemas,
-    scriptServices,
+    schemaEntries,
+    schemaOf,
+    serviceEntries,
+    serviceOf,
+    type IRestScriptEntry,
 } from "../mrs/restScript.js";
 import type { IRestSource } from "../mrs/restSource.js";
 import type {
@@ -48,15 +53,13 @@ import { counted } from "../text.js";
 export const BUILT_IN_AUTH_APPS = ["MariaDB", "MRS"];
 
 /** What the source needs of the project. */
-export interface IProjectRestHost {
+export interface IProjectRestHost extends Pick<IRestSource, "saved" | "failed"> {
     /** msm's snapshot of the development script, made where there is none. */
     snapshot(): Promise<ISchemaDefinition | undefined>;
     /** The REST SQL of the development script: its MSM Section 180. */
     restSql(): Promise<string>;
     /** Puts statements into that section. */
     write(statements: string[]): Promise<void>;
-    saved(): void;
-    failed(): void;
 }
 
 /**
@@ -229,19 +232,15 @@ export const snapshotColumns = (
     name: string,
 ): IMrsColumns => {
     const base = { schema: definition.schema, name };
-    const missing = (): never => {
-        throw new Error(`The project's schema has no ${objectType.toLowerCase()} `
-            + `\`${name}\`. Update Schema Snapshot reads the development `
-            + "script again.");
-    };
+    const found = outlineDetails(definition,
+        { type: objectType.toLowerCase() as ObjectType, name });
 
-    if (objectType === "PROCEDURE" || objectType === "FUNCTION") {
-        const routine = (definition.routines ?? []).find((candidate) => {
-            return candidate.name === name
-                && isFunction(candidate) === (objectType === "FUNCTION");
-        }) ?? missing();
-        const parameters: IMrsRoutineParameter[] = (routine.parameters ?? [])
-            .map((parameter, index) => {
+    switch (found?.type) {
+        case "procedure":
+        case "function": {
+            const { routine } = found;
+            const parameters: IMrsRoutineParameter[] = (routine.parameters
+                ?? []).map((parameter, index) => {
                 const mode = (parameter.mode ?? "IN").toUpperCase();
 
                 return {
@@ -252,34 +251,37 @@ export const snapshotColumns = (
                 };
             });
 
-        return {
-            ...base, type: objectType, parameters,
-            ...(routine.returns ? { return_type: routine.returns.toLowerCase() }
-                : {}),
-        };
+            return {
+                ...base, type: objectType as "PROCEDURE" | "FUNCTION",
+                parameters,
+                ...(routine.returns
+                    ? { return_type: routine.returns.toLowerCase() } : {}),
+            };
+        }
+
+        case "view": {
+            return {
+                ...base, type: "VIEW",
+                columns: (found.view.columns ?? []).map((column, index) => {
+                    return {
+                        position: index + 1, name: column,
+                        db_column: { name: column }, reference_mapping: null,
+                    };
+                }),
+            };
+        }
+
+        case "table": {
+            return { ...base, type: "TABLE",
+                columns: tableColumns(definition, found.table) };
+        }
+
+        default: {
+            throw new Error(`The project's schema has no `
+                + `${objectType.toLowerCase()} \`${name}\`. Update Schema `
+                + "Snapshot reads the development script again.");
+        }
     }
-
-    if (objectType === "VIEW") {
-        const view = (definition.views ?? []).find((candidate) => {
-            return candidate.name === name;
-        }) ?? missing();
-
-        return {
-            ...base, type: "VIEW",
-            columns: (view.columns ?? []).map((column, index) => {
-                return {
-                    position: index + 1, name: column,
-                    db_column: { name: column }, reference_mapping: null,
-                };
-            }),
-        };
-    }
-
-    const table = definition.tables.find((candidate) => {
-        return candidate.name === name;
-    }) ?? missing();
-
-    return { ...base, type: "TABLE", columns: tableColumns(definition, table) };
 };
 
 /**
@@ -302,15 +304,14 @@ export const projectRestSource = (host: IProjectRestHost): IRestSource => {
 
         return snapshot;
     };
-    const entries = async (): Promise<ReturnType<typeof parseRestScript>> => {
-        return parseRestScript(await host.restSql());
-    };
-    const columns = async (
-        objectType: string,
-        schema: string,
-        name: string,
-    ): Promise<IMrsColumns> => {
-        return snapshotColumns(await definition(schema), objectType, name);
+    // A dialog lists the services, then each one's schemas: the section
+    // is read once, until something is written to it.
+    let read: Promise<IRestScriptEntry[]> | undefined;
+    const entries = (): Promise<IRestScriptEntry[]> => {
+        read ??= host.restSql().then(parseRestScript);
+        read.catch(() => { read = undefined; });
+
+        return read;
     };
 
     return {
@@ -321,9 +322,11 @@ export const projectRestSource = (host: IProjectRestHost): IRestSource => {
             return Promise.resolve(servicePath === undefined
                 ? [...BUILT_IN_AUTH_APPS] : []);
         },
-        services: async () => { return scriptServices(await entries()); },
+        services: async () => {
+            return serviceEntries(await entries()).map(serviceOf);
+        },
         schemas: async (servicePath) => {
-            return scriptSchemas(await entries(), servicePath);
+            return schemaEntries(await entries(), servicePath).map(schemaOf);
         },
         object: () => {
             return Promise.reject(new Error("A project's REST objects are "
@@ -332,14 +335,29 @@ export const projectRestSource = (host: IProjectRestHost): IRestSource => {
         dbObjects: async (dbSchema) => {
             return snapshotDbObjects(await definition(dbSchema));
         },
-        columns,
-        columnsOfEach: (objects) => {
-            return Promise.all(objects.map((object) => {
-                return columns(object.objectType, object.schema, object.name);
+        columns: async (objectType, schema, name) => {
+            return snapshotColumns(await definition(schema), objectType, name);
+        },
+        // The snapshot once for all of them: a project without one would
+        // have msm make it for each.
+        columnsOfEach: async (objects) => {
+            const schemas = new Map<string, Promise<ISchemaDefinition>>();
+            for (const object of objects) {
+                if (!schemas.has(object.schema)) {
+                    schemas.set(object.schema, definition(object.schema));
+                }
+            }
+
+            return await Promise.all(objects.map(async (object) => {
+                return snapshotColumns(await schemas.get(object.schema)!,
+                    object.objectType, object.name);
             }));
         },
-        run: (statements) => { return host.write(statements); },
-        saved: () => { host.saved(); },
-        failed: () => { host.failed(); },
+        run: async (statements) => {
+            read = undefined;
+            await host.write(statements);
+        },
+        saved: host.saved,
+        failed: host.failed,
     };
 };

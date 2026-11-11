@@ -46,7 +46,8 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `src/mrs/mrsDialogPanel.ts`, `mrsDialogProtocol.ts` | One panel class for every dialog (one per kind), the message protocol |
 | `src/mrs/mrsCommands.ts` | Every `mariadb.mrs.*` command; builds the dialog specs |
 | `src/mrs/restSource.ts` | `IRestSource`, where the service, schema and object dialogs read and save: `liveRestSource` (a server's metadata through `MrsApi`) or an MSM project (below) |
-| `src/mrs/restScript.ts` | REST SQL kept in a script: MSM Section 180 found in a development script (`sectionSpan`, `restSectionOf`), the services / schemas / objects its statements create (`parseRestScript`, `script*` as the FORMAT=JSON shapes), and saved statements put among them (`withRestStatements`, `restSectionEdit`). `vscode`-free |
+| `src/mrs/restScript.ts` | REST SQL kept in a script: MSM Section 180 found in a development script (`sectionSpan`, `restSectionOf`), the services / schemas / objects its statements create (`parseRestScript`, each entry with its line; `serviceEntries` ... `objectEntries` and `serviceOf` ... `objectOf`, the FORMAT=JSON shapes), and saved statements put among them, in one parse (`withRestStatements`, `restSectionEdit`). `vscode`-free |
+| `src/msm/developmentScript.ts` | A project's development script from `msm.project.json`, and its Section 180 (`restDefinitionOf`), read from disk |
 | `src/msm/projectRestSource.ts` | An MSM project as an `IRestSource`: its services and schemas from Section 180, its database objects and their `SHOW REST COLUMNS` from msm's snapshot (`snapshotDbObjects`, `snapshotColumns`: foreign keys both ways as references), the built-in auth apps |
 | `src/tree/mrsModel.ts`, `mrsTreeItems.ts` | The tree nodes, their children, their rows |
 | `webview/src/mrs.tsx`, `webview/src/mrs/` | The dialogs' frontend: `MrsDialog` (frame, message loop), `dialogs.tsx` (the 8 dialogs), `fields.tsx`, `DataMappingEditor.tsx`; `vite.mrs.config.ts` builds `dist/webview/mrs.{js,css}` |
@@ -224,7 +225,10 @@ as possible.
 - **Writing** (`extension.ts`, `writeRestStatements`): an action of the
   General Actions; the diagrams' waiting saves first, then the script is
   changed as a document (`WorkspaceEdit`) and saved, so an open editor
-  follows and the save runs as any other (snapshot, trees). Not
+  follows and the save runs as any other (snapshot, trees); an editor with
+  unsaved changes on it is refused, as the save would take them along and
+  the dialog read the file on disk. The tree then reads Section 180 again
+  (`refreshRest`), the save the snapshot. Not
   `msm.set_section_sql_content`: it drops the section's comment and blank
   lines. A REST service, schema or object the section creates already has
   its statement replaced where it stands.
@@ -234,8 +238,9 @@ as possible.
   the script, which a click on the row opens.
 - **The tree**: a project's **MariaDB REST Service** row below its schema
   (`restRoot`, `mariadbMsmRestRoot`, Add REST Service... inline and in its
-  menu), its services, their REST schemas and objects drawn by
-  `MrsTreeItem` as a server's, with context values of their own
+  menu), its services, their REST schemas and objects looking as a
+  server's (`serviceLook` / `schemaLook` / `objectLook` of
+  `mrsTreeItems.ts`, which `MrsTreeItem` uses too), with context values of their own
   (`mariadbMsmRest*`, no server menus); a click opens the script on the
   statement. Read with `IMsmProjectsHost.restDefinition` once per refresh.
 - **Checked end to end** with the shell (26.11.1) and mariadb-lsp: msm

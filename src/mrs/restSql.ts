@@ -75,6 +75,20 @@ export const quoteRequestPath = (path: string): string => {
 };
 
 /**
+ * @param fullPath A service's full path, `/svc` or `mike,anna@/svc`.
+ *
+ * @returns Its developers with their `@` - empty for a published
+ *          service - and its request path.
+ */
+export const servicePathParts = (
+    fullPath: string,
+): { developers: string; path: string } => {
+    const at = fullPath.lastIndexOf("@/") + 1;
+
+    return { developers: fullPath.slice(0, at), path: fullPath.slice(at) };
+};
+
+/**
  * @param fullPath A service's full path, `/svc` or `mike,anna@/svc`, as
  *                 `full_service_path` reports it: developers quoted
  *                 where they need to be.
@@ -82,13 +96,9 @@ export const quoteRequestPath = (path: string): string => {
  * @returns It as REST SQL.
  */
 export const quoteServicePath = (fullPath: string): string => {
-    const at = fullPath.lastIndexOf("@/");
-    if (at < 0) {
-        return quoteRequestPath(fullPath);
-    }
+    const { developers, path } = servicePathParts(fullPath);
 
-    return `${fullPath.slice(0, at + 1)}${quoteRequestPath(
-        fullPath.slice(at + 1))}`;
+    return `${developers}${quoteRequestPath(path)}`;
 };
 
 /**
@@ -191,7 +201,6 @@ export const configureMetadataSql = (
 export const createRest = (forScript = false): string => {
     return forScript ? "CREATE OR REPLACE REST" : "CREATE REST";
 };
-
 
 /** A service as the service dialog edits it. */
 export interface IServiceValues {
@@ -334,6 +343,21 @@ const schemaOptions = (values: ISchemaValues): string[] => {
     ];
 };
 
+/**
+ * @param values Where a new REST schema goes, and what it is of.
+ * @param forScript Whether it is kept in a script: `CREATE OR REPLACE`.
+ *
+ * @returns The first line of its `CREATE REST SCHEMA`.
+ */
+const createSchemaHead = (
+    values: Pick<ISchemaValues, "servicePath" | "requestPath" | "dbSchema">,
+    forScript: boolean,
+): string => {
+    return `${createRest(forScript)} SCHEMA `
+        + `${quoteRequestPath(values.requestPath)} `
+        + `ON SERVICE ${quoteServicePath(values.servicePath)} `
+        + `FROM ${quoteIdentifier(values.dbSchema)}`;
+};
 
 /**
  * @param values The new REST schema.
@@ -345,11 +369,7 @@ export const createSchemaSql = (
     values: ISchemaValues,
     forScript = false,
 ): string => {
-    return statement(
-        `${createRest(forScript)} SCHEMA `
-        + `${quoteRequestPath(values.requestPath)} `
-        + `ON SERVICE ${quoteServicePath(values.servicePath)} `
-        + `FROM ${quoteIdentifier(values.dbSchema)}`,
+    return statement(createSchemaHead(values, forScript),
         schemaOptions(values));
 };
 
@@ -368,9 +388,8 @@ export const plainSchemaSql = (
     requestPath: string,
     forScript = false,
 ): string => {
-    return `${createRest(forScript)} SCHEMA ${quoteRequestPath(requestPath)} `
-        + `ON SERVICE ${quoteServicePath(servicePath)} `
-        + `FROM ${quoteIdentifier(dbSchema)};`;
+    return `${createSchemaHead({ servicePath, requestPath, dbSchema },
+        forScript)};`;
 };
 
 /**

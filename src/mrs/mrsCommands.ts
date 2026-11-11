@@ -173,7 +173,7 @@ interface IProjectRow {
 }
 
 /** The title of the dialog adding a REST service, on a server or a project. */
-export const ADD_SERVICE_TITLE = "Add New REST Service";
+const ADD_SERVICE_TITLE = "Add New REST Service";
 
 /** The setting naming where REST requests reach the REST Daemon. */
 const DAEMON_URL_SETTING = "mrs.restDaemonUrl";
@@ -402,22 +402,33 @@ export class MrsCommands {
     }
 
     /**
-     * @param node A database row: a live one of the Connections view, or
-     *             one of a project in the MSM Projects view.
+     * @param node A row: a REST Service root, a live database row of the
+     *             Connections view, or a row of a project in the MSM
+     *             Projects view.
      *
-     * @returns Where REST is added for it - the connection's REST metadata
-     *          (the one picked, where it has several) or the project - or
-     *          undefined where there is none.
+     * @returns Where REST is added for it - the root's REST metadata, the
+     *          connection's (the one picked, where it has several), or the
+     *          project - or undefined where there is none.
      */
     async #sourceOf(
-        node: { uri: string } | IProjectRow,
+        node: IMrsRootNode | { uri: string } | IProjectRow,
     ): Promise<IRestSource | undefined> {
         if ("projectPath" in node) {
             return this.host.projectRest?.(node.projectPath);
         }
-        const root = await this.#rootOf(node.uri);
+        const root = "kind" in node && node.kind === "mrsRoot" ? node
+            : await this.#rootOf(node.uri);
 
         return root === undefined ? undefined : this.#live(root);
+    }
+
+    /**
+     * @param source Where a dialog reads and saves.
+     *
+     * @returns What its context says of a script: nothing for a server.
+     */
+    #scriptContext(source: IRestSource): { forScript?: true } {
+        return source.forScript ? { forScript: true } : {};
     }
 
     /**
@@ -592,7 +603,7 @@ export class MrsCommands {
             linkedAuthApps: linked,
             ...(service === undefined
                 ? {} : { existingPath: service.full_service_path }),
-            ...(source.forScript ? { forScript: true } : {}),
+            ...this.#scriptContext(source),
         };
 
         this.#show({
@@ -613,11 +624,8 @@ export class MrsCommands {
      * project, from its MariaDB REST Service row.
      */
     public async addService(node?: IMrsRootNode | IProjectRow): Promise<void> {
-        if (node === undefined) {
-            return;
-        }
-        const source = "projectPath" in node
-            ? this.host.projectRest?.(node.projectPath) : this.#live(node);
+        const source = node === undefined ? undefined
+            : await this.#sourceOf(node);
         if (source !== undefined) {
             await this.#serviceDialog(source, undefined);
         }
@@ -938,7 +946,7 @@ export class MrsCommands {
             ...(schema === undefined
                 ? (dbObjects === undefined ? {} : { dbObjects })
                 : { existingPath: schema.request_path }),
-            ...(source.forScript ? { forScript: true } : {}),
+            ...this.#scriptContext(source),
         };
 
         this.#show({
@@ -1113,7 +1121,7 @@ export class MrsCommands {
             }),
             schemas,
             ...(object === undefined ? {} : { existingPath: object.request_path }),
-            ...(source.forScript ? { forScript: true } : {}),
+            ...this.#scriptContext(source),
         };
 
         this.#show({

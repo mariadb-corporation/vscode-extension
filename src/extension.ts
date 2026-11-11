@@ -156,10 +156,13 @@ import { describeRestSql } from "./mrs/mrsActions.js";
 import {
     REST_SECTION,
     restSectionEdit,
-    restSectionOf,
 } from "./mrs/restScript.js";
 import type { IRestSource } from "./mrs/restSource.js";
 import { projectRestSource } from "./msm/projectRestSource.js";
+import {
+    developmentScript,
+    restDefinitionOf,
+} from "./msm/developmentScript.js";
 import { MrsDialogPanel } from "./mrs/mrsDialogPanel.js";
 import { MsmDialogPanel } from "./msm/msmDialogPanel.js";
 import { UtilDialogPanel } from "./util/utilDialogPanel.js";
@@ -210,7 +213,6 @@ import {
     MsmProjectsTreeProvider,
     isUnsupportedShell,
     type IMsmDiagramNode,
-    type IMsmRestDefinition,
     type MsmProjectsNode,
 } from "./tree/msmProjectsTreeProvider.js";
 import { registerMsmProjectsCommands } from "./msm/msmProjectsCommands.js";
@@ -903,14 +905,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const vendorsView = vscode.window.createTreeView(VENDORS_VIEW_ID, {
         treeDataProvider: new VendorsTreeProvider(),
     });
-    // A project's REST SQL; defined further down, with its development
-    // script.
-    let restDefinition: (projectPath: string) =>
-    Promise<IMsmRestDefinition | undefined>
-        = () => { return Promise.resolve(undefined); };
     // The MSM Projects list the server keeps, in folders of its own.
     const msmProjects = new MsmProjectsTreeProvider({
-        restDefinition: (projectPath) => { return restDefinition(projectPath); },
+        restDefinition: restDefinitionOf,
         msmApi: () => { return serverApi(() => { return session.msmApi; }); },
         status: starter,
         memento: context.globalState,
@@ -1315,37 +1312,6 @@ export const activate = (context: vscode.ExtensionContext): void => {
         return found;
     });
     /**
-     * @param projectPath A project folder.
-     *
-     * @returns Its development script, as msm names it.
-     */
-    const developmentScript = async (projectPath: string):
-        Promise<string | undefined> => {
-        try {
-            const settings = JSON.parse(await fs.promises.readFile(
-                path.join(projectPath, "msm.project.json"), "utf8")) as
-                { schemaFileName?: string };
-            if (settings.schemaFileName === undefined) {
-                return undefined;
-            }
-
-            return path.join(projectPath, "development",
-                `${settings.schemaFileName}_next.sql`);
-        } catch {
-            return undefined;
-        }
-    };
-    restDefinition = async (projectPath) => {
-        const file = await developmentScript(projectPath);
-        if (file === undefined) {
-            return undefined;
-        }
-        const section = restSectionOf(
-            await fs.promises.readFile(file, "utf8"));
-
-        return section === undefined ? undefined : { file, ...section };
-    };
-    /**
      * Puts REST statements a dialog saved into MSM Section 180 of a
      * project's development script, as an action of the Actions tab. The
      * script is changed as a document and saved: an editor open on it
@@ -1381,6 +1347,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
             await projectDiagrams(projectPath).flush();
             const document = await vscode.workspace.openTextDocument(
                 vscode.Uri.file(file));
+            // The save would take the editor's other changes with it, and
+            // what the dialog was offered was read from disk.
+            if (document.isDirty) {
+                throw new Error(`${path.basename(file)} has unsaved changes. `
+                    + "Save or revert them first.");
+            }
             const { span, sql } = restSectionEdit(document.getText(),
                 statements);
             const edit = new vscode.WorkspaceEdit();
@@ -1402,12 +1374,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
             // snapshot.
             snapshot: () => { return snapshotOrMake(projectPath); },
             restSql: async () => {
-                return (await restDefinition(projectPath))?.sql ?? "";
+                return (await restDefinitionOf(projectPath))?.sql ?? "";
             },
             write: (statements) => {
                 return writeRestStatements(projectPath, statements);
             },
-            saved: () => { msmProjects.refreshProject(projectPath); },
+            // The script's save has the snapshot and the schema's rows
+            // follow; what the dialog changed is the REST rows.
+            saved: () => { msmProjects.refreshRest(projectPath); },
             failed: () => { void resultView.showActions(GENERAL_ACTIONS); },
         });
     };
