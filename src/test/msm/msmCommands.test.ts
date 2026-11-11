@@ -206,6 +206,9 @@ const setUp = (options: ISetUp = {}): IRecorded => {
         createEmptySchemaDiagram: answer("createEmptySchemaDiagram", undefined),
         removeSchemaDiagram: answer("removeSchemaDiagram", []),
         renameSchemaDiagram: answer("renameSchemaDiagram", []),
+        renameSchema: answer("renameSchema", { allowed: true,
+            projectPath: PROJECT, previousProjectPath: PROJECT, files: [],
+            migration: [], warnings: [] }),
         layoutSchemaDiagram: answer("layoutSchemaDiagram",
             { name: "Main", placed: [], connections_added: 0, files: [] }),
         getOnlineAlterSettings: answer("getOnlineAlterSettings", {

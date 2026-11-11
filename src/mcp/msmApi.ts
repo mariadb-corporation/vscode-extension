@@ -212,6 +212,39 @@ export interface IMsmListedProject {
     exists: boolean;
     /** Its development version; undefined where it cannot be read. */
     developmentVersion?: string;
+    /**
+     * The last version it released; undefined where it has none, or the
+     * shell does not say (read as none).
+     */
+    lastReleasedVersion?: string;
+}
+
+/** Why msm will not rename a project's schema. */
+export type SchemaRenameRefusal = "released" | "invalid-name" | "same-name"
+    | "folder-exists" | "lsp-missing" | "restricted";
+
+/**
+ * What `msm.rename_schema` answers, the same for a dry run (what it would
+ * do) and a rename (what it did).
+ */
+export interface IMsmSchemaRename {
+    allowed: boolean;
+    /** Why not, where not allowed. */
+    reason?: SchemaRenameRefusal | string;
+    /** msm's words for it. */
+    message?: string;
+    /** Where the project is, or will be: its folder may move. */
+    projectPath: string;
+    previousProjectPath: string;
+    /** The files written, or that would be, under the new folder. */
+    files: string[];
+    /**
+     * The statements that move deployed databases to the new name: none
+     * while only unreleased projects can be renamed.
+     */
+    migration: string[];
+    /** What msm leaves to the user: dependents, dynamic SQL, dev servers. */
+    warnings: string[];
 }
 
 /**
@@ -443,6 +476,8 @@ export interface IMsmApi {
         name: string): Promise<IMsmDiagramLayout>;
     renameSchemaDiagram(projectPath: string, name: string,
         newName: string): Promise<string[]>;
+    renameSchema(projectPath: string, newName: string | undefined,
+        dryRun: boolean): Promise<IMsmSchemaRename>;
     updateSchemaDefinition(projectPath: string): Promise<void>;
     editSchema(projectPath: string, edits: IMsmSchemaEdit[],
         baseHash: string): Promise<IMsmSchemaEditResult>;
@@ -509,6 +544,7 @@ interface IListedOnTheWire {
     schema_name?: string | null;
     exists?: boolean;
     development_version?: string | null;
+    last_released_version?: string | null;
 }
 
 /**
@@ -535,6 +571,9 @@ const listedProject = (listed: IListedOnTheWire): IMsmListedProject => {
         exists: listed.exists ?? true,
         ...(typeof listed.development_version === "string"
             ? { developmentVersion: listed.development_version } : {}),
+        // An older shell leaves it out: read as no release.
+        ...(typeof listed.last_released_version === "string"
+            ? { lastReleasedVersion: listed.last_released_version } : {}),
     };
 };
 
@@ -725,6 +764,16 @@ export const msmToolArgs = {
         newName: string,
     ): Record<string, unknown> => {
         return { name, new_name: newName, schema_project_path: projectPath };
+    },
+    renameSchema: (
+        projectPath: string,
+        newName: string | undefined,
+        dryRun: boolean,
+    ): Record<string, unknown> => {
+        // A dry run without a name checks what does not depend on one.
+        return { schema_project_path: projectPath,
+            ...(newName === undefined ? {} : { new_schema_name: newName }),
+            dry_run: dryRun };
     },
     editSchema: (
         projectPath: string,
@@ -1196,6 +1245,49 @@ export class MsmApi implements IMsmApi {
 
         return decodeList<string>(tool, await this.caller.callTool(tool,
             msmToolArgs.renameSchemaDiagram(projectPath, name, newName)));
+    }
+
+    /**
+     * Renames a project's schema, or, as a dry run, says whether it can and
+     * what it would change. msm refuses a project with a release; a refused
+     * dry run answers why (`reason`), a refused rename throws.
+     *
+     * @param projectPath The project folder.
+     * @param newName The schema's new name; left out of a dry run, what
+     *                does not depend on it is checked (a release, MCP
+     *                access, mariadb-lsp's `rename_schema`).
+     * @param dryRun Whether only to ask.
+     *
+     * @returns msm's answer.
+     */
+    public async renameSchema(
+        projectPath: string,
+        newName: string | undefined,
+        dryRun: boolean,
+    ): Promise<IMsmSchemaRename> {
+        const tool = "msm.rename_schema";
+        const answer = decodeObject<{
+            allowed?: boolean;
+            reason?: string | null;
+            message?: string | null;
+            project_path?: string;
+            previous_project_path?: string;
+            files?: string[];
+            migration?: string[];
+            warnings?: string[];
+        }>(tool, await this.caller.callTool(tool,
+            msmToolArgs.renameSchema(projectPath, newName, dryRun)));
+
+        return {
+            allowed: answer.allowed === true,
+            ...(answer.reason ? { reason: answer.reason } : {}),
+            ...(answer.message ? { message: answer.message } : {}),
+            projectPath: answer.project_path ?? projectPath,
+            previousProjectPath: answer.previous_project_path ?? projectPath,
+            files: answer.files ?? [],
+            migration: answer.migration ?? [],
+            warnings: answer.warnings ?? [],
+        };
     }
 
     /**

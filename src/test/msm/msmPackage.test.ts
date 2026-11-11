@@ -269,7 +269,7 @@ describe("the MSM Projects view's menus", () => {
         expect(onRow("mariadbMsmProject", true)).toEqual(operations);
         expect(onRow("mariadbMsmProject", false)).toEqual([...operations,
             MSM_DIAGRAM_COMMANDS.open, MSM_DIAGRAM_COMMANDS.create,
-            MSM_COMMANDS.edit,
+            MSM_COMMANDS.edit, MSM_SCHEMA_COMMANDS.rename,
             MSM_LIST_COMMANDS.removeFromProjects]);
         for (const id of operations) {
             expect(commands.find((entry) => {
@@ -287,11 +287,13 @@ describe("the MSM Projects view's menus", () => {
             MSM_DIAGRAM_COMMANDS.layout, MSM_DIAGRAM_COMMANDS.remove]);
     });
 
-    it("makes a project's schema snapshot again from its schema row", () => {
+    it("makes a project's schema snapshot again from its schema row, and "
+        + "renames the schema", () => {
         expect(onRow("mariadbMsmSchema", true))
             .toEqual([MSM_SCHEMA_COMMANDS.updateSnapshot]);
         expect(onRow("mariadbMsmSchema", false)).toEqual([
-            MSM_SCHEMA_COMMANDS.updateSnapshot, MSM_DIAGRAM_COMMANDS.create]);
+            MSM_SCHEMA_COMMANDS.updateSnapshot, MSM_DIAGRAM_COMMANDS.create,
+            MSM_SCHEMA_COMMANDS.rename]);
     });
 
     it("adds an empty diagram from the Diagrams folder's + and its menu, "

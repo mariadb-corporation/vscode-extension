@@ -140,6 +140,23 @@ export class DiagramViews {
     }
 
     /**
+     * Moves a source's views to another key: its project folder moved.
+     *
+     * @param from The source's key before.
+     * @param to Its key now.
+     *
+     * @returns Once kept.
+     */
+    public async moveSource(from: string, to: string): Promise<void> {
+        const all = this.#all();
+        const { [from]: kept, ...others } = all;
+        if (kept !== undefined && from !== to) {
+            await this.memento.update(DIAGRAM_VIEWS_KEY,
+                { ...others, [to]: kept });
+        }
+    }
+
+    /**
      * Drops the views of whole sources: a connection deleted, a project
      * taken off the list.
      *

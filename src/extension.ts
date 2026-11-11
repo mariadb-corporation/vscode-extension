@@ -47,11 +47,18 @@ import {
     TasksTreeProvider,
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
-import { changedOnlineAlter, type IMsmApi } from "./mcp/msmApi.js";
 import {
-    diagramNameProblem, MsmCommands, newDiagramName, projectPathOf,
+    changedOnlineAlter, type IMsmApi, msmToolArgs,
+} from "./mcp/msmApi.js";
+import {
+    diagramNameProblem, msmAction, msmCall, MsmCommands, newDiagramName,
+    projectPathOf,
 } from "./msm/msmCommands.js";
-import { projectOfScriptFile } from "./msm/msmFields.js";
+import { projectOfScriptFile, schemaNameOfFolder } from "./msm/msmFields.js";
+import { closeEditorsIn, openEditorsAt } from "./msm/projectEditors.js";
+import {
+    renameSchema, renameSummary, renameWords,
+} from "./msm/schemaRename.js";
 import { SettledSaves } from "./msm/settledSaves.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
@@ -193,6 +200,7 @@ import {
     MSM_SCHEMA_COMMANDS,
     MSM_PROJECTS_VIEW_ID,
     MsmProjectsTreeProvider,
+    isUnsupportedShell,
     type IMsmDiagramNode,
     type MsmProjectsNode,
 } from "./tree/msmProjectsTreeProvider.js";
@@ -627,6 +635,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
         (context.storageUri ?? context.globalStorageUri).fsPath, "restd-logs");
     const putAction = (connection: string, row: IActionRow): void => {
         void resultView.putAction(connection, row);
+    };
+    // What an msm action outside MsmCommands puts its rows up with.
+    const actionHost = {
+        put: putAction,
+        showActions: (connection: string) => {
+            void resultView.showActions(connection);
+        },
     };
     // The daemon of a sandbox follows it, each step a row of the
     // sandbox's action.
@@ -1527,6 +1542,79 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     reportError(log, error, "create the schema diagram");
                 }
             }),
+        vscode.commands.registerCommand(MSM_SCHEMA_COMMANDS.rename,
+            async (node?: MsmProjectsNode) => {
+                const projectPath = projectPathOf(node);
+                if (projectPath === undefined) {
+                    return;
+                }
+                try {
+                    const listed = (await msmProjects.projectAt(projectPath))
+                        ?.project;
+                    const schema = node?.kind === "schema" ? node.schema
+                        : listed?.schemaName
+                            ?? schemaNameOfFolder(path.basename(projectPath));
+                    await renameSchema({ projectPath, schema,
+                        lastReleasedVersion: listed?.lastReleasedVersion }, {
+                        api: await msmApi(),
+                        askName: async (current) => {
+                            return await vscode.window.showInputBox({
+                                title: "Rename Schema",
+                                prompt: `The new name of the schema ${current}`,
+                                value: current,
+                                validateInput: (value) => {
+                                    return value.trim() === ""
+                                        ? "The schema needs a name." : undefined;
+                                },
+                            });
+                        },
+                        confirm: async (message, detail) => {
+                            const rename = "Rename";
+
+                            return await vscode.window.showWarningMessage(
+                                message, { modal: true, detail },
+                                rename) === rename;
+                        },
+                        refuse: (message) => {
+                            void vscode.window.showErrorMessage(message);
+                        },
+                        warn: (message) => {
+                            void vscode.window.showWarningMessage(message);
+                        },
+                        closeEditors: async (folder) => {
+                            const places = await closeEditorsIn(folder);
+                            // Its scripts' saves would make the snapshot
+                            // again in the folder msm is about to move.
+                            scriptSaves.cancel(folder);
+
+                            return places;
+                        },
+                        openEditors: openEditorsAt,
+                        closeViewer: (folder) => {
+                            return ModelerPanel.close(projectDiagrams(folder));
+                        },
+                        asAction: (renaming, work) => {
+                            return msmAction(actionHost, renameWords(renaming),
+                                msmCall("msm.rename_schema",
+                                    msmToolArgs.renameSchema(
+                                        renaming.projectPath, renaming.newName,
+                                        false)), work, renameSummary);
+                        },
+                        moved: async (from, to) => {
+                            projectSources.delete(from);
+                            await diagramViews.moveSource(
+                                projectSourceKey(from), projectSourceKey(to));
+                            await msmProjects.projectMoved(from, to);
+                        },
+                        openDiagram: openProjectDiagram,
+                    });
+                } catch (error) {
+                    reportError(log, error, isUnsupportedShell(error)
+                        ? "rename the schema: update the MariaDB Shell, "
+                            + "whose msm has no msm.rename_schema"
+                        : "rename the schema");
+                }
+            }),
         vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.rename,
             async (node?: IMsmDiagramNode) => {
                 if (node?.kind !== "diagram") {
@@ -1667,10 +1755,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         },
         defaultConnection: () => { return connections.defaultConnection; },
         defaultFolder: workspaceFolder,
-        put: putAction,
-        showActions: (connection) => {
-            void resultView.showActions(connection);
-        },
+        ...actionHost,
         // A deployed schema is new to the tree and to completion.
         refresh: refreshServer,
         projectsChanged: () => { msmProjects.refresh(); },

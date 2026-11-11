@@ -67,6 +67,21 @@ export class ExpandedRows {
     }
 
     /**
+     * Gives the rows new ids, as what they show moved.
+     *
+     * @param rename An id's new one; the same id for a row that stays.
+     *
+     * @returns Once kept.
+     */
+    public async rename(rename: (id: string) => string): Promise<void> {
+        const ids = this.#ids();
+        const renamed = ids.map(rename);
+        if (renamed.some((id, index) => { return id !== ids[index]; })) {
+            await this.memento.update(this.key, renamed);
+        }
+    }
+
+    /**
      * Forgets the rows of what is gone.
      *
      * @param keep Whether a row's id is of something still there.

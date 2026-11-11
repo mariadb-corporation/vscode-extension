@@ -16,15 +16,13 @@
  */
 
 import * as assert from "node:assert/strict";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
     By,
     CustomTreeSection,
     EditorView,
-    InputBox,
-    ModalDialog,
     VSBrowser,
 } from "vscode-extension-tester";
 
@@ -35,10 +33,13 @@ import {
     answerModal,
     driver,
     extensionLog,
+    failOnErrorNotification,
     FrontWebView,
     hasTreeItem,
+    inputUp,
     inResults,
     menuAction,
+    modalUp,
     openSection,
     screenshot,
     SERVER_TIMEOUT,
@@ -61,7 +62,15 @@ const CONTAINER = "MariaDB Schema Management";
 const VIEW = "MSM Projects";
 const SCHEMA = "msm_view";
 const DIAGRAM = "Main";
-const PROJECT = join(WORKSPACE, "projects", `${SCHEMA}.msm.project`);
+/**
+ * @param schema A project's schema.
+ *
+ * @returns Its folder, named as msm names it.
+ */
+const projectFolder = (schema: string): string => {
+    return join(WORKSPACE, "projects", `${schema}.msm.project`);
+};
+const PROJECT = projectFolder(SCHEMA);
 /** The project's row: named as its schema. */
 const PROJECT_ROW = SCHEMA;
 /** The project's schema row, below its Diagrams row. */
@@ -86,9 +95,13 @@ const view = (): Promise<CustomTreeSection> => {
     return openSection(VIEW, CONTAINER);
 };
 
-/** @returns The project's development script and its section files. */
-const scriptText = (): string => {
-    const folder = join(PROJECT, "development");
+/**
+ * @param project The project's folder.
+ *
+ * @returns Its development script and its section files.
+ */
+const scriptText = (project = PROJECT): string => {
+    const folder = join(project, "development");
 
     return readdirSync(folder, { recursive: true, encoding: "utf8" })
         .filter((name) => { return name.endsWith(".sql"); })
@@ -106,12 +119,13 @@ const places = (): string[] => {
 
 /**
  * @param table A table.
+ * @param schema The project's schema, which names its folder.
  *
  * @returns Whether the project's diagram has a figure of it, as saved.
  */
-const hasFigure = (table: string): boolean => {
+const hasFigure = (table: string, schema = SCHEMA): boolean => {
     return new RegExp(`"type": "TableFigure",\\s*"name": "${table}"`, "u")
-        .test(scriptText());
+        .test(scriptText(projectFolder(schema)));
 };
 
 /**
@@ -154,15 +168,8 @@ describe("MSM schema diagrams", () => {
 
     it("makes a diagram and opens it", async () => {
         await menuAction(await view(), [PROJECT_ROW, "Diagrams"],
-            ["New Schema Diagram..."], async () => {
-                try {
-                    await InputBox.create(1000);
-
-                    return true;
-                } catch {
-                    return false;
-                }
-            }, "the new diagram's name asked");
+            ["New Schema Diagram..."], inputUp,
+            "the new diagram's name asked");
         await answerInput(DIAGRAM);
         await waitFor(async () => {
             return (await new EditorView().getOpenEditorTitles())
@@ -200,10 +207,8 @@ describe("MSM schema diagrams", () => {
     it("lays the diagram out from its row's menu, once asked", async () => {
         const before = places();
         await menuAction(await view(), [PROJECT_ROW, "Diagrams", DIAGRAM],
-            ["Auto Layout Schema Diagram..."], async () => {
-                return await new ModalDialog().isDisplayed()
-                    .catch(() => { return false; });
-            }, "the Auto Layout confirmation");
+            ["Auto Layout Schema Diagram..."], modalUp,
+            "the Auto Layout confirmation");
         assert.equal(await answerModal("Auto Layout"),
             `Lay out the diagram '${DIAGRAM}' automatically?`);
 
@@ -250,5 +255,112 @@ describe("MSM schema diagrams", () => {
             }, "a second Auto Layout action", SERVER_TIMEOUT);
         });
         await screenshot("11-auto-layout-toolbar");
+    });
+
+    describe("Rename Schema", () => {
+        /** The name the schema is renamed to, and back from. */
+        const RENAMED = "msm_renamed";
+
+        /**
+         * Picks Rename Schema... on a row and types a name.
+         *
+         * @param row The row: the project's or its schema's.
+         * @param to The name typed.
+         */
+        const askRename = async (row: string[], to: string): Promise<void> => {
+            await menuAction(await view(), row, ["Rename Schema..."],
+                inputUp, "the new schema name asked");
+            await answerInput(to);
+        };
+
+        /**
+         * Renames the schema from a row's menu, confirming msm's plan.
+         *
+         * @param row The row: the project's or its schema's.
+         * @param from The schema's name.
+         * @param to Its new name.
+         */
+        const rename = async (row: string[], from: string,
+            to: string): Promise<void> => {
+            await askRename(row, to);
+            await waitFor(modalUp, "the rename's confirmation",
+                SERVER_TIMEOUT);
+            assert.equal(await answerModal("Rename"),
+                `Rename the schema ${from} to ${to}?`);
+        };
+
+        /**
+         * Checks the project is under its schema's name everywhere: the
+         * view's rows, the reopened viewer, the files on disk.
+         *
+         * @param schema The schema's name.
+         * @param old Its name before.
+         */
+        const renamedTo = async (schema: string, old: string):
+        Promise<void> => {
+            const folder = projectFolder(schema);
+            await waitFor(() => {
+                return Promise.resolve(existsSync(folder)
+                    && !existsSync(projectFolder(old)));
+            }, `the project folder moved to ${folder}`, SERVER_TIMEOUT);
+            assert.ok(existsSync(join(folder, "development",
+                `${schema}_next.sql`)), "the script under the new name");
+            const settings = JSON.parse(readFileSync(
+                join(folder, "msm.project.json"), "utf8")) as {
+                schemaName?: string;
+            };
+            assert.equal(settings.schemaName, schema);
+
+            // The project's row, and its schema row, under the new name.
+            await treeItem(await view(), [schema, schema], SERVER_TIMEOUT);
+            // Redrawn by now: the rows shown are read once.
+            const labels = await Promise.all((await (await view())
+                .getVisibleItems()).map((item) => { return item.getLabel(); }));
+            assert.ok(!labels.includes(old), `no row of ${old} left`);
+            // The viewer, opened again on the same diagram, and the script's
+            // editor on the renamed file, none left on a deleted one.
+            await waitFor(async () => {
+                const titles = await new EditorView().getOpenEditorTitles();
+
+                return titles.includes(`${DIAGRAM} (${schema})`)
+                    && !titles.includes(`${DIAGRAM} (${old})`)
+                    && titles.includes(`${schema}_next.sql`)
+                    && !titles.includes(`${old}_next.sql`);
+            }, `the diagram reopened as ${DIAGRAM} (${schema}), and the `
+                + `script as ${schema}_next.sql`, SERVER_TIMEOUT);
+            await waitForAction(new RegExp(
+                `^Renamed the schema ${old} to ${schema}`, "u"));
+        };
+
+        it("renames it from the schema row, the diagram open", async () => {
+            const titles = await new EditorView().getOpenEditorTitles();
+            assert.ok(titles.includes(`${DIAGRAM} (${SCHEMA})`),
+                "the diagram open");
+            assert.ok(titles.includes(`${SCHEMA}_next.sql`),
+                "the script open, since 10-msm-projects");
+            await rename(SCHEMA_ROW, SCHEMA, RENAMED);
+            await renamedTo(RENAMED, SCHEMA);
+            // The diagram kept its figures.
+            assert.ok(hasFigure("customer", RENAMED)
+                && hasFigure("orders", RENAMED));
+            await screenshot("11-renamed");
+        });
+
+        it("renames it back from the project row", async () => {
+            await rename([RENAMED], RENAMED, SCHEMA);
+            await renamedTo(SCHEMA, RENAMED);
+            assert.ok(hasFigure("customer") && hasFigure("orders"));
+        });
+
+        it("does nothing for the same name", async () => {
+            await askRename(SCHEMA_ROW, SCHEMA);
+            // It returns before asking msm anything: no confirmation can
+            // come once the box closed.
+            await waitFor(async () => { return !await inputUp(); },
+                "the input box closed");
+            assert.ok(!await modalUp(), "no confirmation");
+            await failOnErrorNotification();
+            assert.ok(existsSync(PROJECT), "the project where it was");
+        });
     });
 });

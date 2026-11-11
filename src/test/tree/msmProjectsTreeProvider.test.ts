@@ -536,6 +536,23 @@ describe("the MSM Projects view", () => {
         expect(stored.get(MSM_EXPANDED_ROWS_KEY)).toEqual([]);
     });
 
+    it("keeps a moved project's rows open under its new folder", async () => {
+        const fake = setUp([]);
+        const rows = fake.tree.expandedRows;
+        await rows.add("msmProject:/w/shop.msm.project");
+        await rows.add("msmDiagram:/w/shop.msm.project:Main");
+        // Another project whose folder starts the same stays as it is.
+        await rows.add("msmProject:/w/shop.msm.project-old");
+
+        await fake.tree.projectMoved("/w/shop.msm.project",
+            "/w/store.msm.project");
+
+        expect(rows.has("msmProject:/w/store.msm.project")).toBe(true);
+        expect(rows.has("msmDiagram:/w/store.msm.project:Main")).toBe(true);
+        expect(rows.has("msmProject:/w/shop.msm.project")).toBe(false);
+        expect(rows.has("msmProject:/w/shop.msm.project-old")).toBe(true);
+    });
+
     it("walks up from a project to its folders, for reveal", () => {
         const fake = setUp([]);
         const node: IMsmProjectNode = {

@@ -139,4 +139,18 @@ describe("the diagrams' views", () => {
             expect(views.of(other)).toEqual({ Main: VIEW });
             expect(isConnectionSourceKey("junk", "dba@db:3306")).toBe(false);
         });
+
+    it("moves a project's views with its folder", async () => {
+        const views = new DiagramViews(memento());
+        const before = projectSourceKey("/work/shop.msm.project");
+        const after = projectSourceKey("/work/store.msm.project");
+        await views.keep(before, "Main", VIEW);
+        await views.keep("other", "Main", { ...VIEW, zoom: 2 });
+
+        await views.moveSource(before, after);
+
+        expect(views.of(after)).toEqual({ Main: VIEW });
+        expect(views.of(before)).toEqual({});
+        expect(views.of("other").Main.zoom).toBe(2);
+    });
 });
