@@ -207,6 +207,31 @@ describe("Rename Schema", () => {
                 `open ${OLD} Main`]);
         });
 
+    it("takes a rename msm refuses after the dry run as failed", async () => {
+        const { host, steps } = setUp({ shown: "Main",
+            done: answer({ allowed: false, message: "The folder exists.",
+                projectPath: OLD }) });
+
+        await expect(renameSchema({ projectPath: OLD, schema: "shop" },
+            host)).rejects.toThrow("The folder exists.");
+        expect(steps).not.toContain(`moved ${OLD} -> ${OLD}`);
+        expect(steps.at(-1)).toBe(`open ${OLD} Main`);
+    });
+
+    it("opens the editors and viewer in the new folder where following "
+        + "it fails", async () => {
+        const { host, steps } = setUp({ shown: "Main",
+            editors: [{ path: `${OLD}/development/shop_next.sql`,
+                column: 1 }] });
+        host.moved = () => { return Promise.reject(new Error("no memento")); };
+
+        await expect(renameSchema({ projectPath: OLD, schema: "shop" },
+            host)).rejects.toThrow("no memento");
+        expect(steps.slice(-2)).toEqual([
+            `open editors ${NEW}/development/store_next.sql@1`,
+            `open ${NEW} Main`]);
+    });
+
     it("words its action, and sums up what it came to", () => {
         expect(renameWords({ projectPath: OLD, schema: "shop",
             newName: "store" })).toEqual({

@@ -1581,7 +1581,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         warn: (message) => {
                             void vscode.window.showWarningMessage(message);
                         },
-                        closeEditors: closeEditorsIn,
+                        closeEditors: async (folder) => {
+                            const places = await closeEditorsIn(folder);
+                            // Its scripts' saves would make the snapshot
+                            // again in the folder msm is about to move.
+                            scriptSaves.cancel(folder);
+
+                            return places;
+                        },
                         openEditors: openEditorsAt,
                         closeViewer: (folder) => {
                             return ModelerPanel.close(projectDiagrams(folder));

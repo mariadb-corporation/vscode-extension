@@ -593,13 +593,13 @@ export class ModelerPanel {
      */
     public static async close(source: IModelSource): Promise<string | undefined> {
         const panel = ModelerPanel.#open.get(source.key);
-        await source.flush?.();
-        if (panel === undefined) {
-            return undefined;
+        const shown = panel === undefined ? undefined : panel.#diagram;
+        // Closed first, so no change the page sends comes in after the
+        // flush; its dispose follows, on the panel's.
+        if (panel !== undefined) {
+            panel.#panel.dispose();
         }
-        const shown = panel.#diagram;
-        // Its dispose follows, on the panel's.
-        panel.#panel.dispose();
+        await source.flush?.();
 
         return shown;
     }

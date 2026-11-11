@@ -47,6 +47,16 @@ export class SettledSaves {
         }, this.delayMs));
     }
 
+    /**
+     * Drops a key's saves waiting.
+     *
+     * @param key What was saved.
+     */
+    public cancel(key: string): void {
+        clearTimeout(this.#timers.get(key));
+        this.#timers.delete(key);
+    }
+
     /** Drops the saves waiting. */
     public dispose(): void {
         for (const timer of this.#timers.values()) {

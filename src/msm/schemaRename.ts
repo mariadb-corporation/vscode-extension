@@ -277,7 +277,14 @@ export const renameSchema = async (
 
     // Its editors and viewer save first: msm renames what is on disk.
     const editors = await host.closeEditors(projectPath);
-    const shown = await host.closeViewer(projectPath);
+    let shown: string | undefined;
+    try {
+        shown = await host.closeViewer(projectPath);
+    } catch (error) {
+        // Not renamed: the editors come back where they were.
+        await host.openEditors(editors);
+        throw error;
+    }
     /** Opens them again, in a folder, each file where `where` puts it. */
     const reopen = async (folder: string,
         where: (path: string) => string): Promise<void> => {
@@ -290,19 +297,31 @@ export const renameSchema = async (
     };
     let done: IMsmSchemaRename;
     try {
-        done = await host.asAction({ projectPath, schema, newName }, () => {
-            return host.api.renameSchema(projectPath, newName, false);
-        });
+        done = await host.asAction({ projectPath, schema, newName },
+            async () => {
+                const answer = await host.api.renameSchema(projectPath,
+                    newName, false);
+                // Refused after all (the dry run went before): not done.
+                if (!answer.allowed) {
+                    throw new Error(refusal(answer, schema, newName));
+                }
+
+                return answer;
+            });
     } catch (error) {
         // Nothing moved: they come back where they were.
         await reopen(projectPath, (path) => { return path; });
         throw error;
     }
-    await host.moved(projectPath, done.projectPath);
-    await reopen(done.projectPath, (path) => {
-        return movedFile(path, { from: projectPath, to: done.projectPath,
-            schema, newName });
-    });
+    try {
+        await host.moved(projectPath, done.projectPath);
+    } finally {
+        // Renamed either way: its editors and viewer follow it.
+        await reopen(done.projectPath, (path) => {
+            return movedFile(path, { from: projectPath,
+                to: done.projectPath, schema, newName });
+        });
+    }
     if (done.warnings.length > 0) {
         host.warn(`The schema ${schema} is now ${newName}. Left to you: `
             + done.warnings.join(" "));
