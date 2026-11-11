@@ -163,31 +163,44 @@ export class ObjectDetailsProvider
     /**
      * Shows an object, in the view of the side bar whose objects it is:
      * a project's below MSM Projects, a live schema's below Connections.
-     * Selected on a diagram, the item it was selected as comes with it,
-     * and a relationship line has no object at all.
+     * Selected on a diagram, the item it was selected as comes with it.
      *
      * @param place Where it is.
-     * @param ref The object, if any.
+     * @param ref The object.
      * @param selected The diagram item, if it was selected as one.
      *
      * @returns Nothing.
      */
-    public show(place: SchemaObjectPlace, ref: ISchemaObjectRef | undefined,
+    public show(place: SchemaObjectPlace, ref: ISchemaObjectRef,
         selected?: ISelectedItem): void {
         const side = sideOf(place);
         const state = this.#sides[side];
         state.selected = selected;
-        if (ref === undefined) {
-            // Whatever read is still going is of the object before.
-            state.subject = undefined;
-            state.reads += 1;
-            this.#post(side, { type: "show" });
-        } else if (!shows(state.subject, place, ref)) {
+        if (!shows(state.subject, place, ref)) {
             state.subject = { place, ref };
             void this.#read(side);
         } else {
             this.#postItem(side);
         }
+    }
+
+    /**
+     * Shows a diagram item that is no schema object: a layer, or a
+     * relationship line.
+     *
+     * @param place Where its diagram's objects are.
+     * @param selected The item.
+     *
+     * @returns Nothing.
+     */
+    public showItem(place: SchemaObjectPlace, selected: ISelectedItem): void {
+        const side = sideOf(place);
+        const state = this.#sides[side];
+        state.selected = selected;
+        // Whatever read is still going is of the object before.
+        state.subject = undefined;
+        state.reads += 1;
+        this.#post(side, { type: "show" });
     }
 
     /**

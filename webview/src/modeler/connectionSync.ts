@@ -88,9 +88,10 @@ export const syncConnections = (
     newId: () => string,
     schema?: string,
 ): boolean => {
-    const tableNamed = (name: string): IOutlineTable | undefined => {
-        return tables.find((table) => { return sameName(table.name, name); });
-    };
+    // By lower-case name: looked up for both ends of every connection.
+    const byName = new Map(tables.map((table) => {
+        return [table.name.toLowerCase(), table] as const;
+    }));
     const figureById = new Map(diagram.figures.map((figure) => {
         return [figure.id, figure] as const;
     }));
@@ -98,17 +99,13 @@ export const syncConnections = (
         const figure = figureById.get(id);
 
         return figure === undefined || figureType(figure) !== TABLE_FIGURE
-            ? undefined : tableNamed(tableOf(figure));
+            ? undefined : byName.get(tableOf(figure).toLowerCase());
     };
     const ownSchema = (key: IOutlineForeignKey): boolean => {
         const other = key.references.schema;
 
         return other === null || other === undefined || schema === undefined
             || sameName(other, schema);
-    };
-    const references = (key: IOutlineForeignKey,
-        parent: IOutlineTable): boolean => {
-        return ownSchema(key) && sameName(key.references.table, parent.name);
     };
     // Which keys have a line, per pair of figures.
     const taken = new Set<string>();
@@ -119,7 +116,6 @@ export const syncConnections = (
     const matched = new Map<IModelConnection, IOutlineForeignKey>();
     let changed = false;
 
-    // By name first, so a key that kept its name keeps its own line.
     const pairs = diagram.connections.map((connection) => {
         return {
             connection,
@@ -127,35 +123,34 @@ export const syncConnections = (
             parent: tableAt(connection.endFigure),
         };
     });
-    for (const { connection, child, parent } of pairs) {
-        const { startFigure, endFigure } = connection;
-        const key = child === undefined || parent === undefined ? undefined
-            : (child.foreign_keys ?? []).find((candidate) => {
-                return sameName(candidate.name, connection.foreignKey)
-                    && references(candidate, parent)
-                    && !taken.has(pairKey(startFigure, endFigure, candidate));
+    // Gives each connection not matched yet the first of its child's keys
+    // onto its parent, free between its figures, that a test also takes.
+    const claim = (test: (key: IOutlineForeignKey,
+        connection: IModelConnection) => boolean): void => {
+        for (const { connection, child, parent } of pairs) {
+            if (matched.has(connection) || child === undefined
+                || parent === undefined) {
+                continue;
+            }
+            const { startFigure, endFigure } = connection;
+            const key = (child.foreign_keys ?? []).find((candidate) => {
+                return ownSchema(candidate)
+                    && sameName(candidate.references.table, parent.name)
+                    && !taken.has(pairKey(startFigure, endFigure, candidate))
+                    && test(candidate, connection);
             });
-        if (key !== undefined) {
-            taken.add(pairKey(startFigure, endFigure, key));
-            matched.set(connection, key);
+            if (key !== undefined) {
+                taken.add(pairKey(startFigure, endFigure, key));
+                matched.set(connection, key);
+            }
         }
-    }
-    // Then by what the key is: the child's keys onto the parent left.
-    for (const { connection, child, parent } of pairs) {
-        if (matched.has(connection) || child === undefined
-            || parent === undefined) {
-            continue;
-        }
-        const { startFigure, endFigure } = connection;
-        const key = (child.foreign_keys ?? []).find((candidate) => {
-            return references(candidate, parent)
-                && !taken.has(pairKey(startFigure, endFigure, candidate));
-        });
-        if (key !== undefined) {
-            taken.add(pairKey(startFigure, endFigure, key));
-            matched.set(connection, key);
-        }
-    }
+    };
+    // By name first, so a key that kept its name keeps its own line; then
+    // by what the key is.
+    claim((key, connection) => {
+        return sameName(key.name, connection.foreignKey);
+    });
+    claim(() => { return true; });
 
     const kept: IModelConnection[] = [];
     for (const { connection, child } of pairs) {

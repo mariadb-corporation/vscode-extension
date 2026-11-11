@@ -210,7 +210,7 @@ describe("a diagram item in the Object Details view", () => {
 
     it("shows a relationship line alone, and follows its changes", () => {
         const { provider, msm } = setUp();
-        provider.show(PROJECT, undefined, { item: LINE });
+        provider.showItem(PROJECT, { item: LINE });
         expect(msm.posted.at(-1)).toEqual({ type: "show", item: LINE });
 
         provider.itemChanged(PROJECT, { ...LINE, offset: -40 });
@@ -225,7 +225,7 @@ describe("a diagram item in the Object Details view", () => {
     it("sends the view's changes to the diagram the item is on", () => {
         const { provider, msm } = setUp();
         const changes: unknown[] = [];
-        provider.show(PROJECT, undefined, { item: LINE, edit: (id, change) => {
+        provider.showItem(PROJECT, { item: LINE, edit: (id, change) => {
             changes.push([id, change]);
         } });
         msm.send({ type: "changeItem", id: "c1", change: { split: true } });

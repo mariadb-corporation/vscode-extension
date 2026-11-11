@@ -274,9 +274,12 @@ export interface IModelConnection {
     endDock?: IConnectionDock;
 }
 
+/** A side of a table figure: where a connection leaves or enters it. */
+export type FigureSide = "left" | "right" | "top" | "bottom";
+
 /** A connection's end placed by hand on a side of its table. */
 export interface IConnectionDock {
-    side: "left" | "right" | "top" | "bottom";
+    side: FigureSide;
     at: number;
 }
 

@@ -23,6 +23,7 @@
  * only for now). Pure, shared by the extension and the webview.
  */
 
+import type { FigureSide } from "../modeler/modelFormat.js";
 import type { IObjectDetails } from "../mcp/types.js";
 import type { ISchemaObjectRef } from "../modeler/modelerProtocol.js";
 import type {
@@ -121,7 +122,7 @@ export interface IDiagramConnectionItem {
 }
 
 /** A side of a table a line's end can be placed on. */
-export type DockSide = "left" | "right" | "top" | "bottom";
+export type DockSide = FigureSide;
 
 /** The one diagram item selected, as the view shows it. */
 export type DiagramItem = IDiagramFigureItem | IDiagramLayerItem

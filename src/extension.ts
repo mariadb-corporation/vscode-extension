@@ -952,9 +952,11 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 ? { projectPath: target.projectPath }
                 : { connection: target.connection, schema: target.schema };
             const [first] = objects;
-            if (first !== undefined || item !== undefined) {
-                objectDetails.show(place, first, item === undefined
-                    ? undefined : { item, edit });
+            const selected = item === undefined ? undefined : { item, edit };
+            if (first !== undefined) {
+                objectDetails.show(place, first, selected);
+            } else if (selected !== undefined) {
+                objectDetails.showItem(place, selected);
             }
         },
         itemChanged: (target, item) => {

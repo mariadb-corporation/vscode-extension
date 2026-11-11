@@ -70,6 +70,9 @@ import {
 import { cssPixelsPerMm, pixelsPerUnit } from "./screen.js";
 import type { IDiagramTheme } from "./theme.js";
 import {
+    HANDLE_PX,
+    HANDLE_REACH_PX,
+    handleSquare,
     disposeGroup,
     DRAW_ORDER,
     planeCenter,
@@ -117,9 +120,6 @@ export const ZOOM_RANGE = { min: 0.05, max: 8 } as const;
 
 /** The Navigator's margin around the paper, in its pixels. */
 const NAVIGATOR_PADDING = 6;
-
-/** A resize handle's size on the screen, in CSS pixels. */
-const HANDLE_PX = 8;
 
 /**
  * The menu button's size: a share of its band's height, so it scales with
@@ -1532,18 +1532,9 @@ export class Canvas {
         });
         const outline = new THREE.LineLoop(new THREE.BufferGeometry(), line);
         const handles = new THREE.Group();
-        const square = new THREE.PlaneGeometry(1, 1);
-        const edge = new THREE.BufferGeometry().setAttribute("position",
-            new THREE.BufferAttribute(new Float32Array([
-                -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0,
-            ]), 3));
         const fill = new THREE.MeshBasicMaterial({ color: this.#theme.paper });
         for (let index = 0; index < HANDLES.length; index += 1) {
-            const handle = new THREE.Group();
-            const border = new THREE.LineLoop(edge, line);
-            border.position.z = 0.01;
-            handle.add(new THREE.Mesh(square, fill), border);
-            handles.add(handle);
+            handles.add(handleSquare(fill, line));
         }
         group.add(outline, handles);
         setDrawOrder(group, DRAW_ORDER.decorations);
@@ -1567,7 +1558,7 @@ export class Canvas {
             return undefined;
         }
         // A little more than the square, so it is easy to take.
-        const reach = (HANDLE_PX / 2 + 2) / this.#scale();
+        const reach = HANDLE_REACH_PX / this.#scale();
         const items = [...this.#selected]
             .map((id) => { return this.#set?.item(id); })
             .filter((item): item is ICanvasItem => {

@@ -307,22 +307,6 @@ const readPicture = async (file: File): Promise<IPickedImage> => {
     return { dataUrl, ...size };
 };
 
-/**
- * @param shown The model shown.
- * @param shown.set Its figure set.
- * @param shown.editable Whether its diagrams can be changed.
- * @param ids The items selected.
- *
- * @returns The one item selected, as Object Details shows it.
- */
-const selectedItemOf = (
-    shown: { set: EerFigureSet; editable: boolean },
-    ids: readonly string[],
-): DiagramItem | undefined => {
-    return ids.length === 1
-        ? shown.set.itemProps(ids[0], shown.editable) : undefined;
-};
-
 export const ModelViewer = (): JSX.Element => {
     const hostRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<Canvas>();
@@ -348,9 +332,13 @@ export const ModelViewer = (): JSX.Element => {
     };
     /** The items selected, for the one Object Details shows. */
     const selectedRef = useRef<string[]>([]);
+    /** @returns The one item selected, as Object Details shows it. */
     const selectedItem = (shown: { set: EerFigureSet; editable: boolean })
         : DiagramItem | undefined => {
-        return selectedItemOf(shown, selectedRef.current);
+        const ids = selectedRef.current;
+
+        return ids.length === 1
+            ? shown.set.itemProps(ids[0], shown.editable) : undefined;
     };
     /**
      * What takes back each schema edit sent, in order (msm answers them

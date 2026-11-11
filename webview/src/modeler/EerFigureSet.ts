@@ -71,10 +71,13 @@ import type {
     IResizeSession,
     IToolSession,
 } from "../canvas/canvasTypes.js";
-import type { IPoint, Segment } from "../canvas/geometry.js";
+import { boundsOf, type IPoint, type Segment } from "../canvas/geometry.js";
 import {
     disposeGroup,
     DRAW_ORDER,
+    HANDLE_PX,
+    HANDLE_REACH_PX,
+    handleSquare,
     planeCenter,
     polylineSegments,
     rectSegments,
@@ -101,6 +104,7 @@ import {
     oneMarker,
     routeConnection,
     nearestDock,
+    pointOnSide,
     sideSlots,
     spreadAnchors,
     type IAnchors,
@@ -197,6 +201,42 @@ const dockColor = (figure: IModelFigure): THREE.Color => {
 };
 
 /**
+ * @param route A connection's route.
+ * @param which One of its ends.
+ *
+ * @returns Where that end meets its table.
+ */
+const endPoint = (route: IRoute, which: "start" | "end"): IPoint => {
+    return which === "start"
+        ? route.points[0] : route.points[route.points.length - 1];
+};
+
+/**
+ * @param color Its colour, where known already.
+ *
+ * @returns A docking point's disc, facing up (+z), for `placeDock`.
+ */
+const newDock = (
+    color?: THREE.Color,
+): THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> => {
+    const dock = new THREE.Mesh(new THREE.CircleGeometry(DOCK_RADIUS, 16),
+        new THREE.MeshBasicMaterial(color === undefined ? {} : { color }));
+    setDrawOrder(dock, DRAW_ORDER.connections + 0.5);
+
+    return dock;
+};
+
+/**
+ * Takes an object off the scene and releases what it holds on the GPU.
+ *
+ * @param object A mesh, a line or a group of them.
+ */
+const drop = (object: THREE.Object3D): void => {
+    object.removeFromParent();
+    disposeGroup(object);
+};
+
+/**
  * Puts a docking point on the side of a table's slab a line meets: upright
  * on the side's face, facing out, at the line's height; growing with the
  * lift as the slab does, so it is not seen in the 2D view.
@@ -245,8 +285,6 @@ const placeDock = (
 /** How near a connection a press takes it, in CSS pixels. */
 const CONNECTION_REACH_PX = 4;
 
-/** The side of a connection's handle, in CSS pixels (as the canvas's). */
-const CONNECTION_HANDLE_PX = 8;
 
 /**
  * How thick a card is: the slab under it, in page units. Just thick enough
@@ -492,6 +530,23 @@ const layerState = (layer: IModelLayer): LayerState => {
 };
 
 /**
+ * @param a Objects of a snapshot, each with its state.
+ * @param b Those of another.
+ *
+ * @returns Whether they are the same objects in the same states.
+ */
+const samePairs = <T, S extends object>(
+    a: ReadonlyArray<readonly [T, S]>,
+    b: ReadonlyArray<readonly [T, S]>,
+): boolean => {
+    return a.length === b.length && a.every(([object, state], index) => {
+        const [other, otherState] = b[index];
+
+        return object === other && sameState(state, otherState);
+    });
+};
+
+/**
  * @param a A state.
  * @param b Another of the same kind.
  *
@@ -596,13 +651,13 @@ export interface IEerFigureSetOptions {
     onToolPanel?: (panel?: IToolPanel) => void;
     /** Asks for the picture msm left out of an image figure. */
     requestImage?: (diagram: string, figureId: string) => void;
-    /** A table card's Edit Table: the table editor opens on the table. */
     /**
      * The shown diagram's connections were brought in line with the
      * foreign keys (`syncConnections`): it is to be saved, though no
      * action was made.
      */
     onConnectionsSynced?: () => void;
+    /** A table card's Edit Table: the table editor opens on the table. */
     onEditTable?: (table: string) => void;
 }
 
@@ -702,6 +757,8 @@ export class EerFigureSet implements IFigureSet {
     #figures = new Map<string, IFigureNode>();
     #layers = new Map<string, ILayerNode>();
     #connections: IConnectionNode[] = [];
+    /** The connections by id: the canvas asks for items every frame. */
+    #connectionIndex = new Map<string, IConnectionNode>();
     /** Where each connection meets its tables' sides (`spreadAnchors`). */
     #anchors = new Map<string, IAnchors>();
     /** What this set drew into the canvas's groups, to remove it. */
@@ -804,24 +861,11 @@ export class EerFigureSet implements IFigureSet {
     }
 
     #disposeConnection(node: IConnectionNode): void {
-        for (const line of [node.line, node.markers]) {
-            line.removeFromParent();
-            line.geometry.dispose();
-            line.material.dispose();
+        for (const object of [node.line, node.markers, ...node.docks,
+            ...node.endHandles ?? [], ...node.handle ? [node.handle] : []]) {
+            drop(object);
         }
-        for (const dock of node.docks) {
-            dock.removeFromParent();
-            dock.geometry.dispose();
-            dock.material.dispose();
-        }
-        for (const handle of node.endHandles ?? []) {
-            handle.removeFromParent();
-            disposeGroup(handle);
-        }
-        if (node.handle !== undefined) {
-            node.handle.removeFromParent();
-            disposeGroup(node.handle);
-        }
+        this.#connectionIndex.delete(node.connection.id);
     }
 
     public unmount(): void {
@@ -839,6 +883,7 @@ export class EerFigureSet implements IFigureSet {
         this.#cardMeshes = [];
         this.#layers.clear();
         this.#connections = [];
+        this.#connectionIndex.clear();
         // Disposed with the groups.
         this.#highlightMarks = [];
         this.#bandMarks = [];
@@ -913,10 +958,8 @@ export class EerFigureSet implements IFigureSet {
                 ? connection.connection.middleSegmentOffset ?? 0
                 : middle.at - middle.base,
             split: connection.connection.drawSplit === true,
-            ...(connection.connection.startDock === undefined ? {}
-                : { startDock: connection.connection.startDock.side }),
-            ...(connection.connection.endDock === undefined ? {}
-                : { endDock: connection.connection.endDock.side }),
+            startDock: connection.connection.startDock?.side,
+            endDock: connection.connection.endDock?.side,
             editable,
         };
     }
@@ -981,15 +1024,14 @@ export class EerFigureSet implements IFigureSet {
             move.finish();
         }
         if (change.width !== undefined || change.height !== undefined) {
-            const resize = this.#resizeLayer(node);
-            resize.resizeTo({
+            this.#setLayerRect(node, {
                 left: layer.left,
                 top: layer.top,
                 width: Math.max(MIN_LAYER_WIDTH, change.width ?? layer.width),
                 height: Math.max(MIN_LAYER_HEIGHT,
                     change.height ?? layer.height),
-            }, { fx: 1, fy: 1, cursor: "" });
-            resize.finish();
+            });
+            this.#fileOnLayer(node);
         }
         if (change.z !== undefined) {
             const elevate = this.beginElevate(layer.id);
@@ -1063,8 +1105,7 @@ export class EerFigureSet implements IFigureSet {
             figure.top = change.y - (node.layer?.top ?? 0);
         }
         if (change.z !== undefined) {
-            figure.elevation = Math.min(MAX_LAYER_ELEVATION,
-                Math.max(0, change.z));
+            figure.elevation = ownElevation({ ...figure, elevation: change.z });
         }
         if (change.width !== undefined) {
             figure.width = Math.max(MIN_FIGURE_WIDTH, change.width);
@@ -1776,9 +1817,6 @@ export class EerFigureSet implements IFigureSet {
         if (start?.kind !== "table" || end?.kind !== "table") {
             return;
         }
-        const foreignKey = foreignKeyOf(
-            this.#options.catalog.table(connection.table),
-            connection.foreignKey);
         const fatLine = (): LineSegments2 => {
             const made = new LineSegments2(new LineSegmentsGeometry(),
                 new LineMaterial({
@@ -1796,24 +1834,19 @@ export class EerFigureSet implements IFigureSet {
         const markers = fatLine();
         const dock = (): THREE.Mesh<THREE.CircleGeometry,
             THREE.MeshBasicMaterial> => {
-            const made = new THREE.Mesh(
-                new THREE.CircleGeometry(DOCK_RADIUS, 16),
-                new THREE.MeshBasicMaterial());
+            const made = newDock();
             made.visible = connection.visible !== false;
-            setDrawOrder(made, DRAW_ORDER.connections + 0.5);
             this.#lifted.add(made);
 
             return made;
         };
-        const table = this.#options.catalog.table(connection.table);
         const node: IConnectionNode = {
             connection, start, end, line, markers,
             docks: [dock(), dock()],
-            identifying: table !== undefined && foreignKey !== undefined
-                && relationshipKindOf(table, foreignKey).identifying,
-            many: foreignKey?.many ?? true,
-            mandatory: foreignKey?.mandatory ?? true,
-            referencedMandatory: foreignKey?.referenced_mandatory ?? true,
+            identifying: false,
+            many: true,
+            mandatory: true,
+            referencedMandatory: true,
             selected: false,
             item: {
                 id: connection.id,
@@ -1827,29 +1860,38 @@ export class EerFigureSet implements IFigureSet {
                 outlined: false,
             },
         };
+        this.#readKey(node);
         this.#connections.push(node);
-        this.#route(node);
+        this.#connectionIndex.set(connection.id, node);
+        // Routed by the caller, once every line is there: the lines on a
+        // side are spread over it together.
+    }
+
+    /**
+     * Reads what a connection's ends show from its foreign key: a crow's
+     * foot or a bar, the bars of mandatory sides, a dashed line where it
+     * does not identify. Unknown keys draw as many, mandatory, solid.
+     */
+    #readKey(node: IConnectionNode): void {
+        const found = this.#foreignKeyOf(node);
+        node.identifying = found !== undefined
+            && relationshipKindOf(found.table, found.key).identifying;
+        node.many = found?.key.many ?? true;
+        node.mandatory = found?.key.mandatory ?? true;
+        node.referencedMandatory = found?.key.referenced_mandatory ?? true;
     }
 
     /** @returns The connection with an id on the shown diagram. */
     #connectionById(id: string): IConnectionNode | undefined {
-        return this.#connections.find((node) => {
-            return node.connection.id === id;
-        });
+        return this.#connectionIndex.get(id);
     }
 
     /** @returns The rectangle a connection's route spans. */
     #connectionRect(node: IConnectionNode): IRect {
         const points = node.route?.points ?? [];
-        const xs = points.map((point) => { return point.x; });
-        const ys = points.map((point) => { return point.y; });
-        const left = Math.min(...xs);
-        const top = Math.min(...ys);
 
         return points.length === 0
-            ? { left: 0, top: 0, width: 0, height: 0 }
-            : { left, top, width: Math.max(...xs) - left,
-                height: Math.max(...ys) - top };
+            ? { left: 0, top: 0, width: 0, height: 0 } : boundsOf(points);
     }
 
     /**
@@ -1891,13 +1933,22 @@ export class EerFigureSet implements IFigureSet {
         const scale = this.#host?.scale() ?? 1;
         let reach = CONNECTION_REACH_PX / scale;
         let found: IConnectionNode | undefined;
+        // Tables stand at few heights: the pointer is found once at each.
+        const points = new Map<number, IPoint | undefined>();
+        const pointAt = (elevation: number): IPoint | undefined => {
+            if (!points.has(elevation)) {
+                points.set(elevation, probe.pointOn("lifted", elevation));
+            }
+
+            return points.get(elevation);
+        };
         for (const node of this.#connections) {
             if (node.connection.visible === false) {
                 continue;
             }
             for (const { segment, elevations } of this.#connectionLines(node)) {
                 for (const elevation of elevations) {
-                    const point = probe.pointOn("lifted", elevation);
+                    const point = pointAt(elevation);
                     if (point === undefined) {
                         continue;
                     }
@@ -1920,8 +1971,9 @@ export class EerFigureSet implements IFigureSet {
     #movableMiddle(node: IConnectionNode): boolean {
         const points = node.route?.points ?? [];
 
+        // A route has a middle segment only with four points.
         return node.route?.middle !== undefined
-            && node.connection.drawSplit !== true && points.length === 4
+            && node.connection.drawSplit !== true
             && (points[1].x !== points[2].x || points[1].y !== points[2].y);
     }
 
@@ -1961,8 +2013,7 @@ export class EerFigureSet implements IFigureSet {
         const wanted = node.selected && this.#movableMiddle(node);
         if (!wanted) {
             if (node.handle !== undefined) {
-                node.handle.removeFromParent();
-                disposeGroup(node.handle);
+                drop(node.handle);
                 node.handle = undefined;
             }
 
@@ -1975,7 +2026,7 @@ export class EerFigureSet implements IFigureSet {
         const at = this.#handlePoint(node);
         node.handle.position.set(at.x, -at.y,
             this.#handleElevation(node) * host.lift() + Z.liftedDecoration);
-        const size = CONNECTION_HANDLE_PX / host.scale();
+        const size = HANDLE_PX / host.scale();
         node.handle.scale.set(size, size, 1);
     }
 
@@ -1987,13 +2038,10 @@ export class EerFigureSet implements IFigureSet {
         const host = this.#host;
         const route = node.route;
         if (!node.selected || host === undefined || route === undefined) {
-            if (node.endHandles !== undefined) {
-                for (const handle of node.endHandles) {
-                    handle.removeFromParent();
-                    disposeGroup(handle);
-                }
-                node.endHandles = undefined;
+            for (const handle of node.endHandles ?? []) {
+                drop(handle);
             }
+            node.endHandles = undefined;
 
             return;
         }
@@ -2001,17 +2049,15 @@ export class EerFigureSet implements IFigureSet {
             node.endHandles = [this.#buildHandle(), this.#buildHandle()];
             this.#lifted.add(...node.endHandles);
         }
-        const size = CONNECTION_HANDLE_PX / host.scale();
+        const size = HANDLE_PX / host.scale();
         const lift = host.lift();
-        ([["start", route.points[0]],
-            ["end", route.points[route.points.length - 1]]] as const)
-            .forEach(([which, at], index) => {
-                const handle = node.endHandles![index];
-                handle.position.set(at.x, -at.y,
-                    this.#endElevation(node, which) * lift
-                    + Z.liftedDecoration);
-                handle.scale.set(size, size, 1);
-            });
+        (["start", "end"] as const).forEach((which, index) => {
+            const at = endPoint(route, which);
+            const handle = node.endHandles![index];
+            handle.position.set(at.x, -at.y,
+                this.#endElevation(node, which) * lift + Z.liftedDecoration);
+            handle.scale.set(size, size, 1);
+        });
     }
 
     /**
@@ -2052,17 +2098,8 @@ export class EerFigureSet implements IFigureSet {
             THREE.MeshBasicMaterial>> = [];
         for (const [side, count] of counts) {
             for (const at of sideSlots(rect, side, count + 1, CARD.radius)) {
-                const dock = new THREE.Mesh(
-                    new THREE.CircleGeometry(DOCK_RADIUS, 16),
-                    new THREE.MeshBasicMaterial({ color }));
-                setDrawOrder(dock, DRAW_ORDER.connections + 0.5);
-                const vertical = side === "left" || side === "right";
-                const point = vertical
-                    ? { x: side === "left" ? rect.left : rect.left + rect.width,
-                        y: at }
-                    : { x: at,
-                        y: side === "top" ? rect.top : rect.top + rect.height };
-                placeDock(dock, point, side, z, lift);
+                const dock = newDock(color);
+                placeDock(dock, pointOnSide(rect, side, at), side, z, lift);
                 this.#lifted.add(dock);
                 shown.push(dock);
             }
@@ -2083,16 +2120,9 @@ export class EerFigureSet implements IFigureSet {
      */
     #buildHandle(): THREE.Group {
         const theme = this.#host!.theme;
-        const handle = new THREE.Group();
-        const edge = new THREE.BufferGeometry().setAttribute("position",
-            new THREE.BufferAttribute(new Float32Array([
-                -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0,
-            ]), 3));
-        const border = new THREE.LineLoop(edge,
+        const handle = handleSquare(
+            new THREE.MeshBasicMaterial({ color: theme.paper }),
             new THREE.LineBasicMaterial({ color: theme.selection }));
-        border.position.z = 0.01;
-        handle.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
-            new THREE.MeshBasicMaterial({ color: theme.paper })), border);
         setDrawOrder(handle, DRAW_ORDER.decorations);
 
         return handle;
@@ -2262,7 +2292,7 @@ export class EerFigureSet implements IFigureSet {
         if (scale === undefined) {
             return;
         }
-        const size = CONNECTION_HANDLE_PX / scale;
+        const size = HANDLE_PX / scale;
         for (const node of this.#connections) {
             node.handle?.scale.set(size, size, 1);
             for (const handle of node.endHandles ?? []) {
@@ -2272,8 +2302,14 @@ export class EerFigureSet implements IFigureSet {
     }
 
     public grabAt(probe: IProbe): IGrab | undefined {
-        const scale = this.#host?.scale() ?? 1;
-        const reach = (CONNECTION_HANDLE_PX / 2 + 2) / scale;
+        const reach = HANDLE_REACH_PX / (this.#host?.scale() ?? 1);
+        // Whether the pointer is on a handle at a point and height.
+        const near = (at: IPoint, elevation: number): boolean => {
+            const point = probe.pointOn("lifted", elevation);
+
+            return point !== undefined && Math.abs(point.x - at.x) <= reach
+                && Math.abs(point.y - at.y) <= reach;
+        };
         // An end's handle first: it sits on the line's end.
         for (const candidate of this.#connections) {
             const route = candidate.route;
@@ -2281,12 +2317,8 @@ export class EerFigureSet implements IFigureSet {
                 continue;
             }
             for (const which of ["start", "end"] as const) {
-                const at = which === "start"
-                    ? route.points[0] : route.points[route.points.length - 1];
-                const point = probe.pointOn("lifted",
-                    this.#endElevation(candidate, which));
-                if (point !== undefined && Math.abs(point.x - at.x) <= reach
-                    && Math.abs(point.y - at.y) <= reach) {
+                if (near(endPoint(route, which),
+                    this.#endElevation(candidate, which))) {
                     return {
                         cursor: "move",
                         begin: () => { return this.#moveEnd(candidate, which); },
@@ -2295,15 +2327,9 @@ export class EerFigureSet implements IFigureSet {
             }
         }
         const node = this.#connections.find((candidate) => {
-            if (candidate.handle === undefined) {
-                return false;
-            }
-            const point = probe.pointOn("lifted",
-                this.#handleElevation(candidate));
-            const at = this.#handlePoint(candidate);
-
-            return point !== undefined && Math.abs(point.x - at.x) <= reach
-                && Math.abs(point.y - at.y) <= reach;
+            return candidate.handle !== undefined
+                && near(this.#handlePoint(candidate),
+                    this.#handleElevation(candidate));
         });
         const middle = node?.route?.middle;
         if (node === undefined || middle === undefined) {
@@ -2339,14 +2365,13 @@ export class EerFigureSet implements IFigureSet {
                 } else {
                     node.connection.endDock = dock;
                 }
-                // The lines it joins or leaves on a side move over too.
-                this.#routeAll();
+                // Its table's lines, and those whose place on a side moved
+                // over for it.
+                this.#routeOf(new Set([table]));
             },
             finish: () => {
                 for (const dock of free) {
-                    dock.removeFromParent();
-                    dock.geometry.dispose();
-                    dock.material.dispose();
+                    drop(dock);
                 }
                 this.#host?.invalidate();
 
@@ -2487,44 +2512,57 @@ export class EerFigureSet implements IFigureSet {
      * where they now lie fully on it, or elsewhere where they no longer do.
      */
     #resizeLayer(node: ILayerNode): IResizeSession {
-        const { layer } = node;
-
         return {
-            resizeTo: (rect) => {
-                const dx = rect.left - layer.left;
-                const dy = rect.top - layer.top;
-                Object.assign(layer, {
-                    left: rect.left,
-                    top: rect.top,
-                    width: rect.width,
-                    height: rect.height,
-                });
-                const filed = new Set(this.#filedUnder(layer));
-                for (const table of filed) {
-                    table.figure.left -= dx;
-                    table.figure.top -= dy;
-                    this.#placeFigure(table);
-                }
-                // A new size can change the stacking of every layer.
-                this.#restack();
-                for (const other of this.#layers.values()) {
-                    this.#placeLayer(other);
-                }
-                this.#routeOf(filed);
-            },
+            resizeTo: (rect) => { this.#setLayerRect(node, rect); },
             finish: () => {
-                const rect = layerRect(layer);
-                for (const table of this.#figures.values()) {
-                    if (table.figure.layer === layer.id
-                        || containsRect(rect, this.#figureRect(table))) {
-                        this.#fileUnderLayer(table);
-                    }
-                }
-                this.#routeAll();
+                this.#fileOnLayer(node);
 
-                return `Resize Layer ${layer.name}`;
+                return `Resize Layer ${node.layer.name}`;
             },
         };
+    }
+
+    /**
+     * Gives a layer a new rectangle, the tables filed under it keeping
+     * their places on the page.
+     */
+    #setLayerRect(node: ILayerNode, rect: IRect): void {
+        const { layer } = node;
+        const dx = rect.left - layer.left;
+        const dy = rect.top - layer.top;
+        Object.assign(layer, {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+        });
+        const filed = new Set(this.#filedUnder(layer));
+        for (const table of filed) {
+            table.figure.left -= dx;
+            table.figure.top -= dy;
+            this.#placeFigure(table);
+        }
+        // A new size can change the stacking of every layer.
+        this.#restack();
+        for (const other of this.#layers.values()) {
+            this.#placeLayer(other);
+        }
+        this.#routeOf(filed);
+    }
+
+    /**
+     * Files the tables again after a layer's size changed: under it where
+     * they now lie fully on it, elsewhere where they no longer do.
+     */
+    #fileOnLayer(node: ILayerNode): void {
+        const rect = layerRect(node.layer);
+        for (const table of this.#figures.values()) {
+            if (table.figure.layer === node.layer.id
+                || containsRect(rect, this.#figureRect(table))) {
+                this.#fileUnderLayer(table);
+            }
+        }
+        this.#routeAll();
     }
 
     public beginElevate(id: string): IElevateSession {
@@ -2575,24 +2613,9 @@ export class EerFigureSet implements IFigureSet {
         const first = a as ISnapshot;
         const second = b as ISnapshot;
 
-        return first.figures.length === second.figures.length
-            && first.layers.length === second.layers.length
-            && first.figures.every(([figure, state], index) => {
-                const [other, otherState] = second.figures[index];
-
-                return figure === other && sameState(state, otherState);
-            })
-            && first.layers.every(([layer, state], index) => {
-                const [other, otherState] = second.layers[index];
-
-                return layer === other && sameState(state, otherState);
-            })
-            && first.connections.length === second.connections.length
-            && first.connections.every(([connection, state], index) => {
-                const [other, otherState] = second.connections[index];
-
-                return connection === other && sameState(state, otherState);
-            });
+        return samePairs(first.figures, second.figures)
+            && samePairs(first.layers, second.layers)
+            && samePairs(first.connections, second.connections);
     }
 
     public restore(snapshot: unknown): void {
@@ -3100,17 +3123,9 @@ export class EerFigureSet implements IFigureSet {
             }
         }
         // A key's columns or indexes may have changed what its line ends
-        // in: a crow's foot or a bar.
+        // in: a crow's foot or a bar, dashed or not.
         for (const node of this.#connections) {
-            const found = this.#foreignKeyOf(node);
-            if (found !== undefined) {
-                const { key } = found;
-                node.identifying = relationshipKindOf(found.table, key)
-                    .identifying;
-                node.many = key.many ?? true;
-                node.mandatory = key.mandatory ?? true;
-                node.referencedMandatory = key.referenced_mandatory ?? true;
-            }
+            this.#readKey(node);
         }
         this.#routeAll();
         this.#host.invalidate();

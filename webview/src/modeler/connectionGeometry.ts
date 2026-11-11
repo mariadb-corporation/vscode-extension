@@ -15,6 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import type { FigureSide } from "../../../src/modeler/modelFormat.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
 import type { IPoint, Segment } from "../canvas/geometry.js";
 
@@ -26,7 +27,7 @@ import type { IPoint, Segment } from "../canvas/geometry.js";
  */
 
 /** The side of a figure a connection leaves or enters. */
-export type Side = "left" | "right" | "top" | "bottom";
+export type Side = FigureSide;
 
 /** The size of the end markers in diagram units. */
 export const MARKER_SIZE = 12;
@@ -73,7 +74,7 @@ export const MIDDLE_CLEARANCE = 2 * MARKER_SIZE;
  *
  * @returns The middle segment.
  */
-export const middleSegment = (
+const middleSegment = (
     axis: "x" | "y",
     from: number,
     to: number,
@@ -350,7 +351,7 @@ const STUB = 20;
  *
  * @returns The point on that side.
  */
-const pointOnSide = (rect: IRect, side: Side, at?: number): IPoint => {
+export const pointOnSide = (rect: IRect, side: Side, at?: number): IPoint => {
     switch (side) {
         case "left": {
             return { x: rect.left, y: at ?? rect.top + rect.height / 2 };
