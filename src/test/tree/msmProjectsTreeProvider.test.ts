@@ -271,7 +271,7 @@ describe("the MSM Projects view", () => {
             const fake = setUp([listed(project)]);
             const [node] = await fake.tree.getChildren();
 
-            const [, ...files] = await fake.tree.getChildren(node) as
+            const [, , ...files] = await fake.tree.getChildren(node) as
                 IMsmFileNode[];
             expect(labels(fake, files))
                 .toEqual(["development", "msm.project.json"]);
@@ -289,12 +289,12 @@ describe("the MSM Projects view", () => {
                 .toEqual(["shop_next.sql"]);
         });
 
-    it("shows a project's schema first, with the Connections view's rows",
-        async () => {
+    it("shows a project's schema below its diagrams, with the Connections "
+        + "view's object rows", async () => {
             const project = makeProject(root, "shop");
             const fake = setUp([listed(project)]);
             const [node] = await fake.tree.getChildren();
-            const [schema] = await fake.tree.getChildren(node);
+            const [, schema] = await fake.tree.getChildren(node);
 
             const item = fake.tree.getTreeItem(schema);
             expect(item.label).toBe("shop");
@@ -305,9 +305,9 @@ describe("the MSM Projects view", () => {
             const rows = await fake.tree.getChildren(schema);
             expect(rows.map((row) => {
                 return fake.tree.getTreeItem(row).label;
-            })).toEqual(["Diagrams", "Tables", "Views", "Functions",
+            })).toEqual(["Tables", "Views", "Functions",
                 "Procedures", "Sequences", "Triggers", "Events"]);
-            expect(fake.tree.getTreeItem(rows[1]).contextValue)
+            expect(fake.tree.getTreeItem(rows[0]).contextValue)
                 .toBe("mariadbMsmObjectGroup.table");
         });
 
@@ -316,8 +316,8 @@ describe("the MSM Projects view", () => {
             const project = makeProject(root, "shop");
             const fake = setUp([listed(project)]);
             const [node] = await fake.tree.getChildren();
-            const [schema] = await fake.tree.getChildren(node);
-            const [, tables, views, functions, procedures] =
+            const [, schema] = await fake.tree.getChildren(node);
+            const [tables, views, functions, procedures] =
                 await fake.tree.getChildren(schema);
             const names = async (group: MsmProjectsNode) => {
                 return (await fake.tree.getChildren(group)).map((row) => {
@@ -330,7 +330,7 @@ describe("the MSM Projects view", () => {
             expect(await names(functions)).toEqual(["count_orders"]);
             // A routine without a kind is a procedure.
             expect(await names(procedures)).toEqual(["tidy"]);
-            const [, , , , , sequences, triggers, events] =
+            const [, , , , sequences, triggers, events] =
                 await fake.tree.getChildren(schema);
             expect(await names(sequences)).toEqual(["order_no"]);
             expect(await names(triggers)).toEqual(["orders_bi"]);
@@ -346,13 +346,12 @@ describe("the MSM Projects view", () => {
             expect(item.tooltip).toBe("Who buys");
         });
 
-    it("lists a project's diagrams first in its schema, which open on a "
-        + "double-click", async () => {
+    it("lists a project's diagrams first, right below the project, which "
+        + "open on a double-click", async () => {
             const project = makeProject(root, "shop");
             const fake = setUp([listed(project)]);
             const [node] = await fake.tree.getChildren();
-            const [schema] = await fake.tree.getChildren(node);
-            const [diagrams] = await fake.tree.getChildren(schema);
+            const [diagrams] = await fake.tree.getChildren(node);
 
             const folder = fake.tree.getTreeItem(diagrams);
             expect(folder.label).toBe("Diagrams");
@@ -404,8 +403,8 @@ describe("the MSM Projects view", () => {
             const project = makeProject(root, "shop");
             const fake = setUp([listed(project)]);
             const [node] = await fake.tree.getChildren();
-            const [schema] = await fake.tree.getChildren(node);
-            const [, tables, , functions] = await fake.tree.getChildren(schema);
+            const [, schema] = await fake.tree.getChildren(node);
+            const [tables, , functions] = await fake.tree.getChildren(schema);
             const [customer] = await fake.tree.getChildren(tables);
             const [count] = await fake.tree.getChildren(functions);
             const transfer = new DataTransfer();
@@ -516,8 +515,8 @@ describe("the MSM Projects view", () => {
         const project = makeProject(root, "shop");
         const before = setUp([listed(project)], memento);
         const [node] = await before.tree.getChildren();
-        const [schema] = await before.tree.getChildren(node);
-        const [, tables] = await before.tree.getChildren(schema);
+        const [, schema] = await before.tree.getChildren(node);
+        const [tables] = await before.tree.getChildren(schema);
         await before.tree.expanded(node);
         await before.tree.expanded(schema);
         await before.tree.expanded(tables);
@@ -525,8 +524,8 @@ describe("the MSM Projects view", () => {
 
         const after = setUp([listed(project)], memento);
         const [again] = await after.tree.getChildren();
-        const [schemaAgain] = await after.tree.getChildren(again);
-        const [, tablesAgain] = await after.tree.getChildren(schemaAgain);
+        const [, schemaAgain] = await after.tree.getChildren(again);
+        const [tablesAgain] = await after.tree.getChildren(schemaAgain);
         expect([again, schemaAgain, tablesAgain].map((row) => {
             return after.tree.getTreeItem(row).collapsibleState;
         })).toEqual([TreeItemCollapsibleState.Expanded,

@@ -19,7 +19,7 @@ MCP plugin's `msm` group (`mcp_plugin/lib/msm_functions.py`), which wraps
 | `src/msm/msmCommands.ts` | `MsmCommands`: the dialogs' six commands and the list's four (`MSM_LIST_COMMANDS`), reading the project, the work as `ActionGroup`s (`src/restd/actionGroup.ts`); `changedDetails`, what an add or update sends. |
 | `src/msm/msmProjectsCommands.ts` | The MSM Projects view's refresh and folder commands (`MSM_FOLDER_COMMANDS`): New / Rename Folder, Set Folder Color, Remove Folder. |
 | `webview/src/MsmDialog.tsx`, `msm.tsx`, `msmStyles.css`, `vite.msm.config.ts` | The dialog, one component for the five kinds (New and Edit MSM Project in pages, see below); its own bundle, on `dialogStyles.css` as Dump and Load's and New Sandbox's. |
-| `src/tree/msmProjectsTreeProvider.ts` | The MSM Projects view: folders, projects, each project's schema row (its Diagrams folder from `msm.list_schema_diagrams`, a shell without it shows none and logs it; its tables, views and routines from msm's snapshot, see [object-details.md](object-details.md)) and files; drag and drop; the folders, collapsed folders and folder colors it keeps itself. |
+| `src/tree/msmProjectsTreeProvider.ts` | The MSM Projects view: folders, projects, and under each project its Diagrams folder first (from `msm.list_schema_diagrams`; a shell without it shows none and logs it), its schema row (its tables, views and routines from msm's snapshot, see [object-details.md](object-details.md)) and its files; drag and drop; the folders, collapsed folders and folder colors it keeps itself. |
 
 ## The MSM Projects view
 

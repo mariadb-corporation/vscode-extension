@@ -100,6 +100,11 @@ import {
     distanceToSegment,
     oneMarker,
     routeConnection,
+    nearestDock,
+    sideSlots,
+    spreadAnchors,
+    type IAnchors,
+    type Side,
     splitStubs,
     type IRoute,
 } from "./connectionGeometry.js";
@@ -174,6 +179,68 @@ const CONNECTION_WIDTH = 1.6;
  * and off, in page units.
  */
 const CONNECTION_DASH = { dashSize: 5, gapSize: 4 } as const;
+
+/** The radius of a docking point, where a line meets its table. */
+const DOCK_RADIUS = 4;
+
+/** How much darker a docking point is than its table's colour. */
+const DOCK_SHADE = 0.7;
+
+/**
+ * @param figure A table's figure.
+ *
+ * @returns The colour of the docking points on its sides: its own,
+ *          darkened.
+ */
+const dockColor = (figure: IModelFigure): THREE.Color => {
+    return new THREE.Color(figureColor(figure)).multiplyScalar(DOCK_SHADE);
+};
+
+/**
+ * Puts a docking point on the side of a table's slab a line meets: upright
+ * on the side's face, facing out, at the line's height; growing with the
+ * lift as the slab does, so it is not seen in the 2D view.
+ *
+ * @param dock The point's disc, made facing up (+z).
+ * @param at Where the line meets the side, on the page.
+ * @param side The side.
+ * @param z The line's height there.
+ * @param lift How far the figures have risen.
+ */
+const placeDock = (
+    dock: THREE.Object3D,
+    at: IPoint,
+    side: Side,
+    z: number,
+    lift: number,
+): void => {
+    // A hair out of the side, so the slab does not cover it.
+    const out = 0.05;
+    switch (side) {
+        case "left": {
+            dock.position.set(at.x - out, -at.y, z);
+            dock.rotation.set(0, -Math.PI / 2, 0);
+            break;
+        }
+        case "right": {
+            dock.position.set(at.x + out, -at.y, z);
+            dock.rotation.set(0, Math.PI / 2, 0);
+            break;
+        }
+        // The page's top is the plane's +y.
+        case "top": {
+            dock.position.set(at.x, -at.y + out, z);
+            dock.rotation.set(-Math.PI / 2, 0, 0);
+            break;
+        }
+        default: {
+            dock.position.set(at.x, -at.y - out, z);
+            dock.rotation.set(Math.PI / 2, 0, 0);
+        }
+    }
+    const size = Math.max(0.001, lift);
+    dock.scale.set(size, size, size);
+};
 
 /** How near a connection a press takes it, in CSS pixels. */
 const CONNECTION_REACH_PX = 4;
@@ -375,7 +442,7 @@ type FigureState = Pick<IModelFigure, "left" | "top" | "width" | "height"
 
 /** What a user can change of a connection. */
 type ConnectionState = Pick<IModelConnection, "middleSegmentOffset"
-    | "drawSplit">;
+    | "drawSplit" | "startDock" | "endDock">;
 
 /** What a user can change of a layer. */
 type LayerState = Pick<IModelLayer, "left" | "top" | "width" | "height"
@@ -408,6 +475,8 @@ const connectionState = (connection: IModelConnection): ConnectionState => {
     return {
         middleSegmentOffset: connection.middleSegmentOffset,
         drawSplit: connection.drawSplit,
+        startDock: connection.startDock,
+        endDock: connection.endDock,
     };
 };
 
@@ -494,6 +563,11 @@ interface IConnectionNode {
     selected: boolean;
     /** The handle on a selected connection's middle segment. */
     handle?: THREE.Group;
+    /** The handles on a selected connection's ends: start, end. */
+    endHandles?: [THREE.Group, THREE.Group];
+    /** The docking points where it meets its tables: start, end. */
+    docks: [THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>,
+        THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>];
 }
 
 /** What the set needs to be made. */
@@ -628,6 +702,8 @@ export class EerFigureSet implements IFigureSet {
     #figures = new Map<string, IFigureNode>();
     #layers = new Map<string, ILayerNode>();
     #connections: IConnectionNode[] = [];
+    /** Where each connection meets its tables' sides (`spreadAnchors`). */
+    #anchors = new Map<string, IAnchors>();
     /** What this set drew into the canvas's groups, to remove it. */
     #base = new THREE.Group();
     #lifted = new THREE.Group();
@@ -733,6 +809,15 @@ export class EerFigureSet implements IFigureSet {
             line.geometry.dispose();
             line.material.dispose();
         }
+        for (const dock of node.docks) {
+            dock.removeFromParent();
+            dock.geometry.dispose();
+            dock.material.dispose();
+        }
+        for (const handle of node.endHandles ?? []) {
+            handle.removeFromParent();
+            disposeGroup(handle);
+        }
         if (node.handle !== undefined) {
             node.handle.removeFromParent();
             disposeGroup(node.handle);
@@ -828,6 +913,10 @@ export class EerFigureSet implements IFigureSet {
                 ? connection.connection.middleSegmentOffset ?? 0
                 : middle.at - middle.base,
             split: connection.connection.drawSplit === true,
+            ...(connection.connection.startDock === undefined ? {}
+                : { startDock: connection.connection.startDock.side }),
+            ...(connection.connection.endDock === undefined ? {}
+                : { endDock: connection.connection.endDock.side }),
             editable,
         };
     }
@@ -867,7 +956,13 @@ export class EerFigureSet implements IFigureSet {
                 if (change.split !== undefined) {
                     model.drawSplit = change.split;
                 }
-                this.#route(connection);
+                if (change.resetDock === "start") {
+                    delete model.startDock;
+                } else if (change.resetDock === "end") {
+                    delete model.endDock;
+                }
+                // Its tables' other lines move over for it, or back.
+                this.#routeAll();
             });
         }
     }
@@ -1699,9 +1794,21 @@ export class EerFigureSet implements IFigureSet {
         };
         const line = fatLine();
         const markers = fatLine();
+        const dock = (): THREE.Mesh<THREE.CircleGeometry,
+            THREE.MeshBasicMaterial> => {
+            const made = new THREE.Mesh(
+                new THREE.CircleGeometry(DOCK_RADIUS, 16),
+                new THREE.MeshBasicMaterial());
+            made.visible = connection.visible !== false;
+            setDrawOrder(made, DRAW_ORDER.connections + 0.5);
+            this.#lifted.add(made);
+
+            return made;
+        };
         const table = this.#options.catalog.table(connection.table);
         const node: IConnectionNode = {
             connection, start, end, line, markers,
+            docks: [dock(), dock()],
             identifying: table !== undefined && foreignKey !== undefined
                 && relationshipKindOf(table, foreignKey).identifying,
             many: foreignKey?.many ?? true,
@@ -1847,6 +1954,10 @@ export class EerFigureSet implements IFigureSet {
             : host.theme.connection;
         node.line.material.color.set(color);
         node.markers.material.color.set(color);
+        // Each in its own table's colour, darkened.
+        node.docks[0].material.color.copy(dockColor(node.start.figure));
+        node.docks[1].material.color.copy(dockColor(node.end.figure));
+        this.#markEnds(node);
         const wanted = node.selected && this.#movableMiddle(node);
         if (!wanted) {
             if (node.handle !== undefined) {
@@ -1866,6 +1977,104 @@ export class EerFigureSet implements IFigureSet {
             this.#handleElevation(node) * host.lift() + Z.liftedDecoration);
         const size = CONNECTION_HANDLE_PX / host.scale();
         node.handle.scale.set(size, size, 1);
+    }
+
+    /**
+     * Gives a selected connection a handle on each end, which drags it to
+     * another side or place on its table; none for one not selected.
+     */
+    #markEnds(node: IConnectionNode): void {
+        const host = this.#host;
+        const route = node.route;
+        if (!node.selected || host === undefined || route === undefined) {
+            if (node.endHandles !== undefined) {
+                for (const handle of node.endHandles) {
+                    handle.removeFromParent();
+                    disposeGroup(handle);
+                }
+                node.endHandles = undefined;
+            }
+
+            return;
+        }
+        if (node.endHandles === undefined) {
+            node.endHandles = [this.#buildHandle(), this.#buildHandle()];
+            this.#lifted.add(...node.endHandles);
+        }
+        const size = CONNECTION_HANDLE_PX / host.scale();
+        const lift = host.lift();
+        ([["start", route.points[0]],
+            ["end", route.points[route.points.length - 1]]] as const)
+            .forEach(([which, at], index) => {
+                const handle = node.endHandles![index];
+                handle.position.set(at.x, -at.y,
+                    this.#endElevation(node, which) * lift
+                    + Z.liftedDecoration);
+                handle.scale.set(size, size, 1);
+            });
+    }
+
+    /**
+     * Shows, while a line's end is dragged, where it can dock on its
+     * table: on each side, the places the side would have with it there.
+     *
+     * @returns The points shown, to take away once it is let go.
+     */
+    #showFreeDocks(
+        dragged: IConnectionNode,
+        which: "start" | "end",
+        table: IFigureNode,
+    ): Array<THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>> {
+        const host = this.#host;
+        if (host === undefined) {
+            return [];
+        }
+        // The lines on each side of the table, the dragged end left out.
+        const counts = new Map<Side, number>([["left", 0], ["right", 0],
+            ["top", 0], ["bottom", 0]]);
+        for (const node of this.#connections) {
+            const anchors = this.#anchors.get(node.connection.id);
+            for (const end of ["start", "end"] as const) {
+                const side = end === "start"
+                    ? anchors?.startSide : anchors?.endSide;
+                const figure = end === "start" ? node.start : node.end;
+                if (side !== undefined && figure === table
+                    && !(node === dragged && end === which)) {
+                    counts.set(side, counts.get(side)! + 1);
+                }
+            }
+        }
+        const rect = this.#figureRect(table);
+        const lift = host.lift();
+        const z = this.#lineElevation(table) * lift + Z.connection;
+        const color = dockColor(table.figure);
+        const shown: Array<THREE.Mesh<THREE.CircleGeometry,
+            THREE.MeshBasicMaterial>> = [];
+        for (const [side, count] of counts) {
+            for (const at of sideSlots(rect, side, count + 1, CARD.radius)) {
+                const dock = new THREE.Mesh(
+                    new THREE.CircleGeometry(DOCK_RADIUS, 16),
+                    new THREE.MeshBasicMaterial({ color }));
+                setDrawOrder(dock, DRAW_ORDER.connections + 0.5);
+                const vertical = side === "left" || side === "right";
+                const point = vertical
+                    ? { x: side === "left" ? rect.left : rect.left + rect.width,
+                        y: at }
+                    : { x: at,
+                        y: side === "top" ? rect.top : rect.top + rect.height };
+                placeDock(dock, point, side, z, lift);
+                this.#lifted.add(dock);
+                shown.push(dock);
+            }
+        }
+        host.invalidate();
+
+        return shown;
+    }
+
+    /** @returns The height a connection's end is at: its table's line. */
+    #endElevation(node: IConnectionNode, which: "start" | "end"): number {
+        return this.#lineElevation(which === "start" ? node.start : node.end);
     }
 
     /**
@@ -1896,7 +2105,8 @@ export class EerFigureSet implements IFigureSet {
     #route(node: IConnectionNode): void {
         const route = routeConnection(this.#figureRect(node.start),
             this.#figureRect(node.end),
-            node.connection.middleSegmentOffset ?? 0);
+            node.connection.middleSegmentOffset ?? 0,
+            this.#anchors.get(node.connection.id));
         node.route = route;
         const lift = this.#host?.lift() ?? 0;
         const startZ = this.#lineElevation(node.start) * lift + Z.connection;
@@ -1944,24 +2154,57 @@ export class EerFigureSet implements IFigureSet {
         }
         node.markers.geometry.dispose();
         node.markers.geometry = sloped(markers);
+        // The docking points the line meets its tables at, on their sides.
+        placeDock(node.docks[0], route.points[0], route.startSide, startZ,
+            lift);
+        placeDock(node.docks[1], route.points[route.points.length - 1],
+            route.endSide, endZ, lift);
         this.#markConnection(node);
     }
 
+    /**
+     * @returns Where every line shown meets its tables, spread over the
+     *          sides they share.
+     */
+    #spread(): Map<string, IAnchors> {
+        return spreadAnchors(this.#connections.filter((node) => {
+            return node.connection.visible !== false;
+        }).map((node) => {
+            return {
+                id: node.connection.id,
+                startFigure: node.start.figure.id,
+                endFigure: node.end.figure.id,
+                start: this.#figureRect(node.start),
+                end: this.#figureRect(node.end),
+                startDock: node.connection.startDock,
+                endDock: node.connection.endDock,
+            };
+        }), CARD.radius);
+    }
+
     #routeAll(): void {
+        this.#anchors = this.#spread();
         for (const node of this.#connections) {
             this.#route(node);
         }
     }
 
     /**
-     * Routes the connections of some tables, the others being where they
-     * were.
+     * Routes the connections of some tables, and those of the others whose
+     * place on a side moved with them (a side shared with one that came or
+     * went, or changed its order); the rest stay as they were.
      *
      * @param tables The tables that moved or changed.
      */
     #routeOf(tables: ReadonlySet<IFigureNode>): void {
+        const before = this.#anchors;
+        this.#anchors = this.#spread();
         for (const node of this.#connections) {
-            if (tables.has(node.start) || tables.has(node.end)) {
+            const id = node.connection.id;
+            const was = before.get(id);
+            const now = this.#anchors.get(id);
+            if (tables.has(node.start) || tables.has(node.end)
+                || was?.start !== now?.start || was?.end !== now?.end) {
                 this.#route(node);
             }
         }
@@ -2022,12 +2265,35 @@ export class EerFigureSet implements IFigureSet {
         const size = CONNECTION_HANDLE_PX / scale;
         for (const node of this.#connections) {
             node.handle?.scale.set(size, size, 1);
+            for (const handle of node.endHandles ?? []) {
+                handle.scale.set(size, size, 1);
+            }
         }
     }
 
     public grabAt(probe: IProbe): IGrab | undefined {
         const scale = this.#host?.scale() ?? 1;
         const reach = (CONNECTION_HANDLE_PX / 2 + 2) / scale;
+        // An end's handle first: it sits on the line's end.
+        for (const candidate of this.#connections) {
+            const route = candidate.route;
+            if (candidate.endHandles === undefined || route === undefined) {
+                continue;
+            }
+            for (const which of ["start", "end"] as const) {
+                const at = which === "start"
+                    ? route.points[0] : route.points[route.points.length - 1];
+                const point = probe.pointOn("lifted",
+                    this.#endElevation(candidate, which));
+                if (point !== undefined && Math.abs(point.x - at.x) <= reach
+                    && Math.abs(point.y - at.y) <= reach) {
+                    return {
+                        cursor: "move",
+                        begin: () => { return this.#moveEnd(candidate, which); },
+                    };
+                }
+            }
+        }
         const node = this.#connections.find((candidate) => {
             if (candidate.handle === undefined) {
                 return false;
@@ -2047,6 +2313,45 @@ export class EerFigureSet implements IFigureSet {
         return {
             cursor: middle.axis === "x" ? "ew-resize" : "ns-resize",
             begin: () => { return this.#moveMiddle(node); },
+        };
+    }
+
+    /**
+     * Drags a connection's end around its table: it docks on the side
+     * nearest the pointer, among the lines there in the order of where it
+     * is let go, placed by hand from then on (`startDock` / `endDock`).
+     */
+    #moveEnd(node: IConnectionNode, which: "start" | "end"): IGrabSession {
+        const elevation = this.#endElevation(node, which);
+        const table = which === "start" ? node.start : node.end;
+        const free = this.#showFreeDocks(node, which, table);
+
+        return {
+            move: (probe) => {
+                const point = probe.pointOn("lifted", elevation);
+                if (point === undefined) {
+                    return;
+                }
+                const dock = nearestDock(this.#figureRect(table), point,
+                    CARD.radius);
+                if (which === "start") {
+                    node.connection.startDock = dock;
+                } else {
+                    node.connection.endDock = dock;
+                }
+                // The lines it joins or leaves on a side move over too.
+                this.#routeAll();
+            },
+            finish: () => {
+                for (const dock of free) {
+                    dock.removeFromParent();
+                    dock.geometry.dispose();
+                    dock.material.dispose();
+                }
+                this.#host?.invalidate();
+
+                return "Move Relationship Line End";
+            },
         };
     }
 
@@ -3089,6 +3394,8 @@ export class EerFigureSet implements IFigureSet {
 
             return false;
         });
+        // The lines left on its tables' sides spread out again.
+        this.#routeAll();
         this.#host?.invalidate();
     }
 

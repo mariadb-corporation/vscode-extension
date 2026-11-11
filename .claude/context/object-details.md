@@ -36,7 +36,8 @@ viewer is [`modeler.md`](modeler.md), its palette
 | `src/details/detailEdits.ts` | Pure: a table change of the view (`TableDetailChange`) as edits and their inverse (`tableDetailEdits`) |
 | `src/details/objectDetails.ts` | Pure: what the view shows (`IObjectDetailsView`), its messages, a project's object from the snapshot, a live one from `db.get_object_details` |
 | `src/details/objectDetailsProvider.ts` | One provider for both views (`mariadb.msmObjectDetails`, `mariadb.objectDetails`): the selection and the reads |
-| `webview/src/details/ObjectDetails.tsx`, `details.tsx`, `detailsStyles.css`, `vite.details.config.ts` | The page, its own build (`dist/webview/details.{js,css}`): read only, a row a line |
+| `webview/src/details/ObjectDetails.tsx`, `details.tsx`, `detailsStyles.css`, `vite.details.config.ts` | The page, its own build (`dist/webview/details.{js,css}`): the object read only, a row a line |
+| `webview/src/details/DiagramItemFields.tsx` | The diagram item selected: a figure's or a layer's place and size, a layer's tables, a line's tables, kind, offset and split |
 
 ## How it behaves
 
@@ -101,45 +102,50 @@ viewer is [`modeler.md`](modeler.md), its palette
   schema's diagram); `ObjectDetailsProvider` keeps one state per side,
   and a view is empty until something is selected on its side. Figures
   selected on a diagram post `selection` (a routine group's routines).
-  It is read only and compressed for a side bar, a row
+  The object is read only and compressed for a side bar, a row
   a line as the trees above it: a table's comment, columns (the diagram
   card's key / NOT NULL / column icons, drawn as masks in the theme's
   colour; name; then, as on the card, the type with AI and the default in
   dimmed italics, cut short with the whole row as a tooltip), indexes and foreign keys; a view's columns;
   a routine's parameters and what it returns; a trigger's, an event's and
   a sequence's settings; SQL (a view's SELECT, a body) folded away in a
-  `<details>`. Changing an object is the object editor's.
-- **The diagram item selected** (one item, `DiagramItem`): a card
-  figure's X / Y (on the page, its layer's position included), Z (its own
-  `elevation` above its layer, the viewer's field like a layer's), W / H
-  and Auto (height from content, `manualSizing` off), laid out as a design
-  tool's transform panel, last, after the object's details; a layer's tables (filed under it) and
-  X / Y / Z / W / H, changed as a drag would (its tables follow); a
-  relationship line's source and target tables, its kind (1:1 / 1:n,
-  identifying: a schema change, `relationshipKindChange` - the primary
-  key and a `<fk>_UNIQUE` index as the relationship tools make them -
-  sent through `DiagramTools.changeSchema`, undone and taken back as
-  theirs; refused where the key's columns are the whole primary key, or
-  where an unnamed column UNIQUE makes it 1:1, which `mariadb-lsp edit`
-  drops by its columns with no migration, so deployed schemas would keep
-  it). A unique index the key relies on cannot be dropped while the key
-  is there (MariaDB 1553; the binary refuses `referenced`), so 1:n and
-  the undo of 1:1 drop the key, the index, and add the key again; with
-  `merge_alters` the two drops merge into one ALTER and the key comes
-  back in its own. Checked against the real binary.
-  middle segment offset and Split, the line alone with no schema object.
-  `DiagramItemFields.tsx`; a field commits on Enter or blur, Escape puts it
-  back; read only on a live schema's diagram. The viewer posts it with
-  `selection` and again as `item` after every history change (moves,
-  undo); the provider keeps it per side with the panel's editor
+  `<details>`. Changing an object is the object editor's;
+  `detailEdits.ts` (a table change as edits and their inverse) stays for
+  it, and the diagram uses it (`ModelerPanel.applySchemaChange`). After a
+  schema edit, made or refused as the project changed, the view reads the
+  object again (`refreshed`). Nothing is read while a side's view does
+  not show: the object selected meanwhile is read once it does.
+- **The diagram item selected** (exactly one, `DiagramItem`), last, after
+  the object's details, editable (read only on a live schema's diagram,
+  as the diagram is), `DiagramItemFields.tsx`:
+  - a card figure: X / Y (on the page, its layer's position included),
+    Z (its own `elevation` above its layer), W / H and Auto (height from
+    content, `manualSizing` off), laid out as a design tool's transform
+    panel (X / W, Y / H, Z / Auto under H's input);
+  - a layer (no schema object): its tables (filed under it) and
+    X / Y / Z / W / H, changed as a drag would, so its tables follow;
+  - a relationship line (no schema object): its source and target
+    tables, kind, middle segment offset and Split.
+  A field commits on Enter or blur; Escape puts it back. The viewer posts
+  the item with `selection` and again as `item` after every history change
+  (moves, undo); the provider keeps it per side with the panel's editor
   (`ISelectedItem`) and sends the view's `changeItem` to that diagram,
   where `EerFigureSet.changeItem` makes it one undoable action. A tree row
-  selected drops it. `detailEdits.ts` (a table change as edits and their
-  inverse) stays for it, and the diagram uses it
-  (`ModelerPanel.applySchemaChange`). After a schema edit, made or
-  refused as the project changed, the view reads the object again
-  (`refreshed`). Nothing is read while a side's view does not show: the
-  object selected meanwhile is read once it does.
+  selected drops it.
+- **A relationship's kind** (1:1 / 1:n, identifying or not:
+  `relationshipKindOf`, as msm derives `many`) is changed as a schema
+  change (`relationshipKindChange`, sent through
+  `DiagramTools.changeSchema`, undone and taken back as the tools'
+  changes): identifying adds the key's columns to the child's primary key
+  after its own columns, 1:1 adds a `<fk>_UNIQUE` index, 1:n drops the
+  unique indexes over exactly the key's columns. A unique index the key
+  relies on cannot be dropped while the key is there (MariaDB 1553;
+  `mariadb-lsp edit` refuses `referenced`), so 1:n and the undo of 1:1
+  drop the key, the index, and add the key again; with `merge_alters`
+  the two drops merge into one ALTER and the key comes back in its own.
+  Refused: the key's columns are the child's whole primary key; or an
+  unnamed column UNIQUE makes it 1:1, which the binary would drop by its
+  columns with no migration, so deployed schemas would keep it.
 - **Live objects** come from `db.get_object_details`, mapped into the
   outline's shapes (`liveDetails`): a table's columns, its primary and
   unique keys (`constraints`), the foreign keys it holds (`references`
@@ -179,4 +185,5 @@ viewer is [`modeler.md`](modeler.md), its palette
 
 ## Not yet tried in VS Code
 
-The compressed Object Details view at the side bars' widths.
+The compressed Object Details view at the side bars' widths, the
+diagram item's fields among them.

@@ -62,7 +62,10 @@ const VIEW = "MSM Projects";
 const SCHEMA = "msm_view";
 const DIAGRAM = "Main";
 const PROJECT = join(WORKSPACE, "projects", `${SCHEMA}.msm.project`);
-const SCHEMA_ROW = [SCHEMA, SCHEMA];
+/** The project's row: named as its schema. */
+const PROJECT_ROW = SCHEMA;
+/** The project's schema row, below its Diagrams row. */
+const SCHEMA_ROW = [PROJECT_ROW, SCHEMA];
 
 const TABLES = `
 CREATE TABLE IF NOT EXISTS \`customer\` (
@@ -150,7 +153,7 @@ describe("MSM schema diagrams", () => {
     });
 
     it("makes a diagram and opens it", async () => {
-        await menuAction(await view(), [...SCHEMA_ROW, "Diagrams"],
+        await menuAction(await view(), [PROJECT_ROW, "Diagrams"],
             ["New Schema Diagram..."], async () => {
                 try {
                     await InputBox.create(1000);
@@ -165,7 +168,7 @@ describe("MSM schema diagrams", () => {
             return (await new EditorView().getOpenEditorTitles())
                 .includes(`${DIAGRAM} (${SCHEMA})`);
         }, "the diagram's editor", SERVER_TIMEOUT);
-        await hasTreeItem(await view(), [...SCHEMA_ROW, "Diagrams", DIAGRAM]);
+        await hasTreeItem(await view(), [PROJECT_ROW, "Diagrams", DIAGRAM]);
         await screenshot("11-diagram-open");
     });
 
@@ -196,7 +199,7 @@ describe("MSM schema diagrams", () => {
 
     it("lays the diagram out from its row's menu, once asked", async () => {
         const before = places();
-        await menuAction(await view(), [...SCHEMA_ROW, "Diagrams", DIAGRAM],
+        await menuAction(await view(), [PROJECT_ROW, "Diagrams", DIAGRAM],
             ["Auto Layout Schema Diagram..."], async () => {
                 return await new ModalDialog().isDisplayed()
                     .catch(() => { return false; });

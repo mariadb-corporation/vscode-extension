@@ -266,6 +266,18 @@ export interface IModelConnection {
     caption?: string;
     middleSegmentOffset?: number;
     drawSplit?: boolean;
+    /**
+     * Ends placed by hand on a side of their table, and where among the
+     * lines there (0 to 1 along it). The viewer's own; Workbench has none.
+     */
+    startDock?: IConnectionDock;
+    endDock?: IConnectionDock;
+}
+
+/** A connection's end placed by hand on a side of its table. */
+export interface IConnectionDock {
+    side: "left" | "right" | "top" | "bottom";
+    at: number;
 }
 
 /** An EER diagram. */

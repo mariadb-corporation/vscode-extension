@@ -33,6 +33,7 @@ import type {
     IDiagramConnectionItem,
     IDiagramFigureItem,
     IDiagramLayerItem,
+    DockSide,
 } from "../../../src/details/objectDetails.js";
 
 /** Page units with one decimal at most, in the user's notation. */
@@ -130,6 +131,46 @@ const CheckField = ({ label, checked, readOnly, onChange }:
 
 type ChangeItem = (change: DiagramItemChange) => void;
 
+/** The sides, as the view names them. */
+const SIDE_NAMES: Record<DockSide, string> = {
+    left: "Left", right: "Right", top: "Top", bottom: "Bottom",
+};
+
+/**
+ * A line's end placed by hand: its side, and a button that puts it back
+ * on the automatic layout.
+ */
+const DockRow = ({ label, side, readOnly, onReset }: {
+    label: string;
+    side: DockSide;
+    readOnly: boolean;
+    onReset(): void;
+}): JSX.Element => {
+    return <tr>
+        <th>{label}</th>
+        <td className="itemDock">
+            <span>{SIDE_NAMES[side]} side</span>
+            <span className="detailsMuted">placed by hand</span>
+            {readOnly ? null
+                : <button type="button" className="itemReset"
+                    title="Reset to the automatic layout"
+                    aria-label={`Reset the ${label.toLowerCase()} to the `
+                        + "automatic layout"}
+                    onClick={onReset}>
+                    <svg viewBox="0 0 16 16" width="14" height="14"
+                        aria-hidden="true">
+                        <g fill="none" stroke="currentColor"
+                            stroke-width="1.3" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <path d="M3.5 8a4.5 4.5 0 1 0 1.3-3.2" />
+                            <path d="M4.5 2v3h3" />
+                        </g>
+                    </svg>
+                </button>}
+        </td>
+    </tr>;
+};
+
 /** A table figure or a layer: X / W, Y / H, Z and a figure's Auto. */
 const FigureFields = ({ item, change }: {
     item: IDiagramFigureItem | IDiagramLayerItem;
@@ -192,6 +233,14 @@ const ConnectionFields = ({ item, change }:
         <table className="detailsGrid"><tbody>
             <tr><th>Source table</th><td>{item.source}</td></tr>
             <tr><th>Target table</th><td>{item.target}</td></tr>
+            {item.startDock === undefined ? null
+                : <DockRow label="Source end" side={item.startDock}
+                    readOnly={readOnly}
+                    onReset={() => { change({ resetDock: "start" }); }} />}
+            {item.endDock === undefined ? null
+                : <DockRow label="Target end" side={item.endDock}
+                    readOnly={readOnly}
+                    onReset={() => { change({ resetDock: "end" }); }} />}
         </tbody></table>
         {item.many === undefined || item.identifying === undefined ? null
             : <div className="itemGrid itemGridWide">

@@ -114,8 +114,14 @@ export interface IDiagramConnectionItem {
     many?: boolean;
     /** Whether the foreign key's columns are in the source's primary key. */
     identifying?: boolean;
+    /** The side of each end placed by hand; left out where automatic. */
+    startDock?: DockSide;
+    endDock?: DockSide;
     editable: boolean;
 }
+
+/** A side of a table a line's end can be placed on. */
+export type DockSide = "left" | "right" | "top" | "bottom";
 
 /** The one diagram item selected, as the view shows it. */
 export type DiagramItem = IDiagramFigureItem | IDiagramLayerItem
@@ -126,7 +132,11 @@ export type DiagramItemChange = Partial<
     Pick<IDiagramFigureItem, "x" | "y" | "z" | "width" | "height"
         | "autoHeight">
     & Pick<IDiagramConnectionItem, "offset" | "split" | "many"
-        | "identifying">>;
+        | "identifying">
+    & {
+        /** An end placed by hand put back on the automatic layout. */
+        resetDock: "start" | "end";
+    }>;
 
 /**
  * What the view is sent: an object to show (with the diagram item it was

@@ -138,12 +138,17 @@ figure sets, so the canvas knows nothing of tables or layers:
 - **A figure set** (`IFigureSet`) draws into the canvas's two groups -
   `base` on the page, `lifted` rising in 3D - and answers for its items:
   `itemAt(probe)`, `item(id)` (an `ICanvasItem`: id, plane, `rect()`,
-  `resizable`, least size, `elevation()`, `elevatable`, `menuBand`),
+  `resizable`, least size, `elevation()`, `elevatable`, `menuBand`,
+  `outlined: false` for an item the set marks selected itself, such as a
+  line),
   `beginMove` / `beginResize` / `beginElevate` sessions (the set decides
   what moves along), `snapshot` / `sameSnapshot` / `restore` (the canvas
   records every move, resize, raise and `host.change(...)` as one undo
   step from them), `menu` / `runCommand`, `doubleClick` (which may call
-  `host.startEdit(spec)`), `viewChanged`, `zoomSettled`.
+  `host.startEdit(spec)`), `viewChanged`, `zoomSettled`;
+  `selectionChanged(ids)`, `grabAt(probe)` (a handle the set draws, the
+  canvas recording its drag as one undo step) and `beforeRender` (sizes
+  kept in screen pixels).
 - **`webview/src/modeler/`, the EER diagram.** `EerFigureSet.ts` (one per
   model; `show(diagram)` picks the diagram, `canvas.load(set, paper)`
   draws it; history kept across a model's diagrams, cleared for another
@@ -157,9 +162,11 @@ figure sets, so the canvas knows nothing of tables or layers:
 - **three.js, not Pixi.** One scene, one `OrthographicCamera`; the 2D view
   looks straight down, the 3D one is the same camera turned and tilted
   (`TOP_VIEW`, `isoQuaternion`, slerped over 400 ms). Presets
-  (`ISO_PRESETS`): True Isometric (35.26° tilt, 45° turn), Steep (45°,
-  45°), Upright (50°, 30°, the default). True isometric looked pinched to
-  the user (58% of the page's depth kept; the others 71% and 77%).
+  (`ISO_PRESETS`): True Isometric (35.26° tilt, 45° turn, the default,
+  `DEFAULT_ISO_PRESET`), Steep (45°, 45°), Upright (50°, 30°). True
+  isometric keeps 58% of the page's depth, the others 71% and 77%; the
+  preset picked is the webview's, kept in its state, so the default is
+  what a viewer without one opens with.
 - **The Isometric button is a split button**: the main part goes to the
   3D view last chosen, only the chevron opens the list; a pick also goes
   to the 3D view. Kept in the webview's state (`saveState` / `loadState`).
@@ -252,15 +259,19 @@ shortcuts: see [modeler-view.md](modeler-view.md).
   with the tables filed under it. Elevation scales with the lift, so 2D
   stays flat; a foreign key between tables at different heights keeps
   its first and last segments at their tables' heights and spans the
-  difference in its middle segment alone. Everything the canvas places (outline, handles, menu
+  difference in its middle segment alone. Lines meet each table halfway
+  down its slab (`#lineElevation`). A figure can also stand above its
+  layer (`figure.elevation`, the viewer's own, 0..240, set from Object
+  Details' Z). Everything the canvas places (outline, handles, menu
   button, input, hit tests, drags) uses an item's own height.
 - **Menus.** A table's: Edit Table... (the table editor, see
   [`table-editor.md`](table-editor.md); `onEditTable` → `editTable`), Collapse / Expand, Show Indexes, Show Foreign
   Keys, Auto-Size Height, Rename Table. A layer's: Rename Layer, Select
   Tables on Layer, Fit to Tables (`fitAround`: 20 around, 26 above for the
   name). Opened by a right-click, or the hamburger an item shows while
-  selected OR under the pointer (`menuBand`: the header for a table, the
-  name's band for a layer), 60% of the band's height (so it scales with
+  selected OR under the pointer (`menuBand`: the header for a table; for
+  a layer a band as high as a card's header centred on the name's line,
+  so both buttons are one size), 60% of the band's height (so it scales with
   the zoom; not drawn under 8px), its right edge a fixed distance from the
   item's in page units - what half a handle and 4px are at 200%, where it
   looked best (`MENU_BUTTON_REFERENCE_ZOOM`) - so it keeps its place on the
@@ -280,7 +291,8 @@ shortcuts: see [modeler-view.md](modeler-view.md).
   written back to `figure.height`, unless sized by hand from the top or
   bottom edge; cut-off content is not hit.
 - **Undo.** Snapshot-based for moves, resizes, raises and menu changes
-  (`FigureState` incl. `layer`; `LayerState` incl. `name`, `elevation`);
+  (`FigureState` incl. `layer`, `elevation`; `LayerState` incl. `name`,
+  `elevation`; `ConnectionState`: `middleSegmentOffset`, `drawSplit`);
   renames of tables and columns are actions of their own, covering every
   diagram and connection of the model. Cmd+Z / Cmd+Shift+Z (Ctrl
   elsewhere); the history is kept (`entries`, `onHistory`) for a list the
@@ -296,7 +308,10 @@ shortcuts: see [modeler-view.md](modeler-view.md).
   font, blob worker and missing font file do not pass the webview's CSP.
   Redrawn at a step of device pixels per unit 150 ms after the zoom
   settles (`zoomSettled`).
-- **Each card has a slab** (8 units, shaded by baked vertex colours from
+- **Each card has a slab** (`CARD_THICKNESS` 20 units: just room for the
+  header's icon and bold title, which its front side shows in the
+  header's text colour - `drawSideLabel`, a plane that is the slab's
+  child so it grows with it; shaded by baked vertex colours from
   a light at the upper left), flat in 2D, growing with the lift. It is
   inset a unit inside the card (`SLAB_INSET`): as large as the card, its
   light top showed through the card's anti-aliased corners as a fringe.

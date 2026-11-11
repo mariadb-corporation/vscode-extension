@@ -249,6 +249,32 @@ body {
     grid-column: 4;
 }
 
+/* An end placed by hand: its side, then the button that resets it. */
+.itemDock {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.itemReset {
+    display: inline-flex;
+    padding: 2px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vscode-icon-foreground, var(--vscode-foreground));
+    cursor: pointer;
+}
+
+.itemReset:hover {
+    background: var(--vscode-toolbar-hoverBackground,
+        rgba(128, 128, 128, 0.3));
+}
+
+.itemReset:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+}
+
 .itemCheck {
     display: inline-flex;
     align-items: center;

@@ -105,4 +105,17 @@ describe("the diagram item's fields", () => {
         fireEvent.click(screen.getByLabelText("Identifying"));
         expect(change).toHaveBeenCalledWith({ identifying: true });
     });
+
+    it("shows an end placed by hand, and resets it", () => {
+        const change = vi.fn();
+        render(<DiagramItemFields item={{ kind: "connection", id: "c1",
+            source: "orders", target: "customers", offset: 0, split: false,
+            endDock: "top", editable: true }} change={change} />);
+
+        expect(screen.getByText("Top side")).toBeTruthy();
+        expect(screen.queryByText("Source end")).toBeNull();
+        fireEvent.click(screen.getByLabelText(
+            "Reset the target end to the automatic layout"));
+        expect(change).toHaveBeenCalledWith({ resetDock: "end" });
+    });
 });

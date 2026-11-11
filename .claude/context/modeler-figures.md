@@ -35,10 +35,38 @@ type (`FIGURE_COLORS`) where a figure has none.
 - Any other type is a frame saying the viewer does not show it.
 - **Connections** are drawn between table figures only (views and
   routines have none, as Workbench); a key that is not `many` gets a bar
-  at its start instead of a crow's foot. **Lines follow the foreign key
-  definitions, not their names** (the user's rule, after a table editor
-  save dropped and re-added keys and msm's `reconcile_diagram` deleted
-  the lines): `connectionSync.ts` matches each stored connection (child =
+  at its start instead of a crow's foot. **Lines sharing a side spread
+  over it** (`spreadAnchors`, the user's rule): the side's straight part
+  (the corner radius left out at each end, so none docks on a rounded
+  corner) is split into n + 2 parts for n lines, which meet it at the
+  middles of the inner n - one in the middle, two at 3/8 and 5/8, three
+  at 3/10, 5/10, 7/10 - in the order of their other tables along the
+  side, so they do not cross; a self reference takes a spot on the right
+  side (first) and the top (last); hidden lines take none. Both ends of a
+  line are spread, so a Z's ends need not be level. `routeConnection`
+  and the spread pick sides with one function (`sidesOf`). Moving tables
+  reroutes their lines and every line whose spot changed (`#routeOf`).
+  **An end can be placed by hand**: a selected line has a handle on each
+  end; dragging one docks it on the side of its table the pointer is
+  beyond (inside the card, the nearest edge; `nearestDock`), its `at`
+  (0..1 along the straight part) its place in the order there, the side
+  still spread evenly - so a drop between two lines swaps it in. Kept as
+  `startDock` / `endDock` on the connection (the viewer's own; msm keeps
+  them), undoable, shown in Object Details with a reset button
+  (`resetDock`). While dragging, the places it could take show on every
+  side (`#showFreeDocks`, `sideSlots`). Ends on sides that do not face
+  each other go 20 out (`STUB`) and join at right angles: an L where the
+  corner lies ahead of both, a U for the same way out, an S across the
+  middle for sides facing away; the middle-segment handle is the facing
+  Z's only. **Docking points**: a disc (radius `DOCK_RADIUS` 4) in its
+  table's colour darkened (`DOCK_SHADE`, `dockColor`) where each line
+  meets its table, upright on the slab's
+  side face at the line's height and growing with the lift (`placeDock`),
+  so none shows in 2D.
+  **Lines follow the foreign key
+  definitions, not their names** (the user's rule: a key the table
+  editor drops and adds again under another name, or one renamed in the
+  SQL, must keep its line and the line's settings): `connectionSync.ts` matches each stored connection (child =
   start figure's table, parent = end figure's) to the child's key of its
   name that references the parent, else to the child's first key onto
   the parent no other connection between those two figures has (keys had
