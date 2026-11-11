@@ -68,6 +68,15 @@ import {
     type IObjectRow,
     type ISchemaRow,
 } from "./schemaTree.js";
+import {
+    parseRestScript,
+    scriptObjects,
+    scriptSchemas,
+    scriptServices,
+    type IRestScriptEntry,
+} from "../mrs/restScript.js";
+import type { IMrsObject, IMrsSchema, IMrsService } from "../mrs/mrsTypes.js";
+import { MRS_ROOT_LABEL, MrsTreeItem } from "./mrsTreeItems.js";
 import { FolderTreeItem } from "./treeItems.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
 import { errorText } from "../text.js";
@@ -169,9 +178,61 @@ export interface IMsmObjectGroupNode extends IMsmProjectPlace, IObjectGroupRow {
 /** A table, view or routine of the project's development script. */
 export interface IMsmObjectNode extends IMsmProjectPlace, IObjectRow {}
 
+/**
+ * A project's REST SQL: MSM Section 180 of its development script, which
+ * the MariaDB REST Service row is drawn from.
+ */
+export interface IMsmRestDefinition {
+    /** The development script. */
+    file: string;
+    /** The section's body. */
+    sql: string;
+    /** The line of the script the body starts on, counted from 0. */
+    line: number;
+}
+
+/** Where a REST row's statement is, which a click on it opens. */
+export interface IMsmRestPlace extends IMsmProjectPlace {
+    file: string;
+    /** Counted from 0. */
+    line: number;
+}
+
+/**
+ * A project's MariaDB REST Service row, below its schema: the REST
+ * services its development script creates.
+ */
+export interface IMsmRestRootNode extends IMsmProjectPlace {
+    kind: "restRoot";
+}
+
+/** A REST service a project's development script creates. */
+export interface IMsmRestServiceNode extends IMsmRestPlace {
+    kind: "restService";
+    service: IMrsService;
+}
+
+/** A REST schema of such a service. */
+export interface IMsmRestSchemaNode extends IMsmRestPlace {
+    kind: "restSchema";
+    service: IMrsService;
+    schema: IMrsSchema;
+}
+
+/** A REST object of such a schema. */
+export interface IMsmRestObjectNode extends IMsmRestPlace {
+    kind: "restObject";
+    service: IMrsService;
+    schema: IMrsSchema;
+    object: IMrsObject;
+}
+
+export type MsmRestNode = IMsmRestRootNode | IMsmRestServiceNode
+    | IMsmRestSchemaNode | IMsmRestObjectNode;
+
 export type MsmProjectsNode = IMsmFolderNode | IMsmProjectNode | IMsmFileNode
     | IMsmSchemaNode | IMsmDiagramsNode | IMsmDiagramNode
-    | IMsmObjectGroupNode | IMsmObjectNode;
+    | IMsmObjectGroupNode | IMsmObjectNode | MsmRestNode;
 
 /**
  * The command a click on a project's diagram runs: VS Code has no
@@ -209,6 +270,14 @@ export interface IMsmProjectsHost {
     msmApi(): Promise<IMsmApi>;
     /** The icons of a schema's rows, as the Connections view has them. */
     resolveIcon: IconResolver;
+    /**
+     * @param projectPath A project folder.
+     *
+     * @returns Its REST SQL, or undefined where its development script
+     *          has no section for it.
+     */
+    restDefinition?(projectPath: string):
+        Promise<IMsmRestDefinition | undefined>;
     /** How the server's startup is going, which the welcome content says. */
     status?: IServerStatus;
     /** Where the folders, collapsed folders and colors persist. */
@@ -312,6 +381,8 @@ export class MsmProjectsTreeProvider
     /** Each project's schema snapshot, until the next refresh. */
     readonly #snapshots =
         new Map<string, Promise<ISchemaDefinition | undefined>>();
+    /** Each project's REST SQL as read, until the next refresh. */
+    readonly #rest = new Map<string, Promise<IRestRead | undefined>>();
     readonly #viewState: ViewStateTracker;
 
     public readonly customFolders: FolderSet;
@@ -346,6 +417,7 @@ export class MsmProjectsTreeProvider
         this.#listing = undefined;
         this.#listings.clear();
         this.#snapshots.clear();
+        this.#rest.clear();
         this.#onDidChangeTreeData.fire(undefined);
     }
 
@@ -382,6 +454,7 @@ export class MsmProjectsTreeProvider
     public refreshProject(projectPath: string): void {
         this.#listings.delete(projectPath);
         this.#snapshots.delete(projectPath);
+        this.#rest.delete(projectPath);
         this.#onDidChangeTreeData.fire(undefined);
     }
 
@@ -498,6 +571,13 @@ export class MsmProjectsTreeProvider
                 return item;
             }
 
+            case "restRoot":
+            case "restService":
+            case "restSchema":
+            case "restObject": {
+                return restItem(node, this.host.resolveIcon);
+            }
+
             default: {
                 return fileItem(node);
             }
@@ -526,11 +606,13 @@ export class MsmProjectsTreeProvider
                         filesIn(node.project.projectPath),
                     ]);
 
-                    // The diagrams first, right below the project.
+                    // The diagrams first, right below the project; what
+                    // is served of the schema over REST below it.
                     return [
                         { kind: "diagrams", projectPath: schema.projectPath,
                             schema: schema.schema },
                         schema,
+                        { kind: "restRoot", projectPath: schema.projectPath },
                         ...files,
                     ];
                 }
@@ -552,8 +634,15 @@ export class MsmProjectsTreeProvider
                         outlineObjects(definition, node.objectType));
                 }
 
+                case "restRoot":
+                case "restService":
+                case "restSchema": {
+                    return await this.#restChildren(node);
+                }
+
                 case "diagram":
-                case "object": {
+                case "object":
+                case "restObject": {
                     return [];
                 }
 
@@ -611,6 +700,85 @@ export class MsmProjectsTreeProvider
             return schemaDefinitionOf(await (await this.host.msmApi())
                 .getSchemaDiagrams(projectPath, listing.diagrams[0]?.name));
         });
+    }
+
+    /**
+     * @param node A project's MariaDB REST Service row, a service or a REST
+     *             schema under it.
+     *
+     * @returns The rows under it, as the development script's REST SQL
+     *          creates them, in the script's order.
+     */
+    async #restChildren(
+        node: IMsmRestRootNode | IMsmRestServiceNode | IMsmRestSchemaNode,
+    ): Promise<MsmRestNode[]> {
+        const { projectPath } = node;
+        const read = await this.#cached(this.#rest, projectPath, async () => {
+            const definition = await this.host.restDefinition?.(projectPath);
+
+            return definition === undefined ? undefined
+                : { definition, entries: parseRestScript(definition.sql) };
+        });
+        if (read === undefined) {
+            return [];
+        }
+        const { definition, entries } = read;
+        // What a list of the script's holds, each with its statement's
+        // place: the lists keep the entries' order.
+        const placed = <T>(kind: IRestScriptEntry["kind"], items: T[],
+            belongs: (entry: IRestScriptEntry) => boolean,
+        ): Array<{ item: T; place: IMsmRestPlace }> => {
+            const of = entries.filter((entry) => {
+                return entry.kind === kind && belongs(entry);
+            });
+
+            return items.map((item, index) => {
+                return { item, place: {
+                    projectPath, file: definition.file,
+                    line: definition.line + definition.sql
+                        .slice(0, of[index]?.start ?? 0).split("\n").length - 1,
+                } };
+            });
+        };
+        const same = (left?: string, right?: string): boolean => {
+            return left?.toLowerCase() === right?.toLowerCase();
+        };
+
+        switch (node.kind) {
+            case "restRoot": {
+                return placed("service", scriptServices(entries), () => {
+                    return true;
+                }).map(({ item, place }) => {
+                    return { kind: "restService", ...place, service: item };
+                });
+            }
+
+            case "restService": {
+                const path = node.service.full_service_path;
+
+                return placed("schema", scriptSchemas(entries, path),
+                    (entry) => { return same(entry.servicePath, path); },
+                ).map(({ item, place }) => {
+                    return { kind: "restSchema", ...place,
+                        service: node.service, schema: item };
+                });
+            }
+
+            default: {
+                const path = node.service.full_service_path;
+                const schemaPath = node.schema.request_path;
+
+                return placed("object",
+                    scriptObjects(entries, path, schemaPath), (entry) => {
+                        return same(entry.servicePath, path)
+                            && same(entry.schemaPath, schemaPath);
+                    }).map(({ item, place }) => {
+                    return { kind: "restObject", ...place,
+                        service: node.service, schema: node.schema,
+                        object: item };
+                });
+            }
+        }
     }
 
     /**
@@ -1042,6 +1210,27 @@ const rowIdOf = (node: Exclude<MsmProjectsNode, IMsmFolderNode>): string => {
                 + node.name;
         }
 
+        case "restRoot": {
+            return `msmRest:${node.projectPath}`;
+        }
+
+        case "restService": {
+            return `msmRestService:${node.projectPath}:`
+                + node.service.full_service_path;
+        }
+
+        case "restSchema": {
+            return `msmRestSchema:${node.projectPath}:`
+                + `${node.service.full_service_path}:`
+                + node.schema.request_path;
+        }
+
+        case "restObject": {
+            return `msmRestObject:${node.projectPath}:`
+                + `${node.service.full_service_path}:`
+                + `${node.schema.request_path}:${node.object.request_path}`;
+        }
+
         default: {
             return `msmFile:${node.path}`;
         }
@@ -1165,6 +1354,68 @@ const diagramItem = (
 
     return item;
 };
+
+/** The context values of a project's REST rows, which their menus go by. */
+export const MSM_REST_CONTEXT = {
+    restRoot: "mariadbMsmRestRoot",
+    restService: "mariadbMsmRestService",
+    restSchema: "mariadbMsmRestSchema",
+    restObject: "mariadbMsmRestObject",
+} as const;
+
+/**
+ * @param node A project's MariaDB REST Service row, or a row under it.
+ * @param resolveIcon The icons' lookup.
+ *
+ * @returns Its row, drawn as the Connections view draws a server's - the
+ *          same icons, labels and descriptions - with a context value of
+ *          its own, so a server's menus stay off it; a click opens the
+ *          development script on its statement.
+ */
+const restItem = (
+    node: MsmRestNode,
+    resolveIcon: IconResolver,
+): vscode.TreeItem => {
+    if (node.kind === "restRoot") {
+        const item = new vscode.TreeItem(MRS_ROOT_LABEL,
+            vscode.TreeItemCollapsibleState.Collapsed);
+        item.id = rowIdOf(node);
+        item.iconPath = resolveIcon("mrs.svg");
+        item.contextValue = MSM_REST_CONTEXT.restRoot;
+        item.tooltip = "The REST services of the project, kept in MSM "
+            + "Section 180 of its development script";
+
+        return item;
+    }
+
+    const base = { uri: node.projectPath, showPrivate: true };
+    const item: vscode.TreeItem = new MrsTreeItem(
+        node.kind === "restService"
+            ? { ...base, kind: "mrsService", service: node.service }
+            : node.kind === "restSchema"
+                ? { ...base, kind: "mrsSchema", service: node.service,
+                    schema: node.schema }
+                : { ...base, kind: "mrsObject", service: node.service,
+                    schema: node.schema, object: node.object },
+        resolveIcon);
+    item.id = rowIdOf(node);
+    item.contextValue = MSM_REST_CONTEXT[node.kind];
+    item.command = {
+        command: "vscode.open",
+        title: "Open",
+        arguments: [vscode.Uri.file(node.file), {
+            selection: new vscode.Range(node.line, 0, node.line, 0),
+        }],
+    };
+
+    return item;
+};
+
+/** A project's REST SQL, and what it creates. */
+interface IRestRead {
+    definition: IMsmRestDefinition;
+    entries: IRestScriptEntry[];
+}
 
 /**
  * @param node A file or folder in a project.

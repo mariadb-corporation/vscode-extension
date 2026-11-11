@@ -206,6 +206,12 @@ MSM Projects (`mariadb.msmProjects`).
   `context/siblings.md`), so the `--gui` server of this extension is the
   only one that reaches it; only that server offers the argument.
 
+## REST services of a project
+
+A project's MariaDB REST Service row, below its schema, and the REST
+commands on its schema and object rows: see "REST in MSM projects" in
+[mrs.md](mrs.md).
+
 ## New MSM Project from Schema, adding schema objects
 
 See [msm-schema-objects.md](msm-schema-objects.md).

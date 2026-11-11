@@ -25,6 +25,7 @@ import type {
     JsonObject,
 } from "./mrsTypes.js";
 import {
+    createRest,
     objectKeyword,
     objectOptions,
     qualifiedName,
@@ -932,6 +933,8 @@ export interface IObjectPlace {
  * @param settings Its settings.
  * @param existingPath Its request path as it is now, to ALTER it; left out
  *        to CREATE it.
+ * @param forScript Whether a new one is kept in a script that is run again
+ *        and again: `CREATE OR REPLACE`.
  *
  * @returns The REST SQL.
  */
@@ -940,6 +943,7 @@ export const objectSql = (
     place: IObjectPlace,
     settings: IObjectSettings,
     existingPath?: string,
+    forScript = false,
 ): string => {
     const keyword = objectKeyword(document.objectType);
     const where = `ON SERVICE ${quoteServicePath(place.servicePath)} `
@@ -947,12 +951,17 @@ export const objectSql = (
     const routine = isRoutine(document.objectType);
     const lines: string[] = existingPath === undefined
         ? [
-            `CREATE REST ${keyword} ${quoteRequestPath(place.requestPath)}`,
+            `${createRest(forScript)} ${keyword} `
+            + quoteRequestPath(place.requestPath),
             `    ${where}`,
             `    AS ${qualifiedName(document.dbSchema, document.dbObject)}`
             + (routine ? "" : ` CLASS ${quoteIdentifier(document.className)}`
                 + crudSuffix(document.crud)
-                + ` ${mappingText(document.fields, 4)}`),
+                // Where a script's object has no column known at all -
+                // a project's view without a column list - the fields
+                // are left to the server, which makes one of each column.
+                + (forScript && document.fields.length === 0
+                    ? "" : ` ${mappingText(document.fields, 4)}`)),
         ]
         : [
             `ALTER REST ${keyword} ${quoteRequestPath(existingPath)}`,

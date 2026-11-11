@@ -293,7 +293,32 @@ describe("the MSM Projects view's menus", () => {
             .toEqual([MSM_SCHEMA_COMMANDS.updateSnapshot]);
         expect(onRow("mariadbMsmSchema", false)).toEqual([
             MSM_SCHEMA_COMMANDS.updateSnapshot, MSM_DIAGRAM_COMMANDS.create,
-            MSM_SCHEMA_COMMANDS.rename]);
+            MSM_SCHEMA_COMMANDS.rename, "mariadb.mrs.addSchema"]);
+    });
+
+    it("adds a REST service from a project's MariaDB REST Service row, its "
+        + "+ and its menu, with the Connections view's command", () => {
+        expect(onRow("mariadbMsmRestRoot", true))
+            .toEqual(["mariadb.mrs.addService"]);
+        expect(onRow("mariadbMsmRestRoot", false))
+            .toEqual(["mariadb.mrs.addService"]);
+    });
+
+    it("adds a project's tables, views, procedures and functions to a REST "
+        + "service, as the Connections view's", () => {
+        for (const type of ["table", "view", "procedure", "function"]) {
+            expect(onRow(`mariadbMsmObject.${type}`, false), type)
+                .toContain("mariadb.mrs.addDbObject");
+        }
+        for (const type of ["trigger", "event", "sequence"]) {
+            expect(onRow(`mariadbMsmObject.${type}`, false), type)
+                .not.toContain("mariadb.mrs.addDbObject");
+        }
+        // A server's REST rows have menus a project's cannot serve.
+        for (const row of ["mariadbMsmRestService", "mariadbMsmRestSchema",
+            "mariadbMsmRestObject"]) {
+            expect(onRow(row, false), row).toEqual([]);
+        }
     });
 
     it("adds an empty diagram from the Diagrams folder's + and its menu, "

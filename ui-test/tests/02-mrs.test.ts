@@ -172,7 +172,7 @@ describe("MariaDB REST Service", () => {
     });
 
     it("refuses a reserved service path", async () => {
-        const title = "Enter Configuration Values for the New REST Service";
+        const title = "Add New REST Service";
         await openDialog(connections, ROOT,
             ["Add REST Service..."], title);
         await inDialog(title, async (view) => {
@@ -185,7 +185,7 @@ describe("MariaDB REST Service", () => {
     });
 
     it("adds a REST service", async () => {
-        const title = "Enter Configuration Values for the New REST Service";
+        const title = "Add New REST Service";
         await openDialog(connections, ROOT,
             ["Add REST Service..."], title);
         await inDialog(title, async (view) => {

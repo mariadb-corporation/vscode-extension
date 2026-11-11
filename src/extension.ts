@@ -152,6 +152,14 @@ import type { IActionRow } from "./webview/protocol.js";
 import { reportMrsAction } from "./mrs/mrsActivity.js";
 import { MrsApi } from "./mrs/mrsApi.js";
 import { MrsCommands } from "./mrs/mrsCommands.js";
+import { describeRestSql } from "./mrs/mrsActions.js";
+import {
+    REST_SECTION,
+    restSectionEdit,
+    restSectionOf,
+} from "./mrs/restScript.js";
+import type { IRestSource } from "./mrs/restSource.js";
+import { projectRestSource } from "./msm/projectRestSource.js";
 import { MrsDialogPanel } from "./mrs/mrsDialogPanel.js";
 import { MsmDialogPanel } from "./msm/msmDialogPanel.js";
 import { UtilDialogPanel } from "./util/utilDialogPanel.js";
@@ -202,6 +210,7 @@ import {
     MsmProjectsTreeProvider,
     isUnsupportedShell,
     type IMsmDiagramNode,
+    type IMsmRestDefinition,
     type MsmProjectsNode,
 } from "./tree/msmProjectsTreeProvider.js";
 import { registerMsmProjectsCommands } from "./msm/msmProjectsCommands.js";
@@ -571,8 +580,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // keeps the list, and is defined further down.
     let restdUrl: (uri: string, schema?: string) => Promise<string | undefined>
         = () => { return Promise.resolve(undefined); };
+    // An MSM project as the REST dialogs' source; defined further down,
+    // with what reads and writes a project.
+    let projectRest: (projectPath: string) => IRestSource | undefined
+        = () => { return undefined; };
     const mrsCommands = new MrsCommands({
         restdUrl: (uri, schema) => { return restdUrl(uri, schema); },
+        projectRest: (projectPath) => { return projectRest(projectPath); },
         extensionUri: context.extensionUri,
         api: mrsApi,
         tools: () => { return serverApi(() => { return session.restTools; }); },
@@ -889,8 +903,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const vendorsView = vscode.window.createTreeView(VENDORS_VIEW_ID, {
         treeDataProvider: new VendorsTreeProvider(),
     });
+    // A project's REST SQL; defined further down, with its development
+    // script.
+    let restDefinition: (projectPath: string) =>
+    Promise<IMsmRestDefinition | undefined>
+        = () => { return Promise.resolve(undefined); };
     // The MSM Projects list the server keeps, in folders of its own.
     const msmProjects = new MsmProjectsTreeProvider({
+        restDefinition: (projectPath) => { return restDefinition(projectPath); },
         msmApi: () => { return serverApi(() => { return session.msmApi; }); },
         status: starter,
         memento: context.globalState,
@@ -1314,6 +1334,82 @@ export const activate = (context: vscode.ExtensionContext): void => {
         } catch {
             return undefined;
         }
+    };
+    restDefinition = async (projectPath) => {
+        const file = await developmentScript(projectPath);
+        if (file === undefined) {
+            return undefined;
+        }
+        const section = restSectionOf(
+            await fs.promises.readFile(file, "utf8"));
+
+        return section === undefined ? undefined : { file, ...section };
+    };
+    /**
+     * Puts REST statements a dialog saved into MSM Section 180 of a
+     * project's development script, as an action of the Actions tab. The
+     * script is changed as a document and saved: an editor open on it
+     * follows, and the save is one as any other - the snapshot is made
+     * again where msm says it is older, and the trees follow.
+     *
+     * msm.set_section_sql_content is not used: it drops the section's
+     * comments and the blank lines around it.
+     *
+     * @param projectPath The project folder.
+     * @param statements The statements, each with its delimiter.
+     *
+     * @returns Once the script is saved.
+     */
+    const writeRestStatements = async (
+        projectPath: string,
+        statements: string[],
+    ): Promise<void> => {
+        const file = await developmentScript(projectPath);
+        if (file === undefined) {
+            throw new Error(`The MSM project ${projectPath} has no `
+                + "development script.");
+        }
+        const said = describeRestSql(statements);
+        const project = `the MSM project ${projectDiagrams(projectPath)
+            .schemaTitle}`;
+        await msmAction(actionHost, {
+            doing: `${said.doing.replace(/\u2026$/u, "")} in ${project}`,
+            done: `${said.done} in ${project}`,
+        }, `MSM Section ${REST_SECTION} of ${path.basename(file)}`,
+        async () => {
+            // msm writes the same file: the diagrams' waiting saves first.
+            await projectDiagrams(projectPath).flush();
+            const document = await vscode.workspace.openTextDocument(
+                vscode.Uri.file(file));
+            const { span, sql } = restSectionEdit(document.getText(),
+                statements);
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(document.uri, new vscode.Range(
+                document.positionAt(span.start),
+                document.positionAt(span.end)), sql);
+            if (!await vscode.workspace.applyEdit(edit)
+                || !await document.save()) {
+                throw new Error(`${path.basename(file)} could not be `
+                    + "changed and saved.");
+            }
+
+            return statements.length;
+        }, (count) => { return counted(count, "statement"); });
+    };
+    projectRest = (projectPath) => {
+        return projectRestSource({
+            // A new project's first REST object may come before its first
+            // snapshot.
+            snapshot: () => { return snapshotOrMake(projectPath); },
+            restSql: async () => {
+                return (await restDefinition(projectPath))?.sql ?? "";
+            },
+            write: (statements) => {
+                return writeRestStatements(projectPath, statements);
+            },
+            saved: () => { msmProjects.refreshProject(projectPath); },
+            failed: () => { void resultView.showActions(GENERAL_ACTIONS); },
+        });
     };
     const onlineAlterStore = new OnlineAlterStore(context.workspaceState);
     const tableSource = (target: TableEditorTarget): ITableSource => {

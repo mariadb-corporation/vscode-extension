@@ -41,6 +41,7 @@ import {
     projectLabel,
     type IMsmFileNode,
     type IMsmFolderNode,
+    type IMsmRestDefinition,
     type IMsmProjectNode,
     type MsmProjectsNode,
 } from "../../tree/msmProjectsTreeProvider.js";
@@ -91,6 +92,8 @@ interface IFake {
 const setUp = (
     projects: IMsmListedProject[],
     memento?: IFolderMemento,
+    restDefinition?: (projectPath: string) =>
+    Promise<IMsmRestDefinition | undefined>,
 ): IFake => {
     const updates: Array<[string, IMsmProjectDetails]> = [];
     const api = {
@@ -143,6 +146,7 @@ const setUp = (
         msmApi: () => { return Promise.resolve(api); },
         log: () => { /* not looked at */ },
         memento,
+        ...(restDefinition === undefined ? {} : { restDefinition }),
     });
 
     return { tree, updates, projects };
@@ -265,13 +269,109 @@ describe("the MSM Projects view", () => {
             expect(uri?.path).toBe("/blue/msmProject");
         });
 
+    it("draws a project's REST services below its schema, as the "
+        + "development script creates them", async () => {
+        const project = makeProject(root, "shop");
+        const file = join(project, "development", "shop_next.sql");
+        const sql = [
+            "",
+            "-- Create a REST service, schema and endpoints",
+            "CREATE REST SERVICE IF NOT EXISTS /svc PUBLISHED;",
+            "CREATE REST SERVICE IF NOT EXISTS /other DISABLED;",
+            "CREATE OR REPLACE REST SCHEMA /shop ON SERVICE /svc FROM `shop`;",
+            "CREATE OR REPLACE REST VIEW /item",
+            "    ON SERVICE /svc SCHEMA /shop AS `shop`.`item`",
+            "    AUTHENTICATION REQUIRED;",
+            "CREATE OR REPLACE REST PROCEDURE /tidy",
+            "    ON SERVICE /svc SCHEMA /shop AS `shop`.`tidy`;",
+            "",
+        ].join("\n");
+        let reads = 0;
+        const fake = setUp([listed(project)], undefined, (projectPath) => {
+            reads += 1;
+            expect(projectPath).toBe(project);
+
+            return Promise.resolve({ file, sql, line: 100 });
+        });
+        const [node] = await fake.tree.getChildren();
+        const rows = await fake.tree.getChildren(node);
+
+        // Diagrams, the schema, then what is served of it.
+        expect(rows.map((row) => { return row.kind; }).slice(0, 3))
+            .toEqual(["diagrams", "schema", "restRoot"]);
+        const rest = rows[2]!;
+        const restItem = fake.tree.getTreeItem(rest);
+        expect(restItem.label).toBe("MariaDB REST Service");
+        expect(restItem.contextValue).toBe("mariadbMsmRestRoot");
+        expect(restItem.id).toBe(`msmRest:${project}`);
+        expect(restItem.collapsibleState)
+            .toBe(TreeItemCollapsibleState.Collapsed);
+
+        const services = await fake.tree.getChildren(rest);
+        expect(labels(fake, services)).toEqual(["/svc", "/other"]);
+        const svc = fake.tree.getTreeItem(services[0]!);
+        expect(svc.description).toBe("Published");
+        expect(fake.tree.getTreeItem(services[1]!).description)
+            .toBe("Disabled");
+        // Its own context value: a server's menus stay off it.
+        expect(svc.contextValue).toBe("mariadbMsmRestService");
+        expect(svc.id).toBe(`msmRestService:${project}:/svc`);
+        // A click opens the script on the statement.
+        expect(svc.command?.command).toBe("vscode.open");
+        expect((svc.command?.arguments?.[0] as Uri).fsPath).toBe(file);
+        expect((svc.command?.arguments?.[1] as {
+            selection: { start: { line: number } } }).selection.start.line)
+            .toBe(102);
+
+        const schemas = await fake.tree.getChildren(services[0]);
+        expect(labels(fake, schemas)).toEqual(["/shop (shop)"]);
+        expect(fake.tree.getTreeItem(schemas[0]!).contextValue)
+            .toBe("mariadbMsmRestSchema");
+        expect(await fake.tree.getChildren(services[1])).toEqual([]);
+
+        const objects = await fake.tree.getChildren(schemas[0]);
+        expect(objects.map((object) => {
+            const item = fake.tree.getTreeItem(object);
+
+            return [item.label, item.description, item.contextValue,
+                item.collapsibleState];
+        })).toEqual([
+            ["/item", "item", "mariadbMsmRestObject",
+                TreeItemCollapsibleState.None],
+            ["/tidy", "tidy", "mariadbMsmRestObject",
+                TreeItemCollapsibleState.None],
+        ]);
+        expect((fake.tree.getTreeItem(objects[1]!).command?.arguments?.[1] as {
+            selection: { start: { line: number } } }).selection.start.line)
+            .toBe(108);
+        expect(await fake.tree.getChildren(objects[0])).toEqual([]);
+
+        // Read once, until the project is refreshed.
+        expect(reads).toBe(1);
+        fake.tree.refreshProject(project);
+        await fake.tree.getChildren(rest);
+        expect(reads).toBe(2);
+    });
+
+    it("shows no REST services where the script has no section for them",
+        async () => {
+            const project = makeProject(root, "shop");
+            const fake = setUp([listed(project)], undefined, () => {
+                return Promise.resolve(undefined);
+            });
+            const [node] = await fake.tree.getChildren();
+            const rows = await fake.tree.getChildren(node);
+
+            expect(await fake.tree.getChildren(rows[2])).toEqual([]);
+        });
+
     it("expands a project into its files, which open on a click",
         async () => {
             const project = makeProject(root, "shop");
             const fake = setUp([listed(project)]);
             const [node] = await fake.tree.getChildren();
 
-            const [, , ...files] = await fake.tree.getChildren(node) as
+            const [, , , ...files] = await fake.tree.getChildren(node) as
                 IMsmFileNode[];
             expect(labels(fake, files))
                 .toEqual(["development", "msm.project.json"]);

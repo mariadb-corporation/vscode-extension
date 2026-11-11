@@ -579,13 +579,25 @@ export interface IServiceDialogValues {
 }
 
 /** What the service dialog offers besides its fields. */
-export interface IServiceContext {
+export interface IServiceContext extends IScriptContext {
     /** Every auth app's name. */
     allAuthApps: string[];
     /** The service's full path, when it is edited. */
     existingPath?: string;
     /** The apps linked when it was opened. */
     linkedAuthApps: string[];
+}
+
+/** What a dialog whose statements are kept in a script is told. */
+export interface IScriptContext {
+    /**
+     * Whether what is created is written to a script that is run again and
+     * again, an MSM project's, instead of being run on a server: the
+     * statements are the forms a second run takes (`IF NOT EXISTS`, `OR
+     * REPLACE`), and nothing is said about the session, which a script has
+     * none of.
+     */
+    forScript?: boolean;
 }
 
 /** The options a new service starts with, as the shell gives them too. */
@@ -723,10 +735,12 @@ export const serviceStatements = (
         authCompletedUrlValidation: values.authCompletedUrlValidation,
         authCompletedPageContent: values.authCompletedPageContent,
     };
-    const use = values.makeCurrent ? [useServiceSql(service.path)] : [];
+    const use = values.makeCurrent && context.forScript !== true
+        ? [useServiceSql(service.path)] : [];
 
     if (context.existingPath === undefined) {
-        return [createServiceSql(service, values.authApps), ...use];
+        return [createServiceSql(service, values.authApps,
+            context.forScript), ...use];
     }
 
     return [
@@ -762,7 +776,7 @@ export interface ISchemaDialogValues {
 }
 
 /** What the schema dialog offers besides its fields. */
-export interface ISchemaContext {
+export interface ISchemaContext extends IScriptContext {
     /** Every service's full path. */
     services: string[];
     /** The REST schema's path, when it is edited. */
@@ -861,12 +875,14 @@ export const filterDbObjects = (
  *
  * @param values The schema dialog's fields.
  * @param objects The ticked objects, with their columns.
+ * @param forScript Whether they are kept in a script.
  *
  * @returns One statement per object, to run after the schema's own.
  */
 export const schemaObjectStatements = (
     values: ISchemaDialogValues,
     objects: ReadonlyArray<{ object: IDbObject; columns: IMrsColumns }>,
+    forScript = false,
 ): string[] => {
     const servicePath = values.servicePath;
     const schemaPath = values.requestPath.trim();
@@ -874,6 +890,7 @@ export const schemaObjectStatements = (
     const context: IObjectContext = {
         services: [servicePath],
         schemas: { [servicePath]: [schemaPath] },
+        forScript,
     };
     // The paths in use, in lower case: the server compares them so.
     const taken = new Set<string>();
@@ -1005,7 +1022,7 @@ export const schemaStatements = (
     };
 
     return [context.existingPath === undefined
-        ? createSchemaSql(schema)
+        ? createSchemaSql(schema, context.forScript)
         : alterSchemaSql(context.existingPath, schema)];
 };
 
@@ -1030,7 +1047,7 @@ export interface IObjectDialogValues {
 }
 
 /** What the object dialog offers besides its fields. */
-export interface IObjectContext {
+export interface IObjectContext extends IScriptContext {
     /** Every service's full path. */
     services: string[];
     /** The REST schemas of each service, by service. */
@@ -1130,7 +1147,7 @@ export const objectStatements = (
         authStoredProcedure: values.authStoredProcedure,
         options: json(values.options),
         metadata: json(values.metadata),
-    }, context.existingPath)];
+    }, context.existingPath, context.forScript)];
 };
 
 // --- content sets -----------------------------------------------------

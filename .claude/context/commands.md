@@ -85,7 +85,7 @@ The four Explorer operations (information, release, deployment script, deploy) a
 | `mariadb.mrs.showPrivateItems` | Show Private Items | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.hidePrivateItems` | Hide Private Items | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.docs` | Browse the MariaDB REST Service Documentation | REST Service rows (see [mrs.md](mrs.md)) |
-| `mariadb.mrs.addService` | Add REST Service... | REST Service rows (see [mrs.md](mrs.md)) |
+| `mariadb.mrs.addService` | Add REST Service... | REST Service rows; an MSM project's MariaDB REST Service row (`$(add)` and menu) (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.editService` | Edit REST Service... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.deleteService` | Delete REST Service... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.setCurrentService` | Set as Current REST Service | REST Service rows (see [mrs.md](mrs.md)) |
@@ -99,12 +99,12 @@ The four Explorer operations (information, release, deployment script, deploy) a
 | `mariadb.mrs.dumpServiceAsProject` | Dump REST Service as REST Project... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.loadProjectFromDisk` | Load REST Project from Disk... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.loadServiceFromDisk` | Load REST SERVICE SQL Script... | REST Service rows (see [mrs.md](mrs.md)) |
-| `mariadb.mrs.addSchema` | Add Schema to REST Service... | REST Service rows (see [mrs.md](mrs.md)) |
+| `mariadb.mrs.addSchema` | Add Schema to REST Service... | REST Service rows; an MSM project's schema row (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.editSchema` | Edit REST Schema... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.deleteSchema` | Delete REST Schema... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.copyCreateSchemaSql` | Copy CREATE REST SCHEMA Statement | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.dumpCreateSchemaSql` | Dump CREATE REST SCHEMA Statement... | REST Service rows (see [mrs.md](mrs.md)) |
-| `mariadb.mrs.addDbObject` | Add Database Object to REST Service... | REST Service rows (see [mrs.md](mrs.md)) |
+| `mariadb.mrs.addDbObject` | Add Database Object to REST Service... | REST Service rows; an MSM project's table, view, procedure and function rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.editDbObject` | Edit REST Object... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.deleteDbObject` | Delete REST Object... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.copyDbObjectRequestPath` | Copy REST Object Request Path | REST Service rows (see [mrs.md](mrs.md)) |

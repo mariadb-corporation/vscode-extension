@@ -2140,6 +2140,26 @@
           "group": "1_edit@0"
         },
         {
+          "command": "mariadb.mrs.addService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestRoot",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.mrs.addService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestRoot",
+          "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.mrs.addSchema",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "2_rest@0"
+        },
+        {
+          "command": "mariadb.mrs.addDbObject",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObject\\.(table|view|procedure|function)$/",
+          "group": "2_rest@0"
+        },
+        {
           "command": "mariadb.msm.removeFromProjects",
           "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmProject(\\.missing)?$/",
           "group": "2_list@0"

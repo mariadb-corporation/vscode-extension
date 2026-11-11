@@ -59,6 +59,9 @@ import type {
 } from "../../mrs/mrsDialogs.js";
 import { dbObjectKey } from "../../mrs/mrsDialogs.js";
 import type { IMrsColumns } from "../../mrs/mrsTypes.js";
+import { withRestStatements } from "../../mrs/restScript.js";
+import type { IRestSource } from "../../mrs/restSource.js";
+import { projectRestSource } from "../../msm/projectRestSource.js";
 import type {
     IConnectionNode,
     IObjectNode,
@@ -153,6 +156,8 @@ const setup = async (
         /** The REST Daemons view's lookup of a connection's daemon. */
         restdUrl?: (uri: string, metadataSchema?: string)
             => Promise<string | undefined>;
+        /** An MSM project as the dialogs' source. */
+        projectRest?: (projectPath: string) => IRestSource | undefined;
     } = {},
 ) => {
     const uris = options.uris ?? [URI];
@@ -210,6 +215,8 @@ const setup = async (
         log,
         ...(options.restdUrl === undefined
             ? {} : { restdUrl: options.restdUrl }),
+        ...(options.projectRest === undefined
+            ? {} : { projectRest: options.projectRest }),
     });
     const disposables = mrsCommands.register();
     if (options.open !== false) {
@@ -665,7 +672,7 @@ describe("services", () => {
             const spec = dialog();
             expect(spec.dialog).toBe("service");
             expect(spec.title).toBe(
-                "Enter Configuration Values for the New REST Service");
+                "Add New REST Service");
             expect(spec.context).toEqual({
                 allAuthApps: ["MRS", "Google"], linkedAuthApps: [],
             });
@@ -2309,4 +2316,181 @@ describe("the rest tools", () => {
             // As adding a folder does: nothing to pick from is not asked.
             expect(quickPickCalls).toEqual([]);
         });
+});
+
+describe("an MSM project's rows", () => {
+    const PROJECT = "/work/shop.msm.project";
+    const restRoot = { kind: "restRoot", projectPath: PROJECT };
+    const projectSchema = { kind: "schema", projectPath: PROJECT,
+        schema: "shop" };
+    const projectTable = { kind: "object", projectPath: PROJECT,
+        schema: "shop", objectType: "table", name: "item" };
+
+    /** A project whose REST SQL is kept in memory, as the commands' host. */
+    const project = (sql = "\n-- Create a REST service\n\n\n") => {
+        const state = { sql, saved: 0, failed: 0, asked: [] as string[] };
+        const source = projectRestSource({
+            snapshot: () => {
+                return Promise.resolve({
+                    format: "msm-schema/1", schema: "shop",
+                    tables: [{
+                        name: "item",
+                        columns: [{ name: "id", type: "INT" },
+                            { name: "name", type: "VARCHAR(45)" }],
+                        indexes: [{ name: null, kind: "primary",
+                            columns: ["id"] }],
+                    }],
+                    views: [{ name: "items" }],
+                });
+            },
+            restSql: () => { return Promise.resolve(state.sql); },
+            write: (statements) => {
+                state.sql = withRestStatements(state.sql, statements);
+
+                return Promise.resolve();
+            },
+            saved: () => { state.saved += 1; },
+            failed: () => { state.failed += 1; },
+        });
+
+        return {
+            state,
+            projectRest: (projectPath: string) => {
+                state.asked.push(projectPath);
+
+                return source;
+            },
+        };
+    };
+
+    const SERVICE = "CREATE OR REPLACE REST SERVICE /svc;";
+    const SCHEMA = "CREATE OR REPLACE REST SCHEMA /shop ON SERVICE /svc "
+        + "FROM `shop`;";
+
+    it("adds a REST service with the Connections view's dialog, written "
+        + "to the project as CREATE OR REPLACE", async () => {
+        const { projectRest, state } = project();
+        const { api } = await setup({}, { projectRest });
+
+        await run("mariadb.mrs.addService", restRoot);
+
+        const spec = dialog();
+        expect(state.asked).toEqual([PROJECT]);
+        expect(spec.dialog).toBe("service");
+        expect(spec.title).toBe("Add New REST Service");
+        // The built-in apps are there to pick, on no server's word.
+        expect(spec.context).toEqual({
+            allAuthApps: ["MariaDB", "MRS"], linkedAuthApps: [],
+            forScript: true,
+        });
+        const values = spec.values as IServiceDialogValues;
+        expect(values.authApps).toEqual(["MRS"]);
+
+        await spec.save({ ...values, path: "/svc" });
+
+        expect(state.sql).toMatch(
+            /^\n-- Create a REST service\n\nCREATE OR REPLACE REST SERVICE \/svc\n {4}ENABLED\n/u);
+        expect(state.sql).toContain("    ADD AUTH APP 'MRS';\n\n\n");
+        // A script has no session: no USE, and nothing goes to a server.
+        expect(state.sql).not.toContain("USE REST SERVICE");
+        expect(api.sent).toEqual([]);
+    });
+
+    it("replaces the statement of a service the project has already",
+        async () => {
+            const { projectRest, state } = project(`\n${SERVICE}\n\n${SCHEMA}\n`);
+            await setup({}, { projectRest });
+
+            await run("mariadb.mrs.addService", restRoot);
+            const spec = dialog();
+            await spec.save({
+                ...spec.values as IServiceDialogValues, path: "/svc",
+                published: true,
+            });
+
+            expect(state.sql.match(/REST SERVICE/gu)).toHaveLength(1);
+            expect(state.sql).toMatch(
+                /^\nCREATE OR REPLACE REST SERVICE \/svc\n {4}ENABLED\n {4}PUBLISHED\n/u);
+            expect(state.sql).toContain(`\n\n${SCHEMA}\n`);
+        });
+
+    it("adds the schema with the objects ticked, as CREATE OR REPLACE",
+        async () => {
+            const { projectRest, state } = project(`\n${SERVICE}\n`);
+            await setup({}, { projectRest });
+
+            await run("mariadb.mrs.addSchema", projectSchema);
+
+            const spec = dialog();
+            expect(spec.dialog).toBe("schema");
+            expect(spec.context).toEqual({
+                services: ["/svc"],
+                dbObjects: [
+                    { name: "item", type: "TABLE", details: "2 columns" },
+                    { name: "items", type: "VIEW", details: "" },
+                ],
+                forScript: true,
+            });
+            const values = spec.values as ISchemaDialogValues;
+            expect(values).toMatchObject({
+                servicePath: "/svc", requestPath: "/shop", dbSchema: "shop" });
+
+            await spec.save({ ...values, restObjects: [
+                dbObjectKey({ name: "item", type: "TABLE" }),
+                dbObjectKey({ name: "items", type: "VIEW" })] });
+
+            expect(state.sql).toContain(
+                "CREATE OR REPLACE REST SCHEMA /shop ON SERVICE /svc FROM "
+                + "`shop`\n");
+            expect(state.sql).toContain("CREATE OR REPLACE REST VIEW /item\n"
+                + "    ON SERVICE /svc SCHEMA /shop\n"
+                + "    AS `shop`.`item` CLASS `SvcShopItem` {\n");
+            // A view whose columns the snapshot does not know is left to
+            // the server to map.
+            expect(state.sql).toContain("CREATE OR REPLACE REST VIEW /items\n"
+                + "    ON SERVICE /svc SCHEMA /shop\n"
+                + "    AS `shop`.`items` CLASS `SvcShopItems`\n");
+        });
+
+    it("asks for a REST service first", async () => {
+        const { projectRest } = project();
+        await setup({}, { projectRest });
+
+        await run("mariadb.mrs.addSchema", projectSchema);
+        await run("mariadb.mrs.addDbObject", projectTable);
+
+        expect(shown).toEqual([]);
+        expect(errorMessages).toEqual([
+            "Please create a REST Service before adding a DB Schema.",
+            "Please create a REST Service before adding DB Objects."]);
+    });
+
+    it("adds a table to its REST schema, adding the schema where the "
+        + "service has none for it", async () => {
+        const { projectRest, state } = project(`\n${SERVICE}\n`);
+        await setup({}, { projectRest });
+        setInformationMessageAnswer("Yes");
+
+        await run("mariadb.mrs.addDbObject", projectTable);
+
+        expect(state.sql).toBe(`\n${SERVICE}\n\n${SCHEMA}\n`);
+        expect(state.saved).toBe(1);
+        const spec = dialog();
+        expect(spec.dialog).toBe("object");
+        expect(spec.context).toEqual({
+            services: ["/svc"], schemas: { "/svc": ["/shop"] },
+            forScript: true,
+        });
+        const values = spec.values as IObjectDialogValues;
+        expect(values).toMatchObject({
+            servicePath: "/svc", schemaPath: "/shop", requestPath: "/item" });
+
+        await spec.save(values);
+        // Saved again, it replaces its statement instead of adding one.
+        await spec.save({ ...values, requiresAuth: false });
+
+        expect(state.sql.match(/CREATE OR REPLACE REST VIEW/gu))
+            .toHaveLength(1);
+        expect(state.sql).toContain("AUTHENTICATION NOT REQUIRED");
+    });
 });

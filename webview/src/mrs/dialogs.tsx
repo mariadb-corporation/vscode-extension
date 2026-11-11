@@ -327,7 +327,9 @@ const configure: IDialogDefinition = {
 };
 
 const service: IDialogDefinition = {
-    main: (ctx) => {
+    main: (ctx, extras) => {
+        const context = extras.context as IServiceContext;
+
         return (
             <section class="grid">
                 <TextField ctx={ctx} field="path" caption="REST Service Path"
@@ -338,8 +340,12 @@ const service: IDialogDefinition = {
                     <span class="field-caption">REST Service Flags</span>
                     <div class="row wrap">
                         <CheckBox ctx={ctx} field="enabled" label="Enabled" />
-                        <CheckBox ctx={ctx} field="makeCurrent" label="Default"
-                            hint="Makes it the current REST service" />
+                        {/* A script has no session to have a current
+                            service. */}
+                        {context.forScript === true ? null
+                            : <CheckBox ctx={ctx} field="makeCurrent"
+                                label="Default"
+                                hint="Makes it the current REST service" />}
                         <CheckBox ctx={ctx} field="published" label="Published" />
                     </div>
                 </div>

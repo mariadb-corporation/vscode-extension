@@ -179,6 +179,20 @@ export const configureMetadataSql = (
 
 // --- services ---------------------------------------------------------
 
+/**
+ * @param forScript Whether the statement is kept in a script that is run
+ *        again and again.
+ *
+ * @returns How a REST service, schema or object is created: `CREATE
+ *          REST`, or for a script `CREATE OR REPLACE REST`, which a second
+ *          run takes. A shell updates what is there in place, keeping its
+ *          id (mariadb-shell, agreed for MSM Section 180).
+ */
+export const createRest = (forScript = false): string => {
+    return forScript ? "CREATE OR REPLACE REST" : "CREATE REST";
+};
+
+
 /** A service as the service dialog edits it. */
 export interface IServiceValues {
     /** `[devs@]/path`. */
@@ -230,15 +244,19 @@ const serviceOptions = (
 /**
  * @param values The new service.
  * @param authApps The names of the auth apps to link to it.
+ * @param forScript Whether it is kept in a script that is run again and
+ *        again: `CREATE OR REPLACE`, which a shell updates in place,
+ *        keeping the service's id, its schemas and its auth app links.
  *
  * @returns `CREATE REST SERVICE`.
  */
 export const createServiceSql = (
     values: IServiceValues,
     authApps: string[] = [],
+    forScript = false,
 ): string => {
     return statement(
-        `CREATE REST SERVICE ${quoteServicePath(values.path)}`,
+        `${createRest(forScript)} SERVICE ${quoteServicePath(values.path)}`,
         serviceOptions(values, authApps, []));
 };
 
@@ -316,17 +334,43 @@ const schemaOptions = (values: ISchemaValues): string[] => {
     ];
 };
 
+
 /**
  * @param values The new REST schema.
+ * @param forScript Whether it is kept in a script: `CREATE OR REPLACE`.
  *
  * @returns `CREATE REST SCHEMA`.
  */
-export const createSchemaSql = (values: ISchemaValues): string => {
+export const createSchemaSql = (
+    values: ISchemaValues,
+    forScript = false,
+): string => {
     return statement(
-        `CREATE REST SCHEMA ${quoteRequestPath(values.requestPath)} `
+        `${createRest(forScript)} SCHEMA `
+        + `${quoteRequestPath(values.requestPath)} `
         + `ON SERVICE ${quoteServicePath(values.servicePath)} `
         + `FROM ${quoteIdentifier(values.dbSchema)}`,
         schemaOptions(values));
+};
+
+/**
+ * @param servicePath The service.
+ * @param dbSchema A database schema.
+ * @param requestPath The REST schema's path.
+ * @param forScript Whether it is kept in a script: `CREATE OR REPLACE`.
+ *
+ * @returns The `CREATE REST SCHEMA` with the server's defaults, for a
+ *          database schema an object is added from before it was.
+ */
+export const plainSchemaSql = (
+    servicePath: string,
+    dbSchema: string,
+    requestPath: string,
+    forScript = false,
+): string => {
+    return `${createRest(forScript)} SCHEMA ${quoteRequestPath(requestPath)} `
+        + `ON SERVICE ${quoteServicePath(servicePath)} `
+        + `FROM ${quoteIdentifier(dbSchema)};`;
 };
 
 /**

@@ -45,6 +45,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `src/mrs/mrsApi.ts` | `MrsApi` (REST SQL calls) and `RestToolsApi` (`rest.*` tools) |
 | `src/mrs/mrsDialogPanel.ts`, `mrsDialogProtocol.ts` | One panel class for every dialog (one per kind), the message protocol |
 | `src/mrs/mrsCommands.ts` | Every `mariadb.mrs.*` command; builds the dialog specs |
+| `src/mrs/restSource.ts` | `IRestSource`, where the service, schema and object dialogs read and save: `liveRestSource` (a server's metadata through `MrsApi`) or an MSM project (below) |
+| `src/mrs/restScript.ts` | REST SQL kept in a script: MSM Section 180 found in a development script (`sectionSpan`, `restSectionOf`), the services / schemas / objects its statements create (`parseRestScript`, `script*` as the FORMAT=JSON shapes), and saved statements put among them (`withRestStatements`, `restSectionEdit`). `vscode`-free |
+| `src/msm/projectRestSource.ts` | An MSM project as an `IRestSource`: its services and schemas from Section 180, its database objects and their `SHOW REST COLUMNS` from msm's snapshot (`snapshotDbObjects`, `snapshotColumns`: foreign keys both ways as references), the built-in auth apps |
 | `src/tree/mrsModel.ts`, `mrsTreeItems.ts` | The tree nodes, their children, their rows |
 | `webview/src/mrs.tsx`, `webview/src/mrs/` | The dialogs' frontend: `MrsDialog` (frame, message loop), `dialogs.tsx` (the 8 dialogs), `fields.tsx`, `DataMappingEditor.tsx`; `vite.mrs.config.ts` builds `dist/webview/mrs.{js,css}` |
 | `images/{light,dark}/mrs*.svg`, `restDaemon*.svg`, `docs.svg` | The old extension's icons; `router*` renamed `restDaemon*`, `ociProfile` -> `mrsUser` |
@@ -177,6 +180,68 @@ The new-schema dialog (the user's request):
 - **Testing in jsdom:** Tabulator draws only the rows that fit, and jsdom
   lays nothing out. The "drawn" tests in `MrsDialog.test.tsx` give every
   element a size so that rows exist to click.
+
+## REST in MSM projects
+
+The user's request: a project's REST service, schemas and objects made
+with the very same dialogs as a server's, written to MSM Section 180 of
+its development script, sharing the editors and re-implementing as little
+as possible.
+
+- **One set of commands and dialogs.** `addService`, `addSchema` and
+  `addDbObject` take a project's row too (`projectPath` on the node) and
+  ask `IMrsCommandsHost.projectRest` for the project as an `IRestSource`;
+  a server's rows get `liveRestSource`. The dialogs' code is unchanged but
+  for `forScript` on their contexts (`IScriptContext`).
+- **`forScript`** makes every statement `CREATE OR REPLACE` (`createRest`),
+  the REST service's too: msm's deployment script runs Section 180 on every
+  deploy, first install and update alike. mariadb-shell #137 (2026-11-11,
+  not merged at the time of writing) updates what is there in place, for
+  every REST object type: the service, schema or object keeps its id, a service its
+  schemas, content sets, roles and auth app links (ADD links what is not
+  linked; links not named are kept), a schema its objects, an object its
+  grants; an option left out goes back to its default, the script being
+  the source of truth. An older shell deletes and re-creates. No `USE REST
+  SERVICE` (a script has no session; the service dialog hides its Default
+  flag), and a view with no column known (a project view without a column
+  list) gets no field list, which the server fills.
+- **In place never prunes**: what a new version removes from Section 180
+  stays on servers deployed before, unless a `DROP REST ... IF EXISTS` /
+  `REMOVE AUTH APP ... IF EXISTS` says otherwise. The user's decision:
+  msm writes them, as for removed routines (#106's Section 260) - a new
+  update-script Section 280 (Removal of REST Endpoints) that
+  `prepare_release` fills from the previous release's Section 180, run for
+  every updatable version in a new deployment Section 380 before Section
+  180, a drop of what the target defines again commented out. A removed
+  service also lists the drops of its schemas, objects and auth app links,
+  and a removed schema those of its objects, so a service or schema
+  defined again by a later version loses what it no longer has. Only a
+  service or schema Section 180 creates is dropped, not one it only names
+  with ON SERVICE. mariadb-shell-plugins #112, which reads Section 180
+  through mariadb-lsp's outline (lsp-server #39: `rest_auth_app_links`,
+  `rest_current_schema`, `rest_declared`). The extension writes nothing
+  for it.
+- **Writing** (`extension.ts`, `writeRestStatements`): an action of the
+  General Actions; the diagrams' waiting saves first, then the script is
+  changed as a document (`WorkspaceEdit`) and saved, so an open editor
+  follows and the save runs as any other (snapshot, trees). Not
+  `msm.set_section_sql_content`: it drops the section's comment and blank
+  lines. A REST service, schema or object the section creates already has
+  its statement replaced where it stands.
+- **The source of a project**: auth apps are `BUILT_IN_AUTH_APPS`
+  (MariaDB, MRS), as every metadata has them; a project's REST object is
+  not edited through the dialog (`object()` refuses) - its statement is in
+  the script, which a click on the row opens.
+- **The tree**: a project's **MariaDB REST Service** row below its schema
+  (`restRoot`, `mariadbMsmRestRoot`, Add REST Service... inline and in its
+  menu), its services, their REST schemas and objects drawn by
+  `MrsTreeItem` as a server's, with context values of their own
+  (`mariadbMsmRest*`, no server menus); a click opens the script on the
+  statement. Read with `IMsmProjectsHost.restDefinition` once per refresh.
+- **Checked end to end** with the shell (26.11.1) and mariadb-lsp: msm
+  makes the snapshot of a script with these statements in Section 180.
+  Not yet checked: deploying such a script, i.e. the REST SQL run by the
+  shell.
 
 ## Deploy OpenAPI Web UI
 
