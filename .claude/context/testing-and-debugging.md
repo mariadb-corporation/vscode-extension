@@ -246,6 +246,11 @@ runner end anyway. A spawn that fails is reported with its error.
     how to find the row afresh.
   - A webview that has closed answers lookups with nothing, so
     `submitDialog` checks the editor tab from outside.
+  - `inputUp` / `modalUp` (`ui-test/lib/ui.ts`) tell whether an input box or
+    a modal is up; an input box left open by an earlier test is still
+    found, so a test that expects none must not leave one. `answerInput("")`
+    clears the box before confirming: with a `validateInput` that refuses
+    an empty value, the box stays open. Type the value to accept it.
   - Palette commands do not reach a focused webview: bring an editor
     tab to the front first.
   - A command hidden from the palette (`menus.commandPalette` `when:
