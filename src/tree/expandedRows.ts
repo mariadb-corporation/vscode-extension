@@ -67,13 +67,6 @@ export class ExpandedRows {
     }
 
     /**
-     * Forgets the rows of what is gone.
-     *
-     * @param keep Whether a row's id is of something still there.
-     *
-     * @returns Once kept.
-     */
-    /**
      * Gives the rows new ids, as what they show moved.
      *
      * @param rename An id's new one; the same id for a row that stays.
@@ -88,6 +81,13 @@ export class ExpandedRows {
         }
     }
 
+    /**
+     * Forgets the rows of what is gone.
+     *
+     * @param keep Whether a row's id is of something still there.
+     *
+     * @returns Once kept.
+     */
     public async prune(keep: (id: string) => boolean): Promise<void> {
         const ids = this.#ids();
         const kept = ids.filter(keep);

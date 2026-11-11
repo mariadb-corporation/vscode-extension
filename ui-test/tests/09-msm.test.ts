@@ -28,7 +28,6 @@ import { join } from "node:path";
 import {
     By,
     EditorView,
-    InputBox,
     SideBarView,
     VSBrowser,
     Workbench,
@@ -46,6 +45,7 @@ import {
     explorerSubmenuEntries,
     fieldValue,
     inDialog,
+    inputUp,
     openExplorerDialog,
     openSection,
     SANDBOX_PORT,
@@ -255,8 +255,7 @@ describe("MariaDB Schema Management", () => {
                 "Rename Schema...");
             const said = await waitForNotification("cannot be renamed");
             assert.match(said, /0\.0\.1/u, "the release named");
-            await assert.rejects(InputBox.create(1000),
-                "no new name asked for");
+            assert.ok(!await inputUp(), "no new name asked for");
             assert.ok(existsSync(projectPath()), "the project where it was");
         });
 

@@ -24,6 +24,8 @@ import {
     releasedMessage,
     renameDetail,
     renameSchema,
+    renameSummary,
+    renameWords,
     type ISchemaRenameHost,
 } from "../../msm/schemaRename.js";
 
@@ -139,7 +141,7 @@ describe("Rename Schema", () => {
             "confirm Rename the schema shop to store? | Everything in the "
                 + "project that names shop will name store: its settings, its "
                 + "SQL scripts, the schema snapshot and the project list.\n"
-                + `The project folder moves to ${NEW}.\n1 file(s) will be `
+                + `The project folder moves to ${NEW}.\n1 file will be `
                 + "written.",
             `close editors ${OLD}`,
             `close ${OLD}`,
@@ -205,14 +207,15 @@ describe("Rename Schema", () => {
                 `open ${OLD} Main`]);
         });
 
-    it("closes no editor before msm agrees and the user confirms",
-        async () => {
-            const { host, steps } = setUp({ confirmed: false });
-            await renameSchema({ projectPath: OLD, schema: "shop" }, host);
-            expect(steps.some((step) => {
-                return step.startsWith("close editors");
-            })).toBe(false);
-        });
+    it("words its action, and sums up what it came to", () => {
+        expect(renameWords({ projectPath: OLD, schema: "shop",
+            newName: "store" })).toEqual({
+            doing: "Renaming the schema shop to store",
+            done: "Renamed the schema shop to store" });
+        expect(renameSummary(answer({ files: ["a", "b"] })))
+            .toBe(`2 files, ${NEW}`);
+        expect(renameSummary(answer({ projectPath: OLD }))).toBe("1 file");
+    });
 
     describe("movedFile", () => {
         const rename = { from: OLD, to: NEW, schema: "shop",

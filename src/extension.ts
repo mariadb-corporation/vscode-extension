@@ -47,16 +47,18 @@ import {
     TasksTreeProvider,
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
-import { ActionGroup } from "./restd/actionGroup.js";
 import {
-    changedOnlineAlter, type IMsmApi, type IMsmSchemaRename, msmToolArgs,
+    changedOnlineAlter, type IMsmApi, msmToolArgs,
 } from "./mcp/msmApi.js";
 import {
-    diagramNameProblem, msmCall, MsmCommands, newDiagramName, projectPathOf,
+    diagramNameProblem, msmAction, msmCall, MsmCommands, newDiagramName,
+    projectPathOf,
 } from "./msm/msmCommands.js";
 import { projectOfScriptFile, schemaNameOfFolder } from "./msm/msmFields.js";
 import { closeEditorsIn, openEditorsAt } from "./msm/projectEditors.js";
-import { renameSchema } from "./msm/schemaRename.js";
+import {
+    renameSchema, renameSummary, renameWords,
+} from "./msm/schemaRename.js";
 import { SettledSaves } from "./msm/settledSaves.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
@@ -633,6 +635,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
         (context.storageUri ?? context.globalStorageUri).fsPath, "restd-logs");
     const putAction = (connection: string, row: IActionRow): void => {
         void resultView.putAction(connection, row);
+    };
+    // What an msm action outside MsmCommands puts its rows up with.
+    const actionHost = {
+        put: putAction,
+        showActions: (connection: string) => {
+            void resultView.showActions(connection);
+        },
     };
     // The daemon of a sandbox follows it, each step a row of the
     // sandbox's action.
@@ -1535,10 +1544,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             }),
         vscode.commands.registerCommand(MSM_SCHEMA_COMMANDS.rename,
             async (node?: MsmProjectsNode) => {
-                const projectPath = node?.kind === "schema"
-                    ? node.projectPath
-                    : node?.kind === "project"
-                        ? node.project.projectPath : undefined;
+                const projectPath = projectPathOf(node);
                 if (projectPath === undefined) {
                     return;
                 }
@@ -1577,35 +1583,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         },
                         closeEditors: closeEditorsIn,
                         openEditors: openEditorsAt,
-                        closeViewer: async (folder) => {
-                            return await ModelerPanel.close(
-                                projectDiagrams(folder));
+                        closeViewer: (folder) => {
+                            return ModelerPanel.close(projectDiagrams(folder));
                         },
-                        asAction: async (rename, work) => {
-                            const words = {
-                                doing: `Renaming the schema ${rename.schema} `
-                                    + `to ${rename.newName}`,
-                                done: `Renamed the schema ${rename.schema} `
-                                    + `to ${rename.newName}`,
-                            };
-                            const group = new ActionGroup(putAction,
-                                GENERAL_ACTIONS, words);
-                            const detail = (done: IMsmSchemaRename): string => {
-                                return [counted(done.files.length, "file"),
-                                    done.projectPath === done
-                                        .previousProjectPath ? undefined
-                                        : done.projectPath]
-                                    .filter((part) => {
-                                        return part !== undefined;
-                                    }).join(", ");
-                            };
-
-                            return await group.run(() => {
-                                return group.step(words, msmCall(
-                                    "msm.rename_schema", msmToolArgs.renameSchema(
-                                        rename.projectPath, rename.newName,
-                                        false)), work, { detail });
-                            }, detail);
+                        asAction: (renaming, work) => {
+                            return msmAction(actionHost, renameWords(renaming),
+                                msmCall("msm.rename_schema",
+                                    msmToolArgs.renameSchema(
+                                        renaming.projectPath, renaming.newName,
+                                        false)), work, renameSummary);
                         },
                         moved: async (from, to) => {
                             projectSources.delete(from);
@@ -1613,9 +1599,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
                                 projectSourceKey(from), projectSourceKey(to));
                             await msmProjects.projectMoved(from, to);
                         },
-                        openDiagram: (folder, diagram) => {
-                            openProjectDiagram(folder, diagram);
-                        },
+                        openDiagram: openProjectDiagram,
                     });
                 } catch (error) {
                     reportError(log, error, isUnsupportedShell(error)
@@ -1764,10 +1748,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         },
         defaultConnection: () => { return connections.defaultConnection; },
         defaultFolder: workspaceFolder,
-        put: putAction,
-        showActions: (connection) => {
-            void resultView.showActions(connection);
-        },
+        ...actionHost,
         // A deployed schema is new to the tree and to completion.
         refresh: refreshServer,
         projectsChanged: () => { msmProjects.refresh(); },

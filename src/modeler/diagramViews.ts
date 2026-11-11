@@ -140,14 +140,6 @@ export class DiagramViews {
     }
 
     /**
-     * Drops the views of whole sources: a connection deleted, a project
-     * taken off the list.
-     *
-     * @param match Whether a source's key is one to drop.
-     *
-     * @returns Once they are dropped.
-     */
-    /**
      * Moves a source's views to another key: its project folder moved.
      *
      * @param from The source's key before.
@@ -164,6 +156,14 @@ export class DiagramViews {
         }
     }
 
+    /**
+     * Drops the views of whole sources: a connection deleted, a project
+     * taken off the list.
+     *
+     * @param match Whether a source's key is one to drop.
+     *
+     * @returns Once they are dropped.
+     */
     public async forgetSources(match: (source: string) => boolean):
         Promise<void> {
         const all = this.#all();

@@ -32,6 +32,7 @@
  */
 
 import type { IMsmApi, IMsmSchemaRename } from "../mcp/msmApi.js";
+import { counted } from "../text.js";
 
 /** What renaming a schema needs from the extension. */
 export interface ISchemaRenameHost {
@@ -89,7 +90,7 @@ export interface ISchemaRenameHost {
      *
      * @returns What msm answered.
      */
-    asAction(target: { projectPath: string; schema: string; newName: string },
+    asAction(target: ISchemaRenaming,
         work: () => Promise<IMsmSchemaRename>): Promise<IMsmSchemaRename>;
     /**
      * Moves what the extension keeps per project folder to the new one:
@@ -135,6 +136,13 @@ export const movedFile = (file: string, rename: { from: string; to: string;
 
     return [to, ...parts].join(sep);
 };
+
+/** A rename: the project, its schema and the new name. */
+export interface ISchemaRenaming {
+    projectPath: string;
+    schema: string;
+    newName: string;
+}
 
 /** The project whose schema is renamed. */
 export interface ISchemaRenameTarget {
@@ -186,7 +194,8 @@ export const renameDetail = (answer: IMsmSchemaRename, from: string,
         lines.push(`The project folder moves to ${answer.projectPath}.`);
     }
     if (answer.files.length > 0) {
-        lines.push(`${answer.files.length} file(s) will be written.`);
+        lines.push(`${counted(answer.files.length, "file")} will be `
+            + "written.");
     }
     if (answer.migration.length > 0) {
         lines.push("Deployed databases are moved with:",
@@ -194,6 +203,31 @@ export const renameDetail = (answer: IMsmSchemaRename, from: string,
     }
 
     return lines.join("\n");
+};
+
+/**
+ * @param renaming The rename.
+ *
+ * @returns What its action of the Actions tab says.
+ */
+export const renameWords = (renaming: ISchemaRenaming): {
+    doing: string; done: string;
+} => {
+    const what = `the schema ${renaming.schema} to ${renaming.newName}`;
+
+    return { doing: `Renaming ${what}`, done: `Renamed ${what}` };
+};
+
+/**
+ * @param done msm's answer to the rename.
+ *
+ * @returns What it came to, for its action's Information column: the
+ *          files written, and the new folder where it moved.
+ */
+export const renameSummary = (done: IMsmSchemaRename): string => {
+    return counted(done.files.length, "file")
+        + (done.projectPath === done.previousProjectPath
+            ? "" : `, ${done.projectPath}`);
 };
 
 /**
@@ -244,27 +278,31 @@ export const renameSchema = async (
     // Its editors and viewer save first: msm renames what is on disk.
     const editors = await host.closeEditors(projectPath);
     const shown = await host.closeViewer(projectPath);
+    /** Opens them again, in a folder, each file where `where` puts it. */
+    const reopen = async (folder: string,
+        where: (path: string) => string): Promise<void> => {
+        await host.openEditors(editors.map((place) => {
+            return { ...place, path: where(place.path) };
+        }));
+        if (shown !== undefined) {
+            host.openDiagram(folder, shown);
+        }
+    };
     let done: IMsmSchemaRename;
     try {
         done = await host.asAction({ projectPath, schema, newName }, () => {
             return host.api.renameSchema(projectPath, newName, false);
         });
     } catch (error) {
-        // Nothing moved: the editors and viewer come back where they were.
-        await host.openEditors(editors);
-        if (shown !== undefined) {
-            host.openDiagram(projectPath, shown);
-        }
+        // Nothing moved: they come back where they were.
+        await reopen(projectPath, (path) => { return path; });
         throw error;
     }
     await host.moved(projectPath, done.projectPath);
-    await host.openEditors(editors.map((place) => {
-        return { ...place, path: movedFile(place.path, { from: projectPath,
-            to: done.projectPath, schema, newName }) };
-    }));
-    if (shown !== undefined) {
-        host.openDiagram(done.projectPath, shown);
-    }
+    await reopen(done.projectPath, (path) => {
+        return movedFile(path, { from: projectPath, to: done.projectPath,
+            schema, newName });
+    });
     if (done.warnings.length > 0) {
         host.warn(`The schema ${schema} is now ${newName}. Left to you: `
             + done.warnings.join(" "));

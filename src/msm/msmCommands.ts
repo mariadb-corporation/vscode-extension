@@ -428,6 +428,38 @@ export const msmCall = (
 };
 
 /**
+ * Runs one msm call as an action of its own, of the General Actions, with
+ * that call as its one step; a failure brings the Actions tab up on it.
+ *
+ * @param host Where the rows go up, and what brings the tab up.
+ * @param host.put Puts a row up.
+ * @param host.showActions Brings the Actions tab up on a connection's.
+ * @param words What the action and its step say.
+ * @param call The call, as its row shows it.
+ * @param work Makes it.
+ * @param detail What its result came to, for the Information column.
+ *
+ * @returns What the call answered.
+ */
+export const msmAction = async <T>(
+    host: { put: ActionPutter; showActions(connection: string): void },
+    words: { doing: string; done: string },
+    call: string,
+    work: () => Promise<T>,
+    detail: (value: T) => string,
+): Promise<T> => {
+    const group = new ActionGroup(host.put, GENERAL_ACTIONS, words);
+    try {
+        return await group.run(() => {
+            return group.step(words, call, work, { detail });
+        }, detail);
+    } catch (error) {
+        host.showActions(GENERAL_ACTIONS);
+        throw error;
+    }
+};
+
+/**
  * @param info What the server read of the project.
  * @param projectPath Its folder.
  * @param released The versions released.
@@ -690,18 +722,9 @@ export class MsmCommands {
         call: string,
         run: (api: IMsmApi) => Promise<string>,
     ): Promise<void> {
-        const group = new ActionGroup(this.host.put, GENERAL_ACTIONS, words);
-        const detail = (path: string): string => { return path; };
-        try {
-            await group.run(() => {
-                return group.step(words, call, async () => {
-                    return run(await this.host.msmApi());
-                }, { detail });
-            }, detail);
-        } catch (error) {
-            this.host.showActions(GENERAL_ACTIONS);
-            throw error;
-        }
+        await msmAction(this.host, words, call, async () => {
+            return run(await this.host.msmApi());
+        }, (path) => { return path; });
     }
 
     /**

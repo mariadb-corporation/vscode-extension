@@ -918,11 +918,7 @@ export const menuConfirm = async (
     menu: string[],
     button: string,
 ): Promise<string> => {
-    await menuAction(section, path, menu, async () => {
-        return await new ModalDialog().isDisplayed().catch(() => {
-            return false;
-        });
-    }, "a confirmation");
+    await menuAction(section, path, menu, modalUp, "a confirmation");
 
     return await answerModal(button);
 };
@@ -1358,6 +1354,24 @@ export const waitForAction = async (
 };
 
 // --- VS Code's own prompts -------------------------------------------
+
+/** @returns Whether a modal dialog is up. */
+export const modalUp = async (): Promise<boolean> => {
+    return await new ModalDialog().isDisplayed().catch(() => {
+        return false;
+    });
+};
+
+/** @returns Whether an input box is up, within a second. */
+export const inputUp = async (): Promise<boolean> => {
+    try {
+        await InputBox.create(1000);
+
+        return true;
+    } catch {
+        return false;
+    }
+};
 
 /**
  * Answers a modal dialog, such as a delete confirmation.

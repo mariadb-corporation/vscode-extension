@@ -58,14 +58,14 @@ export const closeEditorsIn = async (
     const inside = (uri: vscode.Uri): boolean => {
         return uri.fsPath.startsWith(folder + sep);
     };
-    const tabs = vscode.window.tabGroups.all.flatMap((group) => {
-        return group.tabs.filter((tab) => {
+    const open = vscode.window.tabGroups.all.flatMap((group) => {
+        return group.tabs.flatMap((tab) => {
             const uri = fileOf(tab);
 
-            return uri !== undefined && inside(uri);
+            return uri !== undefined && inside(uri) ? [{ tab, uri }] : [];
         });
     });
-    if (tabs.length === 0) {
+    if (open.length === 0) {
         return [];
     }
     // Saved first, all of them: one that will not save stops the rename
@@ -77,10 +77,12 @@ export const closeEditorsIn = async (
             throw new Error(`${document.uri.fsPath} could not be saved.`);
         }
     }
-    const places = tabs.map((tab): IEditorPlace => {
-        return { path: fileOf(tab)!.fsPath, column: tab.group.viewColumn };
+    const places = open.map(({ tab, uri }): IEditorPlace => {
+        return { path: uri.fsPath, column: tab.group.viewColumn };
     });
-    await vscode.window.tabGroups.close(tabs);
+    await vscode.window.tabGroups.close(open.map(({ tab }) => {
+        return tab;
+    }));
 
     return places;
 };

@@ -350,16 +350,9 @@ export class MsmProjectsTreeProvider
     }
 
     /**
-     * Reads a project's diagrams and snapshot again and redraws the view;
-     * the list of projects is kept.
-     *
-     * @param projectPath The project whose schema changed.
-     *
-     * @returns Nothing.
-     */
-    /**
      * Follows a project folder that moved (its schema renamed): the rows
-     * left open under it stay open, and the list is read again.
+     * left open under it, its files' rows too, stay open, and the list is
+     * read again.
      *
      * @param from Its folder before.
      * @param to Its folder now.
@@ -367,18 +360,25 @@ export class MsmProjectsTreeProvider
      * @returns Once the view is redrawn.
      */
     public async projectMoved(from: string, to: string): Promise<void> {
-        // A row's id is `<kind>:<project folder>` or `...:<name>`.
         await this.expandedRows.rename((id) => {
-            const colon = id.indexOf(":");
-            const rest = id.slice(colon + 1);
+            const at = id.indexOf(":") + 1;
 
-            return colon > 0 && (rest === from || rest.startsWith(`${from}:`))
-                ? `${id.slice(0, colon + 1)}${to}${rest.slice(from.length)}`
-                : id;
+            return isRowOf(id, from)
+                ? id.slice(0, at) + to + id.slice(at + from.length) : id;
         });
-        this.refresh();
+        // The list, and the moved project's reads; the others' stay.
+        this.#listing = undefined;
+        this.refreshProject(from);
     }
 
+    /**
+     * Reads a project's diagrams and snapshot again and redraws the view;
+     * the list of projects is kept.
+     *
+     * @param projectPath The project whose schema changed.
+     *
+     * @returns Nothing.
+     */
     public refreshProject(projectPath: string): void {
         this.#listings.delete(projectPath);
         this.#snapshots.delete(projectPath);
