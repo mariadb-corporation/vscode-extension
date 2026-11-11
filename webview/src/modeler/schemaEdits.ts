@@ -442,6 +442,151 @@ export const relationshipChange = (
     };
 };
 
+/**
+ * @param child The table holding a foreign key.
+ * @param key The foreign key.
+ *
+ * @returns What the relationship is, as Workbench tells it: 1:1 where a
+ *          unique key or the primary key is made of the key's columns,
+ *          identifying where they are all in the primary key.
+ */
+export const relationshipKindOf = (
+    child: IOutlineTable,
+    key: IOutlineForeignKey,
+): IRelationshipKind => {
+    const primary = primaryKeyOf(child);
+
+    return {
+        many: !uniquelyKeyed(child, key.columns),
+        identifying: key.columns.length > 0 && key.columns.every((column) => {
+            return primary.some((name) => { return sameName(name, column); });
+        }),
+    };
+};
+
+/** A relationship's new kind worked out, or why it cannot have it. */
+export type KindChangeResult = { change: ISchemaChange } | { error: string };
+
+/**
+ * Makes an existing relationship 1:1 or 1:n, identifying or not, as the
+ * relationship tools would have made it: identifying adds the foreign
+ * key's columns to the child's primary key (non-identifying takes them
+ * out), 1:1 adds a unique index `<fk>_UNIQUE` over them (1:n drops the
+ * unique indexes over exactly them). A unique index the foreign key
+ * relies on cannot be dropped while the key is there (MariaDB's error
+ * 1553, which `mariadb-lsp edit` refuses as `referenced`), so a drop of
+ * one goes between dropping the key and adding it again.
+ *
+ * @param child The table holding the foreign key.
+ * @param key The foreign key.
+ * @param to The kind wanted.
+ * @param tables Every table of the schema, for free names.
+ *
+ * @returns The change, or why there is none.
+ */
+export const relationshipKindChange = (
+    child: IOutlineTable,
+    key: IOutlineForeignKey,
+    to: IRelationshipKind,
+    tables: readonly IOutlineTable[],
+): KindChangeResult => {
+    const from = relationshipKindOf(child, key);
+    const inKey = (column: string): boolean => {
+        return key.columns.some((name) => { return sameName(name, column); });
+    };
+    const edits: IMsmSchemaEdit[] = [];
+    // Each step's undo goes before the earlier steps' undos.
+    const inverse: IMsmSchemaEdit[] = [];
+    const undoFirst = (...steps: IMsmSchemaEdit[]): void => {
+        inverse.unshift(...steps);
+    };
+    // Changes to an index the key may rely on (a unique one dropped, the
+    // primary key rewritten): the key goes first and comes back after,
+    // the server giving it an index of its own (MariaDB's error 1553;
+    // `mariadb-lsp edit` refuses them otherwise, as `referenced`).
+    const withoutKey = (drops: IMsmSchemaEdit[]): IMsmSchemaEdit[] => {
+        return [
+            { op: "drop_foreign_key", table: child.name, name: key.name },
+            ...drops,
+            { op: "add_foreign_key", table: child.name,
+                foreign_key: foreignKeyEditMembers(key) },
+        ];
+    };
+    let primary = primaryKeyOf(child);
+    // The edits made while the key is dropped, if any.
+    const keyOff: IMsmSchemaEdit[] = [];
+
+    if (to.identifying !== from.identifying) {
+        const next = to.identifying
+            ? [...primary, ...key.columns.filter((column) => {
+                return !primary.some((name) => { return sameName(name, column); });
+            })]
+            : primary.filter((column) => { return !inKey(column); });
+        if (next.length === 0) {
+            return { error: `${child.name}'s primary key is the foreign key's `
+                + "columns alone: taking them out would leave it without one." };
+        }
+        // Taking the key's columns out of the primary key can take away
+        // the index the key relies on.
+        (to.identifying ? edits : keyOff).push(
+            { op: "set_primary_key", table: child.name, columns: next });
+        undoFirst(primary.length === 0
+            ? { op: "drop_index", table: child.name, kind: "primary" }
+            : { op: "set_primary_key", table: child.name, columns: primary });
+        primary = next;
+    }
+
+    const primaryIsKey = primary.length === key.columns.length
+        && primary.every(inKey);
+    const uniques = (child.indexes ?? []).filter((index) => {
+        return index.kind === "unique"
+            && index.columns.length === key.columns.length
+            && index.columns.every(inKey);
+    });
+    if (!to.many && !primaryIsKey && uniques.length === 0) {
+        const name = freeName(`${key.name}_UNIQUE`, constraintNames(tables));
+        edits.push({ op: "add_index", table: child.name,
+            index: { name, kind: "unique", columns: key.columns } });
+        undoFirst(...withoutKey([
+            { op: "drop_index", table: child.name, name }]));
+    } else if (to.many && uniques.length > 0) {
+        if (primaryIsKey) {
+            return { error: `The foreign key's columns are ${child.name}'s `
+                + "whole primary key, which makes it 1:1." };
+        }
+        // A column's UNIQUE has no name in the script: `mariadb-lsp edit`
+        // drops it by its columns but writes no migration for it (the
+        // server's name is not known), so a deployed schema would keep it.
+        if (uniques.some((index) => { return index.name === null; })) {
+            return { error: `${child.name} makes the foreign key's columns `
+                + "unique with an unnamed UNIQUE: give it a name first, so "
+                + "it can be dropped from deployed databases too." };
+        }
+        keyOff.push(...uniques.map((index): IMsmSchemaEdit => {
+            return { op: "drop_index", table: child.name, name: index.name };
+        }));
+        undoFirst(...uniques.map((index): IMsmSchemaEdit => {
+            return { op: "add_index", table: child.name, index: { ...index } };
+        }));
+    } else if (to.many && primaryIsKey) {
+        return { error: `The foreign key's columns are ${child.name}'s `
+            + "whole primary key, which makes it 1:1." };
+    }
+    if (keyOff.length > 0) {
+        // One drop and re-add of the key for all of them, before a unique
+        // index added for 1:1.
+        edits.unshift(...withoutKey(keyOff));
+    }
+    const kind = `${to.many ? "1:n" : "1:1"}, `
+        + `${to.identifying ? "identifying" : "non-identifying"}`;
+
+    return { change: {
+        label: `Make ${key.name} ${kind}`,
+        edits,
+        inverse,
+    } };
+};
+
 /** An n:m relationship worked out, or why there can be none. */
 export type AssociativeResult =
     | { change: ISchemaChange; table: IOutlineTable }

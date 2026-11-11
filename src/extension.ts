@@ -947,14 +947,26 @@ export const activate = (context: vscode.ExtensionContext): void => {
             objectDetails.refreshed();
         },
         draggedObjects: () => { return draggedObjects.take(); },
-        selected: (target, objects) => {
+        selected: (target, objects, item, edit) => {
+            const place = target.kind === "project"
+                ? { projectPath: target.projectPath }
+                : { connection: target.connection, schema: target.schema };
             const [first] = objects;
+            const selected = item === undefined ? undefined : { item, edit };
             if (first !== undefined) {
-                objectDetails.show(target.kind === "project"
-                    ? { projectPath: target.projectPath }
-                    : { connection: target.connection,
-                        schema: target.schema }, first);
+                objectDetails.show(place, first, selected);
+            } else if (selected !== undefined) {
+                objectDetails.showItem(place, selected);
+            } else {
+                // Several items and no object: none is edited any more.
+                objectDetails.itemChanged(place, undefined);
             }
+        },
+        itemChanged: (target, item) => {
+            objectDetails.itemChanged(target.kind === "project"
+                ? { projectPath: target.projectPath }
+                : { connection: target.connection, schema: target.schema },
+            item);
         },
     };
     const restdCommands = new RestdCommands({

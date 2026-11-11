@@ -85,7 +85,7 @@ export const ISO_PRESETS: readonly IIsoAngles[] = [
 ];
 
 /** The 3D view used until the user picks another. */
-export const DEFAULT_ISO_PRESET = "upright";
+export const DEFAULT_ISO_PRESET = "isometric";
 
 /**
  * @param id A preset's id.

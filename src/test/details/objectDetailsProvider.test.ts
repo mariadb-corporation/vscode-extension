@@ -185,3 +185,64 @@ describe("the Object Details view", () => {
             details: { object: { type: "table" } } });
     });
 });
+
+describe("a diagram item in the Object Details view", () => {
+    const FIGURE = {
+        kind: "figure", id: "f1", x: 10, y: 20, z: 0, width: 200,
+        height: 120, autoHeight: true, editable: true,
+    } as const;
+    const LINE = {
+        kind: "connection", id: "c1", source: "orders", target: "customers",
+        offset: 0, split: false, editable: true,
+    } as const;
+
+    it("shows a table figure's place with its table", async () => {
+        const { provider, msm } = setUp();
+        provider.show(PROJECT, ORDERS, { item: FIGURE });
+        await settle();
+
+        expect(msm.posted.at(-1)).toMatchObject({
+            type: "show",
+            details: { object: { type: "table" } },
+            item: FIGURE,
+        });
+    });
+
+    it("shows a relationship line alone, and follows its changes", () => {
+        const { provider, msm } = setUp();
+        provider.showItem(PROJECT, { item: LINE });
+        expect(msm.posted.at(-1)).toEqual({ type: "show", item: LINE });
+
+        provider.itemChanged(PROJECT, { ...LINE, offset: -40 });
+        expect(msm.posted.at(-1)).toEqual({ type: "item",
+            item: { ...LINE, offset: -40 } });
+
+        // Another item's change is not the one shown.
+        provider.itemChanged(PROJECT, { ...LINE, id: "c2" });
+        expect(msm.posted).toHaveLength(2);
+    });
+
+    it("sends the view's changes to the diagram the item is on", () => {
+        const { provider, msm } = setUp();
+        const changes: unknown[] = [];
+        provider.showItem(PROJECT, { item: LINE, edit: (id, change) => {
+            changes.push([id, change]);
+        } });
+        msm.send({ type: "changeItem", id: "c1", change: { split: true } });
+        // No longer the item shown: dropped.
+        msm.send({ type: "changeItem", id: "c9", change: { split: true } });
+
+        expect(changes).toEqual([["c1", { split: true }]]);
+    });
+
+    it("drops the item once a tree row is selected", async () => {
+        const { provider, msm } = setUp();
+        provider.show(PROJECT, ORDERS, { item: FIGURE });
+        await settle();
+        provider.show(PROJECT, { type: "table", name: "customers" });
+        await settle();
+
+        expect(msm.posted.at(-1)).toMatchObject({ type: "show" });
+        expect((msm.posted.at(-1) as { item?: unknown }).item).toBeUndefined();
+    });
+});

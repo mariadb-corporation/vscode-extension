@@ -35,11 +35,13 @@ import type {
     SchemaObjectPlace,
 } from "../modeler/modelerProtocol.js";
 import type { ISchemaDefinition } from "../modeler/modelFormat.js";
+import type { DiagramItemEditor } from "../modeler/modelerPanel.js";
 import {
     liveDetails,
     outlineDetails,
     type DetailsHostMessage,
     type DetailsWebviewMessage,
+    type DiagramItem,
 } from "./objectDetails.js";
 
 /** The two views: below Connections, and below MSM Projects. */
@@ -70,9 +72,17 @@ interface ISubject {
 /** Whose objects a view shows: the Connections side bar's, or msm's. */
 type DetailsSide = "connections" | "msm";
 
+/** A diagram item selected, and how to change it on its diagram. */
+export interface ISelectedItem {
+    item: DiagramItem;
+    edit?: DiagramItemEditor;
+}
+
 /** What one side bar's view shows, kept apart from the other's. */
 interface ISideState {
     subject?: ISubject;
+    /** The diagram item the subject was selected as, if any. */
+    selected?: ISelectedItem;
     /** What its views were last sent, for one that opens later. */
     shown: DetailsHostMessage;
     /** Counts the reads, so an older one does not overwrite a newer. */
@@ -143,7 +153,9 @@ export class ObjectDetailsProvider
         }
         view.webview.onDidReceiveMessage((message: DetailsWebviewMessage) => {
             if (message.type === "ready") {
-                void view.webview.postMessage(state.shown);
+                void view.webview.postMessage(this.#withItem(side));
+            } else if (state.selected?.item.id === message.id) {
+                state.selected.edit?.(message.id, message.change);
             }
         });
     }
@@ -151,19 +163,65 @@ export class ObjectDetailsProvider
     /**
      * Shows an object, in the view of the side bar whose objects it is:
      * a project's below MSM Projects, a live schema's below Connections.
+     * Selected on a diagram, the item it was selected as comes with it.
      *
      * @param place Where it is.
      * @param ref The object.
+     * @param selected The diagram item, if it was selected as one.
      *
      * @returns Nothing.
      */
-    public show(place: SchemaObjectPlace, ref: ISchemaObjectRef): void {
+    public show(place: SchemaObjectPlace, ref: ISchemaObjectRef,
+        selected?: ISelectedItem): void {
         const side = sideOf(place);
         const state = this.#sides[side];
+        state.selected = selected;
         if (!shows(state.subject, place, ref)) {
             state.subject = { place, ref };
             void this.#read(side);
+        } else {
+            this.#postItem(side);
         }
+    }
+
+    /**
+     * Shows a diagram item that is no schema object: a layer, or a
+     * relationship line.
+     *
+     * @param place Where its diagram's objects are.
+     * @param selected The item.
+     *
+     * @returns Nothing.
+     */
+    public showItem(place: SchemaObjectPlace, selected: ISelectedItem): void {
+        const side = sideOf(place);
+        const state = this.#sides[side];
+        state.selected = selected;
+        // Whatever read is still going is of the object before.
+        state.subject = undefined;
+        state.reads += 1;
+        this.#post(side, { type: "show" });
+    }
+
+    /**
+     * Follows the diagram item a side bar's view shows as it changes.
+     *
+     * @param place Where its diagram's objects are.
+     * @param item It as it is now; nothing once it is gone.
+     *
+     * @returns Nothing.
+     */
+    public itemChanged(place: SchemaObjectPlace,
+        item: DiagramItem | undefined): void {
+        const side = sideOf(place);
+        const selected = this.#sides[side].selected;
+        if (selected === undefined
+            || (item !== undefined && item.id !== selected.item.id)) {
+            return;
+        }
+        this.#sides[side].selected = item === undefined
+            ? undefined : { ...selected, item };
+        this.#postItem(side);
     }
 
     /**
@@ -210,6 +268,23 @@ export class ObjectDetailsProvider
 
     #post(side: DetailsSide, message: DetailsHostMessage): void {
         this.#sides[side].shown = message;
+        for (const view of this.#viewsOf(side)) {
+            void view.webview.postMessage(this.#withItem(side));
+        }
+    }
+
+    /** @returns What a side's view shows, with its diagram item. */
+    #withItem(side: DetailsSide): DetailsHostMessage {
+        const { shown, selected } = this.#sides[side];
+
+        return shown.type === "show"
+            ? { ...shown, item: selected?.item } : shown;
+    }
+
+    /** Sends a side's views its diagram item alone. */
+    #postItem(side: DetailsSide): void {
+        const message: DetailsHostMessage = { type: "item",
+            item: this.#sides[side].selected?.item };
         for (const view of this.#viewsOf(side)) {
             void view.webview.postMessage(message);
         }

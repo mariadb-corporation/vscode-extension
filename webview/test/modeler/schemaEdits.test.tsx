@@ -36,6 +36,8 @@ import {
     newViewChange,
     numberedName,
     relationshipChange,
+    relationshipKindChange,
+    relationshipKindOf,
     type ISchemaObjectLists,
 } from "../../src/modeler/schemaEdits.js";
 
@@ -318,5 +320,116 @@ describe("the snapshot meanwhile", () => {
         applyEdits(lists, result.change.edits);
 
         expect(lists.tables[0]?.foreign_keys?.[0]?.many).toBe(false);
+    });
+});
+
+describe("a relationship's kind", () => {
+    const KEY = {
+        name: "fk_orders_customers",
+        columns: ["customer_id"],
+        references: { schema: null, table: "customers", columns: ["id"] },
+    };
+    const orders = (indexes: IOutlineTable["indexes"]): IOutlineTable => {
+        return {
+            name: "orders",
+            columns: [{ name: "id", type: "INT" },
+                { name: "customer_id", type: "INT" }],
+            indexes,
+            foreign_keys: [{ ...KEY }],
+        };
+    };
+    const PRIMARY = { name: null, kind: "primary", columns: ["id"] };
+
+    it("is read off the child's keys", () => {
+        expect(relationshipKindOf(orders([PRIMARY]), KEY))
+            .toEqual({ many: true, identifying: false });
+        expect(relationshipKindOf(orders([{ ...PRIMARY,
+            columns: ["id", "customer_id"] }]), KEY))
+            .toEqual({ many: true, identifying: true });
+        expect(relationshipKindOf(orders([PRIMARY, { name: "u",
+            kind: "unique", columns: ["customer_id"] }]), KEY))
+            .toEqual({ many: false, identifying: false });
+    });
+
+    it("turns identifying by joining the primary key, and back", () => {
+        const table = orders([PRIMARY]);
+        const result = relationshipKindChange(table, KEY,
+            { many: true, identifying: true }, [table]);
+        expect(result).toEqual({ change: {
+            label: "Make fk_orders_customers 1:n, identifying",
+            edits: [{ op: "set_primary_key", table: "orders",
+                columns: ["id", "customer_id"] }],
+            inverse: [{ op: "set_primary_key", table: "orders",
+                columns: ["id"] }],
+        } });
+
+        const tables = { tables: [table], views: [], routines: [],
+            triggers: [], events: [], sequences: [] };
+        applyEdits(tables, "change" in result ? result.change.edits : []);
+        expect(relationshipKindOf(table, KEY).identifying).toBe(true);
+        const back = relationshipKindChange(table, KEY,
+            { many: true, identifying: false }, [table]);
+        // The key may rely on the primary key: it goes and comes back.
+        expect("change" in back && back.change.edits).toEqual([
+            { op: "drop_foreign_key", table: "orders",
+                name: "fk_orders_customers" },
+            { op: "set_primary_key", table: "orders", columns: ["id"] },
+            { op: "add_foreign_key", table: "orders",
+                foreign_key: expect.objectContaining({
+                    name: "fk_orders_customers" }) }]);
+    });
+
+    it("turns 1:1 with a unique index, and 1:n by dropping it", () => {
+        const table = orders([PRIMARY]);
+        const one = relationshipKindChange(table, KEY,
+            { many: false, identifying: false }, [table]);
+        const index = { name: "fk_orders_customers_UNIQUE", kind: "unique",
+            columns: ["customer_id"] };
+        // The key relies on the unique index: mariadb-lsp refuses to drop
+        // it while the key is there, so the key goes and comes back.
+        const withoutKey = [
+            { op: "drop_foreign_key", table: "orders",
+                name: "fk_orders_customers" },
+            { op: "drop_index", table: "orders",
+                name: "fk_orders_customers_UNIQUE" },
+            { op: "add_foreign_key", table: "orders",
+                foreign_key: expect.objectContaining({
+                    name: "fk_orders_customers",
+                    columns: ["customer_id"] }) },
+        ];
+        expect("change" in one && one.change).toMatchObject({
+            edits: [{ op: "add_index", table: "orders", index }],
+            inverse: withoutKey,
+        });
+
+        const unique = orders([PRIMARY, index]);
+        const many = relationshipKindChange(unique, KEY,
+            { many: true, identifying: false }, [unique]);
+        expect("change" in many && many.change).toMatchObject({
+            edits: withoutKey,
+            inverse: [{ op: "add_index", table: "orders", index }],
+        });
+    });
+
+    it("refuses to drop an unnamed UNIQUE, which deployed schemas keep", () => {
+        const table = orders([PRIMARY, { name: null, kind: "unique",
+            columns: ["customer_id"] }]);
+
+        expect(relationshipKindChange(table, KEY,
+            { many: true, identifying: false }, [table]))
+            .toHaveProperty("error");
+    });
+
+    it("refuses what the keys cannot be", () => {
+        // The foreign key is the whole primary key: always 1:1, and it
+        // cannot leave the key without leaving none.
+        const keyed = orders([{ name: null, kind: "primary",
+            columns: ["customer_id"] }]);
+        expect(relationshipKindChange(keyed, KEY,
+            { many: true, identifying: true }, [keyed]))
+            .toHaveProperty("error");
+        expect(relationshipKindChange(keyed, KEY,
+            { many: false, identifying: false }, [keyed]))
+            .toHaveProperty("error");
     });
 });

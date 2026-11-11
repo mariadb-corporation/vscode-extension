@@ -23,6 +23,7 @@
  * only for now). Pure, shared by the extension and the webview.
  */
 
+import type { FigureSide } from "../modeler/modelFormat.js";
 import type { IObjectDetails } from "../mcp/types.js";
 import type { ISchemaObjectRef } from "../modeler/modelerProtocol.js";
 import type {
@@ -55,19 +56,102 @@ export interface IObjectDetailsView {
 }
 
 /**
- * What the extension sends the view: the object to show; nothing, with
- * why, where there is none.
+ * A table figure selected on a diagram, as the view shows and edits it:
+ * where it is on the page (its layer's position included), how far it
+ * stands above its layer in the 3D view, its size, and whether its height
+ * follows what it shows. In page units.
  */
-export interface DetailsHostMessage {
-    type: "show";
-    details?: IObjectDetailsView;
-    message?: string;
+export interface IDiagramFigureItem {
+    kind: "figure";
+    id: string;
+    x: number;
+    y: number;
+    z: number;
+    width: number;
+    height: number;
+    autoHeight: boolean;
+    /** Whether the diagram can be changed: a live schema's is read only. */
+    editable: boolean;
 }
 
-/** What the view sends: that it is listening. */
-export interface DetailsWebviewMessage {
-    type: "ready";
+/**
+ * A layer selected on a diagram: its place, height above the page and
+ * size, and the tables filed under it. In page units.
+ */
+export interface IDiagramLayerItem {
+    kind: "layer";
+    id: string;
+    name: string;
+    x: number;
+    y: number;
+    z: number;
+    width: number;
+    height: number;
+    /** The tables on it, by name, as Workbench files them. */
+    tables: string[];
+    editable: boolean;
 }
+
+/** A relationship line selected on a diagram. */
+export interface IDiagramConnectionItem {
+    kind: "connection";
+    id: string;
+    /** The table holding the foreign key. */
+    source: string;
+    /** The table it references. */
+    target: string;
+    /** How far the middle segment is moved from halfway, in page units. */
+    offset: number;
+    /** Whether it is drawn as a stub out of each table instead. */
+    split: boolean;
+    /**
+     * 1:n, else 1:1; left out where the foreign key is not in the schema
+     * snapshot.
+     */
+    many?: boolean;
+    /** Whether the foreign key's columns are in the source's primary key. */
+    identifying?: boolean;
+    /** The side of each end placed by hand; left out where automatic. */
+    startDock?: DockSide;
+    endDock?: DockSide;
+    editable: boolean;
+}
+
+/** A side of a table a line's end can be placed on. */
+export type DockSide = FigureSide;
+
+/** The one diagram item selected, as the view shows it. */
+export type DiagramItem = IDiagramFigureItem | IDiagramLayerItem
+    | IDiagramConnectionItem;
+
+/** What the view changes of a diagram item: the fields given. */
+export type DiagramItemChange = Partial<
+    Pick<IDiagramFigureItem, "x" | "y" | "z" | "width" | "height"
+        | "autoHeight">
+    & Pick<IDiagramConnectionItem, "offset" | "split" | "many"
+        | "identifying">
+    & {
+        /** An end placed by hand put back on the automatic layout. */
+        resetDock: "start" | "end";
+    }>;
+
+/**
+ * What the view is sent: an object to show (with the diagram item it was
+ * selected as), or the diagram item alone, changed.
+ */
+export type DetailsHostMessage =
+    | {
+        type: "show";
+        details?: IObjectDetailsView;
+        message?: string;
+        item?: DiagramItem;
+    }
+    | { type: "item"; item?: DiagramItem };
+
+/** What the view sends: that it is listening, or a diagram item's change. */
+export type DetailsWebviewMessage =
+    | { type: "ready" }
+    | { type: "changeItem"; id: string; change: DiagramItemChange };
 
 /**
  * @param definition msm's snapshot of a project's script.

@@ -76,6 +76,37 @@ export const Z = {
     liftedDecoration: 0.6,
 } as const;
 
+/** A handle's size on the screen, in CSS pixels: the canvas's and a set's. */
+export const HANDLE_PX = 8;
+
+/** @returns How near a handle a press takes it, in CSS pixels. */
+export const HANDLE_REACH_PX = HANDLE_PX / 2 + 2;
+
+/**
+ * A handle: a unit square filled and edged, scaled to its size on the
+ * screen by whoever places it.
+ *
+ * @param fill The fill: the paper.
+ * @param line The edge: the selection colour.
+ *
+ * @returns The handle.
+ */
+export const handleSquare = (
+    fill: THREE.Material,
+    line: THREE.LineBasicMaterial,
+): THREE.Group => {
+    const handle = new THREE.Group();
+    const edge = new THREE.BufferGeometry().setAttribute("position",
+        new THREE.BufferAttribute(new Float32Array([
+            -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0,
+        ]), 3));
+    const border = new THREE.LineLoop(edge, line);
+    border.position.z = 0.01;
+    handle.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), fill), border);
+
+    return handle;
+};
+
 /**
  * Empties a group, releasing its meshes' and lines' GPU resources.
  *

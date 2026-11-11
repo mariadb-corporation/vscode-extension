@@ -75,6 +75,36 @@ export interface ICanvasItem {
      * `color`. An item without one has no button (but a context menu).
      */
     readonly menuBand?: { top: number; height: number; color: string };
+    /**
+     * False for an item the canvas draws no selection outline and resize
+     * handles for, such as a line: the set marks it selected itself (see
+     * `IFigureSet.selectionChanged`).
+     */
+    readonly outlined?: boolean;
+}
+
+/** A drag of a handle of the figure set's own (see `IFigureSet.grabAt`). */
+export interface IGrabSession {
+    /**
+     * The pointer moved.
+     *
+     * @param probe Where it is now.
+     */
+    move(probe: IProbe): void;
+    /**
+     * Ends the drag.
+     *
+     * @returns What was done, for the history.
+     */
+    finish(): string;
+}
+
+/** A handle of the figure set's own, under the pointer. */
+export interface IGrab {
+    /** The cursor it shows. */
+    cursor: string;
+    /** @returns The drag it starts. */
+    begin(): IGrabSession;
 }
 
 /** What the pointer is over, for a figure set to find its item. */
@@ -385,6 +415,22 @@ export interface IFigureSet {
     toolHover?(tool: string, probe: IProbe): void;
     /** The tool was put down: whatever it was in the middle of ends. */
     toolCancel?(): void;
+    /**
+     * The selection changed.
+     *
+     * @param ids The selected items.
+     */
+    selectionChanged?(ids: readonly string[]): void;
+    /**
+     * @param probe What the pointer is over.
+     *
+     * @returns A handle of the set's own under the pointer - one it draws
+     *          on a selected item - or nothing. Asked only while the
+     *          diagram is not locked.
+     */
+    grabAt?(probe: IProbe): IGrab | undefined;
+    /** A frame is about to be drawn: sizes kept in pixels follow the zoom. */
+    beforeRender?(): void;
 }
 
 /** Where an item's menu button goes. */

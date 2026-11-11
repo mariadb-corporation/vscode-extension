@@ -37,7 +37,9 @@ import {
     type IModelFigure,
     type IModelLayer,
     type IOutlineEvent,
+    type IOutlineForeignKey,
     type IOutlineRoutine,
+    type IOutlineTable,
 } from "../../../src/modeler/modelFormat.js";
 import type {
     ISchemaObjectRef,
@@ -45,23 +47,37 @@ import type {
 } from "../../../src/modeler/modelerProtocol.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
 import type { IDetailEdits } from "../../../src/details/detailEdits.js";
-import type { ISchemaObjectLists } from "./schemaEdits.js";
+import type {
+    DiagramItem,
+    DiagramItemChange,
+} from "../../../src/details/objectDetails.js";
+import {
+    relationshipKindChange,
+    relationshipKindOf,
+    type IRelationshipKind,
+    type ISchemaObjectLists,
+} from "./schemaEdits.js";
 import type {
     ICanvasHost,
     ICanvasItem,
     IEditSpec,
     IElevateSession,
     IFigureSet,
+    IGrab,
+    IGrabSession,
     IMenuEntry,
     IMoveSession,
     IProbe,
     IResizeSession,
     IToolSession,
 } from "../canvas/canvasTypes.js";
-import type { IPoint, Segment } from "../canvas/geometry.js";
+import { boundsOf, type IPoint, type Segment } from "../canvas/geometry.js";
 import {
     disposeGroup,
     DRAW_ORDER,
+    HANDLE_PX,
+    HANDLE_REACH_PX,
+    handleSquare,
     planeCenter,
     polylineSegments,
     rectSegments,
@@ -71,8 +87,10 @@ import {
     Z,
 } from "../canvas/threeHelpers.js";
 import { foreignKeyOf, sameName, type ISchemaCatalog } from "./catalog.js";
+import { syncConnections } from "./connectionSync.js";
 import {
     DiagramTools,
+    newId,
     type IPickedImage,
     type IToolEdit,
     type IToolHighlight,
@@ -82,9 +100,17 @@ import {
 } from "./diagramTools.js";
 import {
     crowsFoot,
+    distanceToSegment,
     oneMarker,
     routeConnection,
+    nearestDock,
+    pointOnSide,
+    sideSlots,
+    spreadAnchors,
+    type IAnchors,
+    type Side,
     splitStubs,
+    type IRoute,
 } from "./connectionGeometry.js";
 import {
     containsPoint,
@@ -110,6 +136,7 @@ import {
     cardWidth,
     contrastingText,
     drawLabel,
+    drawSideLabel,
     drawTableCard,
     editRect,
     layoutCard,
@@ -149,10 +176,121 @@ import {
  * How wide the connections are drawn, in CSS pixels. Fat lines: WebGL's
  * own are a pixel wide whatever is asked.
  */
-const CONNECTION_WIDTH = 0.8;
+const CONNECTION_WIDTH = 1.6;
 
-/** How thick a card is: the slab under it, in page units. */
-const CARD_THICKNESS = 8;
+/**
+ * A non-identifying relationship's dashes, as Workbench draws them: on
+ * and off, in page units.
+ */
+const CONNECTION_DASH = { dashSize: 5, gapSize: 4 } as const;
+
+/** The radius of a docking point, where a line meets its table. */
+const DOCK_RADIUS = 4;
+
+/** How much darker a docking point is than its table's colour. */
+const DOCK_SHADE = 0.7;
+
+/**
+ * @param figure A table's figure.
+ *
+ * @returns The colour of the docking points on its sides: its own,
+ *          darkened.
+ */
+const dockColor = (figure: IModelFigure): THREE.Color => {
+    return new THREE.Color(figureColor(figure)).multiplyScalar(DOCK_SHADE);
+};
+
+/**
+ * @param route A connection's route.
+ * @param which One of its ends.
+ *
+ * @returns Where that end meets its table.
+ */
+const endPoint = (route: IRoute, which: "start" | "end"): IPoint => {
+    return which === "start"
+        ? route.points[0] : route.points[route.points.length - 1];
+};
+
+/**
+ * @param color Its colour, where known already.
+ *
+ * @returns A docking point's disc, facing up (+z), for `placeDock`.
+ */
+const newDock = (
+    color?: THREE.Color,
+): THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> => {
+    const dock = new THREE.Mesh(new THREE.CircleGeometry(DOCK_RADIUS, 16),
+        new THREE.MeshBasicMaterial(color === undefined ? {} : { color }));
+    setDrawOrder(dock, DRAW_ORDER.connections + 0.5);
+
+    return dock;
+};
+
+/**
+ * Takes an object off the scene and releases what it holds on the GPU.
+ *
+ * @param object A mesh, a line or a group of them.
+ */
+const drop = (object: THREE.Object3D): void => {
+    object.removeFromParent();
+    disposeGroup(object);
+};
+
+/**
+ * Puts a docking point on the side of a table's slab a line meets: upright
+ * on the side's face, facing out, at the line's height; growing with the
+ * lift as the slab does, so it is not seen in the 2D view.
+ *
+ * @param dock The point's disc, made facing up (+z).
+ * @param at Where the line meets the side, on the page.
+ * @param side The side.
+ * @param z The line's height there.
+ * @param lift How far the figures have risen.
+ */
+const placeDock = (
+    dock: THREE.Object3D,
+    at: IPoint,
+    side: Side,
+    z: number,
+    lift: number,
+): void => {
+    // A hair out of the side, so the slab does not cover it.
+    const out = 0.05;
+    switch (side) {
+        case "left": {
+            dock.position.set(at.x - out, -at.y, z);
+            dock.rotation.set(0, -Math.PI / 2, 0);
+            break;
+        }
+        case "right": {
+            dock.position.set(at.x + out, -at.y, z);
+            dock.rotation.set(0, Math.PI / 2, 0);
+            break;
+        }
+        // The page's top is the plane's +y.
+        case "top": {
+            dock.position.set(at.x, -at.y + out, z);
+            dock.rotation.set(-Math.PI / 2, 0, 0);
+            break;
+        }
+        default: {
+            dock.position.set(at.x, -at.y - out, z);
+            dock.rotation.set(Math.PI / 2, 0, 0);
+        }
+    }
+    const size = Math.max(0.001, lift);
+    dock.scale.set(size, size, size);
+};
+
+/** How near a connection a press takes it, in CSS pixels. */
+const CONNECTION_REACH_PX = 4;
+
+
+/**
+ * How thick a card is: the slab under it, in page units. Just thick enough
+ * for the icon and name its front side shows (`drawSideLabel`).
+ */
+const CARD_THICKNESS = 20;
 
 /** How far a card's slab lies inside the card's edge, in page units. */
 const SLAB_INSET = 1;
@@ -169,6 +307,15 @@ const LAYER_LABEL = { left: 6, top: 4, height: 18, fontSize: 12 } as const;
 /** How high a layer can be raised, in page units. */
 const MAX_LAYER_ELEVATION = 240;
 
+/**
+ * @param figure A figure.
+ *
+ * @returns How far it stands above its layer, kept in the layers' range.
+ */
+const ownElevation = (figure: IModelFigure): number => {
+    return Math.min(MAX_LAYER_ELEVATION, Math.max(0, figure.elevation ?? 0));
+};
+
 /** The texture scales a card is drawn at: device pixels per unit. */
 const RASTER_STEPS = [0.25, 0.5, 1, 2, 3, 4];
 
@@ -179,6 +326,50 @@ const RASTER_STEPS = [0.25, 0.5, 1, 2, 3, 4];
  * camera at the page's bottom, are in shade.
  */
 const SLAB_LIGHT = new THREE.Vector3(-0.7, 0.3, 0.65).normalize();
+
+/**
+ * @param normal Which way a side of a slab faces.
+ *
+ * @returns How lit that side is, 0.55 (in shade) to 1.
+ */
+const slabLight = (normal: THREE.Vector3): number => {
+    return 0.55 + 0.45 * Math.max(0, normal.dot(SLAB_LIGHT));
+};
+
+/**
+ * The front side's label: a plane as wide as the side is straight, as high
+ * as the slab is thick, standing on the slab's front, in the slab's
+ * coordinates (so it grows with the lift as the slab does).
+ *
+ * @param width The card's width.
+ * @param height The card's height.
+ *
+ * @returns The geometry.
+ */
+const sideLabelGeometry = (
+    width: number,
+    height: number,
+): THREE.BufferGeometry => {
+    const geometry = new THREE.PlaneGeometry(sideLabelWidth(width),
+        CARD_THICKNESS);
+    // Stood up: its normal turns from +z to -y, its top to +z.
+    geometry.rotateX(Math.PI / 2);
+    // A hair in front of the side, so it wins the depth test.
+    geometry.translate(0, -height / 2 + SLAB_INSET - 0.05,
+        -CARD_THICKNESS / 2);
+
+    return geometry;
+};
+
+/**
+ * @param width The card's width.
+ *
+ * @returns How wide the slab's front side is straight, between its
+ *          rounded corners.
+ */
+const sideLabelWidth = (width: number): number => {
+    return Math.max(1, width - 2 * CARD.radius);
+};
 
 /**
  * A table's shadow: a rounded rectangle around the card's, centred on the
@@ -229,7 +420,7 @@ const slabGeometry = (
     const normal = new THREE.Vector3();
     for (let index = 0; index < normals.count; index += 1) {
         normal.fromBufferAttribute(normals, index);
-        const light = 0.55 + 0.45 * Math.max(0, normal.dot(SLAB_LIGHT));
+        const light = slabLight(normal);
         colors.set([color.r * light, color.g * light, color.b * light],
             index * 3);
     }
@@ -285,7 +476,11 @@ const sloped = (
 /** What a user can change of a table figure. */
 type FigureState = Pick<IModelFigure, "left" | "top" | "width" | "height"
     | "manualSizing" | "expanded" | "indicesExpanded"
-    | "foreignKeysExpanded" | "triggersExpanded" | "layer">;
+    | "foreignKeysExpanded" | "triggersExpanded" | "layer" | "elevation">;
+
+/** What a user can change of a connection. */
+type ConnectionState = Pick<IModelConnection, "middleSegmentOffset"
+    | "drawSplit" | "startDock" | "endDock">;
 
 /** What a user can change of a layer. */
 type LayerState = Pick<IModelLayer, "left" | "top" | "width" | "height"
@@ -295,6 +490,7 @@ type LayerState = Pick<IModelLayer, "left" | "top" | "width" | "height"
 interface ISnapshot {
     figures: Array<[IModelFigure, FigureState]>;
     layers: Array<[IModelLayer, LayerState]>;
+    connections: Array<[IModelConnection, ConnectionState]>;
 }
 
 const figureState = (figure: IModelFigure): FigureState => {
@@ -309,6 +505,16 @@ const figureState = (figure: IModelFigure): FigureState => {
         foreignKeysExpanded: figure.foreignKeysExpanded,
         triggersExpanded: figure.triggersExpanded,
         layer: figure.layer,
+        elevation: figure.elevation,
+    };
+};
+
+const connectionState = (connection: IModelConnection): ConnectionState => {
+    return {
+        middleSegmentOffset: connection.middleSegmentOffset,
+        drawSplit: connection.drawSplit,
+        startDock: connection.startDock,
+        endDock: connection.endDock,
     };
 };
 
@@ -321,6 +527,23 @@ const layerState = (layer: IModelLayer): LayerState => {
         name: layer.name,
         elevation: layer.elevation,
     };
+};
+
+/**
+ * @param a Objects of a snapshot, each with its state.
+ * @param b Those of another.
+ *
+ * @returns Whether they are the same objects in the same states.
+ */
+const samePairs = <T, S extends object>(
+    a: ReadonlyArray<readonly [T, S]>,
+    b: ReadonlyArray<readonly [T, S]>,
+): boolean => {
+    return a.length === b.length && a.every(([object, state], index) => {
+        const [other, otherState] = b[index];
+
+        return object === other && sameState(state, otherState);
+    });
 };
 
 /**
@@ -352,6 +575,8 @@ interface IFigureNode {
     layout: ICardLayout;
     mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
     slab: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    /** The icon and name on the slab's front side; a child of the slab. */
+    side: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     shadow: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     /** The size the geometries were made for, so a move keeps them. */
     builtSize?: string;
@@ -377,11 +602,27 @@ interface IConnectionNode {
     connection: IModelConnection;
     start: IFigureNode;
     end: IFigureNode;
+    /** The route: dashed for a non-identifying relationship. */
     line: LineSegments2;
+    /** The end markers (crow's foot, bars): solid, whatever the route. */
+    markers: LineSegments2;
+    /** Whether the foreign key's columns are in its table's primary key. */
+    identifying: boolean;
     /** Whether rows may share a parent: a crow's foot, else a bar. */
     many: boolean;
     mandatory: boolean;
     referencedMandatory: boolean;
+    /** The route drawn last, for hits and the handle. */
+    route?: IRoute;
+    item: ICanvasItem;
+    selected: boolean;
+    /** The handle on a selected connection's middle segment. */
+    handle?: THREE.Group;
+    /** The handles on a selected connection's ends: start, end. */
+    endHandles?: [THREE.Group, THREE.Group];
+    /** The docking points where it meets its tables: start, end. */
+    docks: [THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>,
+        THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>];
 }
 
 /** What the set needs to be made. */
@@ -410,6 +651,12 @@ export interface IEerFigureSetOptions {
     onToolPanel?: (panel?: IToolPanel) => void;
     /** Asks for the picture msm left out of an image figure. */
     requestImage?: (diagram: string, figureId: string) => void;
+    /**
+     * The shown diagram's connections were brought in line with the
+     * foreign keys (`syncConnections`): it is to be saved, though no
+     * action was made.
+     */
+    onConnectionsSynced?: () => void;
     /** A table card's Edit Table: the table editor opens on the table. */
     onEditTable?: (table: string) => void;
 }
@@ -510,6 +757,10 @@ export class EerFigureSet implements IFigureSet {
     #figures = new Map<string, IFigureNode>();
     #layers = new Map<string, ILayerNode>();
     #connections: IConnectionNode[] = [];
+    /** The connections by id: the canvas asks for items every frame. */
+    #connectionIndex = new Map<string, IConnectionNode>();
+    /** Where each connection meets its tables' sides (`spreadAnchors`). */
+    #anchors = new Map<string, IAnchors>();
     /** What this set drew into the canvas's groups, to remove it. */
     #base = new THREE.Group();
     #lifted = new THREE.Group();
@@ -567,12 +818,54 @@ export class EerFigureSet implements IFigureSet {
         for (const figure of this.#diagram.figures) {
             this.#buildFigure(figure);
         }
+        if (this.#syncConnections()) {
+            this.#options.onConnectionsSynced?.();
+        }
         for (const connection of this.#diagram.connections) {
             this.#buildConnection(connection);
         }
         this.#restack();
         this.viewChanged();
         host.invalidate();
+    }
+
+    /**
+     * Matches the shown diagram's connections to the foreign keys of its
+     * tables, by what the keys are rather than their names.
+     *
+     * @returns Whether the connections changed.
+     */
+    #syncConnections(): boolean {
+        const { catalog } = this.#options;
+
+        return syncConnections(this.#diagram, catalog.objects().tables, newId,
+            catalog.schema?.());
+    }
+
+    /** Draws every connection again, after the set of them changed. */
+    #rebuildConnections(): void {
+        const selected = new Set(this.#connections.filter((node) => {
+            return node.selected;
+        }).map((node) => { return node.connection.id; }));
+        for (const node of this.#connections) {
+            this.#disposeConnection(node);
+        }
+        this.#connections = [];
+        for (const connection of this.#diagram.connections) {
+            this.#buildConnection(connection);
+        }
+        for (const node of this.#connections) {
+            node.selected = selected.has(node.connection.id);
+        }
+        this.viewChanged();
+    }
+
+    #disposeConnection(node: IConnectionNode): void {
+        for (const object of [node.line, node.markers, ...node.docks,
+            ...node.endHandles ?? [], ...node.handle ? [node.handle] : []]) {
+            drop(object);
+        }
+        this.#connectionIndex.delete(node.connection.id);
     }
 
     public unmount(): void {
@@ -590,6 +883,7 @@ export class EerFigureSet implements IFigureSet {
         this.#cardMeshes = [];
         this.#layers.clear();
         this.#connections = [];
+        this.#connectionIndex.clear();
         // Disposed with the groups.
         this.#highlightMarks = [];
         this.#bandMarks = [];
@@ -602,11 +896,253 @@ export class EerFigureSet implements IFigureSet {
 
     // --- Items ----------------------------------------------------------------
 
+    /**
+     * @param id An item of the shown diagram.
+     * @param editable Whether the diagram can be changed.
+     *
+     * @returns What Object Details shows of it: a card figure's place and
+     *          size, a connection's tables and middle segment. Nothing for
+     *          the other items.
+     */
+    public itemProps(id: string, editable: boolean): DiagramItem | undefined {
+        const layer = this.#layers.get(id)?.layer;
+        if (layer !== undefined) {
+            return {
+                kind: "layer",
+                id,
+                name: layer.name,
+                x: layer.left,
+                y: layer.top,
+                z: this.#elevation(layer),
+                width: layer.width,
+                height: layer.height,
+                tables: this.#filedUnder(layer)
+                    .filter((table) => { return table.kind === "table"; })
+                    .map((table) => { return tableOf(table.figure); })
+                    .sort((a, b) => { return a.localeCompare(b); }),
+                editable,
+            };
+        }
+        const node = this.#figures.get(id);
+        if (node !== undefined && isCard(node.kind)) {
+            const rect = this.#figureRect(node);
+
+            return {
+                kind: "figure",
+                id,
+                x: rect.left,
+                y: rect.top,
+                z: ownElevation(node.figure),
+                width: rect.width,
+                height: rect.height,
+                autoHeight: node.figure.manualSizing !== true,
+                editable,
+            };
+        }
+        const connection = this.#connectionById(id);
+        if (connection === undefined) {
+            return undefined;
+        }
+        const middle = connection.route?.middle;
+        const kind = this.#relationshipKind(connection);
+
+        return {
+            ...kind,
+            kind: "connection",
+            id,
+            source: tableOf(connection.start.figure),
+            target: tableOf(connection.end.figure),
+            // Where the segment is, the route having kept it clear of both
+            // tables: what is stored may reach further.
+            offset: middle === undefined
+                ? connection.connection.middleSegmentOffset ?? 0
+                : middle.at - middle.base,
+            split: connection.connection.drawSplit === true,
+            startDock: connection.connection.startDock?.side,
+            endDock: connection.connection.endDock?.side,
+            editable,
+        };
+    }
+
+    /**
+     * Changes a figure's place and size, or a connection's middle segment
+     * and split, as Object Details asks: one undoable action.
+     *
+     * @param id The item.
+     * @param change What changes.
+     */
+    public changeItem(id: string, change: DiagramItemChange): void {
+        const host = this.#host;
+        const node = this.#figures.get(id);
+        const layer = this.#layers.get(id);
+        const connection = this.#connectionById(id);
+        if (host === undefined) {
+            return;
+        }
+        if (layer !== undefined) {
+            host.change(`Change Layer ${layer.layer.name}`, () => {
+                this.#changeLayer(layer, change);
+            });
+        } else if (node !== undefined) {
+            host.change(`Change ${node.figure.name}`, () => {
+                this.#changeFigure(node, change);
+            });
+        } else if (connection !== undefined
+            && (change.many !== undefined || change.identifying !== undefined)) {
+            this.#changeRelationshipKind(connection, change);
+        } else if (connection !== undefined) {
+            host.change("Change Relationship Line", () => {
+                const model = connection.connection;
+                if (change.offset !== undefined) {
+                    // Kept clear of both tables, as a drag keeps it.
+                    const middle = connection.route?.middle;
+                    model.middleSegmentOffset = middle === undefined
+                        ? change.offset
+                        : Math.min(middle.max, Math.max(middle.min,
+                            middle.base + change.offset)) - middle.base;
+                }
+                if (change.split !== undefined) {
+                    model.drawSplit = change.split;
+                }
+                if (change.resetDock === "start") {
+                    delete model.startDock;
+                } else if (change.resetDock === "end") {
+                    delete model.endDock;
+                }
+                // Its tables' other lines move over for it, or back.
+                this.#routeAll();
+            });
+        }
+    }
+
+    /**
+     * Changes a layer as the pointer would: a move carries the tables on
+     * it, a resize keeps them where they are on the page, a new height
+     * raises the tables filed under it.
+     */
+    #changeLayer(node: ILayerNode, change: DiagramItemChange): void {
+        const { layer } = node;
+        if (change.x !== undefined || change.y !== undefined) {
+            const move = this.beginMove([layer.id]);
+            move.moveBy((change.x ?? layer.left) - layer.left,
+                (change.y ?? layer.top) - layer.top);
+            move.finish();
+        }
+        if (change.width !== undefined || change.height !== undefined) {
+            this.#setLayerRect(node, {
+                left: layer.left,
+                top: layer.top,
+                width: Math.max(MIN_LAYER_WIDTH, change.width ?? layer.width),
+                height: Math.max(MIN_LAYER_HEIGHT,
+                    change.height ?? layer.height),
+            });
+            this.#fileOnLayer(node);
+        }
+        if (change.z !== undefined) {
+            const elevate = this.beginElevate(layer.id);
+            elevate.elevateBy(change.z - this.#elevation(layer));
+            elevate.finish();
+        }
+    }
+
+    /**
+     * @returns A connection's foreign key and the table holding it, where
+     *          the catalog has both.
+     */
+    #foreignKeyOf(node: IConnectionNode): {
+        table: IOutlineTable;
+        key: IOutlineForeignKey;
+    } | undefined {
+        const table = this.#options.catalog.table(node.connection.table);
+        const key = foreignKeyOf(table, node.connection.foreignKey);
+
+        return table === undefined || key === undefined
+            ? undefined : { table, key };
+    }
+
+    /** @returns What a connection's relationship is, where it is known. */
+    #relationshipKind(node: IConnectionNode): IRelationshipKind | undefined {
+        const found = this.#foreignKeyOf(node);
+
+        return found === undefined
+            ? undefined : relationshipKindOf(found.table, found.key);
+    }
+
+    /**
+     * Makes a relationship 1:1 or 1:n, identifying or not: a schema
+     * change, sent to msm and undone as the relationship tools' are.
+     */
+    #changeRelationshipKind(
+        node: IConnectionNode,
+        change: DiagramItemChange,
+    ): void {
+        const found = this.#foreignKeyOf(node);
+        const from = this.#relationshipKind(node);
+        if (found === undefined || from === undefined) {
+            this.#host?.hint(`${node.connection.foreignKey} is not in the `
+                + "schema snapshot.");
+
+            return;
+        }
+        const to = {
+            many: change.many ?? from.many,
+            identifying: change.identifying ?? from.identifying,
+        };
+        if (to.many === from.many && to.identifying === from.identifying) {
+            return;
+        }
+        const result = relationshipKindChange(found.table, found.key, to,
+            this.#options.catalog.objects().tables);
+        if ("error" in result) {
+            this.#host?.hint(result.error);
+
+            return;
+        }
+        this.#tools.changeSchema(result.change);
+    }
+
+    #changeFigure(node: IFigureNode, change: DiagramItemChange): void {
+        const figure = node.figure;
+        if (change.x !== undefined) {
+            figure.left = change.x - (node.layer?.left ?? 0);
+        }
+        if (change.y !== undefined) {
+            figure.top = change.y - (node.layer?.top ?? 0);
+        }
+        if (change.z !== undefined) {
+            figure.elevation = ownElevation({ ...figure, elevation: change.z });
+        }
+        if (change.width !== undefined) {
+            figure.width = Math.max(MIN_FIGURE_WIDTH, change.width);
+        }
+        if (change.autoHeight === true) {
+            figure.manualSizing = false;
+        } else if (change.autoHeight === false) {
+            // From the height it has, which the user then sizes.
+            figure.manualSizing = true;
+            figure.height = node.layout.height;
+        }
+        if (change.height !== undefined) {
+            figure.manualSizing = true;
+            figure.height = Math.max(CARD.headerHeight, change.height);
+        }
+        this.#relayout(node);
+        // Moved off or onto a layer, it is filed as a drag files it.
+        this.#fileUnderLayer(node);
+        this.#routeOf(new Set([node]));
+    }
+
     public item(id: string): ICanvasItem | undefined {
-        return this.#figures.get(id)?.item ?? this.#layers.get(id)?.item;
+        return this.#figures.get(id)?.item ?? this.#layers.get(id)?.item
+            ?? this.#connectionById(id)?.item;
     }
 
     public itemAt(probe: IProbe): ICanvasItem | undefined {
+        // Connections are drawn over the cards.
+        const connection = this.#connectionAt(probe);
+        if (connection !== undefined) {
+            return connection.item;
+        }
         const table = this.#figureHit(probe);
         if (table !== undefined) {
             return table.node.item;
@@ -649,6 +1185,19 @@ export class EerFigureSet implements IFigureSet {
     #elevation(layer: IModelLayer | undefined): number {
         return Math.min(MAX_LAYER_ELEVATION,
             Math.max(0, layer?.elevation ?? 0));
+    }
+
+    /** @returns How high a figure stands: its layer's and its own. */
+    #figureElevation(node: IFigureNode): number {
+        return this.#elevation(node.layer) + ownElevation(node.figure);
+    }
+
+    /**
+     * @returns How high a connection meets a table: halfway down the
+     *          table's slab, so the line runs into the middle of its side.
+     */
+    #lineElevation(node: IFigureNode): number {
+        return this.#figureElevation(node) - CARD_THICKNESS / 2;
     }
 
     /** @returns Where a table is on the page. */
@@ -702,9 +1251,12 @@ export class EerFigureSet implements IFigureSet {
                 minHeight: MIN_LAYER_HEIGHT,
                 elevation: () => { return this.#elevation(layer); },
                 elevatable: true,
+                // As high as a card's header, so the button is the size
+                // of a card's, centred on the name's line.
                 menuBand: {
-                    top: LAYER_LABEL.top,
-                    height: LAYER_LABEL.height,
+                    top: LAYER_LABEL.top
+                        + (LAYER_LABEL.height - CARD.headerHeight) / 2,
+                    height: CARD.headerHeight,
                     color: theme.foreground,
                 },
             },
@@ -837,6 +1389,11 @@ export class EerFigureSet implements IFigureSet {
         setDrawOrder(slab, DRAW_ORDER.lifted);
         setDrawOrder(mesh, DRAW_ORDER.lifted + 0.5);
         this.#lifted.add(slab, mesh);
+        const side = new THREE.Mesh(new THREE.BufferGeometry(),
+            new THREE.MeshBasicMaterial({ transparent: true }));
+        setDrawOrder(side, DRAW_ORDER.lifted + 0.25);
+        side.visible = isCard(kind);
+        slab.add(side);
 
         const shadow = new THREE.Mesh(new THREE.BufferGeometry(),
             new THREE.MeshBasicMaterial({
@@ -859,6 +1416,7 @@ export class EerFigureSet implements IFigureSet {
             layout,
             mesh,
             slab,
+            side,
             shadow,
             rasterScale: 0,
             item: {
@@ -868,7 +1426,7 @@ export class EerFigureSet implements IFigureSet {
                 resizable: true,
                 minWidth: MIN_FIGURE_WIDTH,
                 minHeight: card ? CARD.headerHeight : 20,
-                elevation: () => { return this.#elevation(node.layer); },
+                elevation: () => { return this.#figureElevation(node); },
                 // Notes and pictures have no header, and no menu.
                 ...(card ? {
                     menuBand: {
@@ -1114,12 +1672,14 @@ export class EerFigureSet implements IFigureSet {
             node.slab.geometry.dispose();
             node.slab.geometry = slabGeometry(rect.width, rect.height,
                 new THREE.Color(figureColor(node.figure)));
+            node.side.geometry.dispose();
+            node.side.geometry = sideLabelGeometry(rect.width, rect.height);
             node.shadow.geometry.dispose();
             node.shadow.geometry = shadowGeometry(rect.width, rect.height);
         }
 
         const lift = this.#host?.lift() ?? 0;
-        const z = this.#elevation(node.layer) * lift;
+        const z = this.#figureElevation(node) * lift;
         node.mesh.position.set(center.x, center.y, z + Z.face);
         // Just below the card, so the card's face wins the depth test.
         node.slab.position.set(center.x, center.y, z + Z.slab);
@@ -1217,7 +1777,40 @@ export class EerFigureSet implements IFigureSet {
         node.mesh.material.map?.dispose();
         node.mesh.material.map = texture;
         node.mesh.material.needsUpdate = true;
+        if (isCard(node.kind)) {
+            await this.#rasterSide(node, scale);
+        }
         host.invalidate();
+    }
+
+    /**
+     * Draws the icon and name on a card's slab's front side, in the
+     * header's text colour.
+     */
+    async #rasterSide(node: IFigureNode, scale: number): Promise<void> {
+        const host = this.#host;
+        const title = node.layout.items.find((item) => {
+            return item.kind === "title";
+        });
+        if (host === undefined || title === undefined) {
+            return;
+        }
+        const color = contrastingText(figureColor(node.figure));
+        const icons = await this.#iconsIn(color);
+        if (this.#figures.get(node.figure.id) !== node
+            || node.rasterScale !== scale) {
+            return;
+        }
+        const canvas = drawSideLabel(title.text, icons[title.icon ?? "table"],
+            color, host.theme.fontFamily,
+            sideLabelWidth(this.#figureRect(node).width), CARD_THICKNESS,
+            scale);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = host.maxAnisotropy;
+        node.side.material.map?.dispose();
+        node.side.material.map = texture;
+        node.side.material.needsUpdate = true;
     }
 
     // --- Connections ----------------------------------------------------------
@@ -1229,25 +1822,315 @@ export class EerFigureSet implements IFigureSet {
         if (start?.kind !== "table" || end?.kind !== "table") {
             return;
         }
-        const foreignKey = foreignKeyOf(
-            this.#options.catalog.table(connection.table),
-            connection.foreignKey);
-        const line = new LineSegments2(new LineSegmentsGeometry(),
-            new LineMaterial({
-                color: new THREE.Color(this.#host!.theme.connection),
-                linewidth: CONNECTION_WIDTH,
-            }));
-        line.visible = connection.visible !== false;
-        setDrawOrder(line, DRAW_ORDER.connections);
-        this.#lifted.add(line);
-        const node: IConnectionNode = {
-            connection, start, end, line,
-            many: foreignKey?.many ?? true,
-            mandatory: foreignKey?.mandatory ?? true,
-            referencedMandatory: foreignKey?.referenced_mandatory ?? true,
+        const fatLine = (): LineSegments2 => {
+            const made = new LineSegments2(new LineSegmentsGeometry(),
+                new LineMaterial({
+                    color: new THREE.Color(this.#host!.theme.connection),
+                    linewidth: CONNECTION_WIDTH,
+                    ...CONNECTION_DASH,
+                }));
+            made.visible = connection.visible !== false;
+            setDrawOrder(made, DRAW_ORDER.connections);
+            this.#lifted.add(made);
+
+            return made;
         };
+        const line = fatLine();
+        const markers = fatLine();
+        const dock = (): THREE.Mesh<THREE.CircleGeometry,
+            THREE.MeshBasicMaterial> => {
+            const made = newDock();
+            made.visible = connection.visible !== false;
+            this.#lifted.add(made);
+
+            return made;
+        };
+        const node: IConnectionNode = {
+            connection, start, end, line, markers,
+            docks: [dock(), dock()],
+            identifying: false,
+            many: true,
+            mandatory: true,
+            referencedMandatory: true,
+            selected: false,
+            item: {
+                id: connection.id,
+                plane: "lifted",
+                rect: () => { return this.#connectionRect(node); },
+                resizable: false,
+                minWidth: 0,
+                minHeight: 0,
+                elevation: () => { return this.#lineElevation(start); },
+                // Marked selected by its colour and handle, drawn here.
+                outlined: false,
+            },
+        };
+        this.#readKey(node);
         this.#connections.push(node);
-        this.#route(node);
+        this.#connectionIndex.set(connection.id, node);
+        // Routed by the caller, once every line is there: the lines on a
+        // side are spread over it together.
+    }
+
+    /**
+     * Reads what a connection's ends show from its foreign key: a crow's
+     * foot or a bar, the bars of mandatory sides, a dashed line where it
+     * does not identify. Unknown keys draw as many, mandatory, solid.
+     */
+    #readKey(node: IConnectionNode): void {
+        const found = this.#foreignKeyOf(node);
+        node.identifying = found !== undefined
+            && relationshipKindOf(found.table, found.key).identifying;
+        node.many = found?.key.many ?? true;
+        node.mandatory = found?.key.mandatory ?? true;
+        node.referencedMandatory = found?.key.referenced_mandatory ?? true;
+    }
+
+    /** @returns The connection with an id on the shown diagram. */
+    #connectionById(id: string): IConnectionNode | undefined {
+        return this.#connectionIndex.get(id);
+    }
+
+    /** @returns The rectangle a connection's route spans. */
+    #connectionRect(node: IConnectionNode): IRect {
+        const points = node.route?.points ?? [];
+
+        return points.length === 0
+            ? { left: 0, top: 0, width: 0, height: 0 } : boundsOf(points);
+    }
+
+    /**
+     * @returns The lines a connection is drawn as, each at the elevation of
+     *          the table it is drawn at (the middle one, sloping, at both).
+     */
+    #connectionLines(
+        node: IConnectionNode,
+    ): Array<{ segment: Segment; elevations: number[] }> {
+        const route = node.route;
+        if (route === undefined) {
+            return [];
+        }
+        const startElevation = this.#lineElevation(node.start);
+        const endElevation = this.#lineElevation(node.end);
+        if (node.connection.drawSplit === true) {
+            const [first, second] = splitStubs(route);
+
+            return [
+                { segment: first, elevations: [startElevation] },
+                { segment: second, elevations: [endElevation] },
+            ];
+        }
+        const path = polylineSegments(route.points);
+        const middle = Math.floor((path.length - 1) / 2);
+
+        return path.map((segment, index) => {
+            return {
+                segment,
+                elevations: index < middle ? [startElevation]
+                    : index > middle ? [endElevation]
+                        : [startElevation, endElevation],
+            };
+        });
+    }
+
+    /** The visible connection under the pointer, the nearest one. */
+    #connectionAt(probe: IProbe): IConnectionNode | undefined {
+        const scale = this.#host?.scale() ?? 1;
+        let reach = CONNECTION_REACH_PX / scale;
+        let found: IConnectionNode | undefined;
+        // Tables stand at few heights: the pointer is found once at each.
+        const points = new Map<number, IPoint | undefined>();
+        const pointAt = (elevation: number): IPoint | undefined => {
+            if (!points.has(elevation)) {
+                points.set(elevation, probe.pointOn("lifted", elevation));
+            }
+
+            return points.get(elevation);
+        };
+        for (const node of this.#connections) {
+            if (node.connection.visible === false) {
+                continue;
+            }
+            for (const { segment, elevations } of this.#connectionLines(node)) {
+                for (const elevation of elevations) {
+                    const point = pointAt(elevation);
+                    if (point === undefined) {
+                        continue;
+                    }
+                    const distance = distanceToSegment(point, segment);
+                    if (distance <= reach) {
+                        reach = distance;
+                        found = node;
+                    }
+                }
+            }
+        }
+
+        return found;
+    }
+
+    /**
+     * @returns Whether a connection has a middle segment to move: a Z,
+     *          whose ends are not in line, drawn whole.
+     */
+    #movableMiddle(node: IConnectionNode): boolean {
+        const points = node.route?.points ?? [];
+
+        // A route has a middle segment only with four points.
+        return node.route?.middle !== undefined
+            && node.connection.drawSplit !== true
+            && (points[1].x !== points[2].x || points[1].y !== points[2].y);
+    }
+
+    /** @returns Where a connection's handle is: its middle segment's middle. */
+    #handlePoint(node: IConnectionNode): IPoint {
+        const points = node.route!.points;
+
+        return {
+            x: (points[1].x + points[2].x) / 2,
+            y: (points[1].y + points[2].y) / 2,
+        };
+    }
+
+    /** @returns The elevation the handle is at: halfway up the slope. */
+    #handleElevation(node: IConnectionNode): number {
+        return (this.#lineElevation(node.start)
+            + this.#lineElevation(node.end)) / 2;
+    }
+
+    /**
+     * Colours a connection as selected or not, and gives a selected one
+     * with a middle segment to move its handle, put where that is.
+     */
+    #markConnection(node: IConnectionNode): void {
+        const host = this.#host;
+        if (host === undefined) {
+            return;
+        }
+        const color = node.selected ? host.theme.selection
+            : host.theme.connection;
+        node.line.material.color.set(color);
+        node.markers.material.color.set(color);
+        // Each in its own table's colour, darkened.
+        node.docks[0].material.color.copy(dockColor(node.start.figure));
+        node.docks[1].material.color.copy(dockColor(node.end.figure));
+        this.#markEnds(node);
+        const wanted = node.selected && this.#movableMiddle(node);
+        if (!wanted) {
+            if (node.handle !== undefined) {
+                drop(node.handle);
+                node.handle = undefined;
+            }
+
+            return;
+        }
+        if (node.handle === undefined) {
+            node.handle = this.#buildHandle();
+            this.#lifted.add(node.handle);
+        }
+        const at = this.#handlePoint(node);
+        node.handle.position.set(at.x, -at.y,
+            this.#handleElevation(node) * host.lift() + Z.liftedDecoration);
+        const size = HANDLE_PX / host.scale();
+        node.handle.scale.set(size, size, 1);
+    }
+
+    /**
+     * Gives a selected connection a handle on each end, which drags it to
+     * another side or place on its table; none for one not selected.
+     */
+    #markEnds(node: IConnectionNode): void {
+        const host = this.#host;
+        const route = node.route;
+        if (!node.selected || host === undefined || route === undefined) {
+            for (const handle of node.endHandles ?? []) {
+                drop(handle);
+            }
+            node.endHandles = undefined;
+
+            return;
+        }
+        if (node.endHandles === undefined) {
+            node.endHandles = [this.#buildHandle(), this.#buildHandle()];
+            this.#lifted.add(...node.endHandles);
+        }
+        const size = HANDLE_PX / host.scale();
+        const lift = host.lift();
+        (["start", "end"] as const).forEach((which, index) => {
+            const at = endPoint(route, which);
+            const handle = node.endHandles![index];
+            handle.position.set(at.x, -at.y,
+                this.#endElevation(node, which) * lift + Z.liftedDecoration);
+            handle.scale.set(size, size, 1);
+        });
+    }
+
+    /**
+     * Shows, while a line's end is dragged, where it can dock on its
+     * table: on each side, the places the side would have with it there.
+     *
+     * @returns The points shown, to take away once it is let go.
+     */
+    #showFreeDocks(
+        dragged: IConnectionNode,
+        which: "start" | "end",
+        table: IFigureNode,
+    ): Array<THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>> {
+        const host = this.#host;
+        if (host === undefined) {
+            return [];
+        }
+        // The lines on each side of the table, the dragged end left out.
+        const counts = new Map<Side, number>([["left", 0], ["right", 0],
+            ["top", 0], ["bottom", 0]]);
+        for (const node of this.#connections) {
+            const anchors = this.#anchors.get(node.connection.id);
+            for (const end of ["start", "end"] as const) {
+                const side = end === "start"
+                    ? anchors?.startSide : anchors?.endSide;
+                const figure = end === "start" ? node.start : node.end;
+                if (side !== undefined && figure === table
+                    && !(node === dragged && end === which)) {
+                    counts.set(side, counts.get(side)! + 1);
+                }
+            }
+        }
+        const rect = this.#figureRect(table);
+        const lift = host.lift();
+        const z = this.#lineElevation(table) * lift + Z.connection;
+        const color = dockColor(table.figure);
+        const shown: Array<THREE.Mesh<THREE.CircleGeometry,
+            THREE.MeshBasicMaterial>> = [];
+        for (const [side, count] of counts) {
+            for (const at of sideSlots(rect, side, count + 1, CARD.radius)) {
+                const dock = newDock(color);
+                placeDock(dock, pointOnSide(rect, side, at), side, z, lift);
+                this.#lifted.add(dock);
+                shown.push(dock);
+            }
+        }
+        host.invalidate();
+
+        return shown;
+    }
+
+    /** @returns The height a connection's end is at: its table's line. */
+    #endElevation(node: IConnectionNode, which: "start" | "end"): number {
+        return this.#lineElevation(which === "start" ? node.start : node.end);
+    }
+
+    /**
+     * @returns A handle as the canvas draws its own: a unit square filled
+     *          with the paper and edged in the selection colour.
+     */
+    #buildHandle(): THREE.Group {
+        const theme = this.#host!.theme;
+        const handle = handleSquare(
+            new THREE.MeshBasicMaterial({ color: theme.paper }),
+            new THREE.LineBasicMaterial({ color: theme.selection }));
+        setDrawOrder(handle, DRAW_ORDER.decorations);
+
+        return handle;
     }
 
     /**
@@ -1256,10 +2139,13 @@ export class EerFigureSet implements IFigureSet {
      */
     #route(node: IConnectionNode): void {
         const route = routeConnection(this.#figureRect(node.start),
-            this.#figureRect(node.end));
+            this.#figureRect(node.end),
+            node.connection.middleSegmentOffset ?? 0,
+            this.#anchors.get(node.connection.id));
+        node.route = route;
         const lift = this.#host?.lift() ?? 0;
-        const startZ = this.#elevation(node.start.layer) * lift + Z.connection;
-        const endZ = this.#elevation(node.end.layer) * lift + Z.connection;
+        const startZ = this.#lineElevation(node.start) * lift + Z.connection;
+        const endZ = this.#lineElevation(node.end) * lift + Z.connection;
         const path = node.connection.drawSplit === true
             ? splitStubs(route)
             : polylineSegments(route.points);
@@ -1284,31 +2170,76 @@ export class EerFigureSet implements IFigureSet {
                 return [{ ...from, z }, { ...to, z }];
             };
         };
-        segments.push(
+        const markers = [
             ...(node.many ? crowsFoot : oneMarker)(route.points[0],
                 route.startSide, node.mandatory).map(at(startZ)),
             ...oneMarker(route.points[route.points.length - 1], route.endSide,
                 node.referencedMandatory).map(at(endZ)),
-        );
+        ];
         node.line.geometry.dispose();
         node.line.geometry = sloped(segments);
+        // Workbench's notation: a non-identifying relationship is dashed.
+        const dashed = !node.identifying;
+        if (node.line.material.dashed !== dashed) {
+            node.line.material.dashed = dashed;
+            node.line.material.needsUpdate = true;
+        }
+        if (dashed) {
+            node.line.computeLineDistances();
+        }
+        node.markers.geometry.dispose();
+        node.markers.geometry = sloped(markers);
+        // The docking points the line meets its tables at, on their sides.
+        placeDock(node.docks[0], route.points[0], route.startSide, startZ,
+            lift);
+        placeDock(node.docks[1], route.points[route.points.length - 1],
+            route.endSide, endZ, lift);
+        this.#markConnection(node);
+    }
+
+    /**
+     * @returns Where every line shown meets its tables, spread over the
+     *          sides they share.
+     */
+    #spread(): Map<string, IAnchors> {
+        return spreadAnchors(this.#connections.filter((node) => {
+            return node.connection.visible !== false;
+        }).map((node) => {
+            return {
+                id: node.connection.id,
+                startFigure: node.start.figure.id,
+                endFigure: node.end.figure.id,
+                start: this.#figureRect(node.start),
+                end: this.#figureRect(node.end),
+                startDock: node.connection.startDock,
+                endDock: node.connection.endDock,
+            };
+        }), CARD.radius);
     }
 
     #routeAll(): void {
+        this.#anchors = this.#spread();
         for (const node of this.#connections) {
             this.#route(node);
         }
     }
 
     /**
-     * Routes the connections of some tables, the others being where they
-     * were.
+     * Routes the connections of some tables, and those of the others whose
+     * place on a side moved with them (a side shared with one that came or
+     * went, or changed its order); the rest stay as they were.
      *
      * @param tables The tables that moved or changed.
      */
     #routeOf(tables: ReadonlySet<IFigureNode>): void {
+        const before = this.#anchors;
+        this.#anchors = this.#spread();
         for (const node of this.#connections) {
-            if (tables.has(node.start) || tables.has(node.end)) {
+            const id = node.connection.id;
+            const was = before.get(id);
+            const now = this.#anchors.get(id);
+            if (tables.has(node.start) || tables.has(node.end)
+                || was?.start !== now?.start || was?.end !== now?.end) {
                 this.#route(node);
             }
         }
@@ -1333,8 +2264,10 @@ export class EerFigureSet implements IFigureSet {
         const viewport = this.#host?.viewport();
         if (viewport !== undefined) {
             for (const node of this.#connections) {
-                node.line.material.resolution.set(viewport.width,
-                    viewport.height);
+                for (const line of [node.line, node.markers]) {
+                    line.material.resolution.set(viewport.width,
+                        viewport.height);
+                }
             }
         }
         for (const node of this.#layers.values()) {
@@ -1345,6 +2278,136 @@ export class EerFigureSet implements IFigureSet {
         }
         this.#routeAll();
         this.#drawHighlight();
+    }
+
+    public selectionChanged(ids: readonly string[]): void {
+        const selected = new Set(ids);
+        for (const node of this.#connections) {
+            const now = selected.has(node.connection.id);
+            if (now !== node.selected) {
+                node.selected = now;
+                this.#markConnection(node);
+            }
+        }
+    }
+
+    public beforeRender(): void {
+        // The handles keep their size on the screen as the zoom changes.
+        const scale = this.#host?.scale();
+        if (scale === undefined) {
+            return;
+        }
+        const size = HANDLE_PX / scale;
+        for (const node of this.#connections) {
+            node.handle?.scale.set(size, size, 1);
+            for (const handle of node.endHandles ?? []) {
+                handle.scale.set(size, size, 1);
+            }
+        }
+    }
+
+    public grabAt(probe: IProbe): IGrab | undefined {
+        const reach = HANDLE_REACH_PX / (this.#host?.scale() ?? 1);
+        // Whether the pointer is on a handle at a point and height.
+        const near = (at: IPoint, elevation: number): boolean => {
+            const point = probe.pointOn("lifted", elevation);
+
+            return point !== undefined && Math.abs(point.x - at.x) <= reach
+                && Math.abs(point.y - at.y) <= reach;
+        };
+        // An end's handle first: it sits on the line's end.
+        for (const candidate of this.#connections) {
+            const route = candidate.route;
+            if (candidate.endHandles === undefined || route === undefined) {
+                continue;
+            }
+            for (const which of ["start", "end"] as const) {
+                if (near(endPoint(route, which),
+                    this.#endElevation(candidate, which))) {
+                    return {
+                        cursor: "move",
+                        begin: () => { return this.#moveEnd(candidate, which); },
+                    };
+                }
+            }
+        }
+        const node = this.#connections.find((candidate) => {
+            return candidate.handle !== undefined
+                && near(this.#handlePoint(candidate),
+                    this.#handleElevation(candidate));
+        });
+        const middle = node?.route?.middle;
+        if (node === undefined || middle === undefined) {
+            return undefined;
+        }
+
+        return {
+            cursor: middle.axis === "x" ? "ew-resize" : "ns-resize",
+            begin: () => { return this.#moveMiddle(node); },
+        };
+    }
+
+    /**
+     * Drags a connection's end around its table: it docks on the side
+     * nearest the pointer, among the lines there in the order of where it
+     * is let go, placed by hand from then on (`startDock` / `endDock`).
+     */
+    #moveEnd(node: IConnectionNode, which: "start" | "end"): IGrabSession {
+        const elevation = this.#endElevation(node, which);
+        const table = which === "start" ? node.start : node.end;
+        const free = this.#showFreeDocks(node, which, table);
+
+        return {
+            move: (probe) => {
+                const point = probe.pointOn("lifted", elevation);
+                if (point === undefined) {
+                    return;
+                }
+                const dock = nearestDock(this.#figureRect(table), point,
+                    CARD.radius);
+                if (which === "start") {
+                    node.connection.startDock = dock;
+                } else {
+                    node.connection.endDock = dock;
+                }
+                // Its table's lines, and those whose place on a side moved
+                // over for it.
+                this.#routeOf(new Set([table]));
+            },
+            finish: () => {
+                for (const dock of free) {
+                    drop(dock);
+                }
+                this.#host?.invalidate();
+
+                return "Move Relationship Line End";
+            },
+        };
+    }
+
+    /**
+     * Drags a connection's middle segment along its axis, towards either
+     * table, the route keeping it clear of both.
+     */
+    #moveMiddle(node: IConnectionNode): IGrabSession {
+        const elevation = this.#handleElevation(node);
+
+        return {
+            move: (probe) => {
+                const middle = node.route?.middle;
+                const point = probe.pointOn("lifted", elevation);
+                if (middle === undefined || point === undefined) {
+                    return;
+                }
+                const at = Math.min(middle.max,
+                    Math.max(middle.min, point[middle.axis]));
+                node.connection.middleSegmentOffset = at - middle.base;
+                this.#route(node);
+            },
+            finish: () => {
+                return "Move Relationship Line";
+            },
+        };
     }
 
     public zoomSettled(): void {
@@ -1454,44 +2517,57 @@ export class EerFigureSet implements IFigureSet {
      * where they now lie fully on it, or elsewhere where they no longer do.
      */
     #resizeLayer(node: ILayerNode): IResizeSession {
-        const { layer } = node;
-
         return {
-            resizeTo: (rect) => {
-                const dx = rect.left - layer.left;
-                const dy = rect.top - layer.top;
-                Object.assign(layer, {
-                    left: rect.left,
-                    top: rect.top,
-                    width: rect.width,
-                    height: rect.height,
-                });
-                const filed = new Set(this.#filedUnder(layer));
-                for (const table of filed) {
-                    table.figure.left -= dx;
-                    table.figure.top -= dy;
-                    this.#placeFigure(table);
-                }
-                // A new size can change the stacking of every layer.
-                this.#restack();
-                for (const other of this.#layers.values()) {
-                    this.#placeLayer(other);
-                }
-                this.#routeOf(filed);
-            },
+            resizeTo: (rect) => { this.#setLayerRect(node, rect); },
             finish: () => {
-                const rect = layerRect(layer);
-                for (const table of this.#figures.values()) {
-                    if (table.figure.layer === layer.id
-                        || containsRect(rect, this.#figureRect(table))) {
-                        this.#fileUnderLayer(table);
-                    }
-                }
-                this.#routeAll();
+                this.#fileOnLayer(node);
 
-                return `Resize Layer ${layer.name}`;
+                return `Resize Layer ${node.layer.name}`;
             },
         };
+    }
+
+    /**
+     * Gives a layer a new rectangle, the tables filed under it keeping
+     * their places on the page.
+     */
+    #setLayerRect(node: ILayerNode, rect: IRect): void {
+        const { layer } = node;
+        const dx = rect.left - layer.left;
+        const dy = rect.top - layer.top;
+        Object.assign(layer, {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+        });
+        const filed = new Set(this.#filedUnder(layer));
+        for (const table of filed) {
+            table.figure.left -= dx;
+            table.figure.top -= dy;
+            this.#placeFigure(table);
+        }
+        // A new size can change the stacking of every layer.
+        this.#restack();
+        for (const other of this.#layers.values()) {
+            this.#placeLayer(other);
+        }
+        this.#routeOf(filed);
+    }
+
+    /**
+     * Files the tables again after a layer's size changed: under it where
+     * they now lie fully on it, elsewhere where they no longer do.
+     */
+    #fileOnLayer(node: ILayerNode): void {
+        const rect = layerRect(node.layer);
+        for (const table of this.#figures.values()) {
+            if (table.figure.layer === node.layer.id
+                || containsRect(rect, this.#figureRect(table))) {
+                this.#fileUnderLayer(table);
+            }
+        }
+        this.#routeAll();
     }
 
     public beginElevate(id: string): IElevateSession {
@@ -1532,6 +2608,9 @@ export class EerFigureSet implements IFigureSet {
             layers: this.#diagram.layers.map((layer) => {
                 return [layer, layerState(layer)];
             }),
+            connections: this.#diagram.connections.map((connection) => {
+                return [connection, connectionState(connection)];
+            }),
         };
     }
 
@@ -1539,24 +2618,18 @@ export class EerFigureSet implements IFigureSet {
         const first = a as ISnapshot;
         const second = b as ISnapshot;
 
-        return first.figures.length === second.figures.length
-            && first.layers.length === second.layers.length
-            && first.figures.every(([figure, state], index) => {
-                const [other, otherState] = second.figures[index];
-
-                return figure === other && sameState(state, otherState);
-            })
-            && first.layers.every(([layer, state], index) => {
-                const [other, otherState] = second.layers[index];
-
-                return layer === other && sameState(state, otherState);
-            });
+        return samePairs(first.figures, second.figures)
+            && samePairs(first.layers, second.layers)
+            && samePairs(first.connections, second.connections);
     }
 
     public restore(snapshot: unknown): void {
-        const { figures, layers } = snapshot as ISnapshot;
+        const { figures, layers, connections } = snapshot as ISnapshot;
         for (const [layer, state] of layers) {
             Object.assign(layer, state);
+        }
+        for (const [connection, state] of connections) {
+            Object.assign(connection, state);
         }
         const changed = new Set<IModelFigure>();
         for (const [figure, state] of figures) {
@@ -1830,7 +2903,7 @@ export class EerFigureSet implements IFigureSet {
             bold: title,
             fontSize: title ? CARD.titleFontSize : CARD.rowFontSize,
             plane: "lifted",
-            elevation: () => { return this.#elevation(node.layer); },
+            elevation: () => { return this.#figureElevation(node); },
             area: () => {
                 if (this.#figures.get(node.figure.id) !== node) {
                     return undefined;
@@ -2044,10 +3117,20 @@ export class EerFigureSet implements IFigureSet {
         if (this.#host === undefined) {
             return;
         }
+        // A key dropped, added or renamed: the lines follow the keys.
+        if (this.#syncConnections()) {
+            this.#rebuildConnections();
+            this.#options.onConnectionsSynced?.();
+        }
         for (const node of this.#figures.values()) {
             if (isCard(node.kind)) {
                 this.#relayout(node);
             }
+        }
+        // A key's columns or indexes may have changed what its line ends
+        // in: a crow's foot or a bar, dashed or not.
+        for (const node of this.#connections) {
+            this.#readKey(node);
         }
         this.#routeAll();
         this.#host.invalidate();
@@ -2327,12 +3410,12 @@ export class EerFigureSet implements IFigureSet {
             if (node.connection.id !== id) {
                 return true;
             }
-            node.line.removeFromParent();
-            node.line.geometry.dispose();
-            node.line.material.dispose();
+            this.#disposeConnection(node);
 
             return false;
         });
+        // The lines left on its tables' sides spread out again.
+        this.#routeAll();
         this.#host?.invalidate();
     }
 
@@ -2355,7 +3438,7 @@ export class EerFigureSet implements IFigureSet {
             bold: title,
             fontSize: title ? CARD.titleFontSize : CARD.rowFontSize,
             plane: "lifted",
-            elevation: () => { return this.#elevation(node.layer); },
+            elevation: () => { return this.#figureElevation(node); },
             area: () => {
                 // Found again: the card may be laid out anew meanwhile.
                 const current = this.#figures.get(figureId);
@@ -2408,7 +3491,7 @@ export class EerFigureSet implements IFigureSet {
                     - (rect.height + 4), rect.width + 4, rect.height + 4,
                 CARD.radius + 2).getPoints(6)),
             new THREE.LineBasicMaterial({ color }));
-            outline.position.z = this.#elevation(node.layer) * lift
+            outline.position.z = this.#figureElevation(node) * lift
                 + Z.liftedDecoration;
             setDrawOrder(outline, DRAW_ORDER.decorations);
             this.#lifted.add(outline);
@@ -2432,7 +3515,7 @@ export class EerFigureSet implements IFigureSet {
                 new THREE.MeshBasicMaterial({ color, transparent: true,
                     opacity: 0.3, depthWrite: false }));
             fill.position.set(center.x, center.y,
-                this.#elevation(node.layer) * lift + Z.liftedDecoration);
+                this.#figureElevation(node) * lift + Z.liftedDecoration);
             setDrawOrder(fill, DRAW_ORDER.decorations);
             this.#lifted.add(fill);
             this.#highlightMarks.push(fill);

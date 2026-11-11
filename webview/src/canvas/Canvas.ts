@@ -40,6 +40,7 @@ import type {
     INavigatorState,
     IProbe,
     IResizeSession,
+    IGrabSession,
     IToolSession,
     EditCommit,
     ItemPlane,
@@ -69,6 +70,9 @@ import {
 import { cssPixelsPerMm, pixelsPerUnit } from "./screen.js";
 import type { IDiagramTheme } from "./theme.js";
 import {
+    HANDLE_PX,
+    HANDLE_REACH_PX,
+    handleSquare,
     disposeGroup,
     DRAW_ORDER,
     planeCenter,
@@ -116,9 +120,6 @@ export const ZOOM_RANGE = { min: 0.05, max: 8 } as const;
 
 /** The Navigator's margin around the paper, in its pixels. */
 const NAVIGATOR_PADDING = 6;
-
-/** A resize handle's size on the screen, in CSS pixels. */
-const HANDLE_PX = 8;
 
 /**
  * The menu button's size: a share of its band's height, so it scales with
@@ -214,6 +215,7 @@ type PointerState =
         before: unknown;
     }
     | { kind: "tool"; session: IToolSession }
+    | { kind: "grab"; session: IGrabSession; cursor: string; before: unknown }
     | {
         kind: "resize";
         handle: IHandle;
@@ -1400,6 +1402,7 @@ export class Canvas {
     }
 
     #render(): void {
+        this.#set?.beforeRender?.();
         this.#updateDecorations();
         this.#renderer.render(this.#scene, this.#camera);
         this.#renderNavigator();
@@ -1449,6 +1452,7 @@ export class Canvas {
                 this.#selected.add(id);
             }
         }
+        this.#set?.selectionChanged?.([...this.#selected]);
         this.#events.onSelection?.([...this.#selected]);
         this.#invalidate();
     }
@@ -1469,7 +1473,7 @@ export class Canvas {
         const scale = this.#scale();
         for (const id of this.#selected) {
             const item = this.#set?.item(id);
-            if (item === undefined) {
+            if (item === undefined || item.outlined === false) {
                 continue;
             }
             let decoration = this.#decorations.get(id);
@@ -1528,18 +1532,9 @@ export class Canvas {
         });
         const outline = new THREE.LineLoop(new THREE.BufferGeometry(), line);
         const handles = new THREE.Group();
-        const square = new THREE.PlaneGeometry(1, 1);
-        const edge = new THREE.BufferGeometry().setAttribute("position",
-            new THREE.BufferAttribute(new Float32Array([
-                -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0,
-            ]), 3));
         const fill = new THREE.MeshBasicMaterial({ color: this.#theme.paper });
         for (let index = 0; index < HANDLES.length; index += 1) {
-            const handle = new THREE.Group();
-            const border = new THREE.LineLoop(edge, line);
-            border.position.z = 0.01;
-            handle.add(new THREE.Mesh(square, fill), border);
-            handles.add(handle);
+            handles.add(handleSquare(fill, line));
         }
         group.add(outline, handles);
         setDrawOrder(group, DRAW_ORDER.decorations);
@@ -1563,7 +1558,7 @@ export class Canvas {
             return undefined;
         }
         // A little more than the square, so it is easy to take.
-        const reach = (HANDLE_PX / 2 + 2) / this.#scale();
+        const reach = HANDLE_REACH_PX / this.#scale();
         const items = [...this.#selected]
             .map((id) => { return this.#set?.item(id); })
             .filter((item): item is ICanvasItem => {
@@ -1756,6 +1751,8 @@ export class Canvas {
             canvas.style.cursor = "grab";
         } else if (pointer?.kind === "resize") {
             canvas.style.cursor = pointer.handle.cursor;
+        } else if (pointer?.kind === "grab") {
+            canvas.style.cursor = pointer.cursor;
         } else if (this.#figureTool()) {
             canvas.style.cursor = "crosshair";
         } else {
@@ -1852,6 +1849,22 @@ export class Canvas {
             }
         }
 
+        // A handle the figure set draws itself, such as a connection's.
+        const grab = this.#locked ? undefined
+            : set?.grabAt?.(this.#probe(screen));
+        if (grab !== undefined && set !== undefined) {
+            const before = set.snapshot();
+            this.#pointer = {
+                kind: "grab",
+                session: grab.begin(),
+                cursor: grab.cursor,
+                before,
+            };
+            this.#updateCursor();
+
+            return;
+        }
+
         const item = this.#itemAt(screen);
         if (item === undefined) {
             this.#select([], false);
@@ -1900,7 +1913,9 @@ export class Canvas {
             return;
         }
         if (pointer === undefined) {
-            const cursor = this.#handleAt(screen)?.handle.cursor;
+            const cursor = this.#handleAt(screen)?.handle.cursor
+                ?? (this.#locked ? undefined
+                    : this.#set?.grabAt?.(this.#probe(screen))?.cursor);
             if (cursor !== this.#hoverCursor) {
                 this.#hoverCursor = cursor;
                 this.#updateCursor();
@@ -1939,6 +1954,12 @@ export class Canvas {
 
             case "tool": {
                 pointer.session.move?.(this.#probe(screen));
+                this.#invalidate();
+                break;
+            }
+
+            case "grab": {
+                pointer.session.move(this.#probe(screen));
                 this.#invalidate();
                 break;
             }
@@ -2082,7 +2103,8 @@ export class Canvas {
             }
 
             case "resize":
-            case "elevate": {
+            case "elevate":
+            case "grab": {
                 this.#recordSnapshot(pointer.session.finish(), pointer.before);
                 break;
             }

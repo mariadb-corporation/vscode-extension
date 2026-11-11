@@ -155,7 +155,7 @@ export interface IMsmSchemaNode extends IMsmProjectPlace, ISchemaRow {
     snapshot: boolean;
 }
 
-/** The folder of a project's schema diagrams, first in its schema. */
+/** The folder of a project's schema diagrams, first in the project. */
 export interface IMsmDiagramsNode extends IMsmProjectPlace, IDiagramsRow {}
 
 /** A schema diagram of a project. */
@@ -502,17 +502,18 @@ export class MsmProjectsTreeProvider
                         filesIn(node.project.projectPath),
                     ]);
 
-                    return [schema, ...files];
+                    // The diagrams first, right below the project.
+                    return [
+                        { kind: "diagrams", projectPath: schema.projectPath,
+                            schema: schema.schema },
+                        schema,
+                        ...files,
+                    ];
                 }
 
                 case "schema": {
-                    const place = { projectPath: node.projectPath };
-
-                    return [
-                        { ...place, kind: "diagrams", schema: node.schema },
-                        ...objectGroupsOf(place, node.schema,
-                            OBJECT_TYPES),
-                    ];
+                    return objectGroupsOf({ projectPath: node.projectPath },
+                        node.schema, OBJECT_TYPES);
                 }
 
                 case "diagrams": {

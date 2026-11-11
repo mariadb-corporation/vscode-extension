@@ -732,6 +732,46 @@ export const drawTableCard = (
 };
 
 /**
+ * Draws a card's icon and name for the front side of its slab, the side
+ * facing the 3D camera: the header's title laid on the card's edge.
+ *
+ * @param text The figure's name.
+ * @param icon The icon, in the text's colour.
+ * @param color The text colour.
+ * @param fontFamily The theme's font family.
+ * @param width The side's width, in diagram units.
+ * @param height The side's height: the card's thickness.
+ * @param scale Device pixels per diagram unit.
+ *
+ * @returns The canvas, clear where nothing is drawn.
+ */
+export const drawSideLabel = (
+    text: string,
+    icon: HTMLImageElement,
+    color: string,
+    fontFamily: string,
+    width: number,
+    height: number,
+    scale: number,
+): HTMLCanvasElement => {
+    const { canvas, context } = startCanvas(width, height, scale);
+    if (context === null) {
+        return canvas;
+    }
+    const middle = height / 2;
+    const iconSize = Math.min(TITLE_ICON, height - 2);
+    context.drawImage(icon, CARD.gap, middle - iconSize / 2, iconSize,
+        iconSize);
+    context.font = `bold ${CARD.titleFontSize}px ${fontFamily}`;
+    context.fillStyle = color;
+    context.textBaseline = "middle";
+    const x = CARD.gap + iconSize + CARD.gap;
+    drawClipped(context, text, x, middle, width - x - CARD.gap);
+
+    return canvas;
+};
+
+/**
  * Draws text cut off with an ellipsis where it does not fit.
  *
  * @param context The canvas.

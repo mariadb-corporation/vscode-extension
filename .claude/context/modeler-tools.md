@@ -152,6 +152,10 @@ documents again: drop the foreign key first, then restore the primary
 key, then drop the columns (the server refuses to change a key a foreign
 key relies on, error 1553).
 
+`DiagramTools.changeSchema` sends a change that places nothing (a
+relationship's new kind, from Object Details) the same way: shown at once,
+recorded, taken back where msm refuses it.
+
 ## The edit ops it needs (`mariadb-lsp edit`)
 
 The ops come from lsp-server #26 (`add_table`, `drop_table`,
