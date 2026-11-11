@@ -28,6 +28,7 @@ import { join } from "node:path";
 import {
     By,
     EditorView,
+    InputBox,
     SideBarView,
     VSBrowser,
     Workbench,
@@ -37,6 +38,7 @@ import {
     clearNotifications,
     clickButton,
     CONNECTION,
+    contextMenu,
     DEPLOY_TIMEOUT,
     dialogText,
     explorerItem,
@@ -243,6 +245,20 @@ describe("MariaDB Schema Management", () => {
         });
         await waitDialogClosed(title);
     });
+
+    it("refuses to rename the released schema before asking a name",
+        async () => {
+            await clearNotifications();
+            const projects = await openSection("MSM Projects",
+                "MariaDB Schema Management");
+            await contextMenu(await treeItem(projects, [SCHEMA]),
+                "Rename Schema...");
+            const said = await waitForNotification("cannot be renamed");
+            assert.match(said, /0\.0\.1/u, "the release named");
+            await assert.rejects(InputBox.create(1000),
+                "no new name asked for");
+            assert.ok(existsSync(projectPath()), "the project where it was");
+        });
 
     it("generates the deployment script", async () => {
         const title = `Generate Deployment Script - ${SCHEMA}`;

@@ -16,7 +16,7 @@
  */
 
 import * as assert from "node:assert/strict";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -35,6 +35,7 @@ import {
     answerModal,
     driver,
     extensionLog,
+    failOnErrorNotification,
     FrontWebView,
     hasTreeItem,
     inResults,
@@ -86,9 +87,13 @@ const view = (): Promise<CustomTreeSection> => {
     return openSection(VIEW, CONTAINER);
 };
 
-/** @returns The project's development script and its section files. */
-const scriptText = (): string => {
-    const folder = join(PROJECT, "development");
+/**
+ * @param project The project's folder.
+ *
+ * @returns Its development script and its section files.
+ */
+const scriptText = (project = PROJECT): string => {
+    const folder = join(project, "development");
 
     return readdirSync(folder, { recursive: true, encoding: "utf8" })
         .filter((name) => { return name.endsWith(".sql"); })
@@ -110,8 +115,18 @@ const places = (): string[] => {
  * @returns Whether the project's diagram has a figure of it, as saved.
  */
 const hasFigure = (table: string): boolean => {
+    return hasFigureIn(SCHEMA, table);
+};
+
+/**
+ * @param schema The project's schema, which names its folder.
+ * @param table A table.
+ *
+ * @returns Whether that project's diagram has a figure of it, as saved.
+ */
+const hasFigureIn = (schema: string, table: string): boolean => {
     return new RegExp(`"type": "TableFigure",\\s*"name": "${table}"`, "u")
-        .test(scriptText());
+        .test(scriptText(join(WORKSPACE, "projects", `${schema}.msm.project`)));
 };
 
 /**
@@ -250,5 +265,112 @@ describe("MSM schema diagrams", () => {
             }, "a second Auto Layout action", SERVER_TIMEOUT);
         });
         await screenshot("11-auto-layout-toolbar");
+    });
+
+    describe("Rename Schema", () => {
+        /** The name the schema is renamed to, and back from. */
+        const RENAMED = "msm_renamed";
+
+        /** @returns Whether the input box is up. */
+        const inputUp = async (): Promise<boolean> => {
+            try {
+                await InputBox.create(1000);
+
+                return true;
+            } catch {
+                return false;
+            }
+        };
+
+        /** @returns Whether a modal dialog is up. */
+        const modalUp = async (): Promise<boolean> => {
+            return await new ModalDialog().isDisplayed()
+                .catch(() => { return false; });
+        };
+
+        /**
+         * Renames the schema from a row's menu, confirming msm's plan.
+         *
+         * @param row The row: the project's or its schema's.
+         * @param from The schema's name.
+         * @param to Its new name.
+         */
+        const rename = async (row: string[], from: string,
+            to: string): Promise<void> => {
+            await menuAction(await view(), row, ["Rename Schema..."],
+                inputUp, "the new schema name asked");
+            await answerInput(to);
+            await waitFor(modalUp, "the rename's confirmation",
+                SERVER_TIMEOUT);
+            assert.equal(await answerModal("Rename"),
+                `Rename the schema ${from} to ${to}?`);
+        };
+
+        /**
+         * Checks the project is under its schema's name everywhere: the
+         * view's rows, the reopened viewer, the files on disk.
+         *
+         * @param schema The schema's name.
+         * @param old Its name before.
+         */
+        const renamedTo = async (schema: string, old: string):
+        Promise<void> => {
+            const folder = join(WORKSPACE, "projects",
+                `${schema}.msm.project`);
+            await waitFor(() => {
+                return Promise.resolve(existsSync(folder)
+                    && !existsSync(join(WORKSPACE, "projects",
+                        `${old}.msm.project`)));
+            }, `the project folder moved to ${folder}`, SERVER_TIMEOUT);
+            assert.ok(existsSync(join(folder, "development",
+                `${schema}_next.sql`)), "the script under the new name");
+            const settings = JSON.parse(readFileSync(
+                join(folder, "msm.project.json"), "utf8")) as {
+                schemaName?: string;
+            };
+            assert.equal(settings.schemaName, schema);
+
+            // The project's row, and its schema row, under the new name.
+            await treeItem(await view(), [schema, schema], SERVER_TIMEOUT);
+            assert.ok(!await hasTreeItem(await view(), [old]),
+                `no row of ${old} left`);
+            // The viewer, opened again on the same diagram.
+            await waitFor(async () => {
+                const titles = await new EditorView().getOpenEditorTitles();
+
+                return titles.includes(`${DIAGRAM} (${schema})`)
+                    && !titles.includes(`${DIAGRAM} (${old})`);
+            }, `the diagram reopened as ${DIAGRAM} (${schema})`,
+            SERVER_TIMEOUT);
+        };
+
+        it("renames it from the schema row, the diagram open", async () => {
+            assert.ok((await new EditorView().getOpenEditorTitles())
+                .includes(`${DIAGRAM} (${SCHEMA})`), "the diagram open");
+            await rename(SCHEMA_ROW, SCHEMA, RENAMED);
+            await renamedTo(RENAMED, SCHEMA);
+            // The diagram kept its figures.
+            assert.ok(hasFigureIn(RENAMED, "customer")
+                && hasFigureIn(RENAMED, "orders"));
+            await screenshot("11-renamed");
+        });
+
+        it("renames it back from the project row", async () => {
+            await rename([RENAMED], RENAMED, SCHEMA);
+            await renamedTo(SCHEMA, RENAMED);
+            assert.ok(hasFigure("customer") && hasFigure("orders"));
+        });
+
+        it("does nothing for the same name", async () => {
+            await menuAction(await view(), SCHEMA_ROW, ["Rename Schema..."],
+                inputUp, "the new schema name asked");
+            await answerInput(SCHEMA);
+            await waitFor(async () => { return !await inputUp(); },
+                "the input box closed");
+            await sleep(2000);
+            assert.ok(!await modalUp(), "no confirmation");
+            await failOnErrorNotification();
+            assert.ok(existsSync(PROJECT), "the project where it was");
+        });
     });
 });
