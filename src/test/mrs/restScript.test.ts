@@ -324,6 +324,21 @@ describe("a REST object's fields", () => {
         ]);
     });
 
+    it("names no clause for a view whose path, object or class reads like "
+        + "one", () => {
+        const sql = `CREATE REST VIEW /result
+    ON SERVICE /svc SCHEMA /db
+    AS db.result CLASS Result {
+        a: a
+    };`;
+
+        expect(fieldLinesOf(sql)).toEqual(["{", "    a: a", "}"]);
+        expect(fieldLinesOf(`CREATE REST PROCEDURE /p ON SERVICE /svc
+    SCHEMA /db AS result RESULT Result {
+        a: a
+    };`)).toEqual(["RESULT Result {", "    a: a", "}"]);
+    });
+
     it("lists each REST object of a section once, by its last statement",
         () => {
         const sql = `CREATE OR REPLACE REST SERVICE /svc;

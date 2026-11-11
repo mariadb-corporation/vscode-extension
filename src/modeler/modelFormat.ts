@@ -408,13 +408,28 @@ export const figureType = (figure: IModelFigure): string => {
 };
 
 /**
+ * @param path A REST path as Section 180 writes it.
+ *
+ * @returns What tells it from other paths, as the server and msm do:
+ *          whatever its case, a service's developers in any order
+ *          (`mike,anna@/notes` is `anna,mike@/notes`).
+ */
+const restPathKey = (path: string): string => {
+    const lower = path.toLowerCase();
+    const at = lower.indexOf("@");
+
+    return at < 0 ? lower
+        : `${lower.slice(0, at).split(",").sort().join(",")}${lower.slice(at)}`;
+};
+
+/**
  * @param figure A figure.
  * @param service A REST service's path.
  * @param schema A REST schema's path on it.
  * @param object A REST object's request path on that.
  *
- * @returns Whether it is a REST object figure of that object: paths are
- *          told apart whatever their case, as the server does.
+ * @returns Whether it is a REST object figure of that object, its paths
+ *          compared as `restPathKey` says.
  */
 export const showsRestObject = (
     figure: IModelFigure,
@@ -423,7 +438,7 @@ export const showsRestObject = (
     object: string,
 ): boolean => {
     const same = (left: string | undefined, right: string): boolean => {
-        return left?.toLowerCase() === right.toLowerCase();
+        return left !== undefined && restPathKey(left) === restPathKey(right);
     };
 
     return figure.type === REST_OBJECT_FIGURE

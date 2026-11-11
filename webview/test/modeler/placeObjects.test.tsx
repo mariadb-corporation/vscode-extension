@@ -246,3 +246,16 @@ describe("REST objects on a diagram", () => {
             + "?project=x")).toEqual([]);
     });
 });
+
+describe("a REST object's paths", () => {
+    it("are the same whatever their case and the order of the developers",
+        () => {
+        const placed = placementOf([{ type: "rest", service: "mike,anna@/svc",
+            schema: "/s", name: "/o" }, { type: "rest",
+            service: "ANNA,mike@/SVC", schema: "/S", name: "/O" }], diagram(),
+        objects(), { x: 0, y: 0 }, ids());
+
+        expect(placed.figures).toHaveLength(1);
+        expect(placed.skipped).toEqual(["/O is shown already"]);
+    });
+});

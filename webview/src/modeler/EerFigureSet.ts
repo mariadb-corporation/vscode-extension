@@ -994,7 +994,9 @@ export class EerFigureSet implements IFigureSet {
                 y: rect.top,
                 z: ownElevation(node.figure),
                 width: rect.width,
-                height: rect.height,
+                // An upright card's, how high it stands: what a change of
+                // it changes.
+                height: isUpright(node.kind) ? node.layout.height : rect.height,
                 autoHeight: node.figure.manualSizing !== true,
                 editable,
             };
@@ -1253,6 +1255,15 @@ export class EerFigureSet implements IFigureSet {
     }
 
     /**
+     * @returns How high a figure's top is, which 2D shows: an upright
+     *          card's is as high as it stands.
+     */
+    #topElevation(node: IFigureNode): number {
+        return this.#figureElevation(node)
+            + (isUpright(node.kind) ? node.layout.height : 0);
+    }
+
+    /**
      * @returns How high a connection meets a table: halfway down the
      *          table's slab, so the line runs into the middle of its side.
      */
@@ -1495,10 +1506,7 @@ export class EerFigureSet implements IFigureSet {
                 minHeight: card ? CARD.headerHeight : 20,
                 // An upright card's footprint is its top, where it is
                 // selected and moved.
-                elevation: () => {
-                    return this.#figureElevation(node)
-                        + (upright ? node.layout.height : 0);
-                },
+                elevation: () => { return this.#topElevation(node); },
                 // Notes and pictures have no header, and no menu.
                 ...(card ? {
                     menuBand: {
@@ -1546,10 +1554,15 @@ export class EerFigureSet implements IFigureSet {
             return { ...size, contentHeight: size.height, items: [] };
         }
         const content = this.#contentOf(kind, figure);
-        figure.width ??= cardWidth(content, this.#measure);
+        if (isUpright(kind)) {
+            // Not resizable: as wide as what Section 180 has it show now.
+            figure.width = cardWidth(content, this.#measure);
+        } else {
+            figure.width ??= cardWidth(content, this.#measure);
+        }
         const layout = layoutCard(content, figure);
         keepAutoHeight(figure, layout);
-        if (kind === "rest") {
+        if (isUpright(kind)) {
             // What msm's layout keeps clear of the page: its footprint.
             figure.depth = CARD_THICKNESS;
         }
@@ -3627,7 +3640,7 @@ export class EerFigureSet implements IFigureSet {
                     - (rect.height + 4), rect.width + 4, rect.height + 4,
                 CARD.radius + 2).getPoints(6)),
             new THREE.LineBasicMaterial({ color }));
-            outline.position.z = this.#figureElevation(node) * lift
+            outline.position.z = this.#topElevation(node) * lift
                 + Z.liftedDecoration;
             setDrawOrder(outline, DRAW_ORDER.decorations);
             this.#lifted.add(outline);

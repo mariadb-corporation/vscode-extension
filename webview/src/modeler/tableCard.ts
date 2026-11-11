@@ -384,7 +384,9 @@ export const restObjectCardContent = (
     const lines = definition === undefined
         ? ["Not created in MSM Section 180"]
         : definition.lines.length === 0
-            ? [`{ every column of ${definition.dbObject} }`]
+            ? [definition.objectType === "VIEW"
+                ? `{ every column of ${definition.dbObject} }`
+                : `{ every parameter of ${definition.dbObject} }`]
             : definition.lines;
 
     return {

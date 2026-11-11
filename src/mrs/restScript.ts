@@ -510,14 +510,15 @@ export const fieldLinesOf = (statement: string): string[] => {
         } else if (statement[i] === "{") {
             const end = afterBlock(statement, i);
             const before = statement.slice(from, i);
-            // The last such word: an object's path may read like one.
-            const clause = [...before.matchAll(/\b(?:PARAMETERS|RESULT)\b/giu)]
-                .at(-1);
+            // The clause right before the block, its class name with it: a
+            // path, a database object or a CLASS reading like one is none.
+            const clause = new RegExp("(?<!\\b(?:AS|CLASS)\\s+)(?<!\\S)"
+                + "((?:PARAMETERS|RESULT)(?:\\s+[^\\s{]+)?)\\s*$", "iu")
+                .exec(before)?.[1];
             const word = /(\w+)\s*$/u.exec(before)?.[1]?.toUpperCase();
             if (word !== "OPTIONS" && word !== "METADATA") {
                 const head = clause === undefined ? ""
-                    : `${before.slice(clause.index).replace(/\s+/gu, " ")
-                        .trim()} `;
+                    : `${clause.replace(/\s+/gu, " ")} `;
                 const block = `${head}${statement.slice(i, end)}`
                     .split(/\r?\n/u);
                 // The block's lines after the first share the
