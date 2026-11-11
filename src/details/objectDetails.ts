@@ -56,10 +56,6 @@ export interface IObjectDetailsView {
 }
 
 /**
- * What the extension sends the view: the object to show; nothing, with
- * why, where there is none.
- */
-/**
  * A table figure selected on a diagram, as the view shows and edits it:
  * where it is on the page (its layer's position included), how far it
  * stands above its layer in the 3D view, its size, and whether its height

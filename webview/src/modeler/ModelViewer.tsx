@@ -552,7 +552,14 @@ export const ModelViewer = (): JSX.Element => {
             onSelection: (ids) => {
                 selectedRef.current = ids;
                 const shown = loadedRef.current;
-                if (shown === undefined || ids.length === 0) {
+                if (shown === undefined) {
+                    return;
+                }
+                // Nothing selected: Object Details keeps the object, but
+                // no longer edits the item that was.
+                if (ids.length === 0) {
+                    post({ type: "item" });
+
                     return;
                 }
                 // What the figures show, for the Object Details view, and

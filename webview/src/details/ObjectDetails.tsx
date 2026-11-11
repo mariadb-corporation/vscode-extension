@@ -412,6 +412,10 @@ export const ObjectDetails = (): JSX.Element => {
                 figure={item?.kind === "figure" ? fields : undefined} />
             : item !== undefined && item.kind !== "figure"
                 ? <><ItemHeader item={item} />{fields}</>
-                : <div className="detailsNote">{shown?.message ?? ""}</div>}
+                : <>
+                    <div className="detailsNote">{shown?.message ?? ""}</div>
+                    {/* A table not in the snapshot keeps its place and size. */}
+                    {item?.kind === "figure" ? fields : null}
+                </>}
     </div>;
 };

@@ -957,6 +957,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 objectDetails.show(place, first, selected);
             } else if (selected !== undefined) {
                 objectDetails.showItem(place, selected);
+            } else {
+                // Several items and no object: none is edited any more.
+                objectDetails.itemChanged(place, undefined);
             }
         },
         itemChanged: (target, item) => {

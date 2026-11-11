@@ -369,8 +369,14 @@ describe("a relationship's kind", () => {
         expect(relationshipKindOf(table, KEY).identifying).toBe(true);
         const back = relationshipKindChange(table, KEY,
             { many: true, identifying: false }, [table]);
+        // The key may rely on the primary key: it goes and comes back.
         expect("change" in back && back.change.edits).toEqual([
-            { op: "set_primary_key", table: "orders", columns: ["id"] }]);
+            { op: "drop_foreign_key", table: "orders",
+                name: "fk_orders_customers" },
+            { op: "set_primary_key", table: "orders", columns: ["id"] },
+            { op: "add_foreign_key", table: "orders",
+                foreign_key: expect.objectContaining({
+                    name: "fk_orders_customers" }) }]);
     });
 
     it("turns 1:1 with a unique index, and 1:n by dropping it", () => {

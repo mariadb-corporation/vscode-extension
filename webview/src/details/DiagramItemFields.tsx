@@ -124,7 +124,13 @@ const CheckField = ({ label, checked, readOnly, onChange }:
     ICheckFieldProps): JSX.Element => {
     return <label className="itemCheck">
         <input type="checkbox" checked={checked} disabled={readOnly}
-            onChange={(event) => { onChange(event.currentTarget.checked); }} />
+            onChange={(event) => {
+                const wanted = event.currentTarget.checked;
+                // It shows what the diagram says: the change, once made;
+                // nothing new where it is refused.
+                event.currentTarget.checked = checked;
+                onChange(wanted);
+            }} />
         {label}
     </label>;
 };
@@ -249,7 +255,11 @@ const ConnectionFields = ({ item, change }:
                 <select id="relationshipKind" className="itemSelect"
                     value={item.many ? "1:n" : "1:1"} disabled={readOnly}
                     onChange={(event) => {
-                        change({ many: event.currentTarget.value === "1:n" });
+                        const many = event.currentTarget.value === "1:n";
+                        // Back to what the diagram says until it changes:
+                        // a refused change leaves it as it was.
+                        event.currentTarget.value = item.many ? "1:n" : "1:1";
+                        change({ many });
                     }}>
                     <option value="1:1">1:1</option>
                     <option value="1:n">1:n</option>

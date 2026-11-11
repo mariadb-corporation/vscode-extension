@@ -500,8 +500,10 @@ export const relationshipKindChange = (
     const undoFirst = (...steps: IMsmSchemaEdit[]): void => {
         inverse.unshift(...steps);
     };
-    // Drops unique indexes the key relies on: the key goes first and
-    // comes back after, the server giving it an index of its own.
+    // Changes to an index the key may rely on (a unique one dropped, the
+    // primary key rewritten): the key goes first and comes back after,
+    // the server giving it an index of its own (MariaDB's error 1553;
+    // `mariadb-lsp edit` refuses them otherwise, as `referenced`).
     const withoutKey = (drops: IMsmSchemaEdit[]): IMsmSchemaEdit[] => {
         return [
             { op: "drop_foreign_key", table: child.name, name: key.name },
@@ -511,6 +513,8 @@ export const relationshipKindChange = (
         ];
     };
     let primary = primaryKeyOf(child);
+    // The edits made while the key is dropped, if any.
+    const keyOff: IMsmSchemaEdit[] = [];
 
     if (to.identifying !== from.identifying) {
         const next = to.identifying
@@ -522,7 +526,10 @@ export const relationshipKindChange = (
             return { error: `${child.name}'s primary key is the foreign key's `
                 + "columns alone: taking them out would leave it without one." };
         }
-        edits.push({ op: "set_primary_key", table: child.name, columns: next });
+        // Taking the key's columns out of the primary key can take away
+        // the index the key relies on.
+        (to.identifying ? edits : keyOff).push(
+            { op: "set_primary_key", table: child.name, columns: next });
         undoFirst(primary.length === 0
             ? { op: "drop_index", table: child.name, kind: "primary" }
             : { op: "set_primary_key", table: child.name, columns: primary });
@@ -555,15 +562,20 @@ export const relationshipKindChange = (
                 + "unique with an unnamed UNIQUE: give it a name first, so "
                 + "it can be dropped from deployed databases too." };
         }
-        edits.push(...withoutKey(uniques.map((index): IMsmSchemaEdit => {
+        keyOff.push(...uniques.map((index): IMsmSchemaEdit => {
             return { op: "drop_index", table: child.name, name: index.name };
-        })));
+        }));
         undoFirst(...uniques.map((index): IMsmSchemaEdit => {
             return { op: "add_index", table: child.name, index: { ...index } };
         }));
     } else if (to.many && primaryIsKey) {
         return { error: `The foreign key's columns are ${child.name}'s `
             + "whole primary key, which makes it 1:1." };
+    }
+    if (keyOff.length > 0) {
+        // One drop and re-add of the key for all of them, before a unique
+        // index added for 1:1.
+        edits.unshift(...withoutKey(keyOff));
     }
     const kind = `${to.many ? "1:n" : "1:1"}, `
         + `${to.identifying ? "identifying" : "non-identifying"}`;

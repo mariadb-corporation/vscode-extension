@@ -315,7 +315,10 @@ export class ModelerPanel {
             case "selection": {
                 this.host.selected?.(this.source.target(this.#diagram),
                     message.objects, message.item, (id, change) => {
-                        this.#post({ type: "changeItem", id, change });
+                        // Object Details outlives a panel closed meanwhile.
+                        if (ModelerPanel.#open.get(this.source.key) === this) {
+                            this.#post({ type: "changeItem", id, change });
+                        }
                     });
                 break;
             }

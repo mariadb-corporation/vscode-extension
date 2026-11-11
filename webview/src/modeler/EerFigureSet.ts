@@ -994,7 +994,12 @@ export class EerFigureSet implements IFigureSet {
             host.change("Change Relationship Line", () => {
                 const model = connection.connection;
                 if (change.offset !== undefined) {
-                    model.middleSegmentOffset = change.offset;
+                    // Kept clear of both tables, as a drag keeps it.
+                    const middle = connection.route?.middle;
+                    model.middleSegmentOffset = middle === undefined
+                        ? change.offset
+                        : Math.min(middle.max, Math.max(middle.min,
+                            middle.base + change.offset)) - middle.base;
                 }
                 if (change.split !== undefined) {
                     model.drawSplit = change.split;
