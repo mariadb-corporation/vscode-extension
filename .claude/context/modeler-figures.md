@@ -47,9 +47,11 @@ type (`FIGURE_COLORS`) where a figure has none.
   drops one with no key left; adds a line for each key between two
   table figures shown that has none. Run on mount and on every `#refresh`
   (any catalog change); a change is saved (`onConnectionsSynced`).
-  msm's `reconcile_diagram` follows the same rule (agreed with the
-  mariadb-shell-plugins session, its branch
-  `msm/diagram-connections-by-definition`), but never adds.
+  msm's `reconcile_diagram` follows the same rule, but never adds
+  (mariadb-shell-plugins #109, `diagrams._match_connections` and
+  `foreign_key_parent`). A MariaDB Shell whose bundled msm predates it
+  still drops a line whose key was renamed; the viewer then draws it
+  again with default settings.
 - **A figure without a width** gets its content's (`cardWidth`: msm's
   rule, the longest row or the title rounded up to 10, 120..360, measured
   in the card fonts on a canvas, `estimateText` = msm's per-character
