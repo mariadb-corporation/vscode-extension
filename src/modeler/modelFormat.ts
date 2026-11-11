@@ -189,6 +189,11 @@ export const EVENT_GROUP_FIGURE = "EventGroupFigure";
 export const SEQUENCE_FIGURE = "SequenceFigure";
 export const NOTE_FIGURE = "NoteFigure";
 export const IMAGE_FIGURE = "ImageFigure";
+/**
+ * A REST object of the project's MSM Section 180, standing upright on the
+ * page: its title from above, its fields in the 3D view. Not Workbench's.
+ */
+export const REST_OBJECT_FIGURE = "RestObjectFigure";
 
 /** The colours of new figures by kind, Workbench's. */
 export const FIGURE_COLORS: Record<string, string> = {
@@ -199,6 +204,7 @@ export const FIGURE_COLORS: Record<string, string> = {
     [SEQUENCE_FIGURE]: "#C9B8E8",
     [NOTE_FIGURE]: "#FEFDED",
     [IMAGE_FIGURE]: "#FFFFFF",
+    [REST_OBJECT_FIGURE]: "#6FBF73",
 };
 
 /**
@@ -233,6 +239,19 @@ export interface IModelFigure {
     events?: string[];
     /** A SequenceFigure's sequence. */
     sequence?: string;
+    /**
+     * A RestObjectFigure's REST object: its service's, REST schema's and
+     * own path, as Section 180 writes them. Its `height` is how high it
+     * stands; on the page it is a slab deep.
+     */
+    restService?: string;
+    restSchema?: string;
+    restObject?: string;
+    /**
+     * How deep a RestObjectFigure's footprint is on the page, which msm's
+     * layout keeps clear: its slab's thickness.
+     */
+    depth?: number;
     /** A NoteFigure's text, its font (`Helvetica Bold 12`) and colour. */
     text?: string;
     font?: string;
@@ -316,7 +335,30 @@ export interface ISchemaModel {
     triggers: IOutlineTrigger[];
     events: IOutlineEvent[];
     sequences: IOutlineSequence[];
+    /**
+     * The REST objects the project's MSM Section 180 creates, which REST
+     * object figures show: none for a live schema.
+     */
+    restObjects?: IRestObjectDefinition[];
     diagrams: IModelDiagram[];
+}
+
+/** A REST object as a project's MSM Section 180 creates it. */
+export interface IRestObjectDefinition {
+    servicePath: string;
+    schemaPath: string;
+    requestPath: string;
+    /** VIEW, PROCEDURE or FUNCTION. */
+    objectType: string;
+    dbSchema?: string;
+    dbObject: string;
+    /**
+     * Its fields in the statement's GraphQL notation, a line each, as
+     * written but for the statement's indent: a view's `{ ... }` block,
+     * a routine's `PARAMETERS` and `RESULT` blocks. None where the
+     * statement leaves the fields to the server.
+     */
+    lines: string[];
 }
 
 /** The format of the schema snapshot's document. */

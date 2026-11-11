@@ -29,6 +29,7 @@ import type { DiagramViews } from "./diagramViews.js";
 import type { IDiagramDocument } from "./modelFormat.js";
 import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
+    DiagramObjectRef,
     ISchemaObjectRef,
     ModelerHostMessage,
     ModelerTarget,
@@ -157,7 +158,7 @@ export class ModelerPanel {
     /** The diagrams of the model last read. */
     #diagrams: string[] = [];
     /** Objects to place once the page has the model. */
-    #toPlace: ISchemaObjectRef[] = [];
+    #toPlace: DiagramObjectRef[] = [];
     #schema: string;
 
     private constructor(
@@ -504,7 +505,7 @@ export class ModelerPanel {
      */
     public static place(
         source: IModelSource,
-        objects: ISchemaObjectRef[],
+        objects: DiagramObjectRef[],
     ): boolean {
         const panel = ModelerPanel.#open.get(source.key);
         if (panel === undefined) {
@@ -518,6 +519,24 @@ export class ModelerPanel {
         }
 
         return true;
+    }
+
+    /**
+     * Shows the REST objects of the source's MSM Section 180 as it is now
+     * in its panel, where one is up and has the model.
+     *
+     * @param source Where the model comes from.
+     *
+     * @returns Once they are sent.
+     */
+    public static async restChanged(source: IModelSource): Promise<void> {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined || !panel.#loaded
+            || source.restObjects === undefined) {
+            return;
+        }
+        panel.#post({ type: "restObjects",
+            objects: await source.restObjects() });
     }
 
     /**

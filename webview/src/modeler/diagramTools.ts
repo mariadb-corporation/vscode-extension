@@ -16,7 +16,7 @@
  */
 
 import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
-import type { ISchemaObjectRef } from "../../../src/modeler/modelerProtocol.js";
+import type { DiagramObjectRef } from "../../../src/modeler/modelerProtocol.js";
 import {
     FIGURE_COLORS,
     IMAGE_FIGURE,
@@ -518,7 +518,7 @@ export class DiagramTools {
      *
      * @returns Nothing.
      */
-    public placeObjects(refs: readonly ISchemaObjectRef[], point: IPoint): void {
+    public placeObjects(refs: readonly DiagramObjectRef[], point: IPoint): void {
         const target = this.#target;
         const { figures, connections, skipped } = placementOf(refs,
             target.diagram(), target.catalog.objects(), point, newId);

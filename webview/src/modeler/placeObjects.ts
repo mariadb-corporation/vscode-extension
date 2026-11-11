@@ -24,12 +24,17 @@
  * of theirs to it. The routines dropped together go on one new routine
  * group, the events on one new event group; a sequence gets a figure; a
  * trigger is shown on its table's card, which comes where it is not
- * shown.
+ * shown. A REST object of the project's MSM Section 180 gets an upright
+ * figure, once per diagram.
  */
 
-import type { ISchemaObjectRef } from "../../../src/modeler/modelerProtocol.js";
+import type {
+    DiagramObjectRef,
+    ISchemaObjectRef,
+} from "../../../src/modeler/modelerProtocol.js";
 import {
     EVENT_GROUP_FIGURE,
+    REST_OBJECT_FIGURE,
     ROUTINE_GROUP_FIGURE,
     SEQUENCE_FIGURE,
     TABLE_FIGURE,
@@ -69,7 +74,7 @@ const ROW_STEP = 220;
  * @returns The figures and connections to add.
  */
 export const placementOf = (
-    refs: readonly ISchemaObjectRef[],
+    refs: readonly DiagramObjectRef[],
     diagram: IModelDiagram,
     objects: ISchemaObjectLists,
     point: { x: number; y: number },
@@ -94,6 +99,26 @@ export const placementOf = (
     };
 
     for (const ref of refs) {
+        if (ref.type === "rest") {
+            // The tree's row is Section 180's: the figure says where the
+            // object is not, should it go from there.
+            const same = (left?: string, right?: string): boolean => {
+                return left?.toLowerCase() === right?.toLowerCase();
+            };
+            if (shown((figure) => {
+                return figure.type === REST_OBJECT_FIGURE
+                    && same(figure.restService, ref.service)
+                    && same(figure.restSchema, ref.schema)
+                    && same(figure.restObject, ref.name);
+            })) {
+                skipped.push(`${ref.name} is shown already`);
+            } else {
+                figures.push({ id: newId(), type: REST_OBJECT_FIGURE,
+                    name: ref.name, restService: ref.service,
+                    restSchema: ref.schema, restObject: ref.name, ...at() });
+            }
+            continue;
+        }
         switch (ref.type) {
             case "table": {
                 const table = objects.tables.find((entry) => {

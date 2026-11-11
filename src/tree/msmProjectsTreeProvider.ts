@@ -80,6 +80,10 @@ import {
 } from "../mrs/restScript.js";
 import type { IMrsObject, IMrsSchema, IMrsService } from "../mrs/mrsTypes.js";
 import {
+    schemaObjectUri,
+    type IRestObjectRef,
+} from "../modeler/modelerProtocol.js";
+import {
     MRS_ROOT_LABEL,
     objectLook,
     schemaLook,
@@ -241,6 +245,17 @@ export type MsmRestNode = IMsmRestRootNode | IMsmRestServiceNode
 export type MsmProjectsNode = IMsmFolderNode | IMsmProjectNode | IMsmFileNode
     | IMsmSchemaNode | IMsmDiagramsNode | IMsmDiagramNode
     | IMsmObjectGroupNode | IMsmObjectNode | MsmRestNode;
+
+/**
+ * @param node A REST object's row.
+ *
+ * @returns What places it on a diagram: its paths as Section 180 writes
+ *          them.
+ */
+export const restObjectRefOf = (node: IMsmRestObjectNode): IRestObjectRef => {
+    return { type: "rest", service: node.service.full_service_path,
+        schema: node.schema.request_path, name: node.object.request_path };
+};
 
 /**
  * The command a click on a project's diagram runs: VS Code has no
@@ -1000,12 +1015,21 @@ export class MsmProjectsTreeProvider
             dataTransfer.set(MSM_PROJECTS_DRAG_MIME,
                 new vscode.DataTransferItem(dragged));
         }
-        // Tables, views and routines go onto a diagram of the project.
-        const uris = objectUriList(source.flatMap((node) => {
+        // Tables, views and routines go onto a diagram of the project, as
+        // do its REST objects.
+        const objects = objectUriList(source.flatMap((node) => {
             return node.kind === "object"
                 ? [{ place: { projectPath: node.projectPath }, row: node }]
                 : [];
         }));
+        const rest = source.flatMap((node) => {
+            return node.kind === "restObject"
+                ? [schemaObjectUri({ projectPath: node.projectPath },
+                    restObjectRefOf(node))]
+                : [];
+        });
+        const uris = [...objects === undefined ? [] : [objects], ...rest]
+            .join("\r\n") || undefined;
         // A webview gets nothing a tree sets: a diagram asks for them on
         // the drop.
         draggedObjects.remember(uris);

@@ -18,7 +18,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    fieldLinesOf,
     parseRestScript,
+    restObjectDefinitions,
     restSectionEdit,
     restSectionOf,
     objectEntries,
@@ -274,5 +276,66 @@ describe("a development script's sections", () => {
             script(`\n-- Create a REST service\n\n${SERVICE}\n\n\n`));
         expect(() => { restSectionEdit("SELECT 1;", [SERVICE]); })
             .toThrow("The development script has no MSM Section 180");
+    });
+});
+
+describe("a REST object's fields", () => {
+    it("reads a view's field block as written, but for the shared indent, "
+        + "and leaves its OPTIONS out", () => {
+        const sql = `CREATE OR REPLACE REST VIEW /actor
+    ON SERVICE mike@/myService SCHEMA /sakila
+    AS sakila.actor CLASS Actor @INSERT {
+        actorId: actor_id @SORTABLE @KEY,
+        # a comment { not a block
+        films: sakila.film_actor @UNNEST {
+            title: title
+        }
+    }
+    OPTIONS {
+        "note": "{ not fields }"
+    };`;
+
+        expect(fieldLinesOf(sql)).toEqual([
+            "{",
+            "    actorId: actor_id @SORTABLE @KEY,",
+            "    # a comment { not a block",
+            "    films: sakila.film_actor @UNNEST {",
+            "        title: title",
+            "    }",
+            "}",
+        ]);
+    });
+
+    it("names a routine's PARAMETERS and RESULT blocks, a path reading like "
+        + "one no matter", () => {
+        const sql = `CREATE REST PROCEDURE /result
+    ON SERVICE /svc SCHEMA /db
+    AS db.tidy
+    PARAMETERS Tidy {
+        days: days @IN
+    }
+    RESULT TidyResult {
+        count: count @DATATYPE("int")
+    };`;
+
+        expect(fieldLinesOf(sql)).toEqual([
+            "PARAMETERS Tidy {", "    days: days @IN", "}",
+            "RESULT TidyResult {", "    count: count @DATATYPE(\"int\")", "}",
+        ]);
+    });
+
+    it("lists each REST object of a section once, by its last statement",
+        () => {
+        const sql = `CREATE OR REPLACE REST SERVICE /svc;
+CREATE OR REPLACE REST SCHEMA /db ON SERVICE /svc FROM db;
+CREATE OR REPLACE REST VIEW /t ON SERVICE /svc SCHEMA /db AS db.t CLASS T {
+    a: a
+};
+CREATE OR REPLACE REST VIEW /T ON SERVICE /svc SCHEMA /db AS db.t CLASS T;`;
+
+        expect(restObjectDefinitions(sql)).toEqual([{
+            servicePath: "/svc", schemaPath: "/db", requestPath: "/T",
+            objectType: "VIEW", dbSchema: "db", dbObject: "t", lines: [],
+        }]);
     });
 });

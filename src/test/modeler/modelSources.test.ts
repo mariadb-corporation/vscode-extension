@@ -32,6 +32,7 @@ import {
     SCHEMA_DEFINITION_FORMAT,
     type IDiagramDocument,
     type IDiagramRow,
+    type IRestObjectDefinition,
 } from "../../modeler/modelFormat.js";
 import type { SaveState } from "../../modeler/modelerProtocol.js";
 import {
@@ -595,4 +596,48 @@ describe("DiagramDrafts", () => {
                 return draft.name;
             })).toEqual(["Other"]);
         });
+});
+
+describe("a project's REST objects", () => {
+    const sourceWith = (
+        restObjects: (projectPath: string) => Promise<IRestObjectDefinition[]>,
+        logs: string[],
+    ): ProjectModelSource => {
+        return new ProjectModelSource(PROJECT, {
+            msmApi: () => { return Promise.reject(new Error("not used")); },
+            put: () => { /* not looked at */ },
+            drafts: new DiagramDrafts(mkdtempSync(join(tmpdir(), "rest-"))),
+            keepDraft: () => { return Promise.resolve(false); },
+            restObjects,
+            log: (message) => { logs.push(message); },
+        }, 0);
+    };
+    const actor: IRestObjectDefinition = { servicePath: "/svc",
+        schemaPath: "/shop", requestPath: "/actor", objectType: "VIEW",
+        dbObject: "actor", lines: ["{", "    id: id", "}"] };
+
+    it("reads them from the project's Section 180", async () => {
+        const logs: string[] = [];
+        const asked: string[] = [];
+        const source = sourceWith((path) => {
+            asked.push(path);
+
+            return Promise.resolve([actor]);
+        }, logs);
+
+        expect(await source.restObjects()).toEqual([actor]);
+        expect(asked).toEqual([PROJECT]);
+        expect(logs).toEqual([]);
+    });
+
+    it("shows none where they cannot be read, and logs why", async () => {
+        const logs: string[] = [];
+        const source = sourceWith(() => {
+            return Promise.reject(new Error("no such file"));
+        }, logs);
+
+        expect(await source.restObjects()).toEqual([]);
+        expect(logs).toEqual([`Could not read the REST objects of ${PROJECT}: `
+            + "no such file"]);
+    });
 });

@@ -29,6 +29,7 @@ import {
     NOTE_FIGURE,
     EVENT_GROUP_FIGURE,
     ROUTINE_GROUP_FIGURE,
+    REST_OBJECT_FIGURE,
     SEQUENCE_FIGURE,
     TABLE_FIGURE,
     VIEW_FIGURE,
@@ -40,9 +41,10 @@ import {
     type IOutlineForeignKey,
     type IOutlineRoutine,
     type IOutlineTable,
+    type IRestObjectDefinition,
 } from "../../../src/modeler/modelFormat.js";
 import type {
-    ISchemaObjectRef,
+    DiagramObjectRef,
     ISchemaObjects,
 } from "../../../src/modeler/modelerProtocol.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
@@ -142,6 +144,7 @@ import {
     layoutCard,
     MIN_FIGURE_WIDTH,
     eventCardContent,
+    restObjectCardContent,
     routineCardContent,
     sequenceCardContent,
     sequenceOf,
@@ -343,15 +346,27 @@ const slabLight = (normal: THREE.Vector3): number => {
  *
  * @param width The card's width.
  * @param height The card's height.
+ * @param back Whether it is on the back side instead, the one at the
+ *             card's header: an upright card's top, seen from above.
  *
  * @returns The geometry.
  */
 const sideLabelGeometry = (
     width: number,
     height: number,
+    back = false,
 ): THREE.BufferGeometry => {
     const geometry = new THREE.PlaneGeometry(sideLabelWidth(width),
         CARD_THICKNESS);
+    if (back) {
+        // Its normal turns from +z to +y, its top to -z: once the card
+        // stands, it faces up, its top towards the back of the page.
+        geometry.rotateX(-Math.PI / 2);
+        geometry.translate(0, height / 2 - SLAB_INSET + 0.05,
+            -CARD_THICKNESS / 2);
+
+        return geometry;
+    }
     // Stood up: its normal turns from +z to -y, its top to +z.
     geometry.rotateX(Math.PI / 2);
     // A hair in front of the side, so it wins the depth test.
@@ -404,6 +419,7 @@ const slabGeometry = (
     width: number,
     height: number,
     color: THREE.Color,
+    upright = false,
 ): THREE.BufferGeometry => {
     // Inset a unit, inside the card's border: the card's anti-aliased
     // corner pixels are partly clear, and a slab as large as the card
@@ -420,7 +436,9 @@ const slabGeometry = (
     const normal = new THREE.Vector3();
     for (let index = 0; index < normals.count; index += 1) {
         normal.fromBufferAttribute(normals, index);
-        const light = slabLight(normal);
+        // Stood up, a side faces where the turn about x takes it.
+        const light = slabLight(upright
+            ? normal.set(normal.x, -normal.z, normal.y) : normal);
         colors.set([color.r * light, color.g * light, color.b * light],
             index * 3);
     }
@@ -564,7 +582,7 @@ const sameState = <T extends object>(a: T, b: T): boolean => {
  * know is a frame saying so).
  */
 type FigureKind = "table" | "view" | "routines" | "events" | "sequence"
-    | "note" | "picture";
+    | "rest" | "note" | "picture";
 
 /** A figure on the canvas. */
 interface IFigureNode {
@@ -578,6 +596,11 @@ interface IFigureNode {
     /** The icon and name on the slab's front side; a child of the slab. */
     side: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     shadow: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    /**
+     * An upright card's stand: card and slab turned up about x inside it,
+     * placed on the footprint's front edge, as high as the lift lets it.
+     */
+    stand?: THREE.Group;
     /** The size the geometries were made for, so a move keeps them. */
     builtSize?: string;
     /** Device pixels per unit the texture was drawn at. */
@@ -659,6 +682,11 @@ export interface IEerFigureSetOptions {
     onConnectionsSynced?: () => void;
     /** A table card's Edit Table: the table editor opens on the table. */
     onEditTable?: (table: string) => void;
+    /**
+     * The REST objects of the project's MSM Section 180, which REST object
+     * figures show.
+     */
+    restObjects?: IRestObjectDefinition[];
 }
 
 /** A picture of an image figure, or why there is none yet. */
@@ -692,6 +720,10 @@ const kindOf = (figure: IModelFigure): FigureKind => {
 
         case SEQUENCE_FIGURE: {
             return "sequence";
+        }
+
+        case REST_OBJECT_FIGURE: {
+            return "rest";
         }
 
         case NOTE_FIGURE: {
@@ -1200,13 +1232,17 @@ export class EerFigureSet implements IFigureSet {
         return this.#figureElevation(node) - CARD_THICKNESS / 2;
     }
 
-    /** @returns Where a table is on the page. */
+    /**
+     * @returns Where a figure is on the page: an upright one's footprint,
+     *          a slab deep.
+     */
     #figureRect(node: IFigureNode): IRect {
         return {
             left: node.figure.left + (node.layer?.left ?? 0),
             top: node.figure.top + (node.layer?.top ?? 0),
             width: node.layout.width,
-            height: node.layout.height,
+            height: node.stand === undefined ? node.layout.height
+                : node.figure.depth ?? CARD_THICKNESS,
         };
     }
 
@@ -1388,7 +1424,18 @@ export class EerFigureSet implements IFigureSet {
         // hides a card behind it, but no slab its own card.
         setDrawOrder(slab, DRAW_ORDER.lifted);
         setDrawOrder(mesh, DRAW_ORDER.lifted + 0.5);
-        this.#lifted.add(slab, mesh);
+        // An upright card stands in a group of its own: turned up inside
+        // it, which is placed and lifted as a whole.
+        const stand = kind === "rest" ? new THREE.Group() : undefined;
+        if (stand === undefined) {
+            this.#lifted.add(slab, mesh);
+        } else {
+            const upright = new THREE.Group();
+            upright.rotation.x = Math.PI / 2;
+            upright.add(slab, mesh);
+            stand.add(upright);
+            this.#lifted.add(stand);
+        }
         const side = new THREE.Mesh(new THREE.BufferGeometry(),
             new THREE.MeshBasicMaterial({ transparent: true }));
         setDrawOrder(side, DRAW_ORDER.lifted + 0.25);
@@ -1407,6 +1454,8 @@ export class EerFigureSet implements IFigureSet {
         // A picture lies on its layer as it is: no card under it, which
         // would show through a transparent one.
         slab.visible = shadow.visible = kind !== "picture";
+        // An upright card casts none onto the page.
+        shadow.visible &&= stand === undefined;
 
         const card = isCard(kind);
         const node: IFigureNode = {
@@ -1418,20 +1467,28 @@ export class EerFigureSet implements IFigureSet {
             slab,
             side,
             shadow,
+            ...(stand === undefined ? {} : { stand }),
             rasterScale: 0,
             item: {
                 id: figure.id,
                 plane: "lifted",
                 rect: () => { return this.#figureRect(node); },
-                resizable: true,
+                // An upright card is as wide and high as its content.
+                resizable: stand === undefined,
                 minWidth: MIN_FIGURE_WIDTH,
                 minHeight: card ? CARD.headerHeight : 20,
-                elevation: () => { return this.#figureElevation(node); },
+                // An upright card's footprint is its top, where it is
+                // selected and moved.
+                elevation: () => {
+                    return this.#figureElevation(node)
+                        + (stand === undefined ? 0 : node.layout.height);
+                },
                 // Notes and pictures have no header, and no menu.
                 ...(card ? {
                     menuBand: {
                         top: 0,
-                        height: CARD.headerHeight,
+                        height: stand === undefined
+                            ? CARD.headerHeight : CARD_THICKNESS,
                         color: contrastingText(figureColor(figure)),
                     },
                 } : {}),
@@ -1439,6 +1496,11 @@ export class EerFigureSet implements IFigureSet {
         };
         this.#figures.set(figure.id, node);
         this.#cardMeshes.push(mesh);
+        if (stand !== undefined) {
+            // Seen from above, only its top is there to be hit.
+            side.userData = { figureId: figure.id };
+            this.#cardMeshes.push(side);
+        }
         if (kind === "picture") {
             this.#preparePicture(figure);
         }
@@ -1472,6 +1534,10 @@ export class EerFigureSet implements IFigureSet {
         figure.width ??= cardWidth(content, this.#measure);
         const layout = layoutCard(content, figure);
         keepAutoHeight(figure, layout);
+        if (kind === "rest") {
+            // What msm's layout keeps clear of the page: its footprint.
+            figure.depth = CARD_THICKNESS;
+        }
 
         return layout;
     }
@@ -1514,6 +1580,11 @@ export class EerFigureSet implements IFigureSet {
                     catalog.sequence(sequenceOf(figure)), figure);
             }
 
+            case "rest": {
+                return restObjectCardContent(this.#restObjectOf(figure),
+                    figure);
+            }
+
             default: {
                 const table = tableOf(figure);
 
@@ -1524,9 +1595,45 @@ export class EerFigureSet implements IFigureSet {
         }
     }
 
+    /**
+     * @param figure A REST object figure.
+     *
+     * @returns The REST object of Section 180 it shows, if there is one.
+     */
+    #restObjectOf(figure: IModelFigure): IRestObjectDefinition | undefined {
+        // REST paths are told apart whatever their case, as the server does.
+        const samePath = (left: string, right: string): boolean => {
+            return left.toLowerCase() === right.toLowerCase();
+        };
+
+        return this.#options.restObjects?.find((definition) => {
+            return samePath(definition.servicePath, figure.restService ?? "")
+                && samePath(definition.schemaPath, figure.restSchema ?? "")
+                && samePath(definition.requestPath, figure.restObject ?? "");
+        });
+    }
+
+    /**
+     * Shows the REST objects of the project's MSM Section 180 as it is
+     * now: every REST object figure is laid out again.
+     *
+     * @param definitions The REST objects.
+     */
+    public replaceRestObjects(definitions: IRestObjectDefinition[]): void {
+        this.#options.restObjects = definitions;
+        for (const node of this.#figures.values()) {
+            if (node.kind === "rest") {
+                this.#relayout(node);
+            }
+        }
+        this.#host?.invalidate();
+    }
+
     /** Measures a text in a card's fonts, in diagram units. */
     readonly #measure: MeasureText = (text, font) => {
-        const family = this.#host?.theme.fontFamily ?? "sans-serif";
+        const family = font === "code"
+            ? this.#host?.theme.codeFontFamily ?? "monospace"
+            : this.#host?.theme.fontFamily ?? "sans-serif";
         const css = font === "title"
             ? `bold ${String(CARD.titleFontSize)}px ${family}`
             : `${font === "detail" ? "italic " : ""}`
@@ -1659,6 +1766,11 @@ export class EerFigureSet implements IFigureSet {
 
     /** Puts a table's card, slab and shadow where its rectangle is. */
     #placeFigure(node: IFigureNode): void {
+        if (node.stand !== undefined) {
+            this.#placeUpright(node, node.stand);
+
+            return;
+        }
         const rect = this.#figureRect(node);
         const center = planeCenter(rect);
 
@@ -1687,6 +1799,39 @@ export class EerFigureSet implements IFigureSet {
         // zero, which would leave the geometry degenerate.
         node.slab.scale.z = Math.max(0.001, lift);
         node.shadow.position.set(center.x + 1, center.y - 2, z + Z.shadow);
+    }
+
+    /**
+     * Stands an upright card on its footprint's front edge: its face
+     * towards the page's bottom, where the 3D view looks from, its slab
+     * reaching back over the footprint, its top showing the title. As
+     * high as the lift lets it: in 2D only the top is seen.
+     */
+    #placeUpright(node: IFigureNode, stand: THREE.Group): void {
+        const rect = this.#figureRect(node);
+        const { width } = rect;
+        const height = node.layout.height;
+        const size = `${width}x${height}`;
+        if (node.builtSize !== size) {
+            node.builtSize = size;
+            node.mesh.geometry.dispose();
+            node.mesh.geometry = new THREE.PlaneGeometry(width, height);
+            node.slab.geometry.dispose();
+            node.slab.geometry = slabGeometry(width, height,
+                new THREE.Color(figureColor(node.figure)), true);
+            node.side.geometry.dispose();
+            node.side.geometry = sideLabelGeometry(width, height, true);
+        }
+        // Turned up about x, the card's middle half its height above the
+        // stand's foot.
+        node.mesh.position.set(0, 0, Z.face);
+        node.slab.position.set(0, 0, Z.slab);
+        stand.children[0]!.position.set(0, 0, height / 2);
+        const lift = this.#host?.lift() ?? 0;
+        const center = planeCenter(rect);
+        stand.position.set(center.x, center.y - rect.height / 2,
+            this.#figureElevation(node) * lift);
+        stand.scale.z = Math.max(0.001, lift);
     }
 
     /**
@@ -2692,6 +2837,9 @@ export class EerFigureSet implements IFigureSet {
                     { id: "separator1" }, autoSize]
                 : [autoSize];
         }
+        if (node.kind === "rest") {
+            return [autoSize];
+        }
         if (node.kind === "view" || node.kind === "sequence") {
             return [
                 { id: "toggleExpanded",
@@ -3212,7 +3360,7 @@ export class EerFigureSet implements IFigureSet {
      *
      * @returns Nothing.
      */
-    public placeObjects(refs: readonly ISchemaObjectRef[], point: IPoint): void {
+    public placeObjects(refs: readonly DiagramObjectRef[], point: IPoint): void {
         this.#tools.placeObjects(refs, point);
     }
 
@@ -3319,10 +3467,11 @@ export class EerFigureSet implements IFigureSet {
                 object.removeFromParent();
                 disposeGroup(object);
             }
+            node.stand?.removeFromParent();
             this.#figures.delete(id);
             this.#rasterQueue.delete(node);
             this.#cardMeshes = this.#cardMeshes.filter((mesh) => {
-                return mesh !== node.mesh;
+                return mesh !== node.mesh && mesh !== node.side;
             });
             this.#host?.select([]);
             this.#host?.invalidate();

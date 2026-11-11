@@ -38,6 +38,7 @@ import {
     type IDiagramDocument,
     type IDiagramRow,
     type IModelDiagram,
+    type IRestObjectDefinition,
     type ISchemaModel,
     withoutPictures,
 } from "./modelFormat.js";
@@ -94,6 +95,8 @@ export interface IModelSource {
     layoutDiagram?(name: string): Promise<void>;
     /** Where the saves stand, for the viewer to show. */
     onSaveState?: (state: SaveState) => void;
+    /** The REST objects REST object figures show, as they are now. */
+    restObjects?(): Promise<IRestObjectDefinition[]>;
 }
 
 /**
@@ -236,6 +239,11 @@ export interface IProjectSourceHost {
     /** Where changes wait until msm has them. */
     drafts: DiagramDrafts;
     /**
+     * The REST objects the project's MSM Section 180 creates, which its
+     * REST object figures show.
+     */
+    restObjects?(projectPath: string): Promise<IRestObjectDefinition[]>;
+    /**
      * Asks whether to keep changes the viewer kept of a diagram the
      * project changed since.
      *
@@ -333,6 +341,7 @@ export class ProjectModelSource implements IModelSource {
         this.#gone.clear();
         const model = assembleSchemaModel(rows);
         this.#schema = model.schema;
+        model.restObjects = await this.restObjects();
         await this.#takeDrafts(model);
 
         return { model, source: this.projectPath };
@@ -380,6 +389,21 @@ export class ProjectModelSource implements IModelSource {
             this.host.log(`Restored the unsaved changes of the diagram `
                 + `${draft.name} of ${this.projectPath}.`);
             this.#schedule(draft.document, false);
+        }
+    }
+
+    /**
+     * @returns The REST objects of the project's MSM Section 180; none
+     *          where it cannot be read, which the log says.
+     */
+    public async restObjects(): Promise<IRestObjectDefinition[]> {
+        try {
+            return await this.host.restObjects?.(this.projectPath) ?? [];
+        } catch (error) {
+            this.host.log(`Could not read the REST objects of `
+                + `${this.projectPath}: ${errorText(error)}`);
+
+            return [];
         }
     }
 

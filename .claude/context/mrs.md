@@ -252,6 +252,32 @@ as possible.
   Not yet checked: deploying such a script, i.e. the REST SQL run by the
   shell.
 
+### REST objects on a project's diagrams
+
+A REST object row of the MSM Projects view goes onto the project's
+diagram shown by a drag or its **Add to Diagram** (`mariadbMsmRestObject`,
+`0_msm@0`), as a `RestObjectFigure` (drawn upright: see
+[modeler-figures.md](modeler-figures.md)). A drag carries
+`mariadb-schema-object:/rest/<service>/<schema>/<object>?project=...`
+(`IRestObjectRef`, `DiagramObjectRef`; `restObjectRefOf` on a row). The
+figure keeps paths only: what it shows is read from Section 180 by the
+extension (`restObjectDefinitions`, through `ProjectModelSource.restObjects`
+and the host's `restObjects`), sent in the `load` (`model.restObjects`)
+and again after a dialog's save or any save of the script
+(`ModelerPanel.restChanged`, `restObjects` message,
+`EerFigureSet.replaceRestObjects`). msm (mariadb-shell-plugins #113,
+stacked on #112) keeps the figure, its layout never moves it and keeps
+`width x depth` clear (20 where `depth` is missing), and
+`reconcile_diagram` drops one whose (service, schema, object) the
+msm-schema/1 snapshot's `rest` member (mariadb-lsp's outline:
+`rest.services[].path`, `.schemas[].path`, `.objects[].path`, as Section
+180 writes them) no longer has, compared case-insensitively without
+quotes; a snapshot from a mariadb-lsp before lsp-server #39 (services
+without `declared`) keeps every REST figure. The viewer does not read
+that member: the outline has no field lists, so Section 180 is parsed for
+them anyway, and is the one source of what a figure shows, a gone
+object's figure saying so.
+
 ## Deploy OpenAPI Web UI
 
 Ported from the MySQL Shell for VS Code, which did it through a content

@@ -134,6 +134,7 @@ import {
     type IModelerHost,
 } from "./modeler/modelerPanel.js";
 import type {
+    DiagramObjectRef,
     ModelerTarget,
     SchemaObjectPlace,
 } from "./modeler/modelerProtocol.js";
@@ -155,6 +156,7 @@ import { MrsCommands } from "./mrs/mrsCommands.js";
 import { describeRestSql } from "./mrs/mrsActions.js";
 import {
     REST_SECTION,
+    restObjectDefinitions,
     restSectionEdit,
 } from "./mrs/restScript.js";
 import type { IRestSource } from "./mrs/restSource.js";
@@ -212,6 +214,7 @@ import {
     MSM_PROJECTS_VIEW_ID,
     MsmProjectsTreeProvider,
     isUnsupportedShell,
+    restObjectRefOf,
     type IMsmDiagramNode,
     type MsmProjectsNode,
 } from "./tree/msmProjectsTreeProvider.js";
@@ -1145,6 +1148,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 msmApi,
                 put: putAction,
                 drafts: diagramDrafts,
+                restObjects: async (path) => {
+                    const section = await restDefinitionOf(path);
+
+                    return section === undefined
+                        ? [] : restObjectDefinitions(section.sql);
+                },
                 keepDraft: async (diagram, when) => {
                     const keep = "Keep My Changes";
                     const answer = await vscode.window.showWarningMessage(
@@ -1202,6 +1211,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 + `after a save: ${errorText(error)}`);
             msmProjects.refreshProject(projectPath);
         }
+        // Section 180 is not in the snapshot: its REST objects are read
+        // again whether the snapshot changed or not.
+        const source = projectSources.get(projectPath);
+        if (source !== undefined) {
+            await ModelerPanel.restChanged(source);
+        }
     });
     context.subscriptions.push(scriptSaves);
     /**
@@ -1254,8 +1269,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
         }
     };
     /**
-     * Places tables, views and routines of a tree on the diagram of their
-     * schema that is open, opening one of a project's where none is.
+     * Places tables, views and routines of a tree, and a project's REST
+     * objects, on the diagram of their schema that is open, opening one of
+     * a project's where none is.
      *
      * @param arg The row the command was run on.
      * @param selected Every row selected, where several are.
@@ -1265,11 +1281,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
         const rows = (Array.isArray(selected) && selected.length > 0
             ? selected : [arg]) as Array<MsmProjectsNode | ConnectionsNode>;
         const first = rows[0];
-        if (first?.kind !== "object") {
+        if (first?.kind !== "object" && first?.kind !== "restObject") {
             return;
         }
-        const refs = rows.flatMap((row) => {
-            return row.kind === "object" ? [objectRefOf(row)] : [];
+        const refs = rows.flatMap((row): DiagramObjectRef[] => {
+            return row.kind === "object" ? [objectRefOf(row)]
+                : row.kind === "restObject" ? [restObjectRefOf(row)] : [];
         });
         if ("projectPath" in first) {
             const source = projectDiagrams(first.projectPath);
@@ -1381,7 +1398,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
             },
             // The script's save has the snapshot and the schema's rows
             // follow; what the dialog changed is the REST rows.
-            saved: () => { msmProjects.refreshRest(projectPath); },
+            saved: () => {
+                msmProjects.refreshRest(projectPath);
+                // Its diagram's REST object figures show what was saved.
+                const source = projectSources.get(projectPath);
+                if (source !== undefined) {
+                    void ModelerPanel.restChanged(source);
+                }
+            },
             failed: () => { void resultView.showActions(GENERAL_ACTIONS); },
         });
     };

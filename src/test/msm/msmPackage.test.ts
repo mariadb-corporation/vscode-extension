@@ -315,10 +315,12 @@ describe("the MSM Projects view's menus", () => {
                 .not.toContain("mariadb.mrs.addDbObject");
         }
         // A server's REST rows have menus a project's cannot serve.
-        for (const row of ["mariadbMsmRestService", "mariadbMsmRestSchema",
-            "mariadbMsmRestObject"]) {
+        for (const row of ["mariadbMsmRestService", "mariadbMsmRestSchema"]) {
             expect(onRow(row, false), row).toEqual([]);
         }
+        // A REST object goes onto a diagram, as the project's objects do.
+        expect(onRow("mariadbMsmRestObject", false))
+            .toEqual(["mariadb.addToDiagram"]);
     });
 
     it("adds an empty diagram from the Diagrams folder's + and its menu, "

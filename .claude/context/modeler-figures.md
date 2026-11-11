@@ -32,6 +32,29 @@ type (`FIGURE_COLORS`) where a figure has none.
   gives its root the figure's size; an SVG drawn as an image loads
   nothing it refers to, and the CSP (`img-src data:`) refuses it anyway.
   Until it is there, a dashed frame says why.
+- **RestObjectFigure** (`rest`, #6FBF73; the user's request, agreed with
+  msm, see [mrs.md](mrs.md)): a REST object of the project's MSM Section
+  180 (`restService`, `restSchema`, `restObject`, the paths as the section
+  writes them, a developer's service `mike@/svc`), drawn **upright**: card
+  and slab turned 90° about x in a group of their own (`stand`,
+  `#placeUpright`), the face on the footprint's front edge towards the 3D
+  camera, the slab reaching back over the footprint, its top side carrying
+  icon and title (`sideLabelGeometry(..., back)`, the slab's shading
+  turned with it). The footprint is `width x depth` (`depth`, 20 =
+  `CARD_THICKNESS`, written to the figure so msm's layout keeps it clear);
+  `height` is how high it stands, `#figureRect` the footprint. In 2D only
+  the top shows, a title-only box; the stand's z scale follows the lift.
+  The item's elevation is its top, where it is selected and its menu
+  button sits; the top side is a hit target too (`#cardMeshes`), the face
+  being edge-on from above. Not resizable; menu Auto-Size Height only.
+  Content `restObjectCardContent`: a heading `VIEW sakila.actor`, then the
+  statement's field lines (`IRestObjectDefinition.lines`, from
+  `fieldLinesOf`: the view's `{ ... }` block, a routine's `PARAMETERS` /
+  `RESULT` blocks, OPTIONS and METADATA left out, the shared indent
+  dropped) in the editor's font (`theme.codeFontFamily`, measured as
+  `code`); none written says the server makes one per column, a figure
+  Section 180 no longer creates says so. Placed where dropped, no line to
+  its table; once per diagram, paths compared whatever their case.
 - Any other type is a frame saying the viewer does not show it.
 - **Connections** are drawn between table figures only (views and
   routines have none, as Workbench); a key that is not `many` gets a bar

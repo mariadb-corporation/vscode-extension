@@ -29,6 +29,7 @@ import type { IMsmSchemaEdit } from "../mcp/msmApi.js";
 import { OBJECT_TYPES, type ObjectType } from "../mcp/types.js";
 import type {
     IDiagramDocument,
+    IRestObjectDefinition,
     ISchemaModel,
 } from "./modelFormat.js";
 import type { IPageSettings } from "./pageSettings.js";
@@ -66,11 +67,24 @@ export interface ISchemaObjectRef {
     name: string;
 }
 
+/** A REST object of a project's MSM Section 180, by its paths. */
+export interface IRestObjectRef {
+    type: "rest";
+    service: string;
+    schema: string;
+    /** Its request path. */
+    name: string;
+}
+
+/** What a tree's row places on a diagram. */
+export type DiagramObjectRef = ISchemaObjectRef | IRestObjectRef;
+
 /**
  * The scheme of the URIs a tree's rows carry in a drag's `text/uri-list`:
  * `mariadb-schema-object:/table/customer?project=<path>`, or
- * `?connection=<uri>&schema=<schema>` for a live schema's row. A drop on
- * a diagram reads them back.
+ * `?connection=<uri>&schema=<schema>` for a live schema's row; a REST
+ * object's, `/rest/<service>/<schema>/<object>`, each path encoded whole.
+ * A drop on a diagram reads them back.
  */
 export const SCHEMA_OBJECT_SCHEME = "mariadb-schema-object";
 
@@ -87,15 +101,18 @@ export type SchemaObjectPlace =
  */
 export const schemaObjectUri = (
     place: SchemaObjectPlace,
-    ref: ISchemaObjectRef,
+    ref: DiagramObjectRef,
 ): string => {
     const query = "projectPath" in place
         ? `project=${encodeURIComponent(place.projectPath)}`
         : `connection=${encodeURIComponent(place.connection)}`
             + `&schema=${encodeURIComponent(place.schema)}`;
 
+    const path = ref.type === "rest"
+        ? [ref.service, ref.schema, ref.name] : [ref.name];
+
     return `${SCHEMA_OBJECT_SCHEME}:/${ref.type}/`
-        + `${encodeURIComponent(ref.name)}?${query}`;
+        + `${path.map(encodeURIComponent).join("/")}?${query}`;
 };
 
 const OBJECT_TYPE_NAMES = new Set<string>(OBJECT_TYPES);
@@ -109,13 +126,15 @@ const OBJECT_TYPE_NAMES = new Set<string>(OBJECT_TYPES);
  */
 export const parseSchemaObjectUris = (
     uriList: string,
-): Array<{ place: SchemaObjectPlace; ref: ISchemaObjectRef }> => {
-    const found: Array<{ place: SchemaObjectPlace; ref: ISchemaObjectRef }> = [];
+): Array<{ place: SchemaObjectPlace; ref: DiagramObjectRef }> => {
+    const found: Array<{ place: SchemaObjectPlace; ref: DiagramObjectRef }> = [];
     const pattern = new RegExp(`^${SCHEMA_OBJECT_SCHEME}:/([a-z]+)/([^?]+)`
         + "\\?(.*)$", "u");
     for (const line of uriList.split(/\r?\n/u)) {
         const match = pattern.exec(line.trim());
-        if (match === null || !OBJECT_TYPE_NAMES.has(match[1])) {
+        const rest = match?.[1] === "rest" ? match[2].split("/") : undefined;
+        if (match === null || (rest === undefined
+            ? !OBJECT_TYPE_NAMES.has(match[1]) : rest.length !== 3)) {
             continue;
         }
         const query = new URLSearchParams(match[3]);
@@ -126,7 +145,14 @@ export const parseSchemaObjectUris = (
             ? { projectPath: project }
             : connection !== null && schema !== null
                 ? { connection, schema } : undefined;
-        if (place !== undefined) {
+        if (place === undefined) {
+            continue;
+        }
+        if (rest !== undefined) {
+            const [service, schema, name] = rest.map(decodeURIComponent);
+            found.push({ place, ref: { type: "rest", service: service!,
+                schema: schema!, name: name! } });
+        } else {
             found.push({ place, ref: {
                 type: match[1] as ObjectType,
                 name: decodeURIComponent(match[2]),
@@ -257,7 +283,12 @@ export type ModelerHostMessage =
      * Places objects the schema has on the diagram shown: Add to Diagram
      * on a tree's rows, in the middle of the view.
      */
-    | { type: "placeObjects"; objects: ISchemaObjectRef[] }
+    | { type: "placeObjects"; objects: DiagramObjectRef[] }
+    /**
+     * The project's MSM Section 180 changed: what its REST object
+     * figures show.
+     */
+    | { type: "restObjects"; objects: IRestObjectDefinition[] }
     /**
      * The answer to a `treeDrop`, or to a `pointerArrived` after a drag
      * from a tree: the dragged rows' `text/uri-list` (for a `treeDrop`,

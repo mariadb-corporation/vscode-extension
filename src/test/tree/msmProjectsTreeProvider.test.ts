@@ -346,6 +346,14 @@ describe("the MSM Projects view", () => {
             .toBe(108);
         expect(await fake.tree.getChildren(objects[0])).toEqual([]);
 
+        // Dragged to a diagram, a REST object goes by its paths.
+        fake.tree.handleDrag([objects[0]!], new DataTransfer() as never);
+        expect(parseSchemaObjectUris(draggedObjects.take() ?? "")).toEqual([{
+            place: { projectPath: project },
+            ref: { type: "rest", service: "/svc", schema: "/shop",
+                name: "/item" },
+        }]);
+
         // Read once, until the project is refreshed.
         expect(reads).toBe(1);
         fake.tree.refreshProject(project);

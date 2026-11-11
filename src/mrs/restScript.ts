@@ -25,6 +25,7 @@ import {
     type MrsObjectType,
 } from "./mrsTypes.js";
 import { servicePathParts } from "./restSql.js";
+import type { IRestObjectDefinition } from "../modeler/modelFormat.js";
 
 /**
  * REST SQL kept in a script instead of a server's metadata: the REST
@@ -145,6 +146,17 @@ const afterBlock = (sql: string, at: number): number => {
         const char = sql[i]!;
         if (char === "'" || char === "\"" || char === "`") {
             i = quotedAt(sql, i).next;
+            continue;
+        }
+        // A brace in a comment opens or closes nothing.
+        if (sql.startsWith("--", i) || char === "#") {
+            const end = sql.indexOf("\n", i);
+            i = end < 0 ? sql.length : end;
+            continue;
+        }
+        if (sql.startsWith("/*", i)) {
+            const end = sql.indexOf("*/", i + 2);
+            i = end < 0 ? sql.length : end + 2;
             continue;
         }
         if (char === "{") {
@@ -452,6 +464,90 @@ export const parseRestScript = (sql: string): IRestScriptEntry[] => {
     }
 
     return entries;
+};
+
+/**
+ * @param statement A REST object's statement.
+ *
+ * @returns Its fields in the statement's GraphQL notation, a line each:
+ *          its `{ ... }` blocks of fields, a routine's with the
+ *          `PARAMETERS` or `RESULT` clause that names each, as written
+ *          but for the indent they share. Its OPTIONS and METADATA, JSON
+ *          values, are not fields.
+ */
+export const fieldLinesOf = (statement: string): string[] => {
+    const lines: string[] = [];
+    let from = 0;
+    let i = 0;
+    while (i < statement.length) {
+        const char = statement[i]!;
+        if (statement.startsWith("--", i) || char === "#") {
+            const end = statement.indexOf("\n", i);
+            i = end < 0 ? statement.length : end;
+        } else if (statement.startsWith("/*", i)) {
+            const end = statement.indexOf("*/", i + 2);
+            i = end < 0 ? statement.length : end + 2;
+        } else if (char === "'" || char === "\"" || char === "`") {
+            i = quotedAt(statement, i).next;
+        } else if (char === "{") {
+            const end = afterBlock(statement, i);
+            const before = statement.slice(from, i);
+            // The last such word: an object's path may read like one.
+            const clause = [...before.matchAll(/\b(?:PARAMETERS|RESULT)\b/giu)]
+                .at(-1);
+            const word = /(\w+)\s*$/u.exec(before)?.[1]?.toUpperCase();
+            if (word !== "OPTIONS" && word !== "METADATA") {
+                const head = clause === undefined ? ""
+                    : `${before.slice(clause.index).replace(/\s+/gu, " ")
+                        .trim()} `;
+                const block = `${head}${statement.slice(i, end)}`
+                    .split(/\r?\n/u);
+                // The block's lines after the first share the
+                // statement's indent; its closing brace has the least.
+                const indent = Math.min(...block.slice(1).filter((line) => {
+                    return line.trim() !== "";
+                }).map((line) => {
+                    return /^\s*/u.exec(line)![0].length;
+                }));
+                lines.push(block[0]!, ...block.slice(1).map((line) => {
+                    return line.slice(Number.isFinite(indent) ? indent : 0)
+                        .trimEnd();
+                }));
+            }
+            from = end;
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+
+    return lines;
+};
+
+/**
+ * @param sql REST SQL: a project's MSM Section 180.
+ *
+ * @returns The REST objects it creates, each by its last statement, with
+ *          their fields as written.
+ */
+export const restObjectDefinitions = (
+    sql: string,
+): IRestObjectDefinition[] => {
+    return latest(parseRestScript(sql).filter(
+        (entry): entry is IRestObjectEntry => {
+            return entry.kind === "object";
+        })).map((entry) => {
+        return {
+            servicePath: entry.servicePath,
+            schemaPath: entry.schemaPath,
+            requestPath: entry.requestPath,
+            objectType: entry.objectType,
+            ...(entry.dbSchema === undefined
+                ? {} : { dbSchema: entry.dbSchema }),
+            dbObject: entry.dbObject,
+            lines: fieldLinesOf(sql.slice(entry.start, entry.end)),
+        };
+    });
 };
 
 /**
