@@ -218,7 +218,11 @@ as possible.
   and a removed schema those of its objects, so a service or schema
   defined again by a later version loses what it no longer has. Only a
   service or schema Section 180 creates is dropped, not one it only names
-  with ON SERVICE. mariadb-shell-plugins #112, which reads Section 180
+  with ON SERVICE. A REST schema a release moves to another database
+  (which mariadb-shell #137 refuses in place while it has objects) is
+  dropped with a conditional `DROP REST SCHEMA IF EXISTS ... FOR DATABASE
+  <old>`, a no-op on servers already moved; its objects then get new ids.
+  mariadb-shell-plugins #112, which reads Section 180
   through mariadb-lsp's outline (lsp-server #39: `rest_auth_app_links`,
   `rest_current_schema`, `rest_declared`). The extension writes nothing
   for it.
