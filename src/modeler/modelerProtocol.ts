@@ -132,11 +132,10 @@ export const parseSchemaObjectUris = (
         + "\\?(.*)$", "u");
     for (const line of uriList.split(/\r?\n/u)) {
         const match = pattern.exec(line.trim());
-        const rest = match?.[1] === "rest" ? match[2].split("/") : undefined;
-        if (match === null || (rest === undefined
-            ? !OBJECT_TYPE_NAMES.has(match[1]) : rest.length !== 3)) {
+        if (match === null) {
             continue;
         }
+        const ref = refOf(match[1], match[2].split("/").map(decodeURIComponent));
         const query = new URLSearchParams(match[3]);
         const project = query.get("project");
         const connection = query.get("connection");
@@ -145,22 +144,33 @@ export const parseSchemaObjectUris = (
             ? { projectPath: project }
             : connection !== null && schema !== null
                 ? { connection, schema } : undefined;
-        if (place === undefined) {
-            continue;
-        }
-        if (rest !== undefined) {
-            const [service, schema, name] = rest.map(decodeURIComponent);
-            found.push({ place, ref: { type: "rest", service: service!,
-                schema: schema!, name: name! } });
-        } else {
-            found.push({ place, ref: {
-                type: match[1] as ObjectType,
-                name: decodeURIComponent(match[2]),
-            } });
+        if (ref !== undefined && place !== undefined) {
+            found.push({ place, ref });
         }
     }
 
     return found;
+};
+
+/**
+ * @param type A URI's type.
+ * @param paths Its paths, decoded: a schema object's name, or a REST
+ *              object's service, schema and request path.
+ *
+ * @returns What it places; undefined for an unknown type, or for paths
+ *          that are not the type's.
+ */
+const refOf = (type: string, paths: string[]): DiagramObjectRef | undefined => {
+    if (type === "rest") {
+        const [service, schema, name] = paths;
+
+        return paths.length === 3
+            ? { type, service: service!, schema: schema!, name: name! }
+            : undefined;
+    }
+
+    return OBJECT_TYPE_NAMES.has(type) && paths.length === 1
+        ? { type: type as ObjectType, name: paths[0]! } : undefined;
 };
 
 /**

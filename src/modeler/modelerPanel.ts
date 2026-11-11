@@ -157,6 +157,8 @@ export class ModelerPanel {
     #loaded = false;
     /** The diagrams of the model last read. */
     #diagrams: string[] = [];
+    /** The REST objects the page shows, as JSON. */
+    #restSent?: string;
     /** Objects to place once the page has the model. */
     #toPlace: DiagramObjectRef[] = [];
     #schema: string;
@@ -404,6 +406,7 @@ export class ModelerPanel {
             void this.host.views?.prune(this.source.key, this.#diagrams);
             this.host.log(`Showing the diagrams of ${model.schema} `
                 + `from ${source}`);
+            this.#restSent = JSON.stringify(model.restObjects ?? []);
             this.#post({
                 type: "load",
                 model,
@@ -535,8 +538,13 @@ export class ModelerPanel {
             || source.restObjects === undefined) {
             return;
         }
-        panel.#post({ type: "restObjects",
-            objects: await source.restObjects() });
+        const objects = await source.restObjects();
+        // Most saves of the script leave Section 180 as it was.
+        const sent = JSON.stringify(objects);
+        if (sent !== panel.#restSent) {
+            panel.#restSent = sent;
+            panel.#post({ type: "restObjects", objects });
+        }
     }
 
     /**

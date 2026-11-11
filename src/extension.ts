@@ -1202,7 +1202,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const scriptSaves = new SettledSaves(async (projectPath) => {
         try {
             if (await projectDiagrams(projectPath).updateSnapshot(true)) {
+                // Read again whole, Section 180 with it.
                 await snapshotUpdated(projectPath);
+
+                return;
             }
         } catch (error) {
             // Not a notification on every save: the schema row says the
@@ -1211,8 +1214,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 + `after a save: ${errorText(error)}`);
             msmProjects.refreshProject(projectPath);
         }
-        // Section 180 is not in the snapshot: its REST objects are read
-        // again whether the snapshot changed or not.
+        // Section 180 is not what the snapshot is made from: a save may
+        // have changed its REST objects alone.
         const source = projectSources.get(projectPath);
         if (source !== undefined) {
             await ModelerPanel.restChanged(source);
@@ -1398,14 +1401,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
             },
             // The script's save has the snapshot and the schema's rows
             // follow; what the dialog changed is the REST rows.
-            saved: () => {
-                msmProjects.refreshRest(projectPath);
-                // Its diagram's REST object figures show what was saved.
-                const source = projectSources.get(projectPath);
-                if (source !== undefined) {
-                    void ModelerPanel.restChanged(source);
-                }
-            },
+            // The script's save shows it on the diagram too (scriptSaves).
+            saved: () => { msmProjects.refreshRest(projectPath); },
             failed: () => { void resultView.showActions(GENERAL_ACTIONS); },
         });
     };

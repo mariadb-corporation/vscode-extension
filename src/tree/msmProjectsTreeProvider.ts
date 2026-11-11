@@ -57,6 +57,7 @@ import {
     objectGroupsOf,
     objectsOf,
     draggedObjects,
+    objectRefOf,
     objectUriList,
     ObjectTreeItem,
     outlineObjects,
@@ -79,10 +80,7 @@ import {
     type IRestScriptEntry,
 } from "../mrs/restScript.js";
 import type { IMrsObject, IMrsSchema, IMrsService } from "../mrs/mrsTypes.js";
-import {
-    schemaObjectUri,
-    type IRestObjectRef,
-} from "../modeler/modelerProtocol.js";
+import type { IRestObjectRef } from "../modeler/modelerProtocol.js";
 import {
     MRS_ROOT_LABEL,
     objectLook,
@@ -1017,19 +1015,15 @@ export class MsmProjectsTreeProvider
         }
         // Tables, views and routines go onto a diagram of the project, as
         // do its REST objects.
-        const objects = objectUriList(source.flatMap((node) => {
-            return node.kind === "object"
-                ? [{ place: { projectPath: node.projectPath }, row: node }]
-                : [];
+        const uris = objectUriList(source.flatMap((node) => {
+            if (node.kind !== "object" && node.kind !== "restObject") {
+                return [];
+            }
+
+            return [{ place: { projectPath: node.projectPath },
+                ref: node.kind === "object"
+                    ? objectRefOf(node) : restObjectRefOf(node) }];
         }));
-        const rest = source.flatMap((node) => {
-            return node.kind === "restObject"
-                ? [schemaObjectUri({ projectPath: node.projectPath },
-                    restObjectRefOf(node))]
-                : [];
-        });
-        const uris = [...objects === undefined ? [] : [objects], ...rest]
-            .join("\r\n") || undefined;
         // A webview gets nothing a tree sets: a diagram asks for them on
         // the drop.
         draggedObjects.remember(uris);

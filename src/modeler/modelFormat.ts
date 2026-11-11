@@ -409,6 +409,30 @@ export const figureType = (figure: IModelFigure): string => {
 
 /**
  * @param figure A figure.
+ * @param service A REST service's path.
+ * @param schema A REST schema's path on it.
+ * @param object A REST object's request path on that.
+ *
+ * @returns Whether it is a REST object figure of that object: paths are
+ *          told apart whatever their case, as the server does.
+ */
+export const showsRestObject = (
+    figure: IModelFigure,
+    service: string,
+    schema: string,
+    object: string,
+): boolean => {
+    const same = (left: string | undefined, right: string): boolean => {
+        return left?.toLowerCase() === right.toLowerCase();
+    };
+
+    return figure.type === REST_OBJECT_FIGURE
+        && same(figure.restService, service) && same(figure.restSchema, schema)
+        && same(figure.restObject, object);
+};
+
+/**
+ * @param figure A figure.
  *
  * @returns Its colour: its own, else its kind's, else a table's.
  */

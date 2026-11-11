@@ -35,18 +35,20 @@ type (`FIGURE_COLORS`) where a figure has none.
 - **RestObjectFigure** (`rest`, #6FBF73; the user's request, agreed with
   msm, see [mrs.md](mrs.md)): a REST object of the project's MSM Section
   180 (`restService`, `restSchema`, `restObject`, the paths as the section
-  writes them, a developer's service `mike@/svc`), drawn **upright**: card
-  and slab turned 90° about x in a group of their own (`stand`,
-  `#placeUpright`), the face on the footprint's front edge towards the 3D
-  camera, the slab reaching back over the footprint, its top side carrying
-  icon and title (`sideLabelGeometry(..., back)`, the slab's shading
-  turned with it). The footprint is `width x depth` (`depth`, 20 =
-  `CARD_THICKNESS`, written to the figure so msm's layout keeps it clear);
-  `height` is how high it stands, `#figureRect` the footprint. In 2D only
-  the top shows, a title-only box; the stand's z scale follows the lift.
-  The item's elevation is its top, where it is selected and its menu
-  button sits; the top side is a hit target too (`#cardMeshes`), the face
-  being edge-on from above. Not resizable; menu Auto-Size Height only.
+  writes them, a developer's service `mike@/svc`), drawn **upright**
+(`isUpright`): its face, slab and top label geometries are turned 90°
+about x (`uprightGeometry`, before the slab's shading is baked, so it
+lights the sides as they face), the face towards the 3D camera on the
+footprint's front edge, the slab reaching back over the footprint, its
+top carrying icon and title (`sideLabelGeometry(..., upright)`). One
+`#placeFigure` places it, its z scale following the lift as a slab's
+does, so 2D shows only the top, a title-only box. The footprint is
+`width x depth` (`depth`, 20 = `CARD_THICKNESS`, written to the figure so
+msm's layout keeps it clear) and is `#figureRect`; `height` is how high
+it stands, the face's (`layout`, which a hit's uv maps onto). The item's
+elevation is its top, where it is selected and its menu button sits; the
+top label is a hit target too (`#cardMeshes`), the face being edge-on
+from above. Not resizable; menu Auto-Size Height only.
   Content `restObjectCardContent`: a heading `VIEW sakila.actor`, then the
   statement's field lines (`IRestObjectDefinition.lines`, from
   `fieldLinesOf`: the view's `{ ... }` block, a routine's `PARAMETERS` /

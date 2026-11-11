@@ -263,9 +263,12 @@ diagram shown by a drag or its **Add to Diagram** (`mariadbMsmRestObject`,
 figure keeps paths only: what it shows is read from Section 180 by the
 extension (`restObjectDefinitions`, through `ProjectModelSource.restObjects`
 and the host's `restObjects`), sent in the `load` (`model.restObjects`)
-and again after a dialog's save or any save of the script
-(`ModelerPanel.restChanged`, `restObjects` message,
-`EerFigureSet.replaceRestObjects`). msm (mariadb-shell-plugins #113,
+and again after a save of the script that did not make the snapshot
+again (a dialog's save is one; `ModelerPanel.restChanged`, posting a
+`restObjects` message only where they changed,
+`EerFigureSet.replaceRestObjects`). Paths are matched by
+`showsRestObject` (`modelFormat.ts`), a drag's URIs made by
+`objectUriList` for both kinds of row. msm (mariadb-shell-plugins #113,
 stacked on #112) keeps the figure, its layout never moves it and keeps
 `width x depth` clear (20 where `depth` is missing), and
 `reconcile_diagram` drops one whose (service, schema, object) the

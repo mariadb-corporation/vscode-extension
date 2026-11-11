@@ -134,6 +134,44 @@ const quotedAt = (sql: string, at: number): { text: string; next: number } => {
 
 /**
  * @param sql A text.
+ * @param at A place in it.
+ *
+ * @returns Where the text goes on after the comment that starts there -
+ *          `-- `, `#` up to the line's end, or `/* ... *\/` - or undefined
+ *          where none starts there.
+ */
+const afterComment = (sql: string, at: number): number | undefined => {
+    if (sql.startsWith("--", at) || sql[at] === "#") {
+        const end = sql.indexOf("\n", at);
+
+        return end < 0 ? sql.length : end;
+    }
+    if (sql.startsWith("/*", at)) {
+        const end = sql.indexOf("*/", at + 2);
+
+        return end < 0 ? sql.length : end + 2;
+    }
+
+    return undefined;
+};
+
+/**
+ * @param sql A text.
+ * @param at A place in it.
+ *
+ * @returns Where the text goes on after the comment or the quoted text
+ *          that starts there, whose braces open or close nothing; undefined
+ *          where neither starts there.
+ */
+const afterTrivia = (sql: string, at: number): number | undefined => {
+    const char = sql[at];
+
+    return char === "'" || char === "\"" || char === "`"
+        ? quotedAt(sql, at).next : afterComment(sql, at);
+};
+
+/**
+ * @param sql A text.
  * @param at Where a `{` opens.
  *
  * @returns Where the text goes on after its `}`: a data mapping or a JSON
@@ -143,22 +181,12 @@ const afterBlock = (sql: string, at: number): number => {
     let depth = 0;
     let i = at;
     while (i < sql.length) {
+        const skipped = afterTrivia(sql, i);
+        if (skipped !== undefined) {
+            i = skipped;
+            continue;
+        }
         const char = sql[i]!;
-        if (char === "'" || char === "\"" || char === "`") {
-            i = quotedAt(sql, i).next;
-            continue;
-        }
-        // A brace in a comment opens or closes nothing.
-        if (sql.startsWith("--", i) || char === "#") {
-            const end = sql.indexOf("\n", i);
-            i = end < 0 ? sql.length : end;
-            continue;
-        }
-        if (sql.startsWith("/*", i)) {
-            const end = sql.indexOf("*/", i + 2);
-            i = end < 0 ? sql.length : end + 2;
-            continue;
-        }
         if (char === "{") {
             depth += 1;
         } else if (char === "}") {
@@ -198,14 +226,10 @@ const tokensOf = (sql: string): IToken[] => {
     let i = 0;
     while (i < sql.length) {
         const char = sql[i]!;
-        if (sql.startsWith("--", i) || char === "#") {
+        const comment = afterComment(sql, i);
+        if (comment !== undefined) {
             close();
-            const end = sql.indexOf("\n", i);
-            i = end < 0 ? sql.length : end;
-        } else if (sql.startsWith("/*", i)) {
-            close();
-            const end = sql.indexOf("*/", i + 2);
-            i = end < 0 ? sql.length : end + 2;
+            i = comment;
         } else if (char === "'" || char === "\"") {
             close();
             const { text, next } = quotedAt(sql, i);
@@ -480,16 +504,10 @@ export const fieldLinesOf = (statement: string): string[] => {
     let from = 0;
     let i = 0;
     while (i < statement.length) {
-        const char = statement[i]!;
-        if (statement.startsWith("--", i) || char === "#") {
-            const end = statement.indexOf("\n", i);
-            i = end < 0 ? statement.length : end;
-        } else if (statement.startsWith("/*", i)) {
-            const end = statement.indexOf("*/", i + 2);
-            i = end < 0 ? statement.length : end + 2;
-        } else if (char === "'" || char === "\"" || char === "`") {
-            i = quotedAt(statement, i).next;
-        } else if (char === "{") {
+        const skipped = afterTrivia(statement, i);
+        if (skipped !== undefined) {
+            i = skipped;
+        } else if (statement[i] === "{") {
             const end = afterBlock(statement, i);
             const before = statement.slice(from, i);
             // The last such word: an object's path may read like one.

@@ -331,6 +331,8 @@ export class ProjectModelSource implements IModelSource {
     }
 
     public async read(): Promise<{ model: ISchemaModel; source: string }> {
+        // Read from disk meanwhile: msm's call does not need them.
+        const restObjects = this.restObjects();
         const rows = await this.#enqueuedAction({
             doing: `Reading the diagrams of ${this.#schema}`,
             done: `Read the diagrams of ${this.#schema}`,
@@ -341,7 +343,7 @@ export class ProjectModelSource implements IModelSource {
         this.#gone.clear();
         const model = assembleSchemaModel(rows);
         this.#schema = model.schema;
-        model.restObjects = await this.restObjects();
+        model.restObjects = await restObjects;
         await this.#takeDrafts(model);
 
         return { model, source: this.projectPath };

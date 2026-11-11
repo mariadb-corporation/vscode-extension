@@ -36,6 +36,7 @@ import {
     EVENT_GROUP_FIGURE,
     REST_OBJECT_FIGURE,
     ROUTINE_GROUP_FIGURE,
+    showsRestObject,
     SEQUENCE_FIGURE,
     TABLE_FIGURE,
     VIEW_FIGURE,
@@ -99,27 +100,24 @@ export const placementOf = (
     };
 
     for (const ref of refs) {
-        if (ref.type === "rest") {
-            // The tree's row is Section 180's: the figure says where the
-            // object is not, should it go from there.
-            const same = (left?: string, right?: string): boolean => {
-                return left?.toLowerCase() === right?.toLowerCase();
-            };
-            if (shown((figure) => {
-                return figure.type === REST_OBJECT_FIGURE
-                    && same(figure.restService, ref.service)
-                    && same(figure.restSchema, ref.schema)
-                    && same(figure.restObject, ref.name);
-            })) {
-                skipped.push(`${ref.name} is shown already`);
-            } else {
-                figures.push({ id: newId(), type: REST_OBJECT_FIGURE,
-                    name: ref.name, restService: ref.service,
-                    restSchema: ref.schema, restObject: ref.name, ...at() });
-            }
-            continue;
-        }
         switch (ref.type) {
+            case "rest": {
+                // The tree's row is Section 180's: the figure says where
+                // the object is not, should it go from there.
+                if (shown((figure) => {
+                    return showsRestObject(figure, ref.service, ref.schema,
+                        ref.name);
+                })) {
+                    skipped.push(`${ref.name} is shown already`);
+                } else {
+                    figures.push({ id: newId(), type: REST_OBJECT_FIGURE,
+                        name: ref.name, restService: ref.service,
+                        restSchema: ref.schema, restObject: ref.name,
+                        ...at() });
+                }
+                break;
+            }
+
             case "table": {
                 const table = objects.tables.find((entry) => {
                     return entry.name === ref.name;
