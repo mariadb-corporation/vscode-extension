@@ -584,6 +584,27 @@ export class ModelerPanel {
     }
 
     /**
+     * Saves what a source's panel waits to save and closes the panel: its
+     * project's folder is about to move.
+     *
+     * @param source Where the model comes from.
+     *
+     * @returns The diagram it showed; nothing where none was open.
+     */
+    public static async close(source: IModelSource): Promise<string | undefined> {
+        const panel = ModelerPanel.#open.get(source.key);
+        await source.flush?.();
+        if (panel === undefined) {
+            return undefined;
+        }
+        const shown = panel.#diagram;
+        // Its dispose follows, on the panel's.
+        panel.#panel.dispose();
+
+        return shown;
+    }
+
+    /**
      * Follows a diagram deleted: the source's panel, where one is up,
      * closes where it was the last (a model has one at least), else reads
      * the model again.

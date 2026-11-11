@@ -323,6 +323,7 @@ describe("MsmApi", () => {
                 project_path: PROJECT, folder: "/Shop", caption: "Prod",
                 color: "green", mcp_access: false, schema_name: "sakila",
                 exists: true, development_version: "1.0.1",
+                last_released_version: "1.0.0",
             },
             {
                 project_path: "/work/gone.msm.project", folder: "/",
@@ -344,6 +345,7 @@ describe("MsmApi", () => {
                 projectPath: PROJECT, folder: "/Shop", caption: "Prod",
                 color: "green", mcpAccess: false, schemaName: "sakila",
                 exists: true, developmentVersion: "1.0.1",
+                lastReleasedVersion: "1.0.0",
             },
             // A color it does not know is dropped; a server that predates
             // mcp_access gave every project access; a version that could
@@ -512,6 +514,35 @@ describe("MsmApi", () => {
                 args: { name: "Main", new_name: "Overview",
                     schema_project_path: PROJECT } });
         });
+
+    it("renames a schema, asking first, a name or none", async () => {
+        const moved = "/work/store.msm.project";
+        const caller = createCaller({
+            "msm.rename_schema": {
+                content: [{ type: "text", text: JSON.stringify({
+                    allowed: true, reason: null, message: null,
+                    project_path: moved, previous_project_path: PROJECT,
+                    files: [`${moved}/msm.project.json`], migration: [],
+                    warnings: ["Project shop2 depends on sakila."],
+                }) }],
+                isError: false,
+            },
+        });
+        const api = new MsmApi(caller);
+
+        expect(await api.renameSchema(PROJECT, "store", true)).toEqual({
+            allowed: true, projectPath: moved, previousProjectPath: PROJECT,
+            files: [`${moved}/msm.project.json`], migration: [],
+            warnings: ["Project shop2 depends on sakila."],
+        });
+        expect(caller.calls[0]).toEqual({ name: "msm.rename_schema",
+            args: { schema_project_path: PROJECT, new_schema_name: "store",
+                dry_run: true } });
+        // Without a name: only what does not depend on one is checked.
+        await api.renameSchema(PROJECT, undefined, true);
+        expect(caller.calls[1].args).toEqual({ schema_project_path: PROJECT,
+            dry_run: true });
+    });
 
     it("reads and writes a table's online ALTER TABLE, and starts one",
         async () => {

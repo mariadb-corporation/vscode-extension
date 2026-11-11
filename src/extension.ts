@@ -51,7 +51,8 @@ import { changedOnlineAlter, type IMsmApi } from "./mcp/msmApi.js";
 import {
     diagramNameProblem, MsmCommands, newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
-import { projectOfScriptFile } from "./msm/msmFields.js";
+import { projectOfScriptFile, schemaNameOfFolder } from "./msm/msmFields.js";
+import { renameSchema } from "./msm/schemaRename.js";
 import { SettledSaves } from "./msm/settledSaves.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
@@ -193,6 +194,7 @@ import {
     MSM_SCHEMA_COMMANDS,
     MSM_PROJECTS_VIEW_ID,
     MsmProjectsTreeProvider,
+    isUnsupportedShell,
     type IMsmDiagramNode,
     type MsmProjectsNode,
 } from "./tree/msmProjectsTreeProvider.js";
@@ -1525,6 +1527,69 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     openProjectDiagram(projectPath, name);
                 } catch (error) {
                     reportError(log, error, "create the schema diagram");
+                }
+            }),
+        vscode.commands.registerCommand(MSM_SCHEMA_COMMANDS.rename,
+            async (node?: MsmProjectsNode) => {
+                const projectPath = node?.kind === "schema"
+                    ? node.projectPath
+                    : node?.kind === "project"
+                        ? node.project.projectPath : undefined;
+                if (projectPath === undefined) {
+                    return;
+                }
+                try {
+                    const listed = (await msmProjects.projectAt(projectPath))
+                        ?.project;
+                    const schema = node?.kind === "schema" ? node.schema
+                        : listed?.schemaName
+                            ?? schemaNameOfFolder(path.basename(projectPath));
+                    await renameSchema({ projectPath, schema,
+                        lastReleasedVersion: listed?.lastReleasedVersion }, {
+                        api: await msmApi(),
+                        askName: async (current) => {
+                            return await vscode.window.showInputBox({
+                                title: "Rename Schema",
+                                prompt: `The new name of the schema ${current}`,
+                                value: current,
+                                validateInput: (value) => {
+                                    return value.trim() === ""
+                                        ? "The schema needs a name." : undefined;
+                                },
+                            });
+                        },
+                        confirm: async (message, detail) => {
+                            const rename = "Rename";
+
+                            return await vscode.window.showWarningMessage(
+                                message, { modal: true, detail },
+                                rename) === rename;
+                        },
+                        refuse: (message) => {
+                            void vscode.window.showErrorMessage(message);
+                        },
+                        warn: (message) => {
+                            void vscode.window.showWarningMessage(message);
+                        },
+                        closeViewer: async (folder) => {
+                            return await ModelerPanel.close(
+                                projectDiagrams(folder));
+                        },
+                        moved: async (from, to) => {
+                            projectSources.delete(from);
+                            await diagramViews.moveSource(
+                                projectSourceKey(from), projectSourceKey(to));
+                            await msmProjects.projectMoved(from, to);
+                        },
+                        openDiagram: (folder, diagram) => {
+                            openProjectDiagram(folder, diagram);
+                        },
+                    });
+                } catch (error) {
+                    reportError(log, error, isUnsupportedShell(error)
+                        ? "rename the schema: update the MariaDB Shell, "
+                            + "whose msm has no msm.rename_schema"
+                        : "rename the schema");
                 }
             }),
         vscode.commands.registerCommand(MSM_DIAGRAM_COMMANDS.rename,

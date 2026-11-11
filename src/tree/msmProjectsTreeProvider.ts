@@ -200,6 +200,8 @@ export const MSM_DIAGRAM_COMMANDS = {
 export const MSM_SCHEMA_COMMANDS = {
     /** Makes msm's snapshot of the development script again. */
     updateSnapshot: "mariadb.msm.updateSchemaSnapshot",
+    /** Renames a project's schema, before its first release. */
+    rename: "mariadb.msm.renameSchema",
 } as const;
 
 /** What the view needs from the extension. */
@@ -355,6 +357,28 @@ export class MsmProjectsTreeProvider
      *
      * @returns Nothing.
      */
+    /**
+     * Follows a project folder that moved (its schema renamed): the rows
+     * left open under it stay open, and the list is read again.
+     *
+     * @param from Its folder before.
+     * @param to Its folder now.
+     *
+     * @returns Once the view is redrawn.
+     */
+    public async projectMoved(from: string, to: string): Promise<void> {
+        // A row's id is `<kind>:<project folder>` or `...:<name>`.
+        await this.expandedRows.rename((id) => {
+            const colon = id.indexOf(":");
+            const rest = id.slice(colon + 1);
+
+            return colon > 0 && (rest === from || rest.startsWith(`${from}:`))
+                ? `${id.slice(0, colon + 1)}${to}${rest.slice(from.length)}`
+                : id;
+        });
+        this.refresh();
+    }
+
     public refreshProject(projectPath: string): void {
         this.#listings.delete(projectPath);
         this.#snapshots.delete(projectPath);

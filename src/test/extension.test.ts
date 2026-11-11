@@ -410,6 +410,7 @@ describe("activate", () => {
             "mariadb.msm.removeFromProjects",
             "mariadb.msm.removeProjectFolder",
             "mariadb.msm.renameProjectFolder",
+            "mariadb.msm.renameSchema",
             "mariadb.msm.renameSchemaDiagram",
             "mariadb.msm.resetObjectTemplate",
             "mariadb.msm.setProjectFolderColor",

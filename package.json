@@ -1221,6 +1221,11 @@
         "category": "MariaDB"
       },
       {
+        "command": "mariadb.msm.renameSchema",
+        "title": "Rename Schema...",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.msm.layoutSchemaDiagram",
         "title": "Auto Layout Schema Diagram...",
         "category": "MariaDB"
@@ -2125,6 +2130,16 @@
           "group": "1_edit@0"
         },
         {
+          "command": "mariadb.msm.renameSchema",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmProject",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "mariadb.msm.renameSchema",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "1_edit@0"
+        },
+        {
           "command": "mariadb.msm.removeFromProjects",
           "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmProject(\\.missing)?$/",
           "group": "2_list@0"
@@ -2217,6 +2232,10 @@
       "commandPalette": [
         {
           "command": "mariadb.msm.renameSchemaDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.renameSchema",
           "when": "false"
         },
         {
