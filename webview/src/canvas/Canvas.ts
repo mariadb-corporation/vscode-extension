@@ -1224,10 +1224,12 @@ export class Canvas {
         this.#camera.updateProjectionMatrix();
         this.#camera.updateMatrixWorld();
         this.#liftedGroup.position.z = this.#planeHeight("lifted");
-        // What the figure set draws depends on the lift and the canvas's
-        // size, not on the pan or the zoom: a pan pixel costs it nothing.
+        // What the figure set draws depends on the lift, the turn to the
+        // front and the canvas's size, not on the pan or the zoom: a pan
+        // pixel costs it nothing.
         const { width, height } = this.#viewport();
-        const view = `${String(this.#lift())}|${String(width)}x${String(height)}`;
+        const view = `${String(this.#lift())}|${String(this.#viewT
+            * this.#frontT)}|${String(width)}x${String(height)}`;
         if (view !== this.#lastView) {
             this.#lastView = view;
             this.#set?.viewChanged?.();
