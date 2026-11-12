@@ -170,6 +170,19 @@ figure sets, so the canvas knows nothing of tables or layers:
   isometric keeps 58% of the page's depth, the others 71% and 77%; the
   preset picked is the webview's, kept in its state, so the default is
   what a viewer without one opens with.
+- **Three projections** (the toolbar's Projection section, the user's
+  names): **DB (2D)**, the page from above; **Isometric**, the 3D view;
+  **REST (2D)** (`ViewMode` `front`), level from the page's bottom edge
+  (`FRONT_VIEW`, tilt 0 and turn 0), so REST object figures, standing
+  upright, show in full and what lies flat only its slab's front side,
+  the view the 2D one turned round. The canvas blends the camera from
+  above (`#viewT` 0) to a 3D target (1), the target itself blended from
+  the Isometric angles to the front (`#frontT`), so every switch turns
+  animated; the lift is full there (`liftFactor` of the tilt, 0). The
+  items' tops are edge-on: their menu buttons are not shown, an upright
+  card's front one is. Kept per diagram as any view (`mode: "front"`).
+  An orbit from it starts at the lowest tilt. Not done: moving figures in
+  it (the pointer's ray runs along the page, which it never meets).
 - **The Isometric button is a split button**: the main part goes to the
   3D view last chosen, only the chevron opens the list; a pick also goes
   to the 3D view. Kept in the webview's state (`saveState` / `loadState`).

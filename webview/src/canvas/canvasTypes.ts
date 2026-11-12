@@ -497,7 +497,7 @@ export const CANVAS_TOOLS = ["pointer", "hand", "zoom"] as const;
 export type Tool = typeof CANVAS_TOOLS[number] | (string & {});
 
 /** Which way the page is looked at. */
-export type ViewMode = "2d" | "iso";
+export type ViewMode = "2d" | "iso" | "front";
 
 /**
  * Where the view is: what a diagram is opened at again, all but the 3D

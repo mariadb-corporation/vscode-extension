@@ -45,7 +45,8 @@ const isView = (value: unknown): value is IDiagramView => {
         && [view.zoom, view.x, view.y, view.tilt, view.turn].every((number) => {
             return typeof number === "number" && Number.isFinite(number);
         })
-        && (view.mode === "2d" || view.mode === "iso")
+        && (view.mode === "2d" || view.mode === "iso"
+            || view.mode === "front")
         && typeof view.isoPreset === "string";
 };
 

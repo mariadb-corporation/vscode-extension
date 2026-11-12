@@ -54,11 +54,13 @@ import {
     customPreset,
     easeInOut,
     fitZoom,
+    FRONT_VIEW,
     gridSpacing,
     isoPreset,
     isoQuaternion,
     liftFactor,
     MAX_TILT,
+    MIN_TILT,
     orbitAngles,
     overlapsRect,
     TOP_VIEW,
@@ -257,6 +259,11 @@ export class Canvas {
     #target = new THREE.Vector3();
     /** 0 in the 2D view, 1 in the 3D one, between while turning. */
     #viewT = 0;
+    /**
+     * Which 3D view `#viewT` turns to: 0 the 3D view's angles, 1 level
+     * from the page's front (the front view), between while turning.
+     */
+    #frontT = 0;
     #viewMode: ViewMode = "2d";
     /** The 3D view's angles, and its orientation (turned when they change). */
     #isoAngles: Pick<IIsoAngles, "tilt" | "turn"> = isoPreset(undefined);
@@ -515,7 +522,8 @@ export class Canvas {
             this.#viewMode = view.mode;
             this.#events.onViewMode?.(view.mode);
         }
-        this.#viewT = view.mode === "iso" ? 1 : 0;
+        this.#viewT = view.mode === "2d" ? 0 : 1;
+        this.#frontT = view.mode === "front" ? 1 : 0;
         this.#target.set(view.x, 0, view.y);
         this.#setZoom(view.zoom);
         this.#invalidate();
@@ -560,14 +568,19 @@ export class Canvas {
         }
         this.#viewMode = mode;
         const from = this.#viewT;
-        const to = mode === "iso" ? 1 : 0;
+        const to = mode === "2d" ? 0 : 1;
+        // Turning to 2D keeps which 3D view it turns back from.
+        const frontFrom = this.#frontT;
+        const frontTo = mode === "2d" ? frontFrom : mode === "front" ? 1 : 0;
         const started = performance.now();
         if (this.#animation !== undefined) {
             cancelAnimationFrame(this.#animation);
         }
         const step = (now: number): void => {
             const progress = Math.min(1, (now - started) / VIEW_TRANSITION_MS);
-            this.#viewT = from + (to - from) * easeInOut(progress);
+            const eased = easeInOut(progress);
+            this.#viewT = from + (to - from) * eased;
+            this.#frontT = frontFrom + (frontTo - frontFrom) * eased;
             this.#applyView();
             this.#render();
             this.#animation = progress < 1
@@ -593,7 +606,8 @@ export class Canvas {
             cancelAnimationFrame(this.#isoAnimation);
             this.#isoAnimation = undefined;
         }
-        if (this.#viewT === 0 && this.#viewMode === "2d") {
+        // Not shown: the 2D and the front view do not look at them.
+        if (this.#viewMode !== "iso") {
             this.#isoView.copy(to);
 
             return;
@@ -1166,7 +1180,15 @@ export class Canvas {
      * @returns 0..1.
      */
     #lift(): number {
-        return this.#viewT * liftFactor(this.#isoAngles.tilt);
+        return this.#viewT * liftFactor(this.#tilt());
+    }
+
+    /**
+     * @returns How far the 3D view looks down: the front view, level, not
+     *          at all.
+     */
+    #tilt(): number {
+        return this.#isoAngles.tilt * (1 - this.#frontT);
     }
 
     /**
@@ -1190,7 +1212,10 @@ export class Canvas {
     /** Puts the camera where the zoom, the target and the view say. */
     #applyView(): void {
         this.#events.onViewChanged?.();
-        const quaternion = viewQuaternion(this.#viewT, this.#isoView);
+        const quaternion = viewQuaternion(this.#viewT, this.#frontT === 0
+            ? this.#isoView
+            : new THREE.Quaternion().slerpQuaternions(this.#isoView,
+                FRONT_VIEW, this.#frontT));
         this.#camera.quaternion.copy(quaternion);
         this.#camera.position.copy(this.#target).add(
             new THREE.Vector3(0, 0, CAMERA_DISTANCE).applyQuaternion(quaternion));
@@ -1613,7 +1638,9 @@ export class Canvas {
                 continue;
             }
             for (const overlay of [
-                this.#menuOverlay(id, item, item.menuBand, false),
+                // An item's top is edge-on in the front view.
+                this.#viewT === 1 && this.#frontT === 1 ? undefined
+                    : this.#menuOverlay(id, item, item.menuBand, false),
                 // The face is edge-on in 2D.
                 this.#viewT === 0 ? undefined
                     : this.#menuOverlay(id, item, item.frontMenuBand, true),
@@ -2031,14 +2058,18 @@ export class Canvas {
                 return;
             }
             this.#stopTurning();
+            // From the front view, as level as an orbit goes.
             pointer.from = this.#viewMode === "2d"
                 ? { tilt: MAX_TILT, turn: 0 }
-                : { ...this.#isoAngles };
-            if (this.#viewMode === "2d") {
+                : this.#viewMode === "front"
+                    ? { tilt: MIN_TILT, turn: 0 }
+                    : { ...this.#isoAngles };
+            if (this.#viewMode !== "iso") {
                 this.#viewMode = "iso";
                 this.#events.onViewMode?.("iso");
             }
             this.#viewT = 1;
+            this.#frontT = 0;
             this.#updateCursor();
         }
         const angles = orbitAngles(pointer.from, dx, dy);
@@ -2080,7 +2111,7 @@ export class Canvas {
         screen: IPoint,
     ): void {
         const perUnit = this.#scale() * Math.max(0.2,
-            Math.cos(this.#isoAngles.tilt)) * Math.max(0.1, this.#lift());
+            Math.cos(this.#tilt())) * Math.max(0.1, this.#lift());
         pointer.session.elevateBy((pointer.last.y - screen.y) / perUnit);
         pointer.last = screen;
         this.#invalidate();

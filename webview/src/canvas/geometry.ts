@@ -42,6 +42,12 @@ export type Segment = [IPoint, IPoint];
 export const TOP_VIEW = new Quaternion().setFromEuler(
     new Euler(-Math.PI / 2, 0, 0));
 
+/**
+ * The camera looking level at the page from its bottom edge: what stands
+ * up shows in full, what lies flat only its front side.
+ */
+export const FRONT_VIEW = new Quaternion();
+
 /** The angles of the 3D view's camera. */
 export interface IIsoAngles {
     id: string;

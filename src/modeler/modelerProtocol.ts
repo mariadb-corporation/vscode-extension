@@ -52,8 +52,11 @@ export interface IDiagramView {
     /** The point of the page at the middle of the view. */
     x: number;
     y: number;
-    /** The projection: flat, or the 3D view. */
-    mode: "2d" | "iso";
+    /**
+     * The projection: the page from above (DB), the 3D view, or level
+     * from the page's front (REST).
+     */
+    mode: "2d" | "iso" | "front";
     /** The 3D view picked: a preset's id, or the user's own angles. */
     isoPreset: string;
     /** The 3D view's angles, in radians. */
