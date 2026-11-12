@@ -1550,28 +1550,26 @@ export class EerFigureSet implements IFigureSet {
                 elevation: () => { return this.#topElevation(node); },
                 // Notes and pictures have no header, and no menu. As high
                 // as a card's header, so every button is one size: an
-                // upright card's centred on its top, a slab deep. Read
-                // when drawn: the header's colour may change.
-                ...(card ? {
-                    get menuBand() {
-                        return {
-                            top: upright()
-                                ? (CARD_THICKNESS - CARD.headerHeight) / 2 : 0,
-                            height: CARD.headerHeight,
-                            color: contrastingText(figureColor(figure)),
-                        };
-                    },
-                } : {}),
+                // upright card's centred on its top, a slab deep. Getters
+                // of the item itself, read when drawn - a spread would
+                // read them once: the card may stand up or lie down, and
+                // its header's colour change.
+                get menuBand() {
+                    return card ? {
+                        top: upright()
+                            ? (CARD_THICKNESS - CARD.headerHeight) / 2 : 0,
+                        height: CARD.headerHeight,
+                        color: contrastingText(figureColor(figure)),
+                    } : undefined;
+                },
                 // An upright card's face has its header too, at its top.
-                ...(card ? {
-                    get frontMenuBand() {
-                        return upright() ? {
-                            top: 0,
-                            height: CARD.headerHeight,
-                            color: contrastingText(figureColor(figure)),
-                        } : undefined;
-                    },
-                } : {}),
+                get frontMenuBand() {
+                    return card && upright() ? {
+                        top: 0,
+                        height: CARD.headerHeight,
+                        color: contrastingText(figureColor(figure)),
+                    } : undefined;
+                },
             },
         };
         this.#figures.set(figure.id, node);
