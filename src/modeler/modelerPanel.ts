@@ -29,6 +29,8 @@ import type { DiagramViews } from "./diagramViews.js";
 import type { IDiagramDocument } from "./modelFormat.js";
 import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
+    DiagramObjectRef,
+    IRestObjectPaths,
     ISchemaObjectRef,
     ModelerHostMessage,
     ModelerTarget,
@@ -79,6 +81,8 @@ export interface IModelerHost {
     draggedObjects?(): string | undefined;
     /** Opens a table of the shown schema in the table editor. */
     editTable?(target: ModelerTarget, table: string): void;
+    /** Opens a project's REST object in the REST Object dialog. */
+    editRestObject?(target: ModelerTarget, object: IRestObjectPaths): void;
     /** How each diagram was last looked at, kept by VS Code. */
     views?: DiagramViews;
 }
@@ -156,8 +160,10 @@ export class ModelerPanel {
     #loaded = false;
     /** The diagrams of the model last read. */
     #diagrams: string[] = [];
+    /** The REST objects the page shows, as JSON. */
+    #restSent?: string;
     /** Objects to place once the page has the model. */
-    #toPlace: ISchemaObjectRef[] = [];
+    #toPlace: DiagramObjectRef[] = [];
     #schema: string;
 
     private constructor(
@@ -335,6 +341,13 @@ export class ModelerPanel {
                 break;
             }
 
+            case "editRestObject": {
+                this.host.editRestObject?.(this.source.target(this.#diagram),
+                    { service: message.service, schema: message.schema,
+                        object: message.object });
+                break;
+            }
+
             case "layoutDiagram": {
                 await layOutDiagram(this.source, message.diagram,
                     this.host.log);
@@ -403,6 +416,7 @@ export class ModelerPanel {
             void this.host.views?.prune(this.source.key, this.#diagrams);
             this.host.log(`Showing the diagrams of ${model.schema} `
                 + `from ${source}`);
+            this.#restSent = JSON.stringify(model.restObjects ?? []);
             this.#post({
                 type: "load",
                 model,
@@ -504,7 +518,7 @@ export class ModelerPanel {
      */
     public static place(
         source: IModelSource,
-        objects: ISchemaObjectRef[],
+        objects: DiagramObjectRef[],
     ): boolean {
         const panel = ModelerPanel.#open.get(source.key);
         if (panel === undefined) {
@@ -518,6 +532,29 @@ export class ModelerPanel {
         }
 
         return true;
+    }
+
+    /**
+     * Shows the REST objects of the source's MSM Section 180 as it is now
+     * in its panel, where one is up and has the model.
+     *
+     * @param source Where the model comes from.
+     *
+     * @returns Once they are sent.
+     */
+    public static async restChanged(source: IModelSource): Promise<void> {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined || !panel.#loaded
+            || source.restObjects === undefined) {
+            return;
+        }
+        const objects = await source.restObjects();
+        // Most saves of the script leave Section 180 as it was.
+        const sent = JSON.stringify(objects);
+        if (sent !== panel.#restSent) {
+            panel.#restSent = sent;
+            panel.#post({ type: "restObjects", objects });
+        }
     }
 
     /**

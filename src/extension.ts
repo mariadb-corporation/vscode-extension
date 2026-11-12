@@ -48,7 +48,8 @@ import {
 } from "./util/tasksTreeProvider.js";
 import { UtilCommands } from "./util/utilCommands.js";
 import {
-    changedOnlineAlter, type IMsmApi, msmToolArgs,
+    changedOnlineAlter, type IMsmApi, type IMsmRestItem, isUnknownTool,
+    msmToolArgs,
 } from "./mcp/msmApi.js";
 import {
     diagramNameProblem, msmAction, msmCall, MsmCommands, newDiagramName,
@@ -134,6 +135,7 @@ import {
     type IModelerHost,
 } from "./modeler/modelerPanel.js";
 import type {
+    DiagramObjectRef,
     ModelerTarget,
     SchemaObjectPlace,
 } from "./modeler/modelerProtocol.js";
@@ -152,6 +154,21 @@ import type { IActionRow } from "./webview/protocol.js";
 import { reportMrsAction } from "./mrs/mrsActivity.js";
 import { MrsApi } from "./mrs/mrsApi.js";
 import { MrsCommands } from "./mrs/mrsCommands.js";
+import { describeRestSql } from "./mrs/mrsActions.js";
+import {
+    REST_SECTION,
+    restObjectDefinitions,
+} from "./mrs/restScript.js";
+import type { IObjectPlace } from "./mrs/dataMapping.js";
+import type { IOutlineRest } from "./mrs/restOutline.js";
+import {
+    type IProjectRestSource,
+    projectRestSource,
+} from "./msm/projectRestSource.js";
+import {
+    developmentScript,
+    restDefinitionOf,
+} from "./msm/developmentScript.js";
 import { MrsDialogPanel } from "./mrs/mrsDialogPanel.js";
 import { MsmDialogPanel } from "./msm/msmDialogPanel.js";
 import { UtilDialogPanel } from "./util/utilDialogPanel.js";
@@ -201,6 +218,7 @@ import {
     MSM_PROJECTS_VIEW_ID,
     MsmProjectsTreeProvider,
     isUnsupportedShell,
+    restObjectRefOf,
     type IMsmDiagramNode,
     type MsmProjectsNode,
 } from "./tree/msmProjectsTreeProvider.js";
@@ -571,8 +589,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // keeps the list, and is defined further down.
     let restdUrl: (uri: string, schema?: string) => Promise<string | undefined>
         = () => { return Promise.resolve(undefined); };
+    // An MSM project as the REST dialogs' source; defined further down,
+    // with what reads and writes a project.
+    let projectRest: (projectPath: string) => IProjectRestSource | undefined
+        = () => { return undefined; };
     const mrsCommands = new MrsCommands({
         restdUrl: (uri, schema) => { return restdUrl(uri, schema); },
+        projectRest: (projectPath) => { return projectRest(projectPath); },
         extensionUri: context.extensionUri,
         api: mrsApi,
         tools: () => { return serverApi(() => { return session.restTools; }); },
@@ -891,6 +914,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
     });
     // The MSM Projects list the server keeps, in folders of its own.
     const msmProjects = new MsmProjectsTreeProvider({
+        restDefinition: restDefinitionOf,
         msmApi: () => { return serverApi(() => { return session.msmApi; }); },
         status: starter,
         memento: context.globalState,
@@ -1128,6 +1152,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 msmApi,
                 put: putAction,
                 drafts: diagramDrafts,
+                restObjects: async (path) => {
+                    const section = await restDefinitionOf(path);
+
+                    return section === undefined
+                        ? [] : restObjectDefinitions(section.sql);
+                },
                 keepDraft: async (diagram, when) => {
                     const keep = "Keep My Changes";
                     const answer = await vscode.window.showWarningMessage(
@@ -1176,7 +1206,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
     const scriptSaves = new SettledSaves(async (projectPath) => {
         try {
             if (await projectDiagrams(projectPath).updateSnapshot(true)) {
+                // Read again whole, Section 180 with it.
                 await snapshotUpdated(projectPath);
+
+                return;
             }
         } catch (error) {
             // Not a notification on every save: the schema row says the
@@ -1184,6 +1217,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
             log(`Could not update the schema snapshot of '${projectPath}' `
                 + `after a save: ${errorText(error)}`);
             msmProjects.refreshProject(projectPath);
+        }
+        // Section 180 is not what the snapshot is made from: a save may
+        // have changed its REST objects alone.
+        const source = projectSources.get(projectPath);
+        if (source !== undefined) {
+            await ModelerPanel.restChanged(source);
         }
     });
     context.subscriptions.push(scriptSaves);
@@ -1237,8 +1276,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
         }
     };
     /**
-     * Places tables, views and routines of a tree on the diagram of their
-     * schema that is open, opening one of a project's where none is.
+     * Places tables, views and routines of a tree, and a project's REST
+     * objects, on the diagram of their schema that is open, opening one of
+     * a project's where none is.
      *
      * @param arg The row the command was run on.
      * @param selected Every row selected, where several are.
@@ -1248,11 +1288,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
         const rows = (Array.isArray(selected) && selected.length > 0
             ? selected : [arg]) as Array<MsmProjectsNode | ConnectionsNode>;
         const first = rows[0];
-        if (first?.kind !== "object") {
+        if (first?.kind !== "object" && first?.kind !== "restObject") {
             return;
         }
-        const refs = rows.flatMap((row) => {
-            return row.kind === "object" ? [objectRefOf(row)] : [];
+        const refs = rows.flatMap((row): DiagramObjectRef[] => {
+            return row.kind === "object" ? [objectRefOf(row)]
+                : row.kind === "restObject" ? [restObjectRefOf(row)] : [];
         });
         if ("projectPath" in first) {
             const source = projectDiagrams(first.projectPath);
@@ -1297,23 +1338,151 @@ export const activate = (context: vscode.ExtensionContext): void => {
     /**
      * @param projectPath A project folder.
      *
-     * @returns Its development script, as msm names it.
+     * @returns The `source_hash` of its snapshot, which msm makes first
+     *          for a project that has none: REST is changed against it.
      */
-    const developmentScript = async (projectPath: string):
-        Promise<string | undefined> => {
-        try {
-            const settings = JSON.parse(await fs.promises.readFile(
-                path.join(projectPath, "msm.project.json"), "utf8")) as
-                { schemaFileName?: string };
-            if (settings.schemaFileName === undefined) {
-                return undefined;
-            }
-
-            return path.join(projectPath, "development",
-                `${settings.schemaFileName}_next.sql`);
-        } catch {
-            return undefined;
+    const restBaseHash = async (projectPath: string): Promise<string> => {
+        const hash = (await snapshotOrMake(projectPath))?.source_hash;
+        if (hash === undefined) {
+            throw new Error(`The MSM project ${projectPath} has no schema `
+                + "snapshot: run Update Schema Snapshot on its schema row "
+                + "first.");
         }
+        // msm writes the script on disk: an editor's unsaved changes on it
+        // would be lost, and what the dialog was offered was read from disk.
+        const file = await developmentScript(projectPath);
+        const open = vscode.workspace.textDocuments.find((document) => {
+            return file !== undefined && document.uri.fsPath === file;
+        });
+        if (open?.isDirty === true) {
+            throw new Error(`${path.basename(open.uri.fsPath)} has unsaved `
+                + "changes. Save or revert them first.");
+        }
+
+        return hash;
+    };
+    /**
+     * Runs an msm tool, saying what a MariaDB Shell without it lacks.
+     *
+     * @param tool The tool.
+     * @param doing What it is called for, for the message.
+     * @param call The call.
+     * @param otherwise How else it can be done, `, or ...`.
+     *
+     * @returns What it answered.
+     */
+    const msmTool = async <T>(tool: string, doing: string,
+        call: () => Promise<T>, otherwise = ""): Promise<T> => {
+        try {
+            return await call();
+        } catch (error) {
+            if (isUnknownTool(error, tool)) {
+                throw new Error(`${doing} needs a MariaDB Shell whose msm `
+                    + `has ${tool}. Update the MariaDB Shell${otherwise}.`);
+            }
+            throw error;
+        }
+    };
+    /** {@link msmTool} for an msm REST tool. */
+    const restTool = <T>(tool: string, call: () => Promise<T>,
+    ): Promise<T> => {
+        return msmTool(tool, "Changing the REST services of an MSM project",
+            call, `, or edit MSM Section ${REST_SECTION} of the development `
+            + "script");
+    };
+    /**
+     * Has msm put REST statements a dialog saved into MSM Section 180 of a
+     * project's development script, where it keeps them, as an action of
+     * the Actions tab; the snapshot is made again with it, and the trees
+     * and diagrams follow.
+     *
+     * @param projectPath The project folder.
+     * @param statements One CREATE of a REST item each.
+     * @param replaces The REST object a renamed one stands in for.
+     *
+     * @returns Once msm has written them.
+     */
+    const writeRestStatements = async (
+        projectPath: string,
+        statements: string[],
+        replaces?: IObjectPlace,
+    ): Promise<void> => {
+        const said = describeRestSql(statements);
+        const project = `the MSM project ${projectDiagrams(projectPath)
+            .schemaTitle}`;
+        const baseHash = await restBaseHash(projectPath);
+        await restTool("msm.set_rest_statements", () => {
+            return projectDiagrams(projectPath).setRestStatements(statements,
+                baseHash, {
+                    doing: `${said.doing.replace(/\u2026$/u, "")} in ${project}`,
+                    done: `${said.done} in ${project}`,
+                }, replaces === undefined ? undefined : {
+                    kind: "object", service: replaces.servicePath,
+                    schema: replaces.schemaPath, object: replaces.requestPath,
+                });
+        });
+        await snapshotUpdated(projectPath);
+    };
+    /**
+     * Has msm remove a REST item from a project's MSM Section 180, with
+     * what is on it, as an action of the Actions tab.
+     *
+     * @param projectPath The project folder.
+     * @param item The item.
+     *
+     * @returns Once msm has removed it.
+     */
+    const dropRestItem = async (
+        projectPath: string,
+        item: IMsmRestItem,
+    ): Promise<void> => {
+        const named = `${item.service}${item.schema ?? ""}${item.object ?? ""}`;
+        const project = `the MSM project ${projectDiagrams(projectPath)
+            .schemaTitle}`;
+        const baseHash = await restBaseHash(projectPath);
+        const notes = await restTool("msm.drop_rest_object", () => {
+            return projectDiagrams(projectPath).dropRestObject(item, baseHash, {
+                doing: `Removing the REST ${item.kind} ${named} from ${project}`,
+                done: `Removed the REST ${item.kind} ${named} from ${project}`,
+            });
+        });
+        await snapshotUpdated(projectPath);
+        for (const note of notes) {
+            void vscode.window.showInformationMessage(note);
+        }
+    };
+    projectRest = (projectPath) => {
+        return projectRestSource({
+            // A new project's first REST object may come before its first
+            // snapshot.
+            snapshot: () => { return snapshotOrMake(projectPath); },
+            restSql: async () => {
+                return (await restDefinitionOf(projectPath))?.sql ?? "";
+            },
+            write: (statements, replaces) => {
+                return writeRestStatements(projectPath, statements, replaces);
+            },
+            drop: (item) => { return dropRestItem(projectPath, item); },
+            // Read from disk, as the dialog's save refuses unsaved changes.
+            restOutline: async (feature) => {
+                if (!(await lspEdit.outlineFeatures()).includes(feature)) {
+                    return undefined;
+                }
+                const file = await developmentScript(projectPath);
+                if (file === undefined) {
+                    throw new Error(`The MSM project ${projectPath} has no `
+                        + "development script.");
+                }
+
+                return ((await lspEdit.outline(file)) as
+                    { rest?: IOutlineRest } | null)?.rest ?? {};
+            },
+            // The script's save has the snapshot and the schema's rows
+            // follow; what the dialog changed is the REST rows.
+            // The script's save shows it on the diagram too (scriptSaves).
+            saved: () => { msmProjects.refreshRest(projectPath); },
+            failed: () => { void resultView.showActions(GENERAL_ACTIONS); },
+        });
     };
     const onlineAlterStore = new OnlineAlterStore(context.workspaceState);
     const tableSource = (target: TableEditorTarget): ITableSource => {
@@ -1444,8 +1613,18 @@ export const activate = (context: vscode.ExtensionContext): void => {
     context.subscriptions.push(...new SchemaObjectCommands({
         msmApi,
         snapshot: snapshotOrMake,
-        addObject: (projectPath, object, baseHash) => {
-            return projectDiagrams(projectPath).addObject(object, baseHash);
+        addObject: async (projectPath, statement, expect, baseHash) => {
+            const [added] = await msmTool("msm.set_schema_statements",
+                "Adding schema objects to an MSM project", () => {
+                    return projectDiagrams(projectPath).setSchemaStatements(
+                        [statement], baseHash, [expect]);
+                });
+            if (added === undefined) {
+                throw new Error(`msm did not say where it added the `
+                    + `${expect.kind} ${expect.name}.`);
+            }
+
+            return added;
         },
         newTable: (projectPath, schema) => {
             editTable({ kind: "project", projectPath, schema, table: "" });
@@ -1455,6 +1634,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
             context.globalStorageUri.fsPath, "msm-object-templates")),
         log,
     }).register());
+    modelerHost.editRestObject = (target, object) => {
+        if (target.kind !== "project") {
+            return;
+        }
+        mrsCommands.editProjectRestObject(target.projectPath, object.service,
+            object.schema, object.object).catch((error: unknown) => {
+            reportError(log, error, "open the REST Object dialog");
+        });
+    };
     modelerHost.editTable = (target, table) => {
         editTable(target.kind === "project"
             ? { kind: "project", projectPath: target.projectPath,

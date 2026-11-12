@@ -25,6 +25,7 @@ import type {
     JsonObject,
 } from "./mrsTypes.js";
 import {
+    createRest,
     objectKeyword,
     objectOptions,
     qualifiedName,
@@ -931,7 +932,9 @@ export interface IObjectPlace {
  * @param place Where the object is to be.
  * @param settings Its settings.
  * @param existingPath Its request path as it is now, to ALTER it; left out
- *        to CREATE it.
+ *        to CREATE it. A script's is created all the same.
+ * @param forScript Whether a new one is kept in a script that is run again
+ *        and again: `CREATE OR REPLACE`.
  *
  * @returns The REST SQL.
  */
@@ -940,19 +943,29 @@ export const objectSql = (
     place: IObjectPlace,
     settings: IObjectSettings,
     existingPath?: string,
+    forScript = false,
 ): string => {
     const keyword = objectKeyword(document.objectType);
     const where = `ON SERVICE ${quoteServicePath(place.servicePath)} `
         + `SCHEMA ${quoteRequestPath(place.schemaPath)}`;
     const routine = isRoutine(document.objectType);
-    const lines: string[] = existingPath === undefined
+    // A script's statement is run again and again: no ALTER, its new
+    // form replaces it (`IRestSource.run`'s `replaces`).
+    const lines: string[] = existingPath === undefined || forScript
         ? [
-            `CREATE REST ${keyword} ${quoteRequestPath(place.requestPath)}`,
+            `${createRest(forScript)} ${keyword} `
+            + quoteRequestPath(place.requestPath),
             `    ${where}`,
             `    AS ${qualifiedName(document.dbSchema, document.dbObject)}`
             + (routine ? "" : ` CLASS ${quoteIdentifier(document.className)}`
                 + crudSuffix(document.crud)
-                + ` ${mappingText(document.fields, 4)}`),
+                // Where a script's object has no column known at all -
+                // a project's view without a column list - the fields
+                // are left to the server, which makes one of each column.
+                // A live object always has its columns: one without
+                // fields keeps its empty mapping.
+                + (forScript && document.fields.length === 0
+                    ? "" : ` ${mappingText(document.fields, 4)}`)),
         ]
         : [
             `ALTER REST ${keyword} ${quoteRequestPath(existingPath)}`,

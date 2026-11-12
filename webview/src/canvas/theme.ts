@@ -42,6 +42,8 @@ export interface IDiagramTheme {
     connection: string;
     shadow: string;
     fontFamily: string;
+    /** The editor's font, for code such as a REST object's fields. */
+    codeFontFamily: string;
     /** The UI font size in CSS pixels. */
     fontSize: number;
 }
@@ -111,6 +113,8 @@ export const readTheme = (): IDiagramTheme => {
         shadow: read("--vscode-widget-shadow", "#000000"),
         fontFamily: read("--vscode-font-family",
             "Helvetica Neue, Arial, sans-serif"),
+        codeFontFamily: read("--vscode-editor-font-family",
+            "Menlo, Consolas, monospace"),
         fontSize: Number.parseFloat(read("--vscode-font-size", "13px")) || 13,
     };
 };

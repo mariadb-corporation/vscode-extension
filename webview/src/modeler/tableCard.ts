@@ -17,6 +17,7 @@
 
 import type {
     IModelFigure,
+    IRestObjectDefinition,
     IOutlineEvent,
     IOutlineRoutine,
     IOutlineSequence,
@@ -65,12 +66,13 @@ export const CARD = {
 
 /** What an item of a card shows. */
 export type CardItemKind = "title" | "heading" | "column" | "index"
-    | "foreignKey" | "routine" | "trigger" | "event" | "property";
+    | "foreignKey" | "routine" | "trigger" | "event" | "property"
+    | "field";
 
 /** The icon an item carries. */
 export type CardIcon = "table" | "view" | "routine" | "primaryKey"
     | "notNull" | "nullable" | "index" | "foreignKey" | "trigger" | "event"
-    | "sequence";
+    | "sequence" | "rest";
 
 /** One line of a card. */
 export interface ICardItem {
@@ -367,9 +369,46 @@ export const routineCardContent = (
     };
 };
 
+/**
+ * @param definition The REST object as Section 180 creates it; undefined
+ *                   where it creates none of the figure's paths.
+ * @param figure The REST object figure.
+ *
+ * @returns What its upright card shows: its request path, and its fields
+ *          in the statement's GraphQL notation, a row per line.
+ */
+export const restObjectCardContent = (
+    definition: IRestObjectDefinition | undefined,
+    figure: IModelFigure,
+): ICardContent => {
+    const lines = definition === undefined
+        ? ["Not created in MSM Section 180"]
+        : definition.lines.length === 0
+            ? [definition.objectType === "VIEW"
+                ? `{ every column of ${definition.dbObject} }`
+                : `{ every parameter of ${definition.dbObject} }`]
+            : definition.lines;
+
+    return {
+        title: figure.restObject ?? figure.name,
+        icon: "rest",
+        titleEditable: false,
+        sections: [{
+            heading: definition === undefined ? "REST object"
+                : `${definition.objectType} ${definition.dbSchema === undefined
+                    ? "" : `${definition.dbSchema}.`}${definition.dbObject}`,
+            lines: lines.map((text) => {
+                return { kind: "field" as const, text, editable: false };
+            }),
+        }],
+    };
+};
+
 /** Measures a text in one of the card's fonts, in diagram units. */
-export type MeasureText = (text: string, font: "title" | "row" | "detail")
-    => number;
+export type MeasureText = (
+    text: string,
+    font: "title" | "row" | "detail" | "code",
+) => number;
 
 /**
  * Measures as msm's layout estimates (`lib/layout.py`): an average
@@ -381,7 +420,8 @@ export type MeasureText = (text: string, font: "title" | "row" | "detail")
  * @returns Its width.
  */
 export const estimateText: MeasureText = (text, font) => {
-    return text.length * (font === "title" ? 8.4 : 6.2);
+    return text.length * (font === "title" ? 8.4 : font === "code" ? 6.6
+        : 6.2);
 };
 
 /**
@@ -406,7 +446,8 @@ export const cardWidth = (
             const detail = line.detail === undefined
                 ? 0 : CARD.gap + measure(line.detail, "detail");
             widest = Math.max(widest, 2 * CARD.padding + icon
-                + measure(line.text, "row") + detail);
+                + measure(line.text, line.kind === "field" ? "code" : "row")
+                + detail);
         }
     }
 
@@ -706,7 +747,9 @@ export const drawTableCard = (
                         side, side);
                     x += CARD.iconSize + CARD.gap;
                 }
-                context.font = `${CARD.rowFontSize}px ${theme.fontFamily}`;
+                // A REST object's fields are code, indented as written.
+                context.font = `${CARD.rowFontSize}px ${item.kind === "field"
+                    ? theme.codeFontFamily : theme.fontFamily}`;
                 context.fillStyle = theme.foreground;
                 const available = rect.left + rect.width - x;
                 const nameWidth = Math.min(context.measureText(item.text).width,

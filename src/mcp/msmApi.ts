@@ -21,6 +21,7 @@ import {
     decodeObject,
     decodeScalar,
     decodeVoid,
+    McpToolError,
 } from "./protocol.js";
 import type {
     IDiagramDocument,
@@ -31,7 +32,9 @@ import type {
     IOnlineAlterSetting,
 } from "../tableEditor/onlineAlter.js";
 import type { ITaskStarted } from "./taskApi.js";
-import { CONNECTION_COLORS, type ConnectionColor } from "./types.js";
+import {
+    CONNECTION_COLORS, type ConnectionColor, type ObjectType,
+} from "./types.js";
 
 /** One copyright notice of a schema project. */
 export interface IMsmCopyright {
@@ -389,7 +392,7 @@ export interface IMsmSchemaEdit {
 
 /**
  * The kinds of schema object msm adds from a SQL template
- * (`msm.add_schema_object`); a table is made with the table editor.
+ * (`msm.set_schema_statements`); a table is made with the table editor.
  */
 export const MSM_OBJECT_KINDS = ["view", "procedure", "function", "trigger",
     "event", "sequence"] as const;
@@ -407,12 +410,13 @@ export interface IMsmObjectTemplates {
     placeholders: Record<MsmObjectKind, string[]>;
 }
 
-/** What a new schema object is made of. */
-export interface IMsmNewObject {
-    kind: MsmObjectKind;
+/**
+ * What a statement of `msm.set_schema_statements` must create, checked by
+ * msm before anything is written.
+ */
+export interface IMsmExpectedObject {
+    kind: ObjectType;
     name: string;
-    /** The user's template; left out, msm's default. */
-    template?: string;
     /** A trigger's table. */
     table?: string;
 }
@@ -429,12 +433,63 @@ export interface IMsmSchemaEditResult {
     notes: Array<{ kind?: string; message: string }>;
 }
 
-/** What `msm.add_schema_object` answers with. */
-export interface IMsmObjectAdded extends IMsmSchemaEditResult {
-    /** The file the new statement is in, and the line it starts on (1-based). */
-    file: string;
-    line: number;
+/** What `msm.set_schema_statements` answers with. */
+export interface IMsmSchemaStatementsSet extends IMsmSchemaEditResult {
+    /**
+     * Where each statement went, 1-based; whether it replaced an object
+     * the project has, and whether that changed it.
+     */
+    statements: Array<{ kind: ObjectType; name: string; file: string;
+        line: number; replaced: boolean; changed: boolean }>;
 }
+
+/**
+ * A REST service, schema or object of a project's MSM Section 180, by its
+ * paths as the section writes them (a service with its developers,
+ * `mike,anna@/svc`).
+ */
+export interface IMsmRestItem {
+    kind: "service" | "schema" | "object";
+    service: string;
+    /** A schema's or an object's. */
+    schema?: string;
+    /** An object's. */
+    object?: string;
+}
+
+/** What `msm.set_rest_statements` answers with. */
+export interface IMsmRestStatementsSet extends IMsmSchemaEditResult {
+    /**
+     * Where each statement went, 1-based, and whether it replaced one; its
+     * kind is `service`, `schema`, or an object's type (`view`,
+     * `procedure`, `function`).
+     */
+    statements: Array<{ kind: string; service: string; schema?: string;
+        object?: string; file: string; line: number; replaced: boolean }>;
+}
+
+/** What `msm.drop_rest_object` answers with. */
+export interface IMsmRestDropped extends IMsmSchemaEditResult {
+    /** Where each statement removed stood, 1-based. */
+    removed: Array<{ file: string; line: number }>;
+}
+
+/**
+ * @param error Why a call of an msm tool failed.
+ * @param tool The tool, `msm.drop_rest_object`.
+ *
+ * @returns Whether the MariaDB Shell has no such tool yet: it answers
+ *          `Unknown tool: <name>`, the name with the server's tool-name
+ *          separator (`.` by default, `_` with `--toolNameSeparator=_`).
+ */
+export const isUnknownTool = (error: unknown, tool: string): boolean => {
+    const name = tool.replace(/^msm\./u, "");
+
+    return error instanceof McpToolError
+        && error.message.includes("Unknown tool: msm")
+        && (error.message.includes(`msm.${name}`)
+            || error.message.includes(`msm_${name}`));
+};
 
 /** The `msm.*` tools, as typed calls. */
 export interface IMsmApi {
@@ -482,8 +537,14 @@ export interface IMsmApi {
     editSchema(projectPath: string, edits: IMsmSchemaEdit[],
         baseHash: string): Promise<IMsmSchemaEditResult>;
     getObjectTemplates(): Promise<IMsmObjectTemplates>;
-    addSchemaObject(projectPath: string, object: IMsmNewObject,
-        baseHash: string): Promise<IMsmObjectAdded>;
+    setSchemaStatements(projectPath: string, statements: string[],
+        baseHash: string,
+        expect: IMsmExpectedObject[]): Promise<IMsmSchemaStatementsSet>;
+    setRestStatements(projectPath: string, statements: string[],
+        baseHash: string,
+        replaces?: IMsmRestItem): Promise<IMsmRestStatementsSet>;
+    dropRestObject(projectPath: string, item: IMsmRestItem,
+        baseHash: string): Promise<IMsmRestDropped>;
 }
 
 /** `msm.edit_schema`'s answer, by the server's names. */
@@ -496,7 +557,7 @@ interface IEditResultOnTheWire {
 }
 
 /**
- * @param result What msm.edit_schema, or msm.add_schema_object, said.
+ * @param result What msm.edit_schema, or a set_*_statements tool, said.
  *
  * @returns It as the extension reads it, every list there.
  */
@@ -786,18 +847,44 @@ export const msmToolArgs = {
             schema_project_path: projectPath,
         };
     },
-    addSchemaObject: (
+    setSchemaStatements: (
         projectPath: string,
-        object: IMsmNewObject,
+        statements: string[],
+        baseHash: string,
+        expect: IMsmExpectedObject[],
+    ): Record<string, unknown> => {
+        return given({
+            schema_project_path: projectPath,
+            statements,
+            base_hash: baseHash,
+            expect,
+        });
+    },
+    setRestStatements: (
+        projectPath: string,
+        statements: string[],
+        baseHash: string,
+        replaces?: IMsmRestItem,
+    ): Record<string, unknown> => {
+        return given({
+            schema_project_path: projectPath,
+            statements,
+            base_hash: baseHash,
+            replaces,
+        });
+    },
+    dropRestObject: (
+        projectPath: string,
+        item: IMsmRestItem,
         baseHash: string,
     ): Record<string, unknown> => {
         return given({
             schema_project_path: projectPath,
-            kind: object.kind,
-            name: object.name,
+            kind: item.kind,
+            service: item.service,
+            schema: item.schema,
+            object: item.object,
             base_hash: baseHash,
-            template: object.template,
-            table: object.table,
         });
     },
     deploySchema: (options: IMsmDeployOptions): Record<string, unknown> => {
@@ -1358,28 +1445,87 @@ export class MsmApi implements IMsmApi {
     }
 
     /**
-     * Adds a view, routine, trigger, event or sequence to the project from
-     * a SQL template filled with its name, where msm keeps that kind (its
-     * section, or the section's breakout file), as an edit of the schema.
+     * Puts CREATE statements of schema objects into the project where msm
+     * keeps each kind: a new object is added, a view, routine, trigger or
+     * event the project has is replaced where it stands, and a table or
+     * sequence it has is refused (`msm.edit_schema` changes those). One
+     * edit of the schema: all of them or none.
      *
      * @param projectPath The project folder.
-     * @param object What to add.
+     * @param statements One CREATE each, named without the schema.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     * @param expect What each statement must create; a mismatch is
+     *        refused before anything is written.
+     *
+     * @returns The edit's result, and where each statement went.
+     */
+    public async setSchemaStatements(
+        projectPath: string,
+        statements: string[],
+        baseHash: string,
+        expect: IMsmExpectedObject[],
+    ): Promise<IMsmSchemaStatementsSet> {
+        const tool = "msm.set_schema_statements";
+        const result = decodeObject<IEditResultOnTheWire & {
+            statements?: IMsmSchemaStatementsSet["statements"]; }>(tool,
+            await this.caller.callTool(tool, msmToolArgs.setSchemaStatements(
+                projectPath, statements, baseHash, expect)));
+
+        return { ...editResultOf(result),
+            statements: result.statements ?? [] };
+    }
+
+    /**
+     * Puts REST statements into the project's MSM Section 180, where msm
+     * keeps them: an item the section creates has its statement replaced
+     * where it stands, a new one goes after its siblings or its parent.
+     *
+     * @param projectPath The project folder.
+     * @param statements One CREATE of a REST service, schema or object
+     *        each, naming its service and schema.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     * @param replaces The REST object a statement of another path stands
+     *        in for (one renamed in its dialog).
+     *
+     * @returns The edit's result, and where each statement went.
+     */
+    public async setRestStatements(
+        projectPath: string,
+        statements: string[],
+        baseHash: string,
+        replaces?: IMsmRestItem,
+    ): Promise<IMsmRestStatementsSet> {
+        const tool = "msm.set_rest_statements";
+        const result = decodeObject<IEditResultOnTheWire & {
+            statements?: IMsmRestStatementsSet["statements"]; }>(tool,
+            await this.caller.callTool(tool, msmToolArgs.setRestStatements(
+                projectPath, statements, baseHash, replaces)));
+
+        return { ...editResultOf(result),
+            statements: result.statements ?? [] };
+    }
+
+    /**
+     * Removes a REST service, schema or object from the project's MSM
+     * Section 180: every statement of it, and of what is on it.
+     *
+     * @param projectPath The project folder.
+     * @param item What to remove.
      * @param baseHash The snapshot's `source_hash` it was named against.
      *
-     * @returns The edit's result, and where the new statement is.
+     * @returns The edit's result, and where the statements removed stood.
      */
-    public async addSchemaObject(
+    public async dropRestObject(
         projectPath: string,
-        object: IMsmNewObject,
+        item: IMsmRestItem,
         baseHash: string,
-    ): Promise<IMsmObjectAdded> {
-        const tool = "msm.add_schema_object";
+    ): Promise<IMsmRestDropped> {
+        const tool = "msm.drop_rest_object";
         const result = decodeObject<IEditResultOnTheWire & {
-            file: string; line: number; }>(tool,
-            await this.caller.callTool(tool, msmToolArgs.addSchemaObject(
-                projectPath, object, baseHash)));
+            removed?: IMsmRestDropped["removed"]; }>(tool,
+            await this.caller.callTool(tool, msmToolArgs.dropRestObject(
+                projectPath, item, baseHash)));
 
-        return { ...editResultOf(result), file: result.file,
-            line: result.line };
+        return { ...editResultOf(result), removed: result.removed ?? [] };
     }
 }

@@ -49,10 +49,14 @@ describe("the diagrams' views", () => {
         await views.keep("a", "Main", VIEW);
         await views.keep("a", "Other", { ...VIEW, zoom: 2 });
         await views.keep("b", "Main", { ...VIEW, mode: "iso" });
+        // The REST view, level from the page's front.
+        await views.keep("b", "Rest", { ...VIEW, mode: "front", height: 3 });
 
         expect(views.of("a")).toEqual({ Main: VIEW,
             Other: { ...VIEW, zoom: 2 } });
         expect(views.of("b").Main.mode).toBe("iso");
+        expect(views.of("b").Rest).toMatchObject({ mode: "front",
+            height: 3 });
         expect(views.of("c")).toEqual({});
         expect(store.get(DIAGRAM_VIEWS_KEY, undefined)).toBeDefined();
     });
@@ -62,6 +66,7 @@ describe("the diagrams' views", () => {
             Main: VIEW,
             Broken: { zoom: "big" },
             Nan: { ...VIEW, x: Number.NaN },
+            High: { ...VIEW, height: "up" },
         } }));
         expect(views.of("a")).toEqual({ Main: VIEW });
 

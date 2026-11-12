@@ -75,6 +75,20 @@ export const quoteRequestPath = (path: string): string => {
 };
 
 /**
+ * @param fullPath A service's full path, `/svc` or `mike,anna@/svc`.
+ *
+ * @returns Its developers with their `@` - empty for a published
+ *          service - and its request path.
+ */
+export const servicePathParts = (
+    fullPath: string,
+): { developers: string; path: string } => {
+    const at = fullPath.lastIndexOf("@/") + 1;
+
+    return { developers: fullPath.slice(0, at), path: fullPath.slice(at) };
+};
+
+/**
  * @param fullPath A service's full path, `/svc` or `mike,anna@/svc`, as
  *                 `full_service_path` reports it: developers quoted
  *                 where they need to be.
@@ -82,13 +96,9 @@ export const quoteRequestPath = (path: string): string => {
  * @returns It as REST SQL.
  */
 export const quoteServicePath = (fullPath: string): string => {
-    const at = fullPath.lastIndexOf("@/");
-    if (at < 0) {
-        return quoteRequestPath(fullPath);
-    }
+    const { developers, path } = servicePathParts(fullPath);
 
-    return `${fullPath.slice(0, at + 1)}${quoteRequestPath(
-        fullPath.slice(at + 1))}`;
+    return `${developers}${quoteRequestPath(path)}`;
 };
 
 /**
@@ -179,6 +189,30 @@ export const configureMetadataSql = (
 
 // --- services ---------------------------------------------------------
 
+/**
+ * @param forScript Whether the statement is kept in a script that is run
+ *        again and again.
+ *
+ * @returns How a REST service, schema or object is created: `CREATE
+ *          REST`, or for a script `CREATE OR REPLACE REST`, which a second
+ *          run takes. A shell updates what is there in place, keeping its
+ *          id (mariadb-shell, agreed for MSM Section 180).
+ */
+export const createRest = (forScript = false): string => {
+    return forScript ? "CREATE OR REPLACE REST" : "CREATE REST";
+};
+
+/**
+ * @param left A path.
+ * @param right Another one.
+ *
+ * @returns Whether both are the same, as the server compares paths:
+ *          whatever their case.
+ */
+export const samePath = (left: string, right: string): boolean => {
+    return left.toLowerCase() === right.toLowerCase();
+};
+
 /** A service as the service dialog edits it. */
 export interface IServiceValues {
     /** `[devs@]/path`. */
@@ -230,16 +264,23 @@ const serviceOptions = (
 /**
  * @param values The new service.
  * @param authApps The names of the auth apps to link to it.
+ * @param forScript Whether it is kept in a script that is run again and
+ *        again: `CREATE OR REPLACE`, which a shell updates in place,
+ *        keeping the service's id, its schemas and its auth app links.
+ * @param removeApps The auth apps to unlink: a script's edit, as the links
+ *        it does not name are kept.
  *
  * @returns `CREATE REST SERVICE`.
  */
 export const createServiceSql = (
     values: IServiceValues,
     authApps: string[] = [],
+    forScript = false,
+    removeApps: string[] = [],
 ): string => {
     return statement(
-        `CREATE REST SERVICE ${quoteServicePath(values.path)}`,
-        serviceOptions(values, authApps, []));
+        `${createRest(forScript)} SERVICE ${quoteServicePath(values.path)}`,
+        serviceOptions(values, authApps, removeApps));
 };
 
 /**
@@ -317,16 +358,52 @@ const schemaOptions = (values: ISchemaValues): string[] => {
 };
 
 /**
+ * @param values Where a new REST schema goes, and what it is of.
+ * @param forScript Whether it is kept in a script: `CREATE OR REPLACE`.
+ *
+ * @returns The first line of its `CREATE REST SCHEMA`.
+ */
+const createSchemaHead = (
+    values: Pick<ISchemaValues, "servicePath" | "requestPath" | "dbSchema">,
+    forScript: boolean,
+): string => {
+    return `${createRest(forScript)} SCHEMA `
+        + `${quoteRequestPath(values.requestPath)} `
+        + `ON SERVICE ${quoteServicePath(values.servicePath)} `
+        + `FROM ${quoteIdentifier(values.dbSchema)}`;
+};
+
+/**
  * @param values The new REST schema.
+ * @param forScript Whether it is kept in a script: `CREATE OR REPLACE`.
  *
  * @returns `CREATE REST SCHEMA`.
  */
-export const createSchemaSql = (values: ISchemaValues): string => {
-    return statement(
-        `CREATE REST SCHEMA ${quoteRequestPath(values.requestPath)} `
-        + `ON SERVICE ${quoteServicePath(values.servicePath)} `
-        + `FROM ${quoteIdentifier(values.dbSchema)}`,
+export const createSchemaSql = (
+    values: ISchemaValues,
+    forScript = false,
+): string => {
+    return statement(createSchemaHead(values, forScript),
         schemaOptions(values));
+};
+
+/**
+ * @param servicePath The service.
+ * @param dbSchema A database schema.
+ * @param requestPath The REST schema's path.
+ * @param forScript Whether it is kept in a script: `CREATE OR REPLACE`.
+ *
+ * @returns The `CREATE REST SCHEMA` with the server's defaults, for a
+ *          database schema an object is added from before it was.
+ */
+export const plainSchemaSql = (
+    servicePath: string,
+    dbSchema: string,
+    requestPath: string,
+    forScript = false,
+): string => {
+    return `${createSchemaHead({ servicePath, requestPath, dbSchema },
+        forScript)};`;
 };
 
 /**

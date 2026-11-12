@@ -26,10 +26,13 @@ import {
     figureColor,
     figureType,
     IMAGE_FIGURE,
+    LAYER_COLOR,
     NOTE_FIGURE,
     EVENT_GROUP_FIGURE,
     ROUTINE_GROUP_FIGURE,
+    REST_OBJECT_FIGURE,
     SEQUENCE_FIGURE,
+    showsRestObject,
     TABLE_FIGURE,
     VIEW_FIGURE,
     type IModelConnection,
@@ -40,9 +43,11 @@ import {
     type IOutlineForeignKey,
     type IOutlineRoutine,
     type IOutlineTable,
+    type IRestObjectDefinition,
 } from "../../../src/modeler/modelFormat.js";
 import type {
-    ISchemaObjectRef,
+    DiagramObjectRef,
+    IRestObjectPaths,
     ISchemaObjects,
 } from "../../../src/modeler/modelerProtocol.js";
 import type { IRect } from "../../../src/modeler/pageSettings.js";
@@ -78,12 +83,15 @@ import {
     HANDLE_PX,
     HANDLE_REACH_PX,
     handleSquare,
+    liftScale,
     planeCenter,
     polylineSegments,
     rectSegments,
     roundedRect,
     segmentsGeometry,
     setDrawOrder,
+    shadeSlab,
+    slabUnder,
     Z,
 } from "../canvas/threeHelpers.js";
 import { foreignKeyOf, sameName, type ISchemaCatalog } from "./catalog.js";
@@ -107,7 +115,13 @@ import {
     pointOnSide,
     sideSlots,
     spreadAnchors,
+    standAnchors,
+    standingSlots,
+    atOfHeight,
+    turnedMarker,
     type IAnchors,
+    type IEndHeights,
+    type IStand,
     type Side,
     splitStubs,
     type IRoute,
@@ -142,6 +156,7 @@ import {
     layoutCard,
     MIN_FIGURE_WIDTH,
     eventCardContent,
+    restObjectCardContent,
     routineCardContent,
     sequenceCardContent,
     sequenceOf,
@@ -278,7 +293,7 @@ const placeDock = (
             dock.rotation.set(Math.PI / 2, 0, 0);
         }
     }
-    const size = Math.max(0.001, lift);
+    const size = liftScale(lift);
     dock.scale.set(size, size, size);
 };
 
@@ -295,11 +310,30 @@ const CARD_THICKNESS = 20;
 /** How far a card's slab lies inside the card's edge, in page units. */
 const SLAB_INSET = 1;
 
+/** `#heightOn`'s plane and hit, kept: a drag reads them every move. */
+const HEIGHT_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0));
+const HEIGHT_HIT = new THREE.Vector3();
+const HEIGHT_RAY = new THREE.Ray();
+const HEIGHT_INVERSE = new THREE.Matrix4();
+
 /** How far a card's shadow reaches past the card on each side. */
 const SHADOW_SPREAD = 2;
 
+/**
+ * How opaque a figure's shadow is: lighter on a light theme, where the
+ * dark theme's showed as heavy grey on the white paper.
+ */
+const SHADOW_OPACITY = { dark: 0.18, light: 0.08 };
+
 /** The corner radius of a layer: a little less than a card's. */
 const LAYER_RADIUS = 5;
+
+/**
+ * How thick a layer's plate is, in page units: a thin slab it stands on,
+ * its face, border and name on top (the user's request: the layers
+ * extruded "a tiny bit"). Flat in 2D, as it grows with the lift.
+ */
+const LAYER_THICKNESS = 3;
 
 /** A layer's name: where it sits, in page units from the layer's corner. */
 const LAYER_LABEL = { left: 6, top: 4, height: 18, fontSize: 12 } as const;
@@ -307,56 +341,83 @@ const LAYER_LABEL = { left: 6, top: 4, height: 18, fontSize: 12 } as const;
 /** How high a layer can be raised, in page units. */
 const MAX_LAYER_ELEVATION = 240;
 
+/** A layer's colour where it has none. */
+const DEFAULT_LAYER_COLOR = new THREE.Color("#e0e0e0");
+
 /**
  * @param figure A figure.
  *
  * @returns How far it stands above its layer, kept in the layers' range.
  */
 const ownElevation = (figure: IModelFigure): number => {
-    return Math.min(MAX_LAYER_ELEVATION, Math.max(0, figure.elevation ?? 0));
+    return inElevationRange(figure.elevation ?? 0);
+};
+
+/**
+ * @param elevation A height a figure or a layer is raised to.
+ *
+ * @returns It, kept in the layers' range.
+ */
+const inElevationRange = (elevation: number): number => {
+    return Math.min(MAX_LAYER_ELEVATION, Math.max(0, elevation));
 };
 
 /** The texture scales a card is drawn at: device pixels per unit. */
 const RASTER_STEPS = [0.25, 0.5, 1, 2, 3, 4];
 
 /**
- * Where the light comes from that shades the slabs' sides, in the plane's
- * coordinates (x right, y up the page, z towards the 2D camera): from the
- * upper left, so the left sides are lit and the front ones, facing the 3D
- * camera at the page's bottom, are in shade.
- */
-const SLAB_LIGHT = new THREE.Vector3(-0.7, 0.3, 0.65).normalize();
-
-/**
- * @param normal Which way a side of a slab faces.
- *
- * @returns How lit that side is, 0.55 (in shade) to 1.
- */
-const slabLight = (normal: THREE.Vector3): number => {
-    return 0.55 + 0.45 * Math.max(0, normal.dot(SLAB_LIGHT));
-};
-
-/**
  * The front side's label: a plane as wide as the side is straight, as high
  * as the slab is thick, standing on the slab's front, in the slab's
- * coordinates (so it grows with the lift as the slab does).
+ * coordinates (so it grows with the lift as the slab does). An upright
+ * card's lies on its top instead, facing up, its own top towards the back
+ * of the page: what 2D shows of the card.
  *
  * @param width The card's width.
  * @param height The card's height.
+ * @param upright Whether the card stands (`uprightGeometry`).
  *
  * @returns The geometry.
  */
 const sideLabelGeometry = (
     width: number,
     height: number,
+    upright = false,
 ): THREE.BufferGeometry => {
     const geometry = new THREE.PlaneGeometry(sideLabelWidth(width),
         CARD_THICKNESS);
+    if (upright) {
+        // A hair above the top, so it wins the depth test.
+        geometry.translate(0, CARD_THICKNESS / 2,
+            height - SLAB_INSET + 0.05);
+
+        return geometry;
+    }
     // Stood up: its normal turns from +z to -y, its top to +z.
     geometry.rotateX(Math.PI / 2);
     // A hair in front of the side, so it wins the depth test.
     geometry.translate(0, -height / 2 + SLAB_INSET - 0.05,
         -CARD_THICKNESS / 2);
+
+    return geometry;
+};
+
+/**
+ * Stands a card's geometry up: turned up about x, its face towards the
+ * page's bottom, where the 3D view looks from, its foot on z = 0, its
+ * top (the card's header) at its height, and what was its depth below
+ * the face reaching back from y = 0.
+ *
+ * @param geometry A card's or its slab's geometry, lying as a flat card's.
+ * @param height The card's height.
+ *
+ * @returns It, stood up.
+ */
+const uprightGeometry = <T extends THREE.BufferGeometry>(
+    geometry: T,
+    height: number,
+): T => {
+    geometry.rotateX(Math.PI / 2);
+    geometry.translate(0, 0, height / 2);
 
     return geometry;
 };
@@ -372,20 +433,26 @@ const sideLabelWidth = (width: number): number => {
 };
 
 /**
- * A table's shadow: a rounded rectangle around the card's, centred on the
- * origin, its corners concentric with the card's rounded ones.
+ * A figure's shadow: a rounded rectangle around what it covers of the
+ * page, centred on the origin, its corners concentric with the card's.
  *
- * @param width The card's width.
- * @param height The card's height.
+ * @param width How wide the figure is on the page.
+ * @param height How deep it is on the page.
+ * @param radius Its corners' radius there: a lying card's, or none for an
+ *               upright card's footprint, whose corners are square.
  *
  * @returns The geometry.
  */
-const shadowGeometry = (width: number, height: number): THREE.BufferGeometry => {
+const shadowGeometry = (
+    width: number,
+    height: number,
+    radius: number = CARD.radius,
+): THREE.BufferGeometry => {
     const w = width + 2 * SHADOW_SPREAD;
     const h = height + 2 * SHADOW_SPREAD;
 
     return new THREE.ShapeGeometry(
-        roundedRect(-w / 2, -h / 2, w, h, CARD.radius + SHADOW_SPREAD), 6);
+        roundedRect(-w / 2, -h / 2, w, h, radius + SHADOW_SPREAD), 6);
 };
 
 /**
@@ -404,6 +471,7 @@ const slabGeometry = (
     width: number,
     height: number,
     color: THREE.Color,
+    upright = false,
 ): THREE.BufferGeometry => {
     // Inset a unit, inside the card's border: the card's anti-aliased
     // corner pixels are partly clear, and a slab as large as the card
@@ -414,19 +482,11 @@ const slabGeometry = (
             CARD.radius - SLAB_INSET),
         { depth: CARD_THICKNESS, bevelEnabled: false, curveSegments: 8 });
     geometry.translate(0, 0, -CARD_THICKNESS);
-    geometry.computeVertexNormals();
-    const normals = geometry.getAttribute("normal");
-    const colors = new Float32Array(normals.count * 3);
-    const normal = new THREE.Vector3();
-    for (let index = 0; index < normals.count; index += 1) {
-        normal.fromBufferAttribute(normals, index);
-        const light = slabLight(normal);
-        colors.set([color.r * light, color.g * light, color.b * light],
-            index * 3);
+    if (upright) {
+        uprightGeometry(geometry, height);
     }
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
-    return geometry;
+    return shadeSlab(geometry, color);
 };
 
 /**
@@ -476,7 +536,8 @@ const sloped = (
 /** What a user can change of a table figure. */
 type FigureState = Pick<IModelFigure, "left" | "top" | "width" | "height"
     | "manualSizing" | "expanded" | "indicesExpanded"
-    | "foreignKeysExpanded" | "triggersExpanded" | "layer" | "elevation">;
+    | "foreignKeysExpanded" | "triggersExpanded" | "layer" | "elevation"
+    | "color" | "upright" | "depth">;
 
 /** What a user can change of a connection. */
 type ConnectionState = Pick<IModelConnection, "middleSegmentOffset"
@@ -484,7 +545,7 @@ type ConnectionState = Pick<IModelConnection, "middleSegmentOffset"
 
 /** What a user can change of a layer. */
 type LayerState = Pick<IModelLayer, "left" | "top" | "width" | "height"
-    | "name" | "elevation">;
+    | "name" | "elevation" | "color">;
 
 /** The shown diagram's figures and layers, as they are. */
 interface ISnapshot {
@@ -506,6 +567,9 @@ const figureState = (figure: IModelFigure): FigureState => {
         triggersExpanded: figure.triggersExpanded,
         layer: figure.layer,
         elevation: figure.elevation,
+        color: figure.color,
+        upright: figure.upright,
+        depth: figure.depth,
     };
 };
 
@@ -526,6 +590,7 @@ const layerState = (layer: IModelLayer): LayerState => {
         height: layer.height,
         name: layer.name,
         elevation: layer.elevation,
+        color: layer.color,
     };
 };
 
@@ -564,7 +629,7 @@ const sameState = <T extends object>(a: T, b: T): boolean => {
  * know is a frame saying so).
  */
 type FigureKind = "table" | "view" | "routines" | "events" | "sequence"
-    | "note" | "picture";
+    | "rest" | "note" | "picture";
 
 /** A figure on the canvas. */
 interface IFigureNode {
@@ -580,6 +645,8 @@ interface IFigureNode {
     shadow: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     /** The size the geometries were made for, so a move keeps them. */
     builtSize?: string;
+    /** How far its slab's shading is lifted for the front view, 0..1. */
+    builtFront?: number;
     /** Device pixels per unit the texture was drawn at. */
     rasterScale: number;
     item: ICanvasItem;
@@ -589,6 +656,8 @@ interface IFigureNode {
 interface ILayerNode {
     layer: IModelLayer;
     plate: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    /** The plate's slab, under its face. */
+    slab: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     border: THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial>;
     label: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
     labelWidth: number;
@@ -659,6 +728,16 @@ export interface IEerFigureSetOptions {
     onConnectionsSynced?: () => void;
     /** A table card's Edit Table: the table editor opens on the table. */
     onEditTable?: (table: string) => void;
+    /**
+     * A REST object figure's Edit REST Object: the REST Object dialog opens
+     * on the object its paths name.
+     */
+    onEditRestObject?: (object: IRestObjectPaths) => void;
+    /**
+     * The REST objects of the project's MSM Section 180, which REST object
+     * figures show.
+     */
+    restObjects?: IRestObjectDefinition[];
 }
 
 /** A picture of an image figure, or why there is none yet. */
@@ -694,6 +773,10 @@ const kindOf = (figure: IModelFigure): FigureKind => {
             return "sequence";
         }
 
+        case REST_OBJECT_FIGURE: {
+            return "rest";
+        }
+
         case NOTE_FIGURE: {
             return "note";
         }
@@ -723,6 +806,19 @@ const pictureKey = (diagram: string, figureId: string): string => {
  */
 const isCard = (kind: FigureKind): boolean => {
     return kind !== "note" && kind !== "picture";
+};
+
+/**
+ * @param kind What a figure is drawn as.
+ * @param figure The figure.
+ *
+ * @returns Whether its card stands upright on the page: its footprint a
+ *          slab deep, its top what 2D Top shows, its face what 2D Front
+ *          does. As its menu set it; else a REST object's does, and every
+ *          other card lies flat.
+ */
+const isUpright = (kind: FigureKind, figure: IModelFigure): boolean => {
+    return isCard(kind) && (figure.upright ?? kind === "rest");
 };
 
 export class EerFigureSet implements IFigureSet {
@@ -761,6 +857,8 @@ export class EerFigureSet implements IFigureSet {
     #connectionIndex = new Map<string, IConnectionNode>();
     /** Where each connection meets its tables' sides (`spreadAnchors`). */
     #anchors = new Map<string, IAnchors>();
+    /** How high each connection's ends are (`standAnchors`). */
+    #heights = new Map<string, IEndHeights>();
     /** What this set drew into the canvas's groups, to remove it. */
     #base = new THREE.Group();
     #lifted = new THREE.Group();
@@ -920,6 +1018,7 @@ export class EerFigureSet implements IFigureSet {
                     .filter((table) => { return table.kind === "table"; })
                     .map((table) => { return tableOf(table.figure); })
                     .sort((a, b) => { return a.localeCompare(b); }),
+                color: layer.color,
                 editable,
             };
         }
@@ -934,8 +1033,12 @@ export class EerFigureSet implements IFigureSet {
                 y: rect.top,
                 z: ownElevation(node.figure),
                 width: rect.width,
-                height: rect.height,
+                // An upright card's, how high it stands: what a change of
+                // it changes.
+                height: isUpright(node.kind, node.figure) ? node.layout.height : rect.height,
                 autoHeight: node.figure.manualSizing !== true,
+                upright: isUpright(node.kind, node.figure),
+                color: node.figure.color ?? "",
                 editable,
             };
         }
@@ -1043,6 +1146,11 @@ export class EerFigureSet implements IFigureSet {
             elevate.elevateBy(change.z - this.#elevation(layer));
             elevate.finish();
         }
+        if (change.color !== undefined) {
+            // None is a new layer's.
+            layer.color = change.color === "" ? LAYER_COLOR : change.color;
+            this.#placeLayer(node);
+        }
     }
 
     /**
@@ -1126,6 +1234,17 @@ export class EerFigureSet implements IFigureSet {
             figure.manualSizing = true;
             figure.height = Math.max(CARD.headerHeight, change.height);
         }
+        if (change.upright !== undefined) {
+            figure.upright = change.upright;
+        }
+        if (change.color !== undefined) {
+            // None is its kind's.
+            if (change.color === "") {
+                delete figure.color;
+            } else {
+                figure.color = change.color;
+            }
+        }
         this.#relayout(node);
         // Moved off or onto a layer, it is filed as a drag files it.
         this.#fileUnderLayer(node);
@@ -1151,25 +1270,41 @@ export class EerFigureSet implements IFigureSet {
         return this.#layerAt(probe)?.item;
     }
 
-    /** The table card under the pointer, and the point on it. */
+    /** The table card under the pointer, and the item on its face there. */
     #figureHit(
         probe: IProbe,
-    ): { node: IFigureNode; uv: THREE.Vector2 } | undefined {
-        const hit = probe.raycaster.intersectObjects(this.#cardMeshes, false)[0];
-        if (hit === undefined || hit.uv === undefined) {
-            return undefined;
-        }
-        const node = this.#figures.get(
-            (hit.object.userData as { figureId: string }).figureId);
+    ): { node: IFigureNode; item?: ICardItem } | undefined {
+        // A lying card's side label is no target: its card is, above it -
+        // but in 2D Front, where the card is edge-on, it is all there is.
+        const front = (this.#host?.front() ?? 0) === 1;
+        for (const hit of probe.raycaster.intersectObjects(this.#cardMeshes,
+            false)) {
+            const node = this.#figures.get(
+                (hit.object.userData as { figureId: string }).figureId);
+            if (node === undefined || hit.uv === undefined
+                || (hit.object === node.side && !front
+                    && !isUpright(node.kind, node.figure))) {
+                continue;
+            }
 
-        return node === undefined ? undefined : { node, uv: hit.uv };
+            // The UV is of the card's face only, not of a side label; it
+            // runs from its bottom left, the card's items from its top left.
+            const { layout } = node;
+
+            return { node, item: hit.object === node.mesh
+                ? cardItemAt(layout, hit.uv.x * layout.width,
+                    (1 - hit.uv.y) * layout.height)
+                : undefined };
+        }
+
+        return undefined;
     }
 
     /** The layer under the pointer: the inner one, at its own height. */
     #layerAt(probe: IProbe): ILayerNode | undefined {
         let found: ILayerNode | undefined;
         for (const node of this.#layers.values()) {
-            const point = probe.pointOn("base", this.#elevation(node.layer));
+            const point = probe.pointOn("base", this.#layerTop(node.layer));
             if (point !== undefined
                 && layerAtPoint(point, [node.layer]) !== undefined
                 && (found === undefined || node.layer.width * node.layer.height
@@ -1183,30 +1318,90 @@ export class EerFigureSet implements IFigureSet {
 
     /** @returns A layer's elevation, kept in its range. */
     #elevation(layer: IModelLayer | undefined): number {
-        return Math.min(MAX_LAYER_ELEVATION,
-            Math.max(0, layer?.elevation ?? 0));
+        return inElevationRange(layer?.elevation ?? 0);
     }
 
-    /** @returns How high a figure stands: its layer's and its own. */
+    /** @returns How high a layer's face is: on its slab, at its elevation. */
+    #layerTop(layer: IModelLayer): number {
+        return this.#elevation(layer) + LAYER_THICKNESS;
+    }
+
+    /**
+     * @returns How high a figure stands: its layer's and its own. A lying
+     *          card's face is there, its slab below; an upright card's
+     *          foot a slab lower, so at the same Z it stands where the
+     *          lying cards' slabs end (the user's request: "standing on
+     *          the same level of the lower extruded plate").
+     */
     #figureElevation(node: IFigureNode): number {
-        return this.#elevation(node.layer) + ownElevation(node.figure);
+        return this.#elevation(node.layer) + ownElevation(node.figure)
+            - (isUpright(node.kind, node.figure) ? CARD_THICKNESS : 0);
+    }
+
+    /**
+     * @returns How high a figure's top is, which 2D shows: an upright
+     *          card's is as high as it stands.
+     */
+    #topElevation(node: IFigureNode): number {
+        return this.#figureElevation(node)
+            + (isUpright(node.kind, node.figure) ? node.layout.height : 0);
     }
 
     /**
      * @returns How high a connection meets a table: halfway down the
-     *          table's slab, so the line runs into the middle of its side.
+     *          table's slab, so the line runs into the middle of its side;
+     *          into an upright card's face or back, half a slab above its
+     *          foot (its edges' lines spread up it: `standAnchors`).
      */
     #lineElevation(node: IFigureNode): number {
-        return this.#figureElevation(node) - CARD_THICKNESS / 2;
+        return this.#figureElevation(node) + (isUpright(node.kind, node.figure)
+            ? CARD_THICKNESS / 2 : -CARD_THICKNESS / 2);
     }
 
-    /** @returns Where a table is on the page. */
+    /** @returns Where a figure's card stands, if it is upright. */
+    #stand(node: IFigureNode): IStand | undefined {
+        return isUpright(node.kind, node.figure)
+            ? { foot: this.#figureElevation(node), height: node.layout.height }
+            : undefined;
+    }
+
+    /**
+     * @returns What a figure shows 2D Front, as heights: an upright card
+     *          from its foot to its top, a lying one its slab's side.
+     */
+    #frontSpan(node: IFigureNode): { bottom: number; top: number } {
+        const top = this.#topElevation(node);
+
+        return {
+            bottom: isUpright(node.kind, node.figure)
+                ? this.#figureElevation(node) : top - CARD_THICKNESS,
+            top,
+        };
+    }
+
+    /**
+     * Sets a figure's own elevation so that it stands at a height: an
+     * upright card's foot, a lying one's face (`#figureElevation`).
+     *
+     * @param node The figure.
+     * @param height The height, above the lifted plane.
+     */
+    #standAt(node: IFigureNode, height: number): void {
+        node.figure.elevation = inElevationRange(height
+            - this.#elevation(node.layer)
+            + (isUpright(node.kind, node.figure) ? CARD_THICKNESS : 0));
+    }
+
+    /**
+     * @returns Where a figure is on the page: an upright one's footprint,
+     *          a slab deep.
+     */
     #figureRect(node: IFigureNode): IRect {
         return {
             left: node.figure.left + (node.layer?.left ?? 0),
             top: node.figure.top + (node.layer?.top ?? 0),
             width: node.layout.width,
-            height: node.layout.height,
+            height: isUpright(node.kind, node.figure) ? CARD_THICKNESS : node.layout.height,
         };
     }
 
@@ -1219,29 +1414,24 @@ export class EerFigureSet implements IFigureSet {
 
     #buildLayer(layer: IModelLayer): void {
         const theme = this.#host!.theme;
-        const color = new THREE.Color(layer.color || "#e0e0e0");
-        // Solid, so that the grid lies under the layer rather than showing
-        // through it: the layer's tint over the paper, mixed the way the
-        // see-through plate it replaces was blended.
+        // Coloured as it is placed: its colour may change.
         const plate = new THREE.Mesh(new THREE.BufferGeometry(),
-            new THREE.MeshBasicMaterial({
-                color: tintOver(color, new THREE.Color(theme.paper),
-                    theme.dark ? 0.35 : 0.6),
-            }));
+            new THREE.MeshBasicMaterial());
+        const slab = new THREE.Mesh(new THREE.BufferGeometry(),
+            new THREE.MeshBasicMaterial({ vertexColors: true }));
         const border = new THREE.LineLoop(new THREE.BufferGeometry(),
-            new THREE.LineBasicMaterial({
-                color, transparent: true, opacity: 0.9,
-            }));
+            new THREE.LineBasicMaterial({ transparent: true, opacity: 0.9 }));
         const label = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
             new THREE.MeshBasicMaterial({ transparent: true }));
         setDrawOrder(plate, DRAW_ORDER.base);
+        setDrawOrder(slab, DRAW_ORDER.base);
         // A layer's border and name go over its plate.
         setDrawOrder(border, DRAW_ORDER.base + 0.5);
         setDrawOrder(label, DRAW_ORDER.base + 0.5);
-        this.#base.add(plate, border, label);
+        this.#base.add(slab, plate, border, label);
 
         const node: ILayerNode = {
-            layer, plate, border, label, labelWidth: 0,
+            layer, plate, slab, border, label, labelWidth: 0,
             item: {
                 id: layer.id,
                 plane: "base",
@@ -1249,7 +1439,8 @@ export class EerFigureSet implements IFigureSet {
                 resizable: true,
                 minWidth: MIN_LAYER_WIDTH,
                 minHeight: MIN_LAYER_HEIGHT,
-                elevation: () => { return this.#elevation(layer); },
+                // Its face: on top of its slab.
+                elevation: () => { return this.#layerTop(layer); },
                 elevatable: true,
                 // As high as a card's header, so the button is the size
                 // of a card's, centred on the name's line.
@@ -1268,13 +1459,28 @@ export class EerFigureSet implements IFigureSet {
     /** Puts a layer's plate, border and name where the layer is. */
     #placeLayer(node: ILayerNode): void {
         const { layer } = node;
-        const size = `${layer.width}x${layer.height}`;
+        const theme = this.#host?.theme;
+        let tint = DEFAULT_LAYER_COLOR;
+        if (theme !== undefined) {
+            const color = new THREE.Color(layer.color || DEFAULT_LAYER_COLOR);
+            // Solid, so that the grid lies under the layer rather than
+            // showing through it: the layer's tint over the paper, mixed the
+            // way the see-through plate it replaces was blended.
+            tint = tintOver(color, new THREE.Color(theme.paper),
+                theme.dark ? 0.35 : 0.6);
+            node.plate.material.color.copy(tint);
+            node.border.material.color.copy(color);
+        }
+        // The slab's colour is baked into it.
+        const size = `${layer.width}x${layer.height}:${tint.getHexString()}`;
         if (node.builtSize !== size) {
             node.builtSize = size;
             const shape = roundedRect(-layer.width / 2, -layer.height / 2,
                 layer.width, layer.height, LAYER_RADIUS);
             node.plate.geometry.dispose();
             node.plate.geometry = new THREE.ShapeGeometry(shape, 6);
+            node.slab.geometry.dispose();
+            node.slab.geometry = slabUnder(shape, LAYER_THICKNESS, tint);
             node.border.geometry.dispose();
             node.border.geometry = new THREE.BufferGeometry()
                 .setFromPoints(shape.getPoints(6));
@@ -1296,9 +1502,15 @@ export class EerFigureSet implements IFigureSet {
             node.labelWidth = label.width;
         }
         const center = planeCenter(layerRect(layer));
-        const z = this.#elevation(layer) * (this.#host?.lift() ?? 0);
+        const lift = this.#host?.lift() ?? 0;
+        // Its face on top of its slab, which grows with the lift.
+        const z = this.#layerTop(layer) * lift;
         node.plate.position.set(center.x, center.y,
             z + Z.plate + this.#stackHeight(layer));
+        // Just under the face, so the face wins the depth test.
+        node.slab.position.set(center.x, center.y,
+            z + Z.plate + this.#stackHeight(layer) - 0.01);
+        node.slab.scale.z = liftScale(lift);
         node.border.position.set(center.x, center.y, z + Z.plateBorder);
         node.label.position.set(
             layer.left + LAYER_LABEL.left + node.labelWidth / 2,
@@ -1389,6 +1601,7 @@ export class EerFigureSet implements IFigureSet {
         setDrawOrder(slab, DRAW_ORDER.lifted);
         setDrawOrder(mesh, DRAW_ORDER.lifted + 0.5);
         this.#lifted.add(slab, mesh);
+        const upright = (): boolean => { return isUpright(kind, figure); };
         const side = new THREE.Mesh(new THREE.BufferGeometry(),
             new THREE.MeshBasicMaterial({ transparent: true }));
         setDrawOrder(side, DRAW_ORDER.lifted + 0.25);
@@ -1399,7 +1612,9 @@ export class EerFigureSet implements IFigureSet {
             new THREE.MeshBasicMaterial({
                 color: host.theme.shadow,
                 transparent: true,
-                opacity: 0.18,
+                // Built again on a change of theme (`setTheme`).
+                opacity: host.theme.dark
+                    ? SHADOW_OPACITY.dark : SHADOW_OPACITY.light,
                 depthWrite: false,
             }));
         setDrawOrder(shadow, DRAW_ORDER.shadows);
@@ -1423,22 +1638,49 @@ export class EerFigureSet implements IFigureSet {
                 id: figure.id,
                 plane: "lifted",
                 rect: () => { return this.#figureRect(node); },
+                // An upright card is as high as its content, and sized
+                // across only: its footprint is a slab deep.
                 resizable: true,
+                get widthOnly() { return upright(); },
                 minWidth: MIN_FIGURE_WIDTH,
                 minHeight: card ? CARD.headerHeight : 20,
-                elevation: () => { return this.#figureElevation(node); },
-                // Notes and pictures have no header, and no menu.
-                ...(card ? {
-                    menuBand: {
+                // An upright card's footprint is its top, where it is
+                // selected and moved.
+                elevation: () => { return this.#topElevation(node); },
+                // What 2D Front shows: an upright card's face, foot to
+                // top, sized up it as well; a lying one's slab side.
+                frontSpan: () => { return this.#frontSpan(node); },
+                get frontHeightResizable() { return upright(); },
+                // Notes and pictures have no header, and no menu. As high
+                // as a card's header, so every button is one size: an
+                // upright card's centred on its top, a slab deep. Getters
+                // of the item itself, read when drawn - a spread would
+                // read them once: the card may stand up or lie down, and
+                // its header's colour change.
+                get menuBand() {
+                    return card ? {
+                        top: upright()
+                            ? (CARD_THICKNESS - CARD.headerHeight) / 2 : 0,
+                        height: CARD.headerHeight,
+                        color: contrastingText(figureColor(figure)),
+                    } : undefined;
+                },
+                // An upright card's face has its header too, at its top.
+                get frontMenuBand() {
+                    return card && upright() ? {
                         top: 0,
                         height: CARD.headerHeight,
                         color: contrastingText(figureColor(figure)),
-                    },
-                } : {}),
+                    } : undefined;
+                },
             },
         };
         this.#figures.set(figure.id, node);
         this.#cardMeshes.push(mesh);
+        // Seen from above, only an upright card's top is there to be hit
+        // (`#figureHit` passes a lying card's side over).
+        side.userData = { figureId: figure.id };
+        this.#cardMeshes.push(side);
         if (kind === "picture") {
             this.#preparePicture(figure);
         }
@@ -1469,9 +1711,18 @@ export class EerFigureSet implements IFigureSet {
             return { ...size, contentHeight: size.height, items: [] };
         }
         const content = this.#contentOf(kind, figure);
+        const upright = isUpright(kind, figure);
+        // Standing or lying, as wide as it was sized, else its content.
         figure.width ??= cardWidth(content, this.#measure);
         const layout = layoutCard(content, figure);
         keepAutoHeight(figure, layout);
+        // What msm's layout keeps clear of the page: an upright card's
+        // footprint; a lying one's is the card.
+        if (upright) {
+            figure.depth = CARD_THICKNESS;
+        } else {
+            delete figure.depth;
+        }
 
         return layout;
     }
@@ -1514,6 +1765,11 @@ export class EerFigureSet implements IFigureSet {
                     catalog.sequence(sequenceOf(figure)), figure);
             }
 
+            case "rest": {
+                return restObjectCardContent(this.#restObjectOf(figure),
+                    figure);
+            }
+
             default: {
                 const table = tableOf(figure);
 
@@ -1524,9 +1780,39 @@ export class EerFigureSet implements IFigureSet {
         }
     }
 
+    /**
+     * @param figure A REST object figure.
+     *
+     * @returns The REST object of Section 180 it shows, if there is one.
+     */
+    #restObjectOf(figure: IModelFigure): IRestObjectDefinition | undefined {
+        return this.#options.restObjects?.find((definition) => {
+            return showsRestObject(figure, definition.servicePath,
+                definition.schemaPath, definition.requestPath);
+        });
+    }
+
+    /**
+     * Shows the REST objects of the project's MSM Section 180 as it is
+     * now: every REST object figure is laid out again.
+     *
+     * @param definitions The REST objects.
+     */
+    public replaceRestObjects(definitions: IRestObjectDefinition[]): void {
+        this.#options.restObjects = definitions;
+        for (const node of this.#figures.values()) {
+            if (node.kind === "rest") {
+                this.#relayout(node);
+            }
+        }
+        this.#host?.invalidate();
+    }
+
     /** Measures a text in a card's fonts, in diagram units. */
     readonly #measure: MeasureText = (text, font) => {
-        const family = this.#host?.theme.fontFamily ?? "sans-serif";
+        const family = font === "code"
+            ? this.#host?.theme.codeFontFamily ?? "monospace"
+            : this.#host?.theme.fontFamily ?? "sans-serif";
         const css = font === "title"
             ? `bold ${String(CARD.titleFontSize)}px ${family}`
             : `${font === "detail" ? "italic " : ""}`
@@ -1657,36 +1943,100 @@ export class EerFigureSet implements IFigureSet {
         }
     }
 
-    /** Puts a table's card, slab and shadow where its rectangle is. */
+    /**
+     * Puts a figure's card, slab and shadow where its rectangle is; an
+     * upright card on its footprint's front edge, as high as the lift lets
+     * it, so that 2D shows only its top.
+     */
     #placeFigure(node: IFigureNode): void {
         const rect = this.#figureRect(node);
         const center = planeCenter(rect);
+        const upright = isUpright(node.kind, node.figure);
 
-        // The shapes depend on the size alone; a move only moves them.
-        const size = `${rect.width}x${rect.height}`;
+        // The shapes depend on the card's size alone; a move only moves
+        // them.
+        const { width, height } = node.layout;
+        // The slab's colour is baked into it, and its standing up.
+        const size = `${width}x${height}:${figureColor(node.figure)}:`
+            + String(upright);
         if (node.builtSize !== size) {
             node.builtSize = size;
             node.mesh.geometry.dispose();
-            node.mesh.geometry = new THREE.PlaneGeometry(rect.width,
-                rect.height);
+            const face = new THREE.PlaneGeometry(width, height);
+            node.mesh.geometry = upright ? uprightGeometry(face, height) : face;
             node.slab.geometry.dispose();
-            node.slab.geometry = slabGeometry(rect.width, rect.height,
-                new THREE.Color(figureColor(node.figure)));
+            node.slab.geometry = slabGeometry(width, height,
+                new THREE.Color(figureColor(node.figure)), upright);
+            node.builtFront = undefined;
             node.side.geometry.dispose();
-            node.side.geometry = sideLabelGeometry(rect.width, rect.height);
+            node.side.geometry = sideLabelGeometry(width, height, upright);
             node.shadow.geometry.dispose();
-            node.shadow.geometry = shadowGeometry(rect.width, rect.height);
+            // Under what the figure covers of the page: an upright card's
+            // footprint.
+            node.shadow.geometry = upright
+                ? shadowGeometry(rect.width, rect.height, 0)
+                : shadowGeometry(width, height);
         }
+
+        this.#shadeSlab(node);
 
         const lift = this.#host?.lift() ?? 0;
         const z = this.#figureElevation(node) * lift;
-        node.mesh.position.set(center.x, center.y, z + Z.face);
-        // Just below the card, so the card's face wins the depth test.
-        node.slab.position.set(center.x, center.y, z + Z.slab);
-        // Flat in the 2D view, growing as the tables rise; never quite
-        // zero, which would leave the geometry degenerate.
-        node.slab.scale.z = Math.max(0.001, lift);
-        node.shadow.position.set(center.x + 1, center.y - 2, z + Z.shadow);
+        // Flat in the 2D view, growing as the tables rise.
+        const scale = liftScale(lift);
+        if (upright) {
+            const front = center.y - rect.height / 2;
+            // Just in front of the slab, so the card's face wins the
+            // depth test.
+            node.mesh.position.set(center.x, front - Z.face + Z.slab, z);
+            node.slab.position.set(center.x, front, z);
+            node.mesh.scale.z = scale;
+        } else {
+            node.mesh.scale.z = 1;
+            node.mesh.position.set(center.x, center.y, z + Z.face);
+            // Just below the card, so the card's face wins the depth test.
+            node.slab.position.set(center.x, center.y, z + Z.slab);
+        }
+        node.slab.scale.z = scale;
+        // At the figure's Z, not an upright card's foot a slab below it,
+        // which lies under the paper and would hide the shadow in 3D.
+        // On its layer's face, above the layer's slab.
+        const shadowZ = ((node.layer === undefined ? 0
+            : this.#layerTop(node.layer)) + ownElevation(node.figure)) * lift;
+        node.shadow.position.set(center.x + 1, center.y - 2,
+            shadowZ + Z.shadow);
+    }
+
+    /**
+     * Lifts a figure's slab's shading as the view turns to the front: in
+     * 2D Front its sides are its colour, unshaded, as its face is (the
+     * user's request: a lying card's side, all 2D Front shows of it, in
+     * the figure's colour); shaded as `slabGeometry` baked it in the
+     * other views, blended between as the view turns.
+     */
+    #shadeSlab(node: IFigureNode): void {
+        const front = this.#host?.front() ?? 0;
+        if (node.builtFront === front) {
+            return;
+        }
+        node.builtFront = front;
+        const geometry = node.slab.geometry;
+        const colors = geometry.getAttribute("color");
+        if (!(colors instanceof THREE.BufferAttribute)) {
+            return;
+        }
+        // The shading as baked and the colour unshaded, kept the first
+        // time it is lifted: every frame of a turn to the front lifts it.
+        const data = geometry.userData as { shaded?: Float32Array;
+            full?: number[]; };
+        data.shaded ??= Float32Array.from(colors.array as Float32Array);
+        data.full ??= new THREE.Color(figureColor(node.figure)).toArray();
+        const { shaded, full } = data;
+        for (let index = 0; index < shaded.length; index += 1) {
+            colors.array[index] = shaded[index]
+                + (full[index % 3] - shaded[index]) * front;
+        }
+        colors.needsUpdate = true;
     }
 
     /**
@@ -1860,7 +2210,9 @@ export class EerFigureSet implements IFigureSet {
                 resizable: false,
                 minWidth: 0,
                 minHeight: 0,
-                elevation: () => { return this.#lineElevation(start); },
+                elevation: () => {
+                    return this.#endElevation(node, "start");
+                },
                 // Marked selected by its colour and handle, drawn here.
                 outlined: false,
             },
@@ -1910,8 +2262,8 @@ export class EerFigureSet implements IFigureSet {
         if (route === undefined) {
             return [];
         }
-        const startElevation = this.#lineElevation(node.start);
-        const endElevation = this.#lineElevation(node.end);
+        const startElevation = this.#endElevation(node, "start");
+        const endElevation = this.#endElevation(node, "end");
         if (node.connection.drawSplit === true) {
             const [first, second] = splitStubs(route);
 
@@ -1994,8 +2346,8 @@ export class EerFigureSet implements IFigureSet {
 
     /** @returns The elevation the handle is at: halfway up the slope. */
     #handleElevation(node: IConnectionNode): number {
-        return (this.#lineElevation(node.start)
-            + this.#lineElevation(node.end)) / 2;
+        return (this.#endElevation(node, "start")
+            + this.#endElevation(node, "end")) / 2;
     }
 
     /**
@@ -2098,15 +2450,28 @@ export class EerFigureSet implements IFigureSet {
         const rect = this.#figureRect(table);
         const lift = host.lift();
         const z = this.#lineElevation(table) * lift + Z.connection;
+        const stand = this.#stand(table);
         const color = dockColor(table.figure);
         const shown: Array<THREE.Mesh<THREE.CircleGeometry,
             THREE.MeshBasicMaterial>> = [];
+        const show = (at: IPoint, side: Side, height: number): void => {
+            const dock = newDock(color);
+            placeDock(dock, at, side, height, lift);
+            this.#lifted.add(dock);
+            shown.push(dock);
+        };
         for (const [side, count] of counts) {
+            // An upright card's edges have their places up its height.
+            if (stand !== undefined && (side === "left" || side === "right")) {
+                for (const height of standingSlots(stand, count + 1,
+                    CARD.radius)) {
+                    show(pointOnSide(rect, side), side,
+                        height * lift + Z.connection);
+                }
+                continue;
+            }
             for (const at of sideSlots(rect, side, count + 1, CARD.radius)) {
-                const dock = newDock(color);
-                placeDock(dock, pointOnSide(rect, side, at), side, z, lift);
-                this.#lifted.add(dock);
-                shown.push(dock);
+                show(pointOnSide(rect, side, at), side, z);
             }
         }
         host.invalidate();
@@ -2114,9 +2479,13 @@ export class EerFigureSet implements IFigureSet {
         return shown;
     }
 
-    /** @returns The height a connection's end is at: its table's line. */
+    /**
+     * @returns The height a connection's end is at: its table's line, or
+     *          its place up an upright card's edge.
+     */
     #endElevation(node: IConnectionNode, which: "start" | "end"): number {
-        return this.#lineElevation(which === "start" ? node.start : node.end);
+        return this.#heights.get(node.connection.id)?.[which]
+            ?? this.#lineElevation(which === "start" ? node.start : node.end);
     }
 
     /**
@@ -2144,8 +2513,8 @@ export class EerFigureSet implements IFigureSet {
             this.#anchors.get(node.connection.id));
         node.route = route;
         const lift = this.#host?.lift() ?? 0;
-        const startZ = this.#lineElevation(node.start) * lift + Z.connection;
-        const endZ = this.#lineElevation(node.end) * lift + Z.connection;
+        const startZ = this.#endElevation(node, "start") * lift + Z.connection;
+        const endZ = this.#endElevation(node, "end") * lift + Z.connection;
         const path = node.connection.drawSplit === true
             ? splitStubs(route)
             : polylineSegments(route.points);
@@ -2164,17 +2533,28 @@ export class EerFigureSet implements IFigureSet {
 
                     return [{ ...from, z: a }, { ...to, z: b }];
                 });
-        const at = (z: number) => {
-            return ([from, to]: Segment): [IPoint & { z: number },
-                IPoint & { z: number }] => {
-                return [{ ...from, z }, { ...to, z }];
-            };
+        // Turned up as the view turns to the front, where lying flat
+        // they would be edge-on.
+        const angle = (this.#host?.front() ?? 0) * Math.PI / 2;
+        const ended = (
+            segments: Segment[],
+            point: IPoint,
+            side: Side,
+            z: number,
+        ): Array<[IPoint & { z: number }, IPoint & { z: number }]> => {
+            return turnedMarker(segments, point, side, angle).map((ends) => {
+                return [{ ...ends[0], z: z + ends[0].dz },
+                    { ...ends[1], z: z + ends[1].dz }];
+            });
         };
+        const first = route.points[0];
+        const last = route.points[route.points.length - 1];
         const markers = [
-            ...(node.many ? crowsFoot : oneMarker)(route.points[0],
-                route.startSide, node.mandatory).map(at(startZ)),
-            ...oneMarker(route.points[route.points.length - 1], route.endSide,
-                node.referencedMandatory).map(at(endZ)),
+            ...ended((node.many ? crowsFoot : oneMarker)(first,
+                route.startSide, node.mandatory), first, route.startSide,
+            startZ),
+            ...ended(oneMarker(last, route.endSide, node.referencedMandatory),
+                last, route.endSide, endZ),
         ];
         node.line.geometry.dispose();
         node.line.geometry = sloped(segments);
@@ -2198,13 +2578,15 @@ export class EerFigureSet implements IFigureSet {
     }
 
     /**
-     * @returns Where every line shown meets its tables, spread over the
-     *          sides they share.
+     * Works out where every line shown meets its tables, spread over the
+     * sides they share, and how high (up an upright card's edges):
+     * `#anchors` and `#heights`.
      */
-    #spread(): Map<string, IAnchors> {
-        return spreadAnchors(this.#connections.filter((node) => {
+    #spread(): void {
+        const shown = this.#connections.filter((node) => {
             return node.connection.visible !== false;
-        }).map((node) => {
+        });
+        const ends = shown.map((node) => {
             return {
                 id: node.connection.id,
                 startFigure: node.start.figure.id,
@@ -2213,12 +2595,20 @@ export class EerFigureSet implements IFigureSet {
                 end: this.#figureRect(node.end),
                 startDock: node.connection.startDock,
                 endDock: node.connection.endDock,
+                startLevel: this.#lineElevation(node.start),
+                endLevel: this.#lineElevation(node.end),
+                startStand: this.#stand(node.start),
+                endStand: this.#stand(node.end),
             };
-        }), CARD.radius);
+        });
+        const { anchors, heights } = standAnchors(ends,
+            spreadAnchors(ends, CARD.radius), CARD.radius);
+        this.#anchors = anchors;
+        this.#heights = heights;
     }
 
     #routeAll(): void {
-        this.#anchors = this.#spread();
+        this.#spread();
         for (const node of this.#connections) {
             this.#route(node);
         }
@@ -2233,13 +2623,18 @@ export class EerFigureSet implements IFigureSet {
      */
     #routeOf(tables: ReadonlySet<IFigureNode>): void {
         const before = this.#anchors;
-        this.#anchors = this.#spread();
+        const heightsBefore = this.#heights;
+        this.#spread();
         for (const node of this.#connections) {
             const id = node.connection.id;
             const was = before.get(id);
             const now = this.#anchors.get(id);
+            const wasHigh = heightsBefore.get(id);
+            const nowHigh = this.#heights.get(id);
             if (tables.has(node.start) || tables.has(node.end)
-                || was?.start !== now?.start || was?.end !== now?.end) {
+                || was?.start !== now?.start || was?.end !== now?.end
+                || wasHigh?.start !== nowHigh?.start
+                || wasHigh?.end !== nowHigh?.end) {
                 this.#route(node);
             }
         }
@@ -2363,8 +2758,17 @@ export class EerFigureSet implements IFigureSet {
                 if (point === undefined) {
                     return;
                 }
-                const dock = nearestDock(this.#figureRect(table), point,
-                    CARD.radius);
+                const rect = this.#figureRect(table);
+                const dock = nearestDock(rect, point, CARD.radius);
+                // Up an upright card's edge, its place is where the
+                // pointer is up the card, seen on the plane through it.
+                const stand = this.#stand(table);
+                const height = stand === undefined
+                    || (dock.side !== "left" && dock.side !== "right")
+                    ? undefined : this.#heightOn(probe, rect);
+                if (stand !== undefined && height !== undefined) {
+                    dock.at = atOfHeight(stand, height, CARD.radius);
+                }
                 if (which === "start") {
                     node.connection.startDock = dock;
                 } else {
@@ -2383,6 +2787,30 @@ export class EerFigureSet implements IFigureSet {
                 return "Move Relationship Line End";
             },
         };
+    }
+
+    /**
+     * @param probe The pointer.
+     * @param rect An upright card's footprint.
+     *
+     * @returns How high the pointer is on the upright plane through the
+     *          footprint's middle; nothing seen from above, where that
+     *          plane is edge-on.
+     */
+    #heightOn(probe: IProbe, rect: IRect): number | undefined {
+        const lift = this.#host?.lift() ?? 0;
+        if (lift < 0.05) {
+            return undefined;
+        }
+        // In the lifted group's own frame, not the world's (y up): there
+        // the page's y is -y, and z the height above the lifted plane.
+        this.#lifted.updateWorldMatrix(true, false);
+        HEIGHT_RAY.copy(probe.raycaster.ray).applyMatrix4(
+            HEIGHT_INVERSE.copy(this.#lifted.matrixWorld).invert());
+        HEIGHT_PLANE.constant = rect.top + rect.height / 2;
+        const hit = HEIGHT_RAY.intersectPlane(HEIGHT_PLANE, HEIGHT_HIT);
+
+        return hit === null ? undefined : hit.z / lift;
     }
 
     /**
@@ -2432,6 +2860,14 @@ export class EerFigureSet implements IFigureSet {
             }
         }
         const moving = new Set(layers.map((node) => { return node.layer.id; }));
+        // Raised on their own: the selected figures not carried by a
+        // selected layer, which rise with it.
+        const raised = new Set(tables.filter((node) => {
+            return node.figure.layer === undefined
+                || !moving.has(node.figure.layer);
+        }));
+        const layerHeights = new Map<ILayerNode, number>();
+        const figureHeights = new Map<IFigureNode, number>();
 
         return {
             moveBy: (dx, dy) => {
@@ -2459,6 +2895,29 @@ export class EerFigureSet implements IFigureSet {
                     }
                 }
                 this.#routeOf(placed);
+            },
+            // In 2D Front, up or down: a selected layer with what lies
+            // on it, a selected figure on its own. The drag's own heights,
+            // before the ranges cut them, so that moving back past a limit
+            // does not move an item before the pointer is back.
+            elevateBy: (dz) => {
+                for (const node of layers) {
+                    const wanted = (layerHeights.get(node)
+                        ?? this.#elevation(node.layer)) + dz;
+                    layerHeights.set(node, wanted);
+                    node.layer.elevation = inElevationRange(wanted);
+                    this.#placeLayer(node);
+                }
+                for (const node of carried) {
+                    if (raised.has(node)) {
+                        const wanted = (figureHeights.get(node)
+                            ?? ownElevation(node.figure)) + dz;
+                        figureHeights.set(node, wanted);
+                        node.figure.elevation = inElevationRange(wanted);
+                    }
+                    this.#placeFigure(node);
+                }
+                this.#routeOf(carried);
             },
             finish: () => {
                 for (const node of carried) {
@@ -2498,6 +2957,26 @@ export class EerFigureSet implements IFigureSet {
                 if (handle.fy !== 0.5) {
                     figure.manualSizing = true;
                     figure.height = rect.height;
+                }
+                this.#relayout(node);
+                this.#routeOf(new Set([node]));
+            },
+            // In 2D Front: across, and an upright card up its face, its
+            // foot or its top moving.
+            resizeFrontTo: (rect, handle) => {
+                const figure = node.figure;
+                figure.left = rect.left - (node.layer?.left ?? 0);
+                figure.width = rect.width;
+                if (isUpright(node.kind, figure)) {
+                    this.#standAt(node, rect.bottom);
+                    // The top or foot edge sizes the height by hand, the
+                    // top kept where the foot stops at its range's end.
+                    if (handle.fy !== 0.5) {
+                        figure.manualSizing = true;
+                        figure.height = Math.max(node.item.minHeight,
+                            rect.bottom + rect.height
+                            - this.#figureElevation(node));
+                    }
                 }
                 this.#relayout(node);
                 this.#routeOf(new Set([node]));
@@ -2580,8 +3059,7 @@ export class EerFigureSet implements IFigureSet {
         return {
             elevateBy: (dz) => {
                 wanted += dz;
-                node.layer.elevation = Math.min(MAX_LAYER_ELEVATION,
-                    Math.max(0, wanted));
+                node.layer.elevation = inElevationRange(wanted);
                 // The layer, and the tables filed under it, rise.
                 this.#placeLayer(node);
                 const filed = new Set(this.#filedUnder(node.layer));
@@ -2680,23 +3158,37 @@ export class EerFigureSet implements IFigureSet {
             caption: "Auto-Size Height",
             disabled: figure.manualSizing !== true,
         };
+        // Lying, a card reads from above (2D Top); standing, from the
+        // front (2D Front).
+        const stand: IMenuEntry = {
+            id: "toggleUpright",
+            caption: isUpright(node.kind, figure)
+                ? "Lay Flat" : "Stand Upright",
+        };
         if (node.kind === "routines") {
             return this.#options.editable === true
                 ? [{ id: "addRoutine", caption: "Add Routine" },
-                    { id: "separator1" }, autoSize]
-                : [autoSize];
+                    { id: "separator1" }, stand, autoSize]
+                : [stand, autoSize];
         }
         if (node.kind === "events") {
             return this.#options.editable === true
                 ? [{ id: "addEvent", caption: "Add Event" },
-                    { id: "separator1" }, autoSize]
-                : [autoSize];
+                    { id: "separator1" }, stand, autoSize]
+                : [stand, autoSize];
+        }
+        if (node.kind === "rest") {
+            return this.#options.onEditRestObject === undefined
+                ? [stand, autoSize]
+                : [{ id: "editRestObject", caption: "Edit REST Object..." },
+                    { id: "separator0" }, stand, autoSize];
         }
         if (node.kind === "view" || node.kind === "sequence") {
             return [
                 { id: "toggleExpanded",
                     caption: expanded ? "Collapse" : "Expand" },
                 { id: "separator1" },
+                stand,
                 autoSize,
             ];
         }
@@ -2735,6 +3227,7 @@ export class EerFigureSet implements IFigureSet {
                 disabled: !expanded,
             },
             { id: "separator2" },
+            stand,
             autoSize,
             ...rename,
         ];
@@ -2798,6 +3291,17 @@ export class EerFigureSet implements IFigureSet {
                 break;
             }
 
+            case "toggleUpright": {
+                // As Object Details does: its footprint changes, which may
+                // file it under another layer.
+                const upright = !isUpright(node.kind, node.figure);
+                host.change(`${upright ? "Stand" : "Lay"} ${name}`
+                    + (upright ? " Upright" : " Flat"), () => {
+                    this.#changeFigure(node, { upright });
+                });
+                break;
+            }
+
             case "addRoutine": {
                 this.#tools.addRoutine(node.figure.id);
                 break;
@@ -2810,6 +3314,16 @@ export class EerFigureSet implements IFigureSet {
 
             case "editTable": {
                 this.#options.onEditTable?.(tableOf(node.figure));
+                break;
+            }
+
+            case "editRestObject": {
+                const { restService, restSchema, restObject } = node.figure;
+                if (restService !== undefined && restSchema !== undefined
+                    && restObject !== undefined) {
+                    this.#options.onEditRestObject?.({ service: restService,
+                        schema: restSchema, object: restObject });
+                }
                 break;
             }
 
@@ -2863,21 +3377,15 @@ export class EerFigureSet implements IFigureSet {
 
     public doubleClick(id: string, probe: IProbe): void {
         const hit = this.#figureHit(probe);
-        if (hit !== undefined && hit.node.figure.id === id) {
-            const rect = this.#figureRect(hit.node);
-            // The plane's UV runs from its bottom left; the card's items
-            // are measured from its top left.
-            const item = cardItemAt(hit.node.layout, hit.uv.x * rect.width,
-                (1 - hit.uv.y) * rect.height);
-            if (item?.editable === true) {
-                this.#editCardItem(hit.node, item);
-            }
+        if (hit !== undefined && hit.node.figure.id === id
+            && hit.item?.editable === true) {
+            this.#editCardItem(hit.node, hit.item);
 
             return;
         }
         const layer = this.#layers.get(id);
         if (layer !== undefined) {
-            const point = probe.pointOn("base", this.#elevation(layer.layer));
+            const point = probe.pointOn("base", this.#layerTop(layer.layer));
             const band = {
                 ...layerRect(layer.layer),
                 height: LAYER_LABEL.top + LAYER_LABEL.height + 4,
@@ -2928,7 +3436,7 @@ export class EerFigureSet implements IFigureSet {
             bold: true,
             fontSize: LAYER_LABEL.fontSize,
             plane: "base",
-            elevation: () => { return this.#elevation(layer); },
+            elevation: () => { return this.#layerTop(layer); },
             area: () => {
                 if (this.#layers.get(layer.id) !== node) {
                     return undefined;
@@ -3212,7 +3720,7 @@ export class EerFigureSet implements IFigureSet {
      *
      * @returns Nothing.
      */
-    public placeObjects(refs: readonly ISchemaObjectRef[], point: IPoint): void {
+    public placeObjects(refs: readonly DiagramObjectRef[], point: IPoint): void {
         this.#tools.placeObjects(refs, point);
     }
 
@@ -3275,9 +3783,7 @@ export class EerFigureSet implements IFigureSet {
         if (node.kind !== "table") {
             return { figureId: node.figure.id };
         }
-        const rect = this.#figureRect(node);
-        const item = cardItemAt(node.layout, hit.uv.x * rect.width,
-            (1 - hit.uv.y) * rect.height);
+        const { item } = hit;
 
         return {
             figureId: node.figure.id,
@@ -3322,7 +3828,7 @@ export class EerFigureSet implements IFigureSet {
             this.#figures.delete(id);
             this.#rasterQueue.delete(node);
             this.#cardMeshes = this.#cardMeshes.filter((mesh) => {
-                return mesh !== node.mesh;
+                return mesh !== node.mesh && mesh !== node.side;
             });
             this.#host?.select([]);
             this.#host?.invalidate();
@@ -3361,7 +3867,8 @@ export class EerFigureSet implements IFigureSet {
         }
         const node = this.#layers.get(id);
         if (node !== undefined) {
-            for (const object of [node.plate, node.border, node.label]) {
+            for (const object of [node.plate, node.slab, node.border,
+                node.label]) {
                 object.removeFromParent();
                 disposeGroup(object);
             }
@@ -3491,7 +3998,7 @@ export class EerFigureSet implements IFigureSet {
                     - (rect.height + 4), rect.width + 4, rect.height + 4,
                 CARD.radius + 2).getPoints(6)),
             new THREE.LineBasicMaterial({ color }));
-            outline.position.z = this.#figureElevation(node) * lift
+            outline.position.z = this.#topElevation(node) * lift
                 + Z.liftedDecoration;
             setDrawOrder(outline, DRAW_ORDER.decorations);
             this.#lifted.add(outline);

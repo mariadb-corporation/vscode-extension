@@ -15,6 +15,10 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+/* The icon font, for the None swatch; the colour swatches. */
+@import "@vscode/codicons/dist/codicon.css";
+@import "./swatches.css";
+
 /*
  * The Object Details view, in the sidebar's colours: compressed and read
  * only, a row a line, as the tree rows above it are.
@@ -279,4 +283,24 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+}
+
+/* A figure's or a layer's colour, under its place and size. */
+.itemColor {
+    margin-top: 8px;
+}
+
+.itemColor .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.itemColor .field-caption,
+.itemColor .field-hint {
+    color: var(--vscode-descriptionForeground);
+}
+
+.itemColor .field-hint {
+    font-size: 0.9em;
 }

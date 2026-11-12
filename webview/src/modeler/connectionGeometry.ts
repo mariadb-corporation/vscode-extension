@@ -159,6 +159,17 @@ export interface IConnectionEnds {
 }
 
 /**
+ * @param value A number.
+ * @param low The least it may be.
+ * @param high The most.
+ *
+ * @returns It, kept between the two.
+ */
+const clamp = (value: number, low: number, high: number): number => {
+    return Math.min(high, Math.max(low, value));
+};
+
+/**
  * @param side A side.
  *
  * @returns Whether it is the left or right one: a line leaves it across.
@@ -260,7 +271,7 @@ export const spreadAnchors = (
         const { from, length } = straightPart(rect, side, corner);
         const share = length <= 0 ? 0.5 : (along - from) / length;
 
-        return { order: Math.min(1, Math.max(0, share)), then: along };
+        return { order: clamp(share, 0, 1), then: along };
     };
     const anchors = new Map<string, IAnchors>();
     for (const connection of connections) {
@@ -298,6 +309,161 @@ export const spreadAnchors = (
     return anchors;
 };
 
+/** Where an upright card stands: its foot's height and how high it is. */
+export interface IStand {
+    foot: number;
+    height: number;
+}
+
+/** A connection's ends with how high they meet their figures. */
+export interface IConnectionLevels extends IConnectionEnds {
+    /** How high a line meets each figure off its standing card's edges. */
+    startLevel: number;
+    endLevel: number;
+    /** Where each figure's card stands, if it does. */
+    startStand?: IStand;
+    endStand?: IStand;
+}
+
+/** How high a connection's ends are. */
+export interface IEndHeights {
+    start: number;
+    end: number;
+}
+
+/**
+ * @param stand An upright card.
+ *
+ * @returns Its edge as a lying card's left side, for `sideSlots`: a rect
+ *          whose top is minus the card's top, its height running down.
+ */
+const standingEdge = (stand: IStand): IRect => {
+    return { left: 0, top: -(stand.foot + stand.height), width: 0,
+        height: stand.height };
+};
+
+/**
+ * Lifts the ends on an upright card's left and right edges off the page:
+ * standing, the card's height runs up, so they spread over it from its
+ * top to its foot, as a lying card's spread down its side, and meet the
+ * footprint (a slab deep) in the middle of its side. Ordered by the
+ * height of the figure at the other end (the highest at the top), so
+ * they do not cross seen from the front; an end placed by hand by its
+ * `at`, 0 at the top. Every other end is at its figure's level.
+ *
+ * @param connections The connections drawn, with how high they meet
+ *                    their figures and where those stand.
+ * @param anchors Their anchors, from `spreadAnchors`: the lifted ends are
+ *        set in it.
+ * @param corner The figures' corner radius: left out at each end.
+ *
+ * @returns The anchors, the lifted ends in their side's middle, and how
+ *          high every connection's ends are, by id.
+ */
+export const standAnchors = (
+    connections: readonly IConnectionLevels[],
+    anchors: Map<string, IAnchors>,
+    corner = 0,
+): { anchors: Map<string, IAnchors>; heights: Map<string, IEndHeights> } => {
+    interface IEnd {
+        id: string;
+        which: "start" | "end";
+        order: number;
+        then: number;
+    }
+    const heights = new Map<string, IEndHeights>();
+    const edges = new Map<string, { stand: IStand; ends: IEnd[] }>();
+    // Seen from an end, how high the figure at the other end is: a
+    // standing card's middle, else where its lines run.
+    const heightOf = (level: number, stand?: IStand): number => {
+        return stand === undefined ? level : stand.foot + stand.height / 2;
+    };
+    for (const connection of connections) {
+        const { id } = connection;
+        heights.set(id, { start: connection.startLevel,
+            end: connection.endLevel });
+        const anchor = anchors.get(id);
+        const sides = [{
+            which: "start" as const, side: anchor?.startSide,
+            rect: connection.start, figure: connection.startFigure,
+            stand: connection.startStand, dock: connection.startDock,
+            other: heightOf(connection.endLevel, connection.endStand),
+        }, {
+            which: "end" as const, side: anchor?.endSide,
+            rect: connection.end, figure: connection.endFigure,
+            stand: connection.endStand, dock: connection.endDock,
+            other: heightOf(connection.startLevel, connection.startStand),
+        }];
+        for (const { which, side, rect, figure, stand, dock, other } of sides) {
+            if (stand === undefined || side === undefined
+                || !isVertical(side)) {
+                continue;
+            }
+            anchors.set(id, { ...anchors.get(id),
+                [which]: rect.top + rect.height / 2 });
+            const top = stand.foot + stand.height;
+            const share = stand.height <= 0 ? 0.5 : (top - other) / stand.height;
+            const key = `${figure}\u0000${side}`;
+            let edge = edges.get(key);
+            if (edge === undefined) {
+                edge = { stand, ends: [] };
+                edges.set(key, edge);
+            }
+            edge.ends.push({ id, which, ...(dock !== undefined
+                ? { order: dock.at, then: dock.at }
+                : { order: clamp(share, 0, 1), then: -other }) });
+        }
+    }
+    for (const { stand, ends } of edges.values()) {
+        ends.sort((a, b) => {
+            return a.order - b.order || a.then - b.then
+                || a.id.localeCompare(b.id);
+        });
+        const slots = standingSlots(stand, ends.length, corner);
+        ends.forEach((end, index) => {
+            heights.get(end.id)![end.which] = slots[index];
+        });
+    }
+
+    return { anchors, heights };
+};
+
+/**
+ * @param stand An upright card.
+ * @param height A height on its edge.
+ * @param corner The corner radius, left out at its top and foot.
+ *
+ * @returns Where the height is along the edge's straight part, 0 at the
+ *          top to 1 at the foot: a dock's `at` there.
+ */
+export const atOfHeight = (
+    stand: IStand,
+    height: number,
+    corner = 0,
+): number => {
+    const { from, length } = straightPart(standingEdge(stand), "left",
+        corner);
+
+    return length <= 0 ? 0.5
+        : clamp((-height - from) / length, 0, 1);
+};
+
+/**
+ * @param stand An upright card.
+ * @param count How many lines meet its edge.
+ * @param corner The corner radius, left out at its top and foot.
+ *
+ * @returns The heights they meet it at, from the top down.
+ */
+export const standingSlots = (
+    stand: IStand,
+    count: number,
+    corner = 0,
+): number[] => {
+    return sideSlots(standingEdge(stand), "left", count, corner)
+        .map((slot) => { return -slot; });
+};
+
 /**
  * Where an end dragged to a point goes on its figure: the nearest side,
  * and where along its straight part, 0 to 1.
@@ -315,9 +481,6 @@ export const nearestDock = (
 ): IDock => {
     const right = rect.left + rect.width;
     const bottom = rect.top + rect.height;
-    const clamp = (value: number, low: number, high: number): number => {
-        return Math.min(high, Math.max(low, value));
-    };
     // Outside the figure, the side the point is furthest beyond (above
     // and a little right is the top); inside, the nearest edge.
     const beyondX = Math.max(rect.left - point.x, point.x - right);
@@ -600,6 +763,42 @@ export const oneMarker = (
     }
 
     return segments;
+};
+
+/**
+ * Turns an end marker about its line, so that what lies across the line
+ * stands up instead: lying flat on the page, a marker is edge-on in the
+ * front view (2D Front), which sees it once turned by 90 degrees.
+ *
+ * @param segments The marker, as `crowsFoot` or `oneMarker` drew it.
+ * @param at Where the line meets the figure.
+ * @param side The figure's side it meets.
+ * @param angle How far to turn it, in radians: 0 leaves it flat.
+ *
+ * @returns Its segments' ends, each with how high above the line it is.
+ */
+export const turnedMarker = (
+    segments: readonly Segment[],
+    at: IPoint,
+    side: Side,
+    angle: number,
+): Array<[IPoint & { dz: number }, IPoint & { dz: number }]> => {
+    const out = outward(side);
+    const across = { x: -out.y, y: out.x };
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const turn = (point: IPoint): IPoint & { dz: number } => {
+        // How far across the line, which goes up as much as it is turned.
+        const off = (point.x - at.x) * across.x + (point.y - at.y) * across.y;
+
+        return {
+            x: point.x - across.x * off * (1 - cos),
+            y: point.y - across.y * off * (1 - cos),
+            dz: off * sin,
+        };
+    };
+
+    return segments.map(([from, to]) => { return [turn(from), turn(to)]; });
 };
 
 /** How far a split connection's stubs reach out of their figures. */

@@ -42,10 +42,12 @@ const isView = (value: unknown): value is IDiagramView => {
     const view = value as Partial<IDiagramView> | null;
 
     return typeof view === "object" && view !== null
-        && [view.zoom, view.x, view.y, view.tilt, view.turn].every((number) => {
+        && [view.zoom, view.x, view.y, view.tilt, view.turn,
+            view.height ?? 0].every((number) => {
             return typeof number === "number" && Number.isFinite(number);
         })
-        && (view.mode === "2d" || view.mode === "iso")
+        && (view.mode === "2d" || view.mode === "iso"
+            || view.mode === "front")
         && typeof view.isoPreset === "string";
 };
 

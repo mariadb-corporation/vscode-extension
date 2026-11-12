@@ -40,6 +40,7 @@ import {
     layoutTableCard,
     MAX_AUTO_WIDTH,
     MIN_AUTO_WIDTH,
+    restObjectCardContent,
     routineCardContent,
     sequenceCardContent,
     tableCardContent,
@@ -386,5 +387,45 @@ describe("catalogFromModel", () => {
         expect(shown.sourceHash).toBe("sha256:new");
         expect(shown.tables.map((entry) => { return entry.name; }))
             .toEqual(["client"]);
+    });
+});
+
+describe("a REST object's card", () => {
+    const figure = { id: "r", type: "RestObjectFigure", name: "/actor",
+        restService: "/svc", restSchema: "/sakila", restObject: "/actor",
+        left: 0, top: 0 };
+
+    it("shows its fields as Section 180 writes them, in code", () => {
+        const content = restObjectCardContent({ servicePath: "/svc",
+            schemaPath: "/sakila", requestPath: "/actor", objectType: "VIEW",
+            dbSchema: "sakila", dbObject: "actor",
+            lines: ["{", "    actorId: actor_id", "}"] }, figure);
+
+        expect(content.title).toBe("/actor");
+        expect(content.icon).toBe("rest");
+        expect(content.sections).toEqual([{ heading: "VIEW sakila.actor",
+            lines: ["{", "    actorId: actor_id", "}"].map((text) => {
+                return { kind: "field", text, editable: false };
+            }) }]);
+        // Measured in the code font.
+        const measured: string[] = [];
+        cardWidth(content, (text, font) => {
+            measured.push(font);
+
+            return text.length;
+        });
+        expect(measured).toEqual(["title", "code", "code", "code"]);
+    });
+
+    it("says where the statement leaves the fields to the server, or is gone",
+        () => {
+        expect(restObjectCardContent({ servicePath: "/svc",
+            schemaPath: "/sakila", requestPath: "/actor", objectType: "VIEW",
+            dbObject: "actor", lines: [] }, figure).sections[0]!.lines
+            .map((line) => { return line.text; }))
+            .toEqual(["{ every column of actor }"]);
+        expect(restObjectCardContent(undefined, figure).sections[0]!.lines
+            .map((line) => { return line.text; }))
+            .toEqual(["Not created in MSM Section 180"]);
     });
 });

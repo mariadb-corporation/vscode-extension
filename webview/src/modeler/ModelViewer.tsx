@@ -35,6 +35,7 @@ import routineIcon from "../assets/modeler/schemaRoutine.svg?raw";
 import triggerIcon from "../assets/modeler/schemaTrigger.svg?raw";
 import eventIcon from "../assets/modeler/schemaEvent.svg?raw";
 import sequenceIcon from "../assets/modeler/schemaSequence.svg?raw";
+import restObjectIcon from "../assets/modeler/restObject.svg?raw";
 
 import type { DiagramItem } from "../../../src/details/objectDetails.js";
 import type { IMsmSchemaEdit } from "../../../src/mcp/msmApi.js";
@@ -48,6 +49,7 @@ import {
     isPlaceOf,
     parseSchemaObjectUris,
     type IDiagramView,
+    type IRestObjectPaths,
     type ModelerHostMessage,
     type ModelerTarget,
     type SaveState,
@@ -107,7 +109,7 @@ import { svgImage, type CardIcons } from "./tableCard.js";
  */
 const loadIcons = async (color: string): Promise<CardIcons> => {
     const [table, primaryKey, notNull, nullable, index, foreignKey, view,
-        routine, trigger, event, sequence] = await Promise.all([
+        routine, trigger, event, sequence, rest] = await Promise.all([
         svgImage(tableIcon, color),
         svgImage(columnPrimaryKeyIcon, color),
         svgImage(columnNotNullIcon, color),
@@ -119,10 +121,11 @@ const loadIcons = async (color: string): Promise<CardIcons> => {
         svgImage(triggerIcon, color),
         svgImage(eventIcon, color),
         svgImage(sequenceIcon, color),
+        svgImage(restObjectIcon, color),
     ]);
 
     return { table, primaryKey, notNull, nullable, index, foreignKey, view,
-        routine, trigger, event, sequence };
+        routine, trigger, event, sequence, rest };
 };
 
 /** What the viewer keeps across a reload of the webview. */
@@ -444,8 +447,8 @@ export const ModelViewer = (): JSX.Element => {
         const point = canvasRef.current?.pageAt(x, y);
         if (ours.length === 0) {
             setHint(dropped.length === 0
-                ? "Only tables, views, routines, triggers, events and "
-                    + "sequences can be placed on a diagram."
+                ? "Only tables, views, routines, triggers, events, "
+                    + "sequences and REST objects can be placed on a diagram."
                 : "Only objects of this diagram's schema can be placed on it.");
 
             return;
@@ -655,9 +658,17 @@ export const ModelViewer = (): JSX.Element => {
                         diagrams: message.model.diagrams,
                         loadIcons,
                         editable: message.editable,
+                        restObjects: message.model.restObjects ?? [],
                         onEditTable: (table: string) => {
                             post({ type: "editTable", table });
                         },
+                        // A project's only: a live schema's diagrams have
+                        // no REST object figures.
+                        ...(message.target.kind === "project" ? {
+                            onEditRestObject: (object: IRestObjectPaths) => {
+                                post({ type: "editRestObject", ...object });
+                            },
+                        } : {}),
                         // The lines followed the foreign keys: saved, as an
                         // action would be.
                         onConnectionsSynced: saveChanged,
@@ -771,6 +782,11 @@ export const ModelViewer = (): JSX.Element => {
                         loadedRef.current?.set.placeObjects(message.objects,
                             point);
                     }
+                    break;
+                }
+
+                case "restObjects": {
+                    loadedRef.current?.set.replaceRestObjects(message.objects);
                     break;
                 }
 
@@ -1147,7 +1163,7 @@ export const ModelViewer = (): JSX.Element => {
             onDragOver={onDragOver} onDrop={onDrop}>
             {overlays.map((overlay) => {
                 return <MenuButton
-                    key={overlay.id}
+                    key={overlay.key}
                     overlay={overlay}
                     open={sameOwner(menu?.owner, { kind: "item", id: overlay.id })}
                     onOpen={(x, y) => { openItemMenu(overlay.id, x, y); }}

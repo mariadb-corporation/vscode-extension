@@ -2071,6 +2071,41 @@
         },
         {
           "command": "mariadb.addToDiagram",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestObject",
+          "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.mrs.editDbObject",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestObject",
+          "group": "0_msm@1"
+        },
+        {
+          "command": "mariadb.mrs.editService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestService",
+          "group": "0_msm@1"
+        },
+        {
+          "command": "mariadb.mrs.editSchema",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestSchema",
+          "group": "0_msm@1"
+        },
+        {
+          "command": "mariadb.mrs.deleteDbObject",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestObject",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.mrs.deleteService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestService",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.mrs.deleteSchema",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestSchema",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.addToDiagram",
           "when": "view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view|procedure|function|sequence|trigger|event)$/",
           "group": "0_diagram@0"
         },
@@ -2138,6 +2173,26 @@
           "command": "mariadb.msm.renameSchema",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
           "group": "1_edit@0"
+        },
+        {
+          "command": "mariadb.mrs.addService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestRoot",
+          "group": "inline@0"
+        },
+        {
+          "command": "mariadb.mrs.addService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestRoot",
+          "group": "0_msm@0"
+        },
+        {
+          "command": "mariadb.mrs.addSchema",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
+          "group": "2_rest@0"
+        },
+        {
+          "command": "mariadb.mrs.addDbObject",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObject\\.(table|view|procedure|function)$/",
+          "group": "2_rest@0"
         },
         {
           "command": "mariadb.msm.removeFromProjects",

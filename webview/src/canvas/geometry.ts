@@ -15,7 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { Euler, Quaternion } from "three";
+import { Euler, Quaternion, Vector3 } from "three";
 
 import type { IRect } from "../../../src/modeler/pageSettings.js";
 
@@ -41,6 +41,12 @@ export type Segment = [IPoint, IPoint];
 /** The camera looking straight down: the 2D view. */
 export const TOP_VIEW = new Quaternion().setFromEuler(
     new Euler(-Math.PI / 2, 0, 0));
+
+/**
+ * The camera looking level at the page from its bottom edge: what stands
+ * up shows in full, what lies flat only its front side.
+ */
+export const FRONT_VIEW = new Quaternion();
 
 /** The angles of the 3D view's camera. */
 export interface IIsoAngles {
@@ -129,6 +135,46 @@ export const viewQuaternion = (
 ): Quaternion => {
     return new Quaternion().slerpQuaternions(TOP_VIEW, iso,
         Math.min(1, Math.max(0, t)));
+};
+
+/**
+ * Where a screen corner's ray lands on the floor for the Navigator's view
+ * outline, kept within a depth of the view's centre: where the camera
+ * looks low, a far corner's ray meets the floor far off, and looking
+ * level (2D Front) never, so the outline would run off to infinity, and
+ * skew wildly as the view turns there. Measured along the ray from the
+ * plane through the centre facing the camera, the floor's hit is clamped
+ * to that depth either way and the ray's point there dropped onto the
+ * floor: level, the outline is a rectangle as wide as the screen and
+ * twice the depth deep; where the hit is near, the hit itself. It
+ * changes smoothly as the view turns.
+ *
+ * @param origin The ray's origin, in the world (y up, the floor at 0).
+ * @param direction Its direction, normalised.
+ * @param center What the camera looks at, on the floor.
+ * @param depth How far either way of the centre it reaches at most.
+ *
+ * @returns The page point: world x the page's x, world z its y.
+ */
+export const floorReach = (
+    origin: Vector3,
+    direction: Vector3,
+    center: Vector3,
+    depth: number,
+): IPoint => {
+    // The ray's point on the plane through the centre facing the camera:
+    // in numbers, as the Navigator asks for it on every render.
+    const toMid = (center.x - origin.x) * direction.x
+        + (center.y - origin.y) * direction.y
+        + (center.z - origin.z) * direction.z;
+    const midY = origin.y + direction.y * toMid;
+    const level = Math.abs(direction.y) < 1e-9;
+    const hit = level ? Math.sign(midY) * Infinity : -midY / direction.y;
+    const along = Number.isNaN(hit) ? 0
+        : Math.min(depth, Math.max(-depth, hit));
+
+    return { x: origin.x + direction.x * (toMid + along),
+        y: origin.z + direction.z * (toMid + along) };
 };
 
 /** The id of the 3D view the user orbits to with Cmd + drag. */

@@ -206,6 +206,12 @@ MSM Projects (`mariadb.msmProjects`).
   `context/siblings.md`), so the `--gui` server of this extension is the
   only one that reaches it; only that server offers the argument.
 
+## REST services of a project
+
+A project's MariaDB REST Service row, below its schema, and the REST
+commands on its schema and object rows, and its REST objects on its
+diagrams: see [mrs-msm.md](mrs-msm.md).
+
 ## New MSM Project from Schema, adding schema objects
 
 See [msm-schema-objects.md](msm-schema-objects.md).
@@ -239,7 +245,13 @@ first four with input boxes one after another; Deploy is new.
   each showing the call (`msmCall`, through `callArguments` as every
   other call: `msm.prepare_release(version=0.0.1, next_version=0.0.2)`)
   and, once done, what it came to; `ActionGroup.run` ends the whole as its
-  steps went. Reading a project is "Read MSM project <folder>" with three
+  steps went. A whole whose only step is worded as it is (`msmAction`,
+  one call) is that step's row alone (`#showAlone`, a statement row: the
+  call while it runs, then what the whole came to and what the call did):
+  its child only said the parent's message again (the user: "we should
+  remove those child nodes"). A failed one keeps its child, the error
+  with the call under "<doing> failed" (the user: "the errors still can
+  be a child node"). Reading a project is "Read MSM project <folder>" with three
   steps (information, released versions, deployment scripts). File work is filed under General Actions;
   a deploy under its connection, with `db.connect` as its first step.
 - **A deploy runs on a session of its own** (`MSM Deploy <n>`, numbered as

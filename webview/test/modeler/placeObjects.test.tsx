@@ -212,3 +212,50 @@ describe("schema objects in a drag", () => {
             .toBe(false);
     });
 });
+
+describe("REST objects on a diagram", () => {
+    it("gives a REST object an upright figure once, whatever its paths' case",
+        () => {
+        const ref = { type: "rest" as const, service: "mike@/myService",
+            schema: "/sakila", name: "/actor" };
+        const placed = placementOf([ref, { ...ref, name: "/ACTOR" }],
+            diagram(), objects(), { x: 10, y: 20 }, ids());
+
+        expect(placed.figures).toEqual([{ id: "1", type: "RestObjectFigure",
+            name: "/actor", restService: "mike@/myService",
+            restSchema: "/sakila", restObject: "/actor", left: 10, top: 20 }]);
+        expect(placed.connections).toEqual([]);
+        expect(placed.skipped).toEqual(["/ACTOR is shown already"]);
+        // Object Details has no schema object to show for it.
+        expect(objectsOfFigures({ ...diagram(), figures: placed.figures },
+            ["1"], objects())).toEqual([]);
+    });
+
+    it("carries a REST object's paths in a drag, each encoded whole", () => {
+        const project = { projectPath: "/work/p.msm.project" };
+        const ref = { type: "rest" as const, service: "mike,anna@/my svc",
+            schema: "/sakila", name: "/actor/list" };
+        const uri = schemaObjectUri(project, ref);
+
+        expect(uri).toBe("mariadb-schema-object:/rest/"
+            + "mike%2Canna%40%2Fmy%20svc/%2Fsakila/%2Factor%2Flist"
+            + "?project=%2Fwork%2Fp.msm.project");
+        expect(parseSchemaObjectUris(uri)).toEqual([{ place: project, ref }]);
+        // A REST URI without all three paths is not one.
+        expect(parseSchemaObjectUris("mariadb-schema-object:/rest/%2Fa/%2Fb"
+            + "?project=x")).toEqual([]);
+    });
+});
+
+describe("a REST object's paths", () => {
+    it("are the same whatever their case and the order of the developers",
+        () => {
+        const placed = placementOf([{ type: "rest", service: "mike,anna@/svc",
+            schema: "/s", name: "/o" }, { type: "rest",
+            service: "ANNA,mike@/SVC", schema: "/S", name: "/O" }], diagram(),
+        objects(), { x: 0, y: 0 }, ids());
+
+        expect(placed.figures).toHaveLength(1);
+        expect(placed.skipped).toEqual(["/O is shown already"]);
+    });
+});

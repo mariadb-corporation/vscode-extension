@@ -26,7 +26,8 @@ import {
 
 const FIGURE = {
     kind: "figure", id: "f1", x: 819.6, y: 478.3, z: 0, width: 527.3,
-    height: 399.3, autoHeight: true, editable: true,
+    height: 399.3, autoHeight: true, upright: false, color: "",
+    editable: true,
 } as const;
 
 describe("the diagram item's fields", () => {
@@ -81,7 +82,8 @@ describe("the diagram item's fields", () => {
         const change = vi.fn();
         render(<DiagramItemFields item={{ kind: "layer", id: "l1",
             name: "Sales", x: 0, y: 0, z: 40, width: 600, height: 400,
-            tables: ["customers", "orders"], editable: true }}
+            tables: ["customers", "orders"], color: "#F0F1FE",
+            editable: true }}
         change={change} />);
 
         expect(screen.getByText("customers")).toBeTruthy();
@@ -91,6 +93,53 @@ describe("the diagram item's fields", () => {
         fireEvent.keyDown(z, { key: "Enter" });
         expect(change).toHaveBeenCalledWith({ z: 80 });
     });
+
+    it("stands a figure upright, or lays it flat", () => {
+        const change = vi.fn();
+        const { rerender } = render(
+            <DiagramItemFields item={FIGURE} change={change} />);
+        fireEvent.click(screen.getByLabelText("Upright"));
+        expect(change).toHaveBeenCalledWith({ upright: true });
+
+        rerender(<DiagramItemFields item={{ ...FIGURE, upright: true }}
+            change={change} />);
+        expect(screen.getByLabelText("Upright")).toHaveProperty("checked", true);
+        fireEvent.click(screen.getByLabelText("Upright"));
+        expect(change).toHaveBeenLastCalledWith({ upright: false });
+    });
+
+    it("picks a figure's color from the palette, None for its kind's",
+        () => {
+            const change = vi.fn();
+            const { rerender } = render(
+                <DiagramItemFields item={FIGURE} change={change} />);
+            expect(screen.getByRole("radio", { name: "None" })
+                .getAttribute("aria-checked")).toBe("true");
+
+            fireEvent.click(screen.getByRole("radio", { name: "Purple" }));
+            expect(change).toHaveBeenCalledWith({ color: "#C9B8E8" });
+
+            // The palette's colour, whatever its case, is its swatch.
+            rerender(<DiagramItemFields item={{ ...FIGURE, color: "#c9b8e8" }}
+                change={change} />);
+            expect(screen.getByRole("radio", { name: "Purple" })
+                .getAttribute("aria-checked")).toBe("true");
+            fireEvent.click(screen.getByRole("radio", { name: "None" }));
+            expect(change).toHaveBeenLastCalledWith({ color: "" });
+
+            // One of its own, from Workbench: no swatch, and kept.
+            rerender(<DiagramItemFields item={{ ...FIGURE, color: "#123456" }}
+                change={change} />);
+            expect(screen.getAllByRole("radio").filter((radio) => {
+                return radio.getAttribute("aria-checked") === "true";
+            })).toEqual([]);
+            expect(screen.getByText(/#123456/u)).toBeTruthy();
+
+            rerender(<DiagramItemFields item={{ ...FIGURE, editable: false }}
+                change={change} />);
+            expect(screen.getByRole("radio", { name: "Red" }))
+                .toHaveProperty("disabled", true);
+        });
 
     it("changes a relationship's kind", () => {
         const change = vi.fn();

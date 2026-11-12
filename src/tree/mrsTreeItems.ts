@@ -17,7 +17,12 @@
 
 import * as vscode from "vscode";
 
-import { ENABLED_STATE } from "../mrs/mrsTypes.js";
+import {
+    ENABLED_STATE,
+    type IMrsObject,
+    type IMrsSchema,
+    type IMrsService,
+} from "../mrs/mrsTypes.js";
 import { mrsHasChildren, type MrsNode } from "./mrsModel.js";
 import type { IconResolver } from "./treeItems.js";
 
@@ -88,6 +93,80 @@ export const developersOf = (
     return service.in_development?.developers ?? service.developers ?? [];
 };
 
+/** How a REST service's, schema's or object's row looks, wherever it is. */
+export interface IMrsRowLook {
+    label: string;
+    description?: string;
+    /** The icon's file name. */
+    icon: string;
+    tooltip?: string;
+}
+
+/**
+ * @param service A REST service.
+ *
+ * @returns Its row's look: the context root, its state, its icon by being
+ *          the current one, in development, published or disabled.
+ */
+export const serviceLook = (service: IMrsService): IMrsRowLook => {
+    const developers = developersOf(service);
+    const enabled = service.enabled !== 0;
+    const variant = !enabled ? "Disabled"
+        : developers.length > 0 ? "InDevelopment"
+            : isTrue(service.published) ? "Published" : "";
+
+    return {
+        label: service.url_context_root,
+        description: enabled && developers.length > 0
+            ? `In Development [${developers.join(",")}]`
+            : !enabled ? "Disabled"
+                : isTrue(service.published) ? "Published" : "Unpublished",
+        icon: service.is_current === true
+            ? `mrsServiceDefault${variant}.svg` : `mrsService${variant}.svg`,
+        tooltip: [
+            service.full_service_path,
+            ...(service.comments ? [service.comments] : []),
+            ...(service.is_current === true
+                ? ["The current REST service"] : []),
+        ].join("\n"),
+    };
+};
+
+/**
+ * @param schema A REST schema.
+ *
+ * @returns Its row's look: its path and database schema, its icon by its
+ *          access.
+ */
+export const schemaLook = (schema: IMrsSchema): IMrsRowLook => {
+    return {
+        label: `${schema.request_path} (${schema.name})`,
+        icon: `${schema.schema_type === "SCRIPT_MODULE"
+            ? "mrsSchemaModule" : "mrsSchema"}${accessSuffix(
+            schema.enabled, schema.requires_auth)}.svg`,
+        ...(schema.comments ? { tooltip: schema.comments } : {}),
+    };
+};
+
+/**
+ * @param object A REST object.
+ *
+ * @returns Its row's look: its path and database object, its icon by its
+ *          type and access.
+ */
+export const objectLook = (object: IMrsObject): IMrsRowLook => {
+    const type = object.object_type.charAt(0)
+        + object.object_type.slice(1).toLowerCase();
+
+    return {
+        label: object.request_path,
+        description: object.name,
+        icon: `mrsDbObject${type}${accessSuffix(object.enabled,
+            object.requires_auth)}.svg`,
+        ...(object.comments ? { tooltip: object.comments } : {}),
+    };
+};
+
 /** A REST Service row. */
 export class MrsTreeItem extends vscode.TreeItem {
     public constructor(
@@ -138,54 +217,25 @@ export class MrsTreeItem extends vscode.TreeItem {
 
             case "mrsService": {
                 const service = node.service;
-                const developers = developersOf(service);
-                const enabled = service.enabled !== 0;
-                this.label = service.url_context_root;
-                this.description = enabled && developers.length > 0
-                    ? `In Development [${developers.join(",")}]`
-                    : !enabled ? "Disabled"
-                        : isTrue(service.published) ? "Published" : "Unpublished";
-                const variant = !enabled ? "Disabled"
-                    : developers.length > 0 ? "InDevelopment"
-                        : isTrue(service.published) ? "Published" : "";
-                icon = service.is_current === true
-                    ? `mrsServiceDefault${variant}.svg`
-                    : `mrsService${variant}.svg`;
+                icon = this.#show(serviceLook(service));
                 this.contextValue = `mariadbMrsService.${service.is_current === true
                     ? "current" : "notCurrent"}`;
-                this.tooltip = [
-                    service.full_service_path,
-                    ...(service.comments ? [service.comments] : []),
-                    ...(service.is_current === true
-                        ? ["The current REST service"] : []),
-                ].join("\n");
                 this.id = idOf("service", service.id);
                 break;
             }
 
             case "mrsSchema": {
-                const schema = node.schema;
-                this.label = `${schema.request_path} (${schema.name})`;
-                icon = `${schema.schema_type === "SCRIPT_MODULE"
-                    ? "mrsSchemaModule" : "mrsSchema"}${accessSuffix(
-                    schema.enabled, schema.requires_auth)}.svg`;
+                icon = this.#show(schemaLook(node.schema));
                 this.contextValue = "mariadbMrsSchema";
-                this.tooltip = schema.comments || undefined;
-                this.id = idOf("schema", schema.id);
+                this.id = idOf("schema", node.schema.id);
                 break;
             }
 
             case "mrsObject": {
                 const object = node.object;
-                const type = object.object_type.charAt(0)
-                    + object.object_type.slice(1).toLowerCase();
-                this.label = object.request_path;
-                this.description = object.name;
-                icon = `mrsDbObject${type}${accessSuffix(object.enabled,
-                    object.requires_auth)}.svg`;
+                icon = this.#show(objectLook(object));
                 this.contextValue =
                     `mariadbMrsObject.${object.object_type.toLowerCase()}`;
-                this.tooltip = object.comments || undefined;
                 this.id = idOf("object", object.id);
                 break;
             }
@@ -300,5 +350,18 @@ export class MrsTreeItem extends vscode.TreeItem {
         }
 
         this.iconPath = typeof icon === "string" ? resolveIcon(icon) : icon;
+    }
+
+    /**
+     * @param look How the row looks.
+     *
+     * @returns Its icon, once the rest is set.
+     */
+    #show(look: IMrsRowLook): string {
+        this.label = look.label;
+        this.description = look.description;
+        this.tooltip = look.tooltip;
+
+        return look.icon;
     }
 }

@@ -34,6 +34,7 @@ import type { ISchemaDefinition } from "../modeler/modelFormat.js";
 import { counted } from "../text.js";
 import {
     schemaObjectUri,
+    type DiagramObjectRef,
     type ISchemaObjectRef,
     type SchemaObjectPlace,
 } from "../modeler/modelerProtocol.js";
@@ -270,17 +271,16 @@ export const outlineObjects = (
 export const ADD_TO_DIAGRAM_COMMAND = "mariadb.addToDiagram";
 
 /**
- * @param rows Rows dragged, with where each one's schema is.
+ * @param objects What rows dragged show, with where each one's schema is.
  *
- * @returns The `text/uri-list` of the tables, views and routines among
- *          them, which a diagram places where they are dropped; nothing
- *          where there is none.
+ * @returns Their `text/uri-list`, which a diagram places where they are
+ *          dropped; nothing where there is none.
  */
 export const objectUriList = (
-    rows: ReadonlyArray<{ place: SchemaObjectPlace; row: IObjectRow }>,
+    objects: ReadonlyArray<{ place: SchemaObjectPlace; ref: DiagramObjectRef }>,
 ): string | undefined => {
-    const uris = rows.map(({ place, row }) => {
-        return schemaObjectUri(place, objectRefOf(row));
+    const uris = objects.map(({ place, ref }) => {
+        return schemaObjectUri(place, ref);
     });
 
     return uris.length === 0 ? undefined : uris.join("\r\n");

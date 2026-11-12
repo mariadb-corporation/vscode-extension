@@ -52,6 +52,17 @@ export interface IHandle {
     cursor: string;
 }
 
+/**
+ * What an item shows the 2D Front view: across the page, and up from its
+ * foot, in heights above its plane as `ICanvasItem.elevation` has them.
+ */
+export interface IFrontRect {
+    left: number;
+    width: number;
+    bottom: number;
+    height: number;
+}
+
 /** Something on the canvas that can be selected, moved and resized. */
 export interface ICanvasItem {
     readonly id: string;
@@ -59,6 +70,25 @@ export interface ICanvasItem {
     /** @returns Where the item is on the page, now. */
     rect(): IRect;
     readonly resizable: boolean;
+    /**
+     * For a resizable item sized across only: its left and right handles,
+     * none of the others (such as an upright card, whose footprint is a
+     * slab deep).
+     */
+    readonly widthOnly?: boolean;
+    /**
+     * What the item shows the 2D Front view, from its foot to its top, in
+     * heights above its plane. There it is outlined and has its handles
+     * on that face, and a drag moves it across and up or down. Left out,
+     * the front view outlines, sizes and moves it not.
+     */
+    frontSpan?(): { bottom: number; top: number };
+    /**
+     * Whether its height can be sized in the front view, by the handles
+     * at its top and foot (an upright card's); else it is sized across
+     * only there.
+     */
+    readonly frontHeightResizable?: boolean;
     readonly minWidth: number;
     readonly minHeight: number;
     /**
@@ -75,6 +105,13 @@ export interface ICanvasItem {
      * `color`. An item without one has no button (but a context menu).
      */
     readonly menuBand?: { top: number; height: number; color: string };
+    /**
+     * For an item standing upright on its rectangle, whose top is its
+     * elevation: a band of its front face, the one along the rectangle's
+     * bottom edge, with a second menu button at its right, `top` below the
+     * item's top. Shown in the 3D view only: 2D sees the face edge-on.
+     */
+    readonly frontMenuBand?: { top: number; height: number; color: string };
     /**
      * False for an item the canvas draws no selection outline and resize
      * handles for, such as a line: the set marks it selected itself (see
@@ -132,6 +169,14 @@ export interface IMoveSession {
      */
     moveBy(dx: number, dy: number): void;
     /**
+     * Raises the items by a height, since the last call, as the front
+     * view drags them up or down; negative lowers them. The set keeps
+     * them in their range.
+     *
+     * @param dz Up, in page units.
+     */
+    elevateBy?(dz: number): void;
+    /**
      * Ends the move.
      *
      * @returns What was done, for the history: "Move service".
@@ -148,6 +193,14 @@ export interface IResizeSession {
      * @param handle The handle dragged.
      */
     resizeTo(rect: IRect, handle: IHandle): void;
+    /**
+     * Sizes the item to what the canvas worked out from a handle dragged
+     * in the front view: across, and (`frontHeightResizable`) up.
+     *
+     * @param rect The item's new front: its left, width, foot and height.
+     * @param handle The handle dragged.
+     */
+    resizeFrontTo?(rect: IFrontRect, handle: IHandle): void;
     /**
      * Ends the resize.
      *
@@ -275,6 +328,11 @@ export interface ICanvasHost {
      *          3D one, between while the view turns.
      */
     lift(): number;
+    /**
+     * @returns How far the view has turned to the front one (2D Front), 0
+     *          to 1: 0 in 2D Top and the Isometric view.
+     */
+    front(): number;
     /** Asks for a frame. */
     invalidate(): void;
     /**
@@ -435,7 +493,10 @@ export interface IFigureSet {
 
 /** Where an item's menu button goes. */
 export interface ICanvasOverlay {
+    /** The item whose menu it opens. */
     id: string;
+    /** Tells an item's buttons apart: its top's, or its front face's. */
+    key: string;
     /** The button's side before the transform, in CSS pixels. */
     size: number;
     /** The CSS transform about its top left corner (see `IEditPlacement`). */
@@ -487,7 +548,7 @@ export const CANVAS_TOOLS = ["pointer", "hand", "zoom"] as const;
 export type Tool = typeof CANVAS_TOOLS[number] | (string & {});
 
 /** Which way the page is looked at. */
-export type ViewMode = "2d" | "iso";
+export type ViewMode = "2d" | "iso" | "front";
 
 /**
  * Where the view is: what a diagram is opened at again, all but the 3D

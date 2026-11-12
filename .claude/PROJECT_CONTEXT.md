@@ -44,7 +44,7 @@ extension grows.
 | `src/webview/` | The result view host, its message protocol and the edit-collection logic; a maximized result set's editor tab (`maximizedResult.ts`); grid values as files - saved / loaded (`valueFiles.ts`) and opened in editors (`valueDocuments.ts`); what every webview shares - the HTML, CSP and options (`html.ts`), the hold-until-`ready` queue (`readyQueue.ts`), the dialogs' common messages (`dialogProtocol.ts`), and `DialogPanel` (`dialogPanel.ts`), the base of every dialog's panel - the webview, the guarded post, dispose, and `runBusy`: the progress bar, closing once done, a failure in the dialog or as a notification once it was closed - with `pickFolder`. |
 | `webview/src/` | The Preact frontends: the result view, the connection editor, New Sandbox, the New Deployment wizard, the MariaDB Overview, the Dump and Load dialog, the MRS dialogs, the MSM dialogs and the schema model viewer. |
 | `webview/src/canvas/` | The three.js canvas: 2D / 3D views, paper and grid, selection, moves, undo, the Navigator - generic, showing a figure set (see [`context/modeler.md`](context/modeler.md), [`context/modeler-view.md`](context/modeler-view.md)). |
-| `webview/src/modeler/` | The EER diagram as a figure set of the canvas (table, view, routine group, note and image figures, layers, connections), and the model viewer. |
+| `webview/src/modeler/` | The EER diagram as a figure set of the canvas (table, view, routine group, REST object, note and image figures, layers, connections), and the model viewer. |
 | `src/test/` | The extension-side test suite, mirroring the source layout; `grammar/` tokenizes with VS Code's own TextMate engine (word coverage, token classes, corpus snapshots). |
 | `webview/test/` | The frontend test suite, run under jsdom. |
 | `ui-test/` | The ExTester UI tests: the runner and its suites (`core`, `mrs`, `dump-load`, `lsp`, `restd`, `msm`, each with a sandbox of its own, and `msm-diagrams` without one), the helpers and the DevTools-protocol drags (`lib/cdp.ts`), the test files (see [`context/testing-and-debugging.md`](context/testing-and-debugging.md)). |
@@ -69,8 +69,8 @@ change belongs to up to date, and this table with it.
 | [`context/sql-grammar.md`](context/sql-grammar.md) | The MariaDB SQL TextMate grammar: one language, ANSI_QUOTES as semantic tokens (and why not two languages), what a tokenizer can and cannot do and the policy for each, the generated word lists and the sync workflow, the three test layers. |
 | [`context/dump-and-load.md`](context/dump-and-load.md) | The Dump and Load submenu, its dialog, the background tasks (`util.*` tools) with their notification and the Tasks view, each task as a row of the Actions tab, and a log file per task. |
 | [`context/msm.md`](context/msm.md) | MariaDB Schema Management: the Explorer submenu on folders and `*.msm.project` folders, the MSM Projects view (the server's project list, folders, colors, MCP access, a project's files), the six dialogs (New MSM Project as a wizard, Edit MSM Project in tabs: copyrights and their years, a custom license, the online schema change defaults, all of msm.project.json through one `msm.set_project_settings`), Rename Schema (the flow, what follows a moved project folder), the `msm.*` tools (and why version lists are read from `structuredContent`), every operation as an action, the checks made before calling the plugin, the release-version and schema-name bugs older plugins have. |
-| [`context/msm-schema-objects.md`](context/msm-schema-objects.md) | New MSM Project from Schema (a live schema's objects into a project, as a task: listing, the wizard's Schema Objects page, the import) and the Add commands on a project's object group rows. |
-| [`context/object-details.md`](context/object-details.md) | A schema's rows shared by the Connections and MSM Projects views (a project's schema from its script's snapshot, Update Schema Snapshot), placing tables, views and routines on a diagram (Add to Diagram; a drag from a tree, placed where the pointer comes back, as Electron refuses drops into webviews), the Object Details view (selection, read only, compressed; the diagram item selected - a figure's or a layer's place and size, a relationship line's kind, offset and split - editable), why not VS Code's Outline. |
+| [`context/msm-schema-objects.md`](context/msm-schema-objects.md) | New MSM Project from Schema (a live schema's objects into a project, as a task: listing, the wizard's Schema Objects page, the import) and the Add commands on a project's object group rows (the template filled, sent to `msm.set_schema_statements`). |
+| [`context/object-details.md`](context/object-details.md) | A schema's rows shared by the Connections and MSM Projects views (a project's schema from its script's snapshot, Update Schema Snapshot), placing tables, views and routines on a diagram (Add to Diagram; a drag from a tree, placed where the pointer comes back, as Electron refuses drops into webviews), the Object Details view (selection, read only, compressed; the diagram item selected - a figure's or a layer's place, size and color, a figure's Upright, a relationship line's kind, offset and split - editable), why not VS Code's Outline. |
 | [`context/table-editor.md`](context/table-editor.md) | The table editor (DBX's layout): where it opens, its tabs and grids (Tabulator cells of controls), the draft and the edits Save works out, a live table changed by the migration `mariadb-lsp edit` answers with, a project's through msm, the Online Alter Table tab (msm's online ALTER TABLE), the grids' keys, what is left out. |
 | [`context/restd.md`](context/restd.md) | The MariaDB REST Daemon: New Sandbox's REST Service option and its steps, Set Up MariaDB REST Daemon, the REST Daemons view, the sub-rows and the log button. |
 | [`context/deployments.md`](context/deployments.md) | The MariaDB Deployments view in its own activity bar container (sandboxes in a folder, each with its REST Daemons) and the New Deployment wizard, which so far leads to New Sandbox. |
@@ -84,9 +84,11 @@ change belongs to up to date, and this table with it.
 | [`context/actions-grid.md`](context/actions-grid.md) | The actions grid: run rows and their statements, errors and popups, scrolling, the jump arrows, and what the server had to report for it. |
 | [`context/commands.md`](context/commands.md) | Every contributed command and where it appears. |
 | [`context/mrs.md`](context/mrs.md) | The MariaDB REST Service tree and dialogs: REST SQL FORMAT=JSON reads, the `rest.*` tools, several metadata schemas, the files, what was left out of the MySQL Shell's support, the opt-in end-to-end test, and every MRS action in the Actions tab. |
-| [`context/modeler.md`](context/modeler.md) | The schema model viewer (preview): the split between the generic canvas and figure sets, the 2D / 3D views and orbiting, tables and layers (moves, elevation), the Workbench figure design and toolbar, in-place editing of names, the A4 page model, life-size 100%, the msm formats and where a viewer reads and saves (live schema, MSM project), the auto-store and drafts, Auto Layout through msm, schema renames through `msm.edit_schema`, the catalog interface, why cards are canvas textures and what is still missing. |
+| [`context/mrs-msm.md`](context/mrs-msm.md) | REST in MSM projects: a project's REST service, schemas and objects made with the server's dialogs (`IRestSource`, live or project), read from mariadb-lsp's outline (`restOutline.ts`) and written or deleted by msm (`msm.set_rest_statements`, `msm.drop_rest_object`), what msm prunes at deploy (Sections 280 / 380), REST objects on a project's diagrams (drag, Add to Diagram, `RestObjectFigure` as agreed with msm), and the real-shell e2e test. |
+| [`context/modeler.md`](context/modeler.md) | The schema model viewer (preview): the split between the generic canvas and figure sets, the 2D / 3D views and orbiting, tables and layers (moves, elevation), the three projections (2D Top, Isometric, 2D Front), the Workbench figure design and toolbar, in-place editing of names, the A4 page model, life-size 100%, the msm formats and where a viewer reads and saves (live schema, MSM project), the auto-store and drafts, Auto Layout through msm, schema renames through `msm.edit_schema`, the catalog interface, and what is still missing (rendering: [`context/modeler-rendering.md`](context/modeler-rendering.md)). |
+| [`context/modeler-rendering.md`](context/modeler-rendering.md) | The diagram viewer's rendering: the grid, cards as Canvas2D textures, slabs and their side labels, the fixed draw order, connections as fat lines (dashed, markers, the middle-segment handle), layer plates, the paper and the printable area. |
 | [`context/modeler-view.md`](context/modeler-view.md) | The diagram viewer's view: the Navigator (overview, zoom slider, − / + steps, presets), each diagram opening as it was left (views kept in VS Code's workspace state, never in the diagram), the shortcuts. |
-| [`context/modeler-figures.md`](context/modeler-figures.md) | The diagram viewer's figure kinds: table, view and routine group cards, notes (Workbench fonts), images (data URLs, SVG sizing, pictures asked of msm), unknown types, connections between tables (matched to the foreign keys by definition, not name), sizing to content. |
+| [`context/modeler-figures.md`](context/modeler-figures.md) | The diagram viewer's figure kinds: table, view and routine group cards, REST object figures, any card standing upright or lying flat (`upright`, its footprint), figure and layer colors from Object Details, notes (Workbench fonts), images (data URLs, SVG sizing, pictures asked of msm), unknown types, connections between tables (matched to the foreign keys by definition, not name), sizing to content. |
 | [`context/modeler-tools.md`](context/modeler-tools.md) | The diagram viewer's tool palette: Workbench's EER tools and keys, placing tables with chained name / column / type editors, views, routine groups, notes, images, layers by area, the relationship tools and the existing-columns floater, the edits each sends and undoes, why a create's diagram is saved only after its edit, the `mariadb-lsp edit` ops agreed with lsp-server, driving headless Chrome over CDP. |
 | [`context/testing-and-debugging.md`](context/testing-and-debugging.md) | The interfaces everything external sits behind, the UI tests (ExTester), their suites, drags through the DevTools protocol and their traps, and the F5 launch and watch task. |
 
@@ -141,6 +143,39 @@ change belongs to up to date, and this table with it.
   ANSI_QUOTES identifiers are semantic tokens, so a theme with semantic
   highlighting off shows them as strings and they appear a moment after
   the grammar's colours. See [`context/sql-grammar.md`](context/sql-grammar.md).
+
+## SQL is parsed by mariadb-lsp, never here
+
+**The user's rule: no hand-written SQL parser in this extension, ever.**
+Whatever the extension needs to know from SQL text - a statement's
+parts, a REST object's data mapping, a table's columns, what a script
+creates - comes from lsp-server's `mariadb-lsp` (its outline,
+`mariadb-lsp outline FILE` / `mariadb/outline`, its `edit` and its other
+ops), whose grammar parses any valid notation. A tokenizer or parser of
+our own reads only the notation we expected, so a valid statement written
+otherwise comes back incomplete and a save writes that loss back.
+
+- **When the extension needs something mariadb-lsp does not report**, ask
+  the lsp-server session for it (the cross-repo routine: check its
+  `docs/outline-format.md` and `docs/edit-format.md` on `origin/main`,
+  propose the members and a feature name, wait for the confirmation, then
+  build against it). Until it is released, the feature is refused with a
+  message, never bridged by a parser here. Gate it on the feature
+  (`mariadb-lsp outline --features`).
+- **Building SQL is fine** (the REST SQL builders, `objectSql`, the DDL
+  the editors send): writing a statement is not parsing one.
+- **What predates the rule**, to move over rather than extend:
+  `restScript.ts` (`parseRestScript`, `entryOf`, `fieldLinesOf`: Section
+  180's REST statements, which the outline's `rest` member reports),
+  `statementSpans.ts` / `splitStatements.ts` / `statementAtOffset.ts`
+  (statement boundaries for running SQL), `statementTarget.ts` (whether a
+  SELECT's result is editable), `catalogChange.ts` (whether a statement
+  changes the catalog). A change to one of them is a cue to ask lsp-server
+  instead.
+- An example: Edit REST Object on a project's REST object reads the
+  object's details from mariadb-lsp's outline (`rest_object_details`,
+  requested of lsp-server; see [`context/mrs-msm.md`](context/mrs-msm.md)),
+  after a TypeScript parser written for it was deleted.
 
 ## Kept in sync with lsp-server
 

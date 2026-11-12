@@ -242,3 +242,73 @@ export const planeCenter = (rect: IRect): { x: number; y: number } => {
         y: -(rect.top + rect.height / 2),
     };
 };
+
+/**
+ * Where the light comes from that shades the slabs' sides, in the plane's
+ * coordinates (x right, y up the page, z towards the 2D camera): from the
+ * upper left, so the left sides are lit and the front ones, facing the 3D
+ * camera at the page's bottom, are in shade.
+ */
+const SLAB_LIGHT = new THREE.Vector3(-0.7, 0.3, 0.65).normalize();
+
+/**
+ * Bakes a slab's shading into its vertex colours: the canvas's materials
+ * are unlit, so each side is coloured by the way it faces (0.55 of the
+ * colour in shade to all of it), for a material with `vertexColors`.
+ *
+ * @param geometry The slab: a card's, a layer's, the paper's.
+ * @param color Its colour, fully lit.
+ *
+ * @returns It, coloured.
+ */
+export const shadeSlab = <T extends THREE.BufferGeometry>(
+    geometry: T,
+    color: THREE.Color,
+): T => {
+    geometry.computeVertexNormals();
+    const normals = geometry.getAttribute("normal");
+    const colors = new Float32Array(normals.count * 3);
+    const normal = new THREE.Vector3();
+    for (let index = 0; index < normals.count; index += 1) {
+        normal.fromBufferAttribute(normals, index);
+        const light = 0.55 + 0.45 * Math.max(0, normal.dot(SLAB_LIGHT));
+        colors[index * 3] = color.r * light;
+        colors[index * 3 + 1] = color.g * light;
+        colors[index * 3 + 2] = color.b * light;
+    }
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    return geometry;
+};
+
+/**
+ * @param lift How far the view has risen from 2D, 0 to 1.
+ *
+ * @returns The z scale of what is as deep as the lift: flat in 2D, but
+ *          never quite, which would leave its geometry degenerate.
+ */
+export const liftScale = (lift: number): number => {
+    return Math.max(0.001, lift);
+};
+
+/**
+ * A thin slab under a shape: the shape extruded downwards from z = 0, its
+ * sides shaded (`shadeSlab`). Scaled in z by the lift, it is flat in 2D.
+ *
+ * @param shape Its outline, on the plane.
+ * @param depth How thick it is.
+ * @param color Its colour, fully lit.
+ *
+ * @returns The geometry.
+ */
+export const slabUnder = (
+    shape: THREE.Shape,
+    depth: number,
+    color: THREE.Color,
+): THREE.BufferGeometry => {
+    const geometry = new THREE.ExtrudeGeometry(shape,
+        { depth, bevelEnabled: false, curveSegments: 6 });
+    geometry.translate(0, 0, -depth);
+
+    return shadeSlab(geometry, color);
+};

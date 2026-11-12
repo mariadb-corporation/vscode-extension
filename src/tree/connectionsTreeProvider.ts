@@ -60,6 +60,7 @@ import {
 import { isMrsNode, type MrsModel } from "./mrsModel.js";
 import {
     draggedObjects,
+    objectRefOf,
     objectUriList,
 } from "./schemaTree.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
@@ -488,7 +489,7 @@ export class ConnectionsTreeProvider
         const uris = objectUriList(source.flatMap((node) => {
             return node.kind === "object"
                 ? [{ place: { connection: node.uri, schema: node.schema },
-                    row: node }]
+                    ref: objectRefOf(node) }]
                 : [];
         }));
         // A webview gets nothing a tree sets: a diagram asks for them on

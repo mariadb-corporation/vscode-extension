@@ -706,6 +706,22 @@ describe("service dialog", () => {
         expect(hintOf("REST Service Path")).toContain("URL context root");
     });
 
+    it("has no Default flag for a service kept in a project's script, "
+        + "which has no session", async () => {
+        await load("service",
+            serviceDefaults(undefined, [], ["MariaDB", "MRS"]),
+            { allAuthApps: ["MariaDB", "MRS"], linkedAuthApps: [],
+                forScript: true }, "Add New REST Service");
+
+        expect(checkboxOf("Enabled").checked).toBe(true);
+        expect(checkboxOf("Published").checked).toBe(false);
+        expect(() => { checkboxOf("Default"); })
+            .toThrow("No checkbox 'Default'.");
+        // The built-in apps are offered, MRS ticked as on a server.
+        expect(checkboxOf("MariaDB").checked).toBe(false);
+        expect(checkboxOf("MRS").checked).toBe(true);
+    });
+
     it("refuses an empty path on OK", async () => {
         await load("service", {
             ...serviceDefaults(undefined, [], []), path: "",

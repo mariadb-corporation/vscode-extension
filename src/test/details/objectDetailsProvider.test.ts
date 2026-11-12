@@ -189,7 +189,7 @@ describe("the Object Details view", () => {
 describe("a diagram item in the Object Details view", () => {
     const FIGURE = {
         kind: "figure", id: "f1", x: 10, y: 20, z: 0, width: 200,
-        height: 120, autoHeight: true, editable: true,
+        height: 120, autoHeight: true, upright: false, color: "", editable: true,
     } as const;
     const LINE = {
         kind: "connection", id: "c1", source: "orders", target: "customers",

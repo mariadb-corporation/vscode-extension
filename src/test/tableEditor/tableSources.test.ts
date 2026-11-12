@@ -143,6 +143,33 @@ describe("LspEdit", () => {
             expect(older.requests).toHaveLength(1);
         });
 
+    it("reads the outline's features once, and a file's outline", async () => {
+        const requests: string[][] = [];
+        const lsp = new LspEdit(() => { return Promise.resolve("lsp"); },
+            (_binary, args) => {
+                requests.push(args);
+
+                return Promise.resolve(args.includes("--features")
+                    ? { code: 0, stderr: "", stdout: JSON.stringify({
+                        format: 1, features: ["rest_object_details", 7] }) }
+                    : { code: 0, stderr: "", stdout: "{\"rest\": {}}" });
+            });
+
+        expect(await lsp.outlineFeatures()).toEqual(["rest_object_details"]);
+        await lsp.outlineFeatures();
+        expect(await lsp.outline("/p/dev.sql")).toEqual({ rest: {} });
+        expect(requests).toEqual([["outline", "--features"],
+            ["outline", "/p/dev.sql"]]);
+
+        // A binary before the list exits 2: no features.
+        const older = new LspEdit(() => { return Promise.resolve("lsp"); },
+            () => {
+                return Promise.resolve({ code: 2, stderr: "usage",
+                    stdout: "" });
+            });
+        expect(await older.outlineFeatures()).toEqual([]);
+    });
+
     it("asks again where no binary was found yet", async () => {
         let binary: string | undefined;
         const lsp = new LspEdit(() => { return Promise.resolve(binary); },

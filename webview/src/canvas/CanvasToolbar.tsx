@@ -146,7 +146,8 @@ export const CanvasToolbar = (props: ICanvasToolbarProps): JSX.Element => {
             <button type="button"
                 className={"toolbarText" + (props.view === "2d" ? " toggled" : "")}
                 aria-pressed={props.view === "2d"}
-                onClick={() => { props.onView("2d"); }}>2D</button>
+                title="The page from above"
+                onClick={() => { props.onView("2d"); }}>2D Top</button>
             <SplitButton
                 caption="Isometric"
                 title={props.isoPresets.find((preset) => {
@@ -159,6 +160,13 @@ export const CanvasToolbar = (props: ICanvasToolbarProps): JSX.Element => {
                 selected={props.isoPreset}
                 onSelect={props.onIsoPreset}
             />
+            <button type="button"
+                className={"toolbarText" + (props.view === "front"
+                    ? " toggled" : "")}
+                aria-pressed={props.view === "front"}
+                title={"The page level from its front: REST objects in "
+                    + "full"}
+                onClick={() => { props.onView("front"); }}>2D Front</button>
         </ToolbarSection>
         {props.children}
         <HamburgerButton

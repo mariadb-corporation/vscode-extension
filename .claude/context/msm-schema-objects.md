@@ -66,25 +66,35 @@ hidden from the palette: they need the row).
 - **Add Table...** opens the table editor on a new table of the project
   (target `table: ""`, see table-editor.md).
 - **The other kinds** (`SchemaObjectCommands.add`): a name asked for
-  (`objectNameProblem`: not empty, 64 at most, not taken in the kind's
-  namespace - tables, views and sequences share one; a procedure and a
-  function may share a name), a trigger's table picked from the
-  snapshot's tables, then `msm.add_schema_object(kind, name, base_hash,
-  template?, table?)` through `ProjectModelSource.addObject`, in the
-  project's queue after the diagrams' changes (as `edit`), against the
-  snapshot's `source_hash`. msm fills the template, places the statement
-  where it keeps that kind (its section, or the section's breakout file)
-  as an `add_*` edit of `msm.edit_schema`, and answers with `file` and
-  `line`: the editor opens there for the body to be written, and the tree,
-  Object Details and diagrams follow (`snapshotUpdated`). A project with no
-  snapshot yet has msm make its first.
+  (`objectNameProblem`: not empty, 64 at most, no backtick, not taken in
+  the kind's namespace - tables, views and sequences share one; a
+  procedure and a function may share a name), a trigger's table picked
+  from the snapshot's tables. The extension fills the kind's template
+  (`fillTemplate`: Python string.Template's rules and msm's messages - `$$`,
+  `$name`, `${name}`, only the kind's placeholders, the trailing `;`
+  dropped; the SQL itself is not read) and sends the statement to
+  `msm.set_schema_statements(statements, base_hash, expect)` with
+  `expect: [{kind, name, table?}]`, through
+  `ProjectModelSource.setSchemaStatements`, in the project's queue after
+  the diagrams' changes (as `edit`), against the snapshot's `source_hash`.
+  msm refuses a statement that creates anything else before writing,
+  places it where it keeps that kind (its section, or the section's
+  breakout file), and answers with each statement's `file` and `line`:
+  the editor opens there for the body to be written, and the tree, Object
+  Details and diagrams follow (`snapshotUpdated`). A shell without the
+  tool is refused with an Update the MariaDB Shell message (`msmTool` in
+  extension.ts). A project with no snapshot yet has msm make its first.
+  The diagrams' own adds and drops stay `msm.edit_schema` ops: their undo
+  needs the ops' inverses.
+  `msmStatements.e2e.test.ts` (see [mrs-msm.md](mrs-msm.md)) runs it
+  against a real shell.
 - **Templates** are msm's (`msm.get_object_templates`: a plain CREATE per
   kind, string.Template placeholders `${name}`, a trigger's `${table}`,
   `${schema}`), unless the user changed one: `ObjectTemplates` keeps the
   user's as `<kind>.sql` in the extension's global storage
-  (`msm-object-templates/`), sent as `template`; a kind without a file
-  sends none and msm takes its own. **Edit Template...** on a group row
+  (`msm-object-templates/`), filled in place of msm's; a kind without a
+  file takes msm's. **Edit Template...** on a group row
   (every kind but tables) opens the kind's file, made from msm's template
   the first time; saving it is changing it; a notification names the
-  placeholders msm fills. **Reset Template to msm's Default** deletes the
+  placeholders filled in. **Reset Template to msm's Default** deletes the
   file.

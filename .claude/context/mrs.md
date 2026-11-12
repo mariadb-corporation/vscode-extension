@@ -45,6 +45,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `src/mrs/mrsApi.ts` | `MrsApi` (REST SQL calls) and `RestToolsApi` (`rest.*` tools) |
 | `src/mrs/mrsDialogPanel.ts`, `mrsDialogProtocol.ts` | One panel class for every dialog (one per kind), the message protocol |
 | `src/mrs/mrsCommands.ts` | Every `mariadb.mrs.*` command; builds the dialog specs |
+| `src/mrs/restSource.ts` | `IRestSource`, where the service, schema and object dialogs read and save: `liveRestSource` (a server's metadata through `MrsApi`) or an MSM project (below) |
+| `src/mrs/restScript.ts` | REST SQL kept in a script: MSM Section 180 found in a development script (`sectionSpan`, `restSectionOf`), the services / schemas / objects its statements create (`parseRestScript`, each entry with its line; `serviceEntries` ... `objectEntries` and `serviceOf` ... `objectOf`, the FORMAT=JSON shapes). Saved statements are placed by msm (`msm.set_rest_statements`), not here. `vscode`-free |
+| `src/msm/developmentScript.ts` | A project's development script from `msm.project.json`, and its Section 180 (`restDefinitionOf`), read from disk |
+| `src/msm/projectRestSource.ts` | An MSM project as an `IRestSource`: its services and schemas from Section 180, its database objects and their `SHOW REST COLUMNS` from msm's snapshot (`snapshotDbObjects`, `snapshotColumns`: foreign keys both ways as references), the built-in auth apps |
 | `src/tree/mrsModel.ts`, `mrsTreeItems.ts` | The tree nodes, their children, their rows |
 | `webview/src/mrs.tsx`, `webview/src/mrs/` | The dialogs' frontend: `MrsDialog` (frame, message loop), `dialogs.tsx` (the 8 dialogs), `fields.tsx`, `DataMappingEditor.tsx`; `vite.mrs.config.ts` builds `dist/webview/mrs.{js,css}` |
 | `images/{light,dark}/mrs*.svg`, `restDaemon*.svg`, `docs.svg` | The old extension's icons; `router*` renamed `restDaemon*`, `ociProfile` -> `mrsUser` |
@@ -177,6 +181,11 @@ The new-schema dialog (the user's request):
 - **Testing in jsdom:** Tabulator draws only the rows that fit, and jsdom
   lays nothing out. The "drawn" tests in `MrsDialog.test.tsx` give every
   element a size so that rows exist to click.
+
+## REST in MSM projects
+
+A project's REST service, schemas and objects, written to MSM Section 180,
+and REST objects on its diagrams: see [mrs-msm.md](mrs-msm.md).
 
 ## Deploy OpenAPI Web UI
 

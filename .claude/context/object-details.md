@@ -37,7 +37,7 @@ viewer is [`modeler.md`](modeler.md), its palette
 | `src/details/objectDetails.ts` | Pure: what the view shows (`IObjectDetailsView`), its messages, a project's object from the snapshot, a live one from `db.get_object_details` |
 | `src/details/objectDetailsProvider.ts` | One provider for both views (`mariadb.msmObjectDetails`, `mariadb.objectDetails`): the selection and the reads |
 | `webview/src/details/ObjectDetails.tsx`, `details.tsx`, `detailsStyles.css`, `vite.details.config.ts` | The page, its own build (`dist/webview/details.{js,css}`): the object read only, a row a line |
-| `webview/src/details/DiagramItemFields.tsx` | The diagram item selected: a figure's or a layer's place and size, a layer's tables, a line's tables, kind, offset and split |
+| `webview/src/details/DiagramItemFields.tsx` | The diagram item selected: a figure's or a layer's place and size, a figure's Upright, a figure's or a layer's color, a layer's tables, a line's tables, kind, offset and split |
 
 ## How it behaves
 
@@ -91,7 +91,9 @@ viewer is [`modeler.md`](modeler.md), its palette
   a VS Code ever lets one through, still works (`treeDrop`). The trees
   list no `text/uri-list` drag type: with it VS Code marks the drag as
   one of resources and lays the editor area's drop overlay over the
-  webview. **Add to Diagram** (object rows of both trees) sends
+  webview. A project's REST object rows are dragged and added the same
+  way, as REST object figures (see [mrs-msm.md](mrs-msm.md)).
+  **Add to Diagram** (object rows of both trees) sends
   `placeObjects` to the schema's open viewer, in the middle of the view; for
   a project it opens one of its diagrams first if none is open, the
   objects waiting for the model (`ModelerPanel.place`). A live schema's
@@ -121,9 +123,15 @@ viewer is [`modeler.md`](modeler.md), its palette
   - a card figure: X / Y (on the page, its layer's position included),
     Z (its own `elevation` above its layer), W / H and Auto (height from
     content, `manualSizing` off), laid out as a design tool's transform
-    panel (X / W, Y / H, Z / Auto under H's input);
+    panel (X / W, Y / H, Z / Auto under H's input), and Upright (stands
+    on the page or lies on it; H is then how high it stands, see
+    [modeler-figures.md](modeler-figures.md));
   - a layer (no schema object): its tables (filed under it) and
     X / Y / Z / W / H, changed as a drag would, so its tables follow;
+  - below either, its Color: the editors' `ColorSwatches` over
+    `FIGURE_PALETTE`, stored in the diagram (None a figure's kind's
+    color, a new layer's for a layer); a REST object figure has no schema
+    object, so the view shows its fields alone;
   - a relationship line (no schema object): its source and target
     tables, kind, middle segment offset and Split.
   A field commits on Enter or blur; Escape puts it back. The viewer posts

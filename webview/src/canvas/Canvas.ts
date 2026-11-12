@@ -54,11 +54,14 @@ import {
     customPreset,
     easeInOut,
     fitZoom,
+    floorReach,
+    FRONT_VIEW,
     gridSpacing,
     isoPreset,
     isoQuaternion,
     liftFactor,
     MAX_TILT,
+    MIN_TILT,
     orbitAngles,
     overlapsRect,
     TOP_VIEW,
@@ -75,10 +78,12 @@ import {
     handleSquare,
     disposeGroup,
     DRAW_ORDER,
+    liftScale,
     planeCenter,
     rectSegments,
     segmentsGeometry,
     setDrawOrder,
+    slabUnder,
     Z,
 } from "./threeHelpers.js";
 import { UndoStack, type IHistoryEntry } from "./undoStack.js";
@@ -118,6 +123,12 @@ const GRID_SUB_OPACITY = 0.4;
 /** The zoom levels the view can be set to. */
 export const ZOOM_RANGE = { min: 0.05, max: 8 } as const;
 
+/**
+ * How far past the Navigator's overview the view outline's ends go in 2D
+ * Front, in its pixels: beyond its 1px stroke, so they are clipped.
+ */
+const NAVIGATOR_BEYOND = 4;
+
 /** The Navigator's margin around the paper, in its pixels. */
 const NAVIGATOR_PADDING = 6;
 
@@ -139,8 +150,68 @@ const MENU_BUTTON_REFERENCE_ZOOM = 2;
 /** How far a press moves before it is a drag rather than a click. */
 const DRAG_THRESHOLD_PX = 3;
 
+/**
+ * How thick the paper is, in page units: a thin slab under the sheets
+ * (the user's request: extruded "a tiny bit", as the layers are).
+ */
+const PAPER_THICKNESS = 3;
+
 /** How far the selection outline lies outside its item, in page units. */
 const OUTLINE_OFFSET = 1.5;
+
+/**
+ * How far in front of an item's face its outline and handles stand in the
+ * front view, in page units, so the face does not cover them.
+ */
+const FRONT_DECORATION_OUT = 0.5;
+
+/**
+ * @param item A resizable item.
+ * @param front Whether it is sized on the face the front view shows.
+ *
+ * @returns Whether it is sized across only there: on the page an item
+ *          `widthOnly`, in the front view one not `frontHeightResizable`.
+ */
+const acrossOnly = (item: ICanvasItem, front: boolean): boolean => {
+    return front ? item.frontHeightResizable !== true : item.widthOnly === true;
+};
+
+/**
+ * @param handle A resize handle.
+ * @param across Whether its item is sized across only (`acrossOnly`).
+ *
+ * @returns Whether it is left out: all but the left and right edges'
+ *          middles of an item sized across only.
+ */
+const handleHidden = (handle: IHandle, across: boolean): boolean => {
+    return across && (handle.fy !== 0.5 || handle.fx === 0.5);
+};
+
+/**
+ * @param rect Where the item was when the drag began, across.
+ * @param handle The handle dragged.
+ * @param dx How far it was dragged across.
+ * @param minWidth The item's least width.
+ *
+ * @returns Its left edge and width: the edge the handle does not hold
+ *          stays put.
+ */
+const resizedAcross = (
+    rect: { left: number; width: number },
+    handle: IHandle,
+    dx: number,
+    minWidth: number,
+): { left: number; width: number } => {
+    if (handle.fx === 0) {
+        const width = Math.max(minWidth, rect.width - dx);
+
+        return { left: rect.left + rect.width - width, width };
+    }
+
+    return handle.fx === 1
+        ? { left: rect.left, width: Math.max(minWidth, rect.width + dx) }
+        : { left: rect.left, width: rect.width };
+};
 
 /** The eight handles, clockwise from the top left corner. */
 const HANDLES: readonly IHandle[] = [
@@ -205,6 +276,8 @@ type PointerState =
         plane: ItemPlane;
         /** The grabbed item's elevation: the plane the drag moves along. */
         elevation: number;
+        /** In the front view: across and up, not over the page. */
+        front?: boolean;
         session?: IMoveSession;
         before: unknown;
     }
@@ -220,8 +293,11 @@ type PointerState =
         kind: "resize";
         handle: IHandle;
         item: ICanvasItem;
+        /** On the page, or in the front view across and up. */
         from: IPoint;
         rect: IRect;
+        /** In the front view, the item's foot and top when pressed. */
+        front?: { bottom: number; top: number };
         session: IResizeSession;
         before: unknown;
     };
@@ -247,6 +323,11 @@ export class Canvas {
 
     #theme: IDiagramTheme;
     #set?: IFigureSet;
+    /** The paper's slab, which grows with the lift. */
+    #paperSlab?: THREE.Mesh;
+    /** `#frontAt`'s plane and hit, kept: it runs on every pointer move. */
+    readonly #frontPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1));
+    readonly #frontHit = new THREE.Vector3();
     #pageSettings?: IPageSettings;
     #pages: IRect = { left: 0, top: 0, width: 1, height: 1 };
 
@@ -257,6 +338,11 @@ export class Canvas {
     #target = new THREE.Vector3();
     /** 0 in the 2D view, 1 in the 3D one, between while turning. */
     #viewT = 0;
+    /**
+     * Which 3D view `#viewT` turns to: 0 the 3D view's angles, 1 level
+     * from the page's front (the front view), between while turning.
+     */
+    #frontT = 0;
     #viewMode: ViewMode = "2d";
     /** The 3D view's angles, and its orientation (turned when they change). */
     #isoAngles: Pick<IIsoAngles, "tilt" | "turn"> = isoPreset(undefined);
@@ -380,6 +466,9 @@ export class Canvas {
             zoom: this.#zoom,
             x: this.#target.x,
             y: this.#target.z,
+            // Off the page where a pan in 2D Front left it; a turn to
+            // another view puts it back (#restTarget).
+            ...this.#target.y === 0 ? {} : { height: this.#target.y },
             mode: this.#viewMode,
             tilt: this.#isoAngles.tilt,
             turn: this.#isoAngles.turn,
@@ -515,8 +604,9 @@ export class Canvas {
             this.#viewMode = view.mode;
             this.#events.onViewMode?.(view.mode);
         }
-        this.#viewT = view.mode === "iso" ? 1 : 0;
-        this.#target.set(view.x, 0, view.y);
+        this.#viewT = view.mode === "2d" ? 0 : 1;
+        this.#frontT = view.mode === "front" ? 1 : 0;
+        this.#target.set(view.x, view.height ?? 0, view.y);
         this.#setZoom(view.zoom);
         this.#invalidate();
     }
@@ -560,15 +650,25 @@ export class Canvas {
         }
         this.#viewMode = mode;
         const from = this.#viewT;
-        const to = mode === "iso" ? 1 : 0;
+        const to = mode === "2d" ? 0 : 1;
+        // Turning to 2D keeps which 3D view it turns back from.
+        const frontFrom = this.#frontT;
+        const frontTo = mode === "2d" ? frontFrom : mode === "front" ? 1 : 0;
         const started = performance.now();
         if (this.#animation !== undefined) {
             cancelAnimationFrame(this.#animation);
         }
         const step = (now: number): void => {
             const progress = Math.min(1, (now - started) / VIEW_TRANSITION_MS);
-            this.#viewT = from + (to - from) * easeInOut(progress);
+            const eased = easeInOut(progress);
+            this.#viewT = from + (to - from) * eased;
+            this.#frontT = frontFrom + (frontTo - frontFrom) * eased;
             this.#applyView();
+            if (progress === 1) {
+                // Seen along the new line of sight: no move on the screen.
+                this.#restTarget();
+                this.#applyView();
+            }
             this.#render();
             this.#animation = progress < 1
                 ? requestAnimationFrame(step)
@@ -593,7 +693,8 @@ export class Canvas {
             cancelAnimationFrame(this.#isoAnimation);
             this.#isoAnimation = undefined;
         }
-        if (this.#viewT === 0 && this.#viewMode === "2d") {
+        // Not shown: the 2D and the front view do not look at them.
+        if (this.#viewMode !== "iso") {
             this.#isoView.copy(to);
 
             return;
@@ -759,7 +860,10 @@ export class Canvas {
             return;
         }
         this.#target.x += dx / map.scale;
-        this.#target.z += dy / map.scale;
+        // In 2D Front across only: the outline fills the overview's height.
+        if (!this.#isFront()) {
+            this.#target.z += dy / map.scale;
+        }
         this.#applyView();
         this.#invalidate();
     }
@@ -778,7 +882,9 @@ export class Canvas {
             return;
         }
         this.#target.x = map.centerX + (x - map.width / 2) / map.scale;
-        this.#target.z = map.centerY + (y - map.height / 2) / map.scale;
+        if (!this.#isFront()) {
+            this.#target.z = map.centerY + (y - map.height / 2) / map.scale;
+        }
         this.#applyView();
         this.#invalidate();
     }
@@ -851,17 +957,28 @@ export class Canvas {
             { x: viewport.width, y: viewport.height },
             { x: 0, y: viewport.height },
         ];
+        // Never further than a screen's height either way of the centre,
+        // in page units: looking level (2D Front) the floor is never
+        // met, and looking low only far off (`floorReach`).
+        const depth = viewport.height / this.#scale();
+        // In 2D Front the outline runs past the overview's top and bottom,
+        // which clips them (the user's request: its ends never seen, as
+        // the view sees no depth of the page); blended there as the view
+        // turns. The screen's top corners are the far ones.
+        const front = this.#viewT * this.#frontT;
+        const beyond = [-NAVIGATOR_BEYOND, -NAVIGATOR_BEYOND,
+            map.height + NAVIGATOR_BEYOND, map.height + NAVIGATOR_BEYOND];
         const view: IPoint[] = [];
-        for (const corner of corners) {
-            const point = this.#pageAt(corner, "base");
-            if (point === undefined) {
-                return;
-            }
+        corners.forEach((corner, index) => {
+            this.#aim(corner);
+            const point = floorReach(this.#raycaster.ray.origin,
+                this.#raycaster.ray.direction, this.#target, depth);
+            const y = map.height / 2 + (point.y - map.centerY) * map.scale;
             view.push({
                 x: map.width / 2 + (point.x - map.centerX) * map.scale,
-                y: map.height / 2 + (point.y - map.centerY) * map.scale,
+                y: y + (beyond[index] - y) * front,
             });
-        }
+        });
         const state: INavigatorState = {
             view,
             aspect: this.#pages.height / this.#pages.width,
@@ -910,6 +1027,7 @@ export class Canvas {
             scale: () => { return this.#scale(); },
             viewport: () => { return this.#viewport(); },
             lift: () => { return this.#lift(); },
+            front: () => { return this.#viewT * this.#frontT; },
             invalidate: () => { this.#invalidate(); },
             startEdit: (spec) => { this.#startEdit(spec); },
             select: (ids) => { this.#select(ids, false); },
@@ -1004,6 +1122,21 @@ export class Canvas {
         const center = planeCenter(bounds);
         paper.position.set(center.x, center.y, Z.paper);
         this.#pageGroup.add(paper);
+        // The sheets' thickness: a thin slab under them, growing with the
+        // lift (`#applyView`), so flat in 2D.
+        const halfWidth = bounds.width / 2;
+        const halfHeight = bounds.height / 2;
+        const sheet = new THREE.Shape().moveTo(-halfWidth, -halfHeight)
+            .lineTo(halfWidth, -halfHeight).lineTo(halfWidth, halfHeight)
+            .lineTo(-halfWidth, halfHeight).closePath();
+        const slab = new THREE.Mesh(slabUnder(sheet, PAPER_THICKNESS,
+            new THREE.Color(this.#theme.paper)),
+        new THREE.MeshBasicMaterial({ vertexColors: true }));
+        // Just under the paper, so the paper wins the depth test.
+        slab.position.set(center.x, center.y, Z.paper - 0.01);
+        slab.scale.z = liftScale(this.#lift());
+        this.#paperSlab = slab;
+        this.#pageGroup.add(slab);
 
         // The sheets' edges, and the margins dashed inside them. Where the
         // sheets overlap, their edges run through the diagram: those are
@@ -1166,7 +1299,15 @@ export class Canvas {
      * @returns 0..1.
      */
     #lift(): number {
-        return this.#viewT * liftFactor(this.#isoAngles.tilt);
+        return this.#viewT * liftFactor(this.#tilt());
+    }
+
+    /**
+     * @returns How far the 3D view looks down: the front view, level, not
+     *          at all.
+     */
+    #tilt(): number {
+        return this.#isoAngles.tilt * (1 - this.#frontT);
     }
 
     /**
@@ -1190,7 +1331,10 @@ export class Canvas {
     /** Puts the camera where the zoom, the target and the view say. */
     #applyView(): void {
         this.#events.onViewChanged?.();
-        const quaternion = viewQuaternion(this.#viewT, this.#isoView);
+        const quaternion = viewQuaternion(this.#viewT, this.#frontT === 0
+            ? this.#isoView
+            : new THREE.Quaternion().slerpQuaternions(this.#isoView,
+                FRONT_VIEW, this.#frontT));
         this.#camera.quaternion.copy(quaternion);
         this.#camera.position.copy(this.#target).add(
             new THREE.Vector3(0, 0, CAMERA_DISTANCE).applyQuaternion(quaternion));
@@ -1198,10 +1342,13 @@ export class Canvas {
         this.#camera.updateProjectionMatrix();
         this.#camera.updateMatrixWorld();
         this.#liftedGroup.position.z = this.#planeHeight("lifted");
-        // What the figure set draws depends on the lift and the canvas's
-        // size, not on the pan or the zoom: a pan pixel costs it nothing.
+        this.#paperSlab?.scale.setZ(liftScale(this.#lift()));
+        // What the figure set draws depends on the lift, the turn to the
+        // front and the canvas's size, not on the pan or the zoom: a pan
+        // pixel costs it nothing.
         const { width, height } = this.#viewport();
-        const view = `${String(this.#lift())}|${String(width)}x${String(height)}`;
+        const view = `${String(this.#lift())}|${String(this.#viewT
+            * this.#frontT)}|${String(width)}x${String(height)}`;
         if (view !== this.#lastView) {
             this.#lastView = view;
             this.#set?.viewChanged?.();
@@ -1228,9 +1375,9 @@ export class Canvas {
      * of the page.
      */
     #zoomAt(screen: IPoint, factor: number): void {
-        const before = this.#worldAt(screen, 0);
+        const before = this.#panAt(screen);
         this.#setZoom(this.#zoom * factor);
-        const after = this.#worldAt(screen, 0);
+        const after = this.#panAt(screen);
         if (before !== undefined && after !== undefined) {
             this.#target.add(before.sub(after));
             this.#applyView();
@@ -1246,12 +1393,50 @@ export class Canvas {
     #panByPixels(dx: number, dy: number): void {
         const { width, height } = this.#viewport();
         const center = { x: width / 2, y: height / 2 };
-        const from = this.#worldAt(center, 0);
-        const to = this.#worldAt({ x: center.x + dx, y: center.y + dy }, 0);
+        const from = this.#panAt(center);
+        const to = this.#panAt({ x: center.x + dx, y: center.y + dy });
         if (from !== undefined && to !== undefined) {
             this.#target.add(to.sub(from));
             this.#applyView();
             this.#invalidate();
+        }
+    }
+
+    /**
+     * What a pan or a zoom is measured on, under a point on the screen:
+     * the page's plane; in 2D Front, whose camera looks along the page
+     * (its plane edge-on, a ray meeting it nowhere or far off), the
+     * upright plane through the target facing the camera - a pan there
+     * moves the target up and down, too.
+     *
+     * @param screen The point.
+     *
+     * @returns The world point.
+     */
+    #panAt(screen: IPoint): THREE.Vector3 | undefined {
+        if (!this.#isFront()) {
+            return this.#worldAt(screen, 0);
+        }
+        this.#aim(screen);
+        const facing = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            this.#camera.getWorldDirection(new THREE.Vector3()), this.#target);
+
+        return this.#raycaster.ray.intersectPlane(facing, new THREE.Vector3())
+            ?? undefined;
+    }
+
+    /**
+     * Slides the target along the camera's line of sight back onto the
+     * page, where a pan in 2D Front left it above or below: the other
+     * views keep it there (`view` keeps a height only while it is off
+     * the page). The picture does not move, the camera being orthographic. Not where the
+     * camera still looks along the page.
+     */
+    #restTarget(): void {
+        const direction = this.#camera.getWorldDirection(new THREE.Vector3());
+        if (Math.abs(direction.y) > 1e-6) {
+            this.#target.addScaledVector(direction,
+                -this.#target.y / direction.y);
         }
     }
 
@@ -1297,6 +1482,40 @@ export class Canvas {
             this.#planeHeight(plane, elevation));
 
         return world === undefined ? undefined : { x: world.x, y: world.z };
+    }
+
+    /** @returns Whether the view is the 2D Front one, fully turned. */
+    #isFront(): boolean {
+        return this.#viewT === 1 && this.#frontT === 1;
+    }
+
+    /**
+     * Where a point on the screen is in the front view: across the page,
+     * and how high above a plane, as an item's `elevation` has it.
+     *
+     * @param screen The point.
+     * @param plane The plane the height is above.
+     *
+     * @returns x across, y the height; nothing where the view is not one
+     *          that looks along the page.
+     */
+    #frontAt(screen: IPoint, plane: ItemPlane): IPoint | undefined {
+        const lift = this.#lift();
+        if (lift <= 0) {
+            return undefined;
+        }
+        this.#aim(screen);
+        // Any upright plane across the page: the front view looks along
+        // the page's y, so every one gives the same x and height.
+        this.#frontPlane.constant = -this.#target.z;
+        const world = this.#raycaster.ray.intersectPlane(this.#frontPlane,
+            this.#frontHit);
+        if (world === null) {
+            return undefined;
+        }
+
+        return { x: world.x,
+            y: world.y / lift - (plane === "lifted" ? LIFT : 0) };
     }
 
     /** Where a world point lands on the screen. */
@@ -1487,15 +1706,35 @@ export class Canvas {
             }
             const rect = item.rect();
             const center = planeCenter(rect);
-            decoration.group.position.set(center.x, center.y,
-                this.#elevationOf(item) * this.#lift()
-                + (item.plane === "lifted" ? Z.liftedDecoration
-                    : Z.baseDecoration));
-            const size = `${rect.width}x${rect.height}`;
+            const lift = this.#lift();
+            // In the front view, stood up on the face it shows: its top
+            // is seen edge-on there.
+            const front = this.#isFront();
+            const span = front ? item.frontSpan?.() : undefined;
+            decoration.group.visible = !front || span !== undefined;
+            // Across, and down the page or up its face.
+            const height = span === undefined ? rect.height
+                : (span.top - span.bottom) * lift;
+            if (span === undefined) {
+                decoration.group.rotation.set(0, 0, 0);
+                decoration.group.position.set(center.x, center.y,
+                    this.#elevationOf(item) * lift
+                    + (item.plane === "lifted" ? Z.liftedDecoration
+                        : Z.baseDecoration));
+            } else {
+                // Turned up about x: its y runs up, facing the page's
+                // bottom, where the front view looks from; a hair in
+                // front of the face.
+                decoration.group.rotation.set(Math.PI / 2, 0, 0);
+                decoration.group.position.set(center.x,
+                    -(rect.top + rect.height) - FRONT_DECORATION_OUT,
+                    (span.bottom + span.top) / 2 * lift);
+            }
+            const size = `${rect.width}x${height}`;
             if (decoration.builtSize !== size) {
                 decoration.builtSize = size;
                 const halfWidth = rect.width / 2 + OUTLINE_OFFSET;
-                const halfHeight = rect.height / 2 + OUTLINE_OFFSET;
+                const halfHeight = height / 2 + OUTLINE_OFFSET;
                 decoration.outline.geometry.dispose();
                 decoration.outline.geometry = new THREE.BufferGeometry()
                     .setAttribute("position", new THREE.BufferAttribute(
@@ -1510,8 +1749,10 @@ export class Canvas {
             const handleSize = HANDLE_PX / scale;
             decoration.handles.children.forEach((handle, index) => {
                 const { fx, fy } = HANDLES[index];
+                handle.visible = !handleHidden(HANDLES[index],
+                    acrossOnly(item, span !== undefined));
                 handle.position.set((fx - 0.5) * rect.width,
-                    (0.5 - fy) * rect.height, 0);
+                    (0.5 - fy) * height, 0);
                 handle.scale.set(handleSize, handleSize, 1);
             });
         }
@@ -1568,18 +1809,42 @@ export class Canvas {
             .sort((a, b) => {
                 return a.plane === b.plane ? 0 : a.plane === "lifted" ? -1 : 1;
             });
+        const front = this.#isFront();
+        // In the front view the pointer is read across and up, once a
+        // plane: the same for every item on it.
+        const frontPoints = new Map<ItemPlane, IPoint | undefined>();
         for (const item of items) {
-            const point = this.#pageAt(screen, item.plane,
-                this.#elevationOf(item));
-            if (point === undefined) {
+            const span = front ? item.frontSpan?.() : undefined;
+            if (front && span === undefined) {
                 continue;
             }
             const rect = item.rect();
+            let at: IPoint | undefined;
+            // A handle's place down the item: down the page, or down the
+            // face from its top.
+            let down: (handle: IHandle) => number;
+            if (span === undefined) {
+                at = this.#pageAt(screen, item.plane, this.#elevationOf(item));
+                down = (handle) => { return rect.top + handle.fy * rect.height; };
+            } else {
+                if (!frontPoints.has(item.plane)) {
+                    frontPoints.set(item.plane,
+                        this.#frontAt(screen, item.plane));
+                }
+                at = frontPoints.get(item.plane);
+                down = (handle) => {
+                    return span.top - handle.fy * (span.top - span.bottom);
+                };
+            }
+            if (at === undefined) {
+                continue;
+            }
+            const across = acrossOnly(item, span !== undefined);
             for (const handle of HANDLES) {
-                const x = rect.left + handle.fx * rect.width;
-                const y = rect.top + handle.fy * rect.height;
-                if (Math.abs(point.x - x) <= reach
-                    && Math.abs(point.y - y) <= reach) {
+                if (!handleHidden(handle, across)
+                    && Math.abs(at.x - (rect.left + handle.fx * rect.width))
+                        <= reach
+                    && Math.abs(at.y - down(handle)) <= reach) {
                     return { item, handle };
                 }
             }
@@ -1602,7 +1867,6 @@ export class Canvas {
         if (set === undefined) {
             return [];
         }
-        const scale = this.#scale();
         const ids = new Set(this.#selected);
         if (this.#hover !== undefined && this.#pointer === undefined) {
             ids.add(this.#hover);
@@ -1610,55 +1874,103 @@ export class Canvas {
         const overlays: ICanvasOverlay[] = [];
         for (const id of ids) {
             const item = set.item(id);
-            const band = item?.menuBand;
-            if (item === undefined || band === undefined) {
+            if (item === undefined) {
                 continue;
             }
-            const rect = item.rect();
-            // Whole device pixels, so that the bars drawn in it line up.
-            const ratio = globalThis.devicePixelRatio || 1;
-            const size = Math.round(band.height * scale * MENU_BUTTON_SHARE
-                * ratio) / ratio;
-            if (size < MENU_BUTTON_MIN_PX || rect.width * scale < size * 3
-                || rect.height * scale < size) {
-                continue;
+            for (const overlay of [
+                // An item's top is edge-on in the front view.
+                this.#viewT === 1 && this.#frontT === 1 ? undefined
+                    : this.#menuOverlay(id, item, item.menuBand, false),
+                // The face is edge-on in 2D.
+                this.#viewT === 0 ? undefined
+                    : this.#menuOverlay(id, item, item.frontMenuBand, true),
+            ]) {
+                if (overlay !== undefined) {
+                    overlays.push(overlay);
+                }
             }
-            // The button's square on the page, its right edge at a fixed
-            // distance from the item's in page units: the same place on
-            // the item at every zoom.
-            const side = size / scale;
-            const inset = (HANDLE_PX / 2 + 4) / pixelsPerUnit(
-                MENU_BUTTON_REFERENCE_ZOOM, this.#unitsPerMm());
-            const right = rect.left + rect.width - inset;
-            const square = {
-                left: right - side,
-                top: rect.top + band.top + (band.height - side) / 2,
-                width: side,
-                height: side,
-            };
-            const corners = this.#screenCorners(square, item.plane,
-                this.#elevationOf(item));
-            // Never under the Navigator, whose overview area is clear.
-            if (this.#navigatorPanel !== undefined && overlapsRect(
-                boundsOf(corners), this.#navigatorPanel)) {
-                continue;
-            }
-            const [topLeft, topRight, , bottomLeft] = corners;
-            overlays.push({
-                id,
-                size,
-                // In the 2D view a plain move to whole pixels, so the
-                // bars stay crisp; laid onto the item in a 3D one.
-                transform: this.#viewT === 0
-                    ? `translate(${Math.round(topLeft.x * ratio) / ratio}px, `
-                        + `${Math.round(topLeft.y * ratio) / ratio}px)`
-                    : affineTransform(topLeft, topRight, bottomLeft, size,
-                        size),
-                color: band.color,
-            });
         }
 
         return overlays;
+    }
+
+    /**
+     * @param id The item.
+     * @param item What the set says of it.
+     * @param band The band its button sits in, if it has one there.
+     * @param front Whether the band is of its front face, standing on the
+     *              rectangle's bottom edge, rather than of its top.
+     *
+     * @returns The button, where it is large enough to be shown and clear
+     *          of the Navigator.
+     */
+    #menuOverlay(
+        id: string,
+        item: ICanvasItem,
+        band: ICanvasItem["menuBand"],
+        front: boolean,
+    ): ICanvasOverlay | undefined {
+        if (band === undefined) {
+            return undefined;
+        }
+        const scale = this.#scale();
+        const rect = item.rect();
+        // Whole device pixels, so that the bars drawn in it line up.
+        const ratio = globalThis.devicePixelRatio || 1;
+        const size = Math.round(band.height * scale * MENU_BUTTON_SHARE
+            * ratio) / ratio;
+        if (size < MENU_BUTTON_MIN_PX || rect.width * scale < size * 3
+            || (!front && rect.height * scale < size)) {
+            return undefined;
+        }
+        // The button's square, its right edge at a fixed distance from
+        // the item's in page units: the same place on the item at every
+        // zoom.
+        const side = size / scale;
+        const inset = (HANDLE_PX / 2 + 4) / pixelsPerUnit(
+            MENU_BUTTON_REFERENCE_ZOOM, this.#unitsPerMm());
+        const right = rect.left + rect.width - inset;
+        const left = right - side;
+        const elevation = this.#elevationOf(item);
+        let corners: IPoint[];
+        if (front) {
+            // Upright on the face: down from the item's top.
+            const y = rect.top + rect.height;
+            const top = elevation - band.top - (band.height - side) / 2;
+            corners = [
+                this.#screenOfPage(left, y, item.plane, top),
+                this.#screenOfPage(right, y, item.plane, top),
+                this.#screenOfPage(right, y, item.plane, top - side),
+                this.#screenOfPage(left, y, item.plane, top - side),
+            ];
+        } else {
+            corners = this.#screenCorners({
+                left,
+                top: rect.top + band.top + (band.height - side) / 2,
+                width: side,
+                height: side,
+            }, item.plane, elevation);
+        }
+        // Never under the Navigator, whose overview area is clear.
+        if (this.#navigatorPanel !== undefined && overlapsRect(
+            boundsOf(corners), this.#navigatorPanel)) {
+            return undefined;
+        }
+        const [topLeft, topRight, , bottomLeft] = corners;
+
+        return {
+            id,
+            key: front ? `${id}:front` : id,
+            size,
+            // In the 2D view a plain move to whole pixels, so the bars
+            // stay crisp; laid onto the item in a 3D one.
+            transform: this.#viewT === 0
+                ? `translate(${Math.round(topLeft!.x * ratio) / ratio}px, `
+                    + `${Math.round(topLeft!.y * ratio) / ratio}px)`
+                : affineTransform(topLeft!, topRight!, bottomLeft!, size,
+                    size),
+            color: band.color,
+        };
     }
 
     // --- Editing in place -------------------------------------------------
@@ -1830,8 +2142,12 @@ export class Canvas {
         const grip = this.#handleAt(screen);
         const set = this.#set;
         if (grip !== undefined && set !== undefined) {
-            const from = this.#pageAt(screen, grip.item.plane,
-                this.#elevationOf(grip.item));
+            const front = this.#isFront()
+                ? grip.item.frontSpan?.() : undefined;
+            const from = front === undefined
+                ? this.#pageAt(screen, grip.item.plane,
+                    this.#elevationOf(grip.item))
+                : this.#frontAt(screen, grip.item.plane);
             if (from !== undefined) {
                 const before = set.snapshot();
                 this.#pointer = {
@@ -1840,6 +2156,7 @@ export class Canvas {
                     item: grip.item,
                     from,
                     rect: grip.item.rect(),
+                    front,
                     session: set.beginResize(grip.item.id),
                     before,
                 };
@@ -1898,6 +2215,7 @@ export class Canvas {
                 start: screen,
                 plane: item.plane,
                 elevation: this.#elevationOf(item),
+                front: this.#isFront() && item.frontSpan !== undefined,
                 before: set.snapshot(),
             };
         }
@@ -1986,14 +2304,18 @@ export class Canvas {
                 return;
             }
             this.#stopTurning();
+            // From the front view, as level as an orbit goes.
             pointer.from = this.#viewMode === "2d"
                 ? { tilt: MAX_TILT, turn: 0 }
-                : { ...this.#isoAngles };
-            if (this.#viewMode === "2d") {
+                : this.#viewMode === "front"
+                    ? { tilt: MIN_TILT, turn: 0 }
+                    : { ...this.#isoAngles };
+            if (this.#viewMode !== "iso") {
                 this.#viewMode = "iso";
                 this.#events.onViewMode?.("iso");
             }
             this.#viewT = 1;
+            this.#frontT = 0;
             this.#updateCursor();
         }
         const angles = orbitAngles(pointer.from, dx, dy);
@@ -2015,6 +2337,19 @@ export class Canvas {
             }
             pointer.session = this.#set?.beginMove([...this.#selected]);
         }
+        if (pointer.front === true) {
+            // Across and up its face: the page's depth stays.
+            const from = this.#frontAt(pointer.last, pointer.plane);
+            const to = this.#frontAt(screen, pointer.plane);
+            if (from !== undefined && to !== undefined) {
+                pointer.session?.moveBy(to.x - from.x, 0);
+                pointer.session?.elevateBy?.(to.y - from.y);
+                this.#invalidate();
+            }
+            pointer.last = screen;
+
+            return;
+        }
         const from = this.#pageAt(pointer.last, pointer.plane,
             pointer.elevation);
         const to = this.#pageAt(screen, pointer.plane, pointer.elevation);
@@ -2035,7 +2370,7 @@ export class Canvas {
         screen: IPoint,
     ): void {
         const perUnit = this.#scale() * Math.max(0.2,
-            Math.cos(this.#isoAngles.tilt)) * Math.max(0.1, this.#lift());
+            Math.cos(this.#tilt())) * Math.max(0.1, this.#lift());
         pointer.session.elevateBy((pointer.last.y - screen.y) / perUnit);
         pointer.last = screen;
         this.#invalidate();
@@ -2049,6 +2384,11 @@ export class Canvas {
         pointer: Extract<PointerState, { kind: "resize" }>,
         screen: IPoint,
     ): void {
+        if (pointer.front !== undefined) {
+            this.#resizeFrontTo(pointer, pointer.front, screen);
+
+            return;
+        }
         const at = this.#pageAt(screen, pointer.item.plane,
             this.#elevationOf(pointer.item));
         if (at === undefined) {
@@ -2057,13 +2397,8 @@ export class Canvas {
         const dx = at.x - pointer.from.x;
         const dy = at.y - pointer.from.y;
         const { handle, rect, item } = pointer;
-        let { left, top, width, height } = rect;
-        if (handle.fx === 0) {
-            width = Math.max(item.minWidth, rect.width - dx);
-            left = rect.left + rect.width - width;
-        } else if (handle.fx === 1) {
-            width = Math.max(item.minWidth, rect.width + dx);
-        }
+        const { left, width } = resizedAcross(rect, handle, dx, item.minWidth);
+        let { top, height } = rect;
         if (handle.fy === 0) {
             height = Math.max(item.minHeight, rect.height - dy);
             top = rect.top + rect.height - height;
@@ -2071,6 +2406,37 @@ export class Canvas {
             height = Math.max(item.minHeight, rect.height + dy);
         }
         pointer.session.resizeTo({ left, top, width, height }, handle);
+        this.#invalidate();
+    }
+
+    /**
+     * Resizes an item to where a handle was dragged in the front view:
+     * across as on the page, and up its face where its height can be
+     * sized, its top or its foot moving and the other staying put.
+     */
+    #resizeFrontTo(
+        pointer: Extract<PointerState, { kind: "resize" }>,
+        span: { bottom: number; top: number },
+        screen: IPoint,
+    ): void {
+        const at = this.#frontAt(screen, pointer.item.plane);
+        if (at === undefined) {
+            return;
+        }
+        const dx = at.x - pointer.from.x;
+        const dz = at.y - pointer.from.y;
+        const { handle, rect, item } = pointer;
+        const { left, width } = resizedAcross(rect, handle, dx, item.minWidth);
+        let { bottom, top } = span;
+        if (item.frontHeightResizable === true) {
+            if (handle.fy === 0) {
+                top = Math.max(bottom + item.minHeight, span.top + dz);
+            } else if (handle.fy === 1) {
+                bottom = Math.min(top - item.minHeight, span.bottom + dz);
+            }
+        }
+        pointer.session.resizeFrontTo?.({ left, width, bottom,
+            height: top - bottom }, handle);
         this.#invalidate();
     }
 

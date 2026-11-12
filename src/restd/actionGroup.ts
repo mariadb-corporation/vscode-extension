@@ -183,9 +183,50 @@ export class ActionGroup {
         this.#show();
     }
 
+    /**
+     * Puts the whole up as one row: its only step's, which says what the
+     * whole does, running or done.
+     *
+     * @param step The step.
+     */
+    #showAlone(step: IStep): void {
+        const pending = this.#finished === undefined
+            || step.elapsedMs === undefined;
+        const information = step.detail ?? step.call;
+        // What the whole came to, where it says more than the step did.
+        const summary = this.#finished?.summary;
+
+        this.put(this.connection, {
+            connection: this.connection,
+            connectionLabel: "",
+            id: this.#id,
+            time: formatTime(this.#when),
+            role: "statement",
+            statement: summary === undefined || summary === ""
+                || summary === information
+                ? information : `${summary}\n${information}`,
+            message: pending ? `${this.words.doing}…` : this.words.done,
+            kind: pending ? "pending" : "info",
+            ...(pending
+                ? {} : { elapsedMs: Date.now() - this.#when.getTime() }),
+            ...(step.logPath === undefined ? {} : { logPath: step.logPath }),
+        });
+    }
+
     /** Puts the rows up as they are now. */
     #show(): void {
         const base = { connection: this.connection, connectionLabel: "" };
+        // One step called as the whole is: its row would only say again
+        // what the whole's does, so the whole is that step's row - unless
+        // it failed, its error then a row of its own under the whole.
+        const only = this.#steps.length === 1 ? this.#steps[0]! : undefined;
+        if (only !== undefined && only.words.doing === this.words.doing
+            && only.words.done === this.words.done
+            && only.error === undefined && this.#finished?.error === undefined) {
+            this.#showAlone(only);
+
+            return;
+        }
         const children = this.#steps.map((step): IActionRow => {
             const stepPending = step.elapsedMs === undefined;
 

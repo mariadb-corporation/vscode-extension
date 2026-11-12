@@ -32,6 +32,7 @@ import {
     SCHEMA_DEFINITION_FORMAT,
     type IDiagramDocument,
     type IDiagramRow,
+    type IRestObjectDefinition,
 } from "../../modeler/modelFormat.js";
 import type { SaveState } from "../../modeler/modelerProtocol.js";
 import {
@@ -111,7 +112,9 @@ interface IFake {
  */
 const calls = (fake: IFake): string[] => {
     return fake.actions.flatMap((row) => {
-        return (row.children ?? []).map((child) => { return child.statement; });
+        // A call alone is its action's row, without a child.
+        return row.role === "statement" ? [row.statement]
+            : (row.children ?? []).map((child) => { return child.statement; });
     });
 };
 
@@ -233,7 +236,8 @@ describe("ProjectModelSource", () => {
         fake = setUp();
     });
 
-    it("reads a project's diagrams through msm, as an action", async () => {
+    it("reads a project's diagrams through msm, without an action",
+        async () => {
         expect(fake.source.schemaTitle).toBe("shop");
         expect(fake.source.target("Main")).toEqual({ kind: "project",
             projectPath: PROJECT, diagram: "Main" });
@@ -243,8 +247,9 @@ describe("ProjectModelSource", () => {
         expect(model.sourceHash).toBe("sha256:one");
         expect(model.diagrams.map((entry) => { return entry.name; }))
             .toEqual(["Main"]);
-        expect(calls(fake)).toContainEqual(expect.stringContaining(
-            "msm.get_schema_diagrams(schema_project_path="));
+        expect(fake.calls).toContainEqual(["get", PROJECT]);
+        // Every viewer opened reads them: the Actions tab is no log of it.
+        expect(fake.actions).toEqual([]);
     });
 
     it("keeps a change at once, saves it once settled, then drops it",
@@ -279,6 +284,8 @@ describe("ProjectModelSource", () => {
 
         expect(fake.calls.filter((call) => { return call[0] === "set"; }))
             .toHaveLength(1);
+        // The auto-store saves after every change: no Actions row of it.
+        expect(fake.actions).toEqual([]);
     });
 
     it("keeps the draft where a save fails", async () => {
@@ -595,4 +602,48 @@ describe("DiagramDrafts", () => {
                 return draft.name;
             })).toEqual(["Other"]);
         });
+});
+
+describe("a project's REST objects", () => {
+    const sourceWith = (
+        restObjects: (projectPath: string) => Promise<IRestObjectDefinition[]>,
+        logs: string[],
+    ): ProjectModelSource => {
+        return new ProjectModelSource(PROJECT, {
+            msmApi: () => { return Promise.reject(new Error("not used")); },
+            put: () => { /* not looked at */ },
+            drafts: new DiagramDrafts(mkdtempSync(join(tmpdir(), "rest-"))),
+            keepDraft: () => { return Promise.resolve(false); },
+            restObjects,
+            log: (message) => { logs.push(message); },
+        }, 0);
+    };
+    const actor: IRestObjectDefinition = { servicePath: "/svc",
+        schemaPath: "/shop", requestPath: "/actor", objectType: "VIEW",
+        dbObject: "actor", lines: ["{", "    id: id", "}"] };
+
+    it("reads them from the project's Section 180", async () => {
+        const logs: string[] = [];
+        const asked: string[] = [];
+        const source = sourceWith((path) => {
+            asked.push(path);
+
+            return Promise.resolve([actor]);
+        }, logs);
+
+        expect(await source.restObjects()).toEqual([actor]);
+        expect(asked).toEqual([PROJECT]);
+        expect(logs).toEqual([]);
+    });
+
+    it("shows none where they cannot be read, and logs why", async () => {
+        const logs: string[] = [];
+        const source = sourceWith(() => {
+            return Promise.reject(new Error("no such file"));
+        }, logs);
+
+        expect(await source.restObjects()).toEqual([]);
+        expect(logs).toEqual([`Could not read the REST objects of ${PROJECT}: `
+            + "no such file"]);
+    });
 });

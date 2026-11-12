@@ -20,8 +20,10 @@ import { basename } from "node:path";
 
 import type {
     IMsmApi,
-    IMsmNewObject,
+    IMsmExpectedObject,
+    IMsmRestItem,
     IMsmSchemaEdit,
+    IMsmSchemaStatementsSet,
 } from "../mcp/msmApi.js";
 import {
     callArguments,
@@ -38,6 +40,7 @@ import {
     type IDiagramDocument,
     type IDiagramRow,
     type IModelDiagram,
+    type IRestObjectDefinition,
     type ISchemaModel,
     withoutPictures,
 } from "./modelFormat.js";
@@ -94,6 +97,8 @@ export interface IModelSource {
     layoutDiagram?(name: string): Promise<void>;
     /** Where the saves stand, for the viewer to show. */
     onSaveState?: (state: SaveState) => void;
+    /** The REST objects REST object figures show, as they are now. */
+    restObjects?(): Promise<IRestObjectDefinition[]>;
 }
 
 /**
@@ -236,6 +241,11 @@ export interface IProjectSourceHost {
     /** Where changes wait until msm has them. */
     drafts: DiagramDrafts;
     /**
+     * The REST objects the project's MSM Section 180 creates, which its
+     * REST object figures show.
+     */
+    restObjects?(projectPath: string): Promise<IRestObjectDefinition[]>;
+    /**
      * Asks whether to keep changes the viewer kept of a diagram the
      * project changed since.
      *
@@ -323,16 +333,18 @@ export class ProjectModelSource implements IModelSource {
     }
 
     public async read(): Promise<{ model: ISchemaModel; source: string }> {
-        const rows = await this.#enqueuedAction({
-            doing: `Reading the diagrams of ${this.#schema}`,
-            done: `Read the diagrams of ${this.#schema}`,
-        }, "msm.get_schema_diagrams", {}, (api) => {
-            return api.getSchemaDiagrams(this.projectPath);
-        }, (read) => { return counted(read.length, "document"); });
+        // Read from disk meanwhile: msm's call does not need them.
+        const restObjects = this.restObjects();
+        // Not an action: every viewer opened and reload reads them.
+        const rows = await this.#enqueue(() => {
+            return this.#quietCall(`read the diagrams of ${this.#schema}`,
+                (api) => { return api.getSchemaDiagrams(this.projectPath); });
+        });
         this.#bases = hashesOf(rows);
         this.#gone.clear();
         const model = assembleSchemaModel(rows);
         this.#schema = model.schema;
+        model.restObjects = await restObjects;
         await this.#takeDrafts(model);
 
         return { model, source: this.projectPath };
@@ -380,6 +392,21 @@ export class ProjectModelSource implements IModelSource {
             this.host.log(`Restored the unsaved changes of the diagram `
                 + `${draft.name} of ${this.projectPath}.`);
             this.#schedule(draft.document, false);
+        }
+    }
+
+    /**
+     * @returns The REST objects of the project's MSM Section 180; none
+     *          where it cannot be read, which the log says.
+     */
+    public async restObjects(): Promise<IRestObjectDefinition[]> {
+        try {
+            return await this.host.restObjects?.(this.projectPath) ?? [];
+        } catch (error) {
+            this.host.log(`Could not read the REST objects of `
+                + `${this.projectPath}: ${errorText(error)}`);
+
+            return [];
         }
     }
 
@@ -440,15 +467,12 @@ export class ProjectModelSource implements IModelSource {
         }
         this.onSaveState?.({ state: "saving" });
         try {
-            await this.#action({
-                doing: `Saving the diagram ${name} of ${this.#schema}`,
-                done: `Saved the diagram ${name} of ${this.#schema}`,
-            }, "msm.set_schema_diagram", { document: name }, (api) => {
+            // Not an action: the auto-store saves after every change, and
+            // the viewer's status line says how it went.
+            await this.#quietCall(`save the diagram ${name} of `
+                + this.#schema, (api) => {
                 return api.setSchemaDiagram(this.projectPath,
                     pending.document);
-            }, (files) => {
-                return files.length === 0
-                    ? "Nothing changed" : counted(files.length, "file");
             });
         } catch (error) {
             // The draft stays, for the next change or the next start.
@@ -630,34 +654,97 @@ export class ProjectModelSource implements IModelSource {
     }
 
     /**
-     * Adds a schema object from a SQL template, as an edit of the schema
-     * in turn with the viewer's: the diagrams' changes go first, and the
-     * snapshot it leaves is the one the next edit is made against.
+     * Puts CREATE statements of schema objects into the project, where msm
+     * keeps each kind, as an edit of the schema in turn with the viewer's.
      *
-     * @param object What to add.
-     * @param baseHash The snapshot's `source_hash` it was named against.
+     * @param statements One CREATE each.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     * @param expect What each statement must create.
      *
-     * @returns Where msm wrote the new statement.
+     * @returns Where each statement went.
      */
-    public async addObject(
-        object: IMsmNewObject,
+    public async setSchemaStatements(
+        statements: string[],
         baseHash: string,
-    ): Promise<{ file: string; line: number }> {
+        expect: IMsmExpectedObject[],
+    ): Promise<IMsmSchemaStatementsSet["statements"]> {
         await this.flush();
-        const added = await this.#enqueuedAction({
-            doing: `Adding the ${object.kind} ${object.name} to ${this.#schema}`,
-            done: `Added the ${object.kind} ${object.name} to ${this.#schema}`,
-        }, "msm.add_schema_object", { kind: object.kind, name: object.name,
-            ...(object.table === undefined ? {} : { table: object.table }),
-            ...(object.template === undefined ? {} : { template: "(yours)" }) },
-        (api) => {
-            return api.addSchemaObject(this.projectPath, object, baseHash);
-        }, (result) => {
-            return `${result.file}:${String(result.line)}`;
-        });
-        this.#bases = hashesOf(added.rows);
+        const objects = `${expect.map((object) => {
+            return `the ${object.kind} ${object.name}`;
+        }).join(", ")} to ${this.#schema}`;
+        const set = await this.#enqueuedAction({
+            doing: `Adding ${objects}`, done: `Added ${objects}`,
+        },
+            "msm.set_schema_statements", { expect }, (api) => {
+                return api.setSchemaStatements(this.projectPath, statements,
+                    baseHash, expect);
+            }, (result) => {
+                return result.statements.map((statement) => {
+                    return `${statement.file}:${String(statement.line)}`;
+                }).join(", ");
+            });
+        this.#bases = hashesOf(set.rows);
 
-        return added;
+        return set.statements;
+    }
+
+    /**
+     * Puts REST statements into the project's MSM Section 180, where msm
+     * keeps them, as an edit of the schema in turn with the viewer's.
+     *
+     * @param statements One CREATE of a REST item each.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     * @param words What the Actions tab says of them.
+     * @param replaces The REST object a renamed one stands in for.
+     *
+     * @returns How many statements were set.
+     */
+    public async setRestStatements(
+        statements: string[],
+        baseHash: string,
+        words: { doing: string; done: string },
+        replaces?: IMsmRestItem,
+    ): Promise<number> {
+        await this.flush();
+        const set = await this.#enqueuedAction(words,
+            "msm.set_rest_statements", { statements: statements.length,
+                ...(replaces === undefined ? {} : { replaces }) },
+            (api) => {
+                return api.setRestStatements(this.projectPath, statements,
+                    baseHash, replaces);
+            }, (result) => {
+                return counted(result.statements.length, "statement");
+            });
+        this.#bases = hashesOf(set.rows);
+
+        return set.statements.length;
+    }
+
+    /**
+     * Removes a REST service, schema or object from the project's MSM
+     * Section 180, with what is on it, in turn with the viewer's edits.
+     *
+     * @param item What to remove.
+     * @param baseHash The snapshot's `source_hash` it was named against.
+     * @param words What the Actions tab says of it.
+     *
+     * @returns msm's notes: one where the project only names the item.
+     */
+    public async dropRestObject(
+        item: IMsmRestItem,
+        baseHash: string,
+        words: { doing: string; done: string },
+    ): Promise<string[]> {
+        await this.flush();
+        const dropped = await this.#enqueuedAction(words, "msm.drop_rest_object",
+            { ...item }, (api) => {
+                return api.dropRestObject(this.projectPath, item, baseHash);
+            }, (result) => {
+                return counted(result.removed.length, "statement");
+            });
+        this.#bases = hashesOf(dropped.rows);
+
+        return dropped.notes.map((note) => { return note.message; });
     }
 
     /**
@@ -734,6 +821,28 @@ export class ProjectModelSource implements IModelSource {
         return this.#enqueue(() => {
             return this.#action(words, tool, args, call, detail);
         });
+    }
+
+    /**
+     * Makes one msm call that is no action of its own, now: one made so
+     * often that the Actions tab would be full of it. Its failure is
+     * logged, and thrown for the caller to show.
+     *
+     * @param what What it does, for the log: "save the diagram ...".
+     * @param call The call.
+     *
+     * @returns What it returns.
+     */
+    async #quietCall<T>(
+        what: string,
+        call: (api: IMsmApi) => Promise<T>,
+    ): Promise<T> {
+        try {
+            return await call(await this.host.msmApi());
+        } catch (error) {
+            this.host.log(`Could not ${what}: ${errorText(error)}`);
+            throw error;
+        }
     }
 
     /**

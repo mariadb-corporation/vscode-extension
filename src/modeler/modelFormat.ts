@@ -29,6 +29,8 @@
  * webview (which draws it), so this file is free of `vscode`.
  */
 
+import type { ConnectionColor } from "../mcp/types.js";
+
 /** A column of a table, as the outline writes it. */
 export interface IOutlineColumn {
     name: string;
@@ -189,6 +191,11 @@ export const EVENT_GROUP_FIGURE = "EventGroupFigure";
 export const SEQUENCE_FIGURE = "SequenceFigure";
 export const NOTE_FIGURE = "NoteFigure";
 export const IMAGE_FIGURE = "ImageFigure";
+/**
+ * A REST object of the project's MSM Section 180, standing upright on the
+ * page: its title from above, its fields in the 3D view. Not Workbench's.
+ */
+export const REST_OBJECT_FIGURE = "RestObjectFigure";
 
 /** The colours of new figures by kind, Workbench's. */
 export const FIGURE_COLORS: Record<string, string> = {
@@ -199,6 +206,42 @@ export const FIGURE_COLORS: Record<string, string> = {
     [SEQUENCE_FIGURE]: "#C9B8E8",
     [NOTE_FIGURE]: "#FEFDED",
     [IMAGE_FIGURE]: "#FFFFFF",
+    [REST_OBJECT_FIGURE]: "#6FBF73",
+};
+
+/**
+ * The colours Object Details offers a figure or a layer, by the names of
+ * the connections' colours, which its swatches share: Workbench's own
+ * figure colours, and a red.
+ */
+export const FIGURE_PALETTE: Readonly<Record<ConnectionColor, string>> = {
+    red: "#F4A6A6",
+    orange: FIGURE_COLORS[EVENT_GROUP_FIGURE]!,
+    yellow: FIGURE_COLORS[VIEW_FIGURE]!,
+    green: FIGURE_COLORS[ROUTINE_GROUP_FIGURE]!,
+    blue: FIGURE_COLORS[TABLE_FIGURE]!,
+    purple: FIGURE_COLORS[SEQUENCE_FIGURE]!,
+};
+
+/** A new layer's colour, Workbench's. */
+export const LAYER_COLOR = "#F0F1FE";
+
+/**
+ * @param color A figure's or a layer's colour, as stored.
+ *
+ * @returns Its name in `FIGURE_PALETTE`; "" for none; undefined for a
+ *          colour of its own, one Workbench or msm gave it.
+ */
+export const paletteColorOf = (
+    color: string | undefined,
+): ConnectionColor | "" | undefined => {
+    if (color === undefined || color === "") {
+        return "";
+    }
+
+    return (Object.keys(FIGURE_PALETTE) as ConnectionColor[]).find((name) => {
+        return FIGURE_PALETTE[name].toLowerCase() === color.toLowerCase();
+    });
 };
 
 /**
@@ -233,6 +276,26 @@ export interface IModelFigure {
     events?: string[];
     /** A SequenceFigure's sequence. */
     sequence?: string;
+    /**
+     * A RestObjectFigure's REST object: its service's, REST schema's and
+     * own path, as Section 180 writes them. Its `height` is how high it
+     * stands; on the page it is a slab deep.
+     */
+    restService?: string;
+    restSchema?: string;
+    restObject?: string;
+    /**
+     * Whether a card figure stands upright on the page, as its menu or
+     * Object Details set it: then its footprint is `width x depth` and
+     * `height` how high it stands. Left out, a RestObjectFigure stands and
+     * every other kind lies flat.
+     */
+    upright?: boolean;
+    /**
+     * How deep an upright figure's footprint is on the page, which msm's
+     * layout keeps clear: its slab's thickness.
+     */
+    depth?: number;
     /** A NoteFigure's text, its font (`Helvetica Bold 12`) and colour. */
     text?: string;
     font?: string;
@@ -316,7 +379,30 @@ export interface ISchemaModel {
     triggers: IOutlineTrigger[];
     events: IOutlineEvent[];
     sequences: IOutlineSequence[];
+    /**
+     * The REST objects the project's MSM Section 180 creates, which REST
+     * object figures show: none for a live schema.
+     */
+    restObjects?: IRestObjectDefinition[];
     diagrams: IModelDiagram[];
+}
+
+/** A REST object as a project's MSM Section 180 creates it. */
+export interface IRestObjectDefinition {
+    servicePath: string;
+    schemaPath: string;
+    requestPath: string;
+    /** VIEW, PROCEDURE or FUNCTION. */
+    objectType: string;
+    dbSchema?: string;
+    dbObject: string;
+    /**
+     * Its fields in the statement's GraphQL notation, a line each, as
+     * written but for the statement's indent: a view's `{ ... }` block,
+     * a routine's `PARAMETERS` and `RESULT` blocks. None where the
+     * statement leaves the fields to the server.
+     */
+    lines: string[];
 }
 
 /** The format of the schema snapshot's document. */
@@ -363,6 +449,45 @@ export const DIAGRAMS_VIEW = "msm_schema_diagrams";
  */
 export const figureType = (figure: IModelFigure): string => {
     return figure.type ?? TABLE_FIGURE;
+};
+
+/**
+ * @param path A REST path as Section 180 writes it.
+ *
+ * @returns What tells it from other paths, as the server and msm do:
+ *          whatever its case, a service's developers in any order
+ *          (`mike,anna@/notes` is `anna,mike@/notes`).
+ */
+const restPathKey = (path: string): string => {
+    const lower = path.toLowerCase();
+    const at = lower.indexOf("@");
+
+    return at < 0 ? lower
+        : `${lower.slice(0, at).split(",").sort().join(",")}${lower.slice(at)}`;
+};
+
+/**
+ * @param figure A figure.
+ * @param service A REST service's path.
+ * @param schema A REST schema's path on it.
+ * @param object A REST object's request path on that.
+ *
+ * @returns Whether it is a REST object figure of that object, its paths
+ *          compared as `restPathKey` says.
+ */
+export const showsRestObject = (
+    figure: IModelFigure,
+    service: string,
+    schema: string,
+    object: string,
+): boolean => {
+    const same = (left: string | undefined, right: string): boolean => {
+        return left !== undefined && restPathKey(left) === restPathKey(right);
+    };
+
+    return figure.type === REST_OBJECT_FIGURE
+        && same(figure.restService, service) && same(figure.restSchema, schema)
+        && same(figure.restObject, object);
 };
 
 /**

@@ -1,0 +1,50 @@
+/*
+ * Copyright (c) 2026, MariaDB plc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2.0,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See
+ * the GNU General Public License, version 2.0, for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+ */
+
+/*
+ * The colour swatches (`ColorSwatches` in dialogParts.tsx): the editors'
+ * Color field, and Object Details' for a diagram's figures and layers.
+ */
+
+.colors {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    /* The selected swatch's outline reaches 4px past it, and the tab
+       body's scrolling clips anything left of its edge. */
+    padding-left: 0.3rem;
+}
+
+.swatch {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 1px solid var(--vscode-contrastBorder, transparent);
+    border-radius: 50%;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+}
+
+.swatch.selected {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+}

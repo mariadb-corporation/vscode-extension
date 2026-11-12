@@ -25,6 +25,7 @@ import {
     DEFAULT_ISO_PRESET,
     easeInOut,
     fitZoom,
+    floorReach,
     GRID,
     gridSpacing,
     ISO_PRESETS,
@@ -223,6 +224,48 @@ describe("orbiting", () => {
         expect(liftFactor(MAX_TILT - Math.PI / 12)).toBeCloseTo(0.5, 5);
         for (const preset of ISO_PRESETS) {
             expect(liftFactor(preset.tilt)).toBe(1);
+        }
+    });
+});
+
+describe("floorReach", () => {
+    const center = new Vector3(100, 0, 50);
+
+    it("gives the floor's hit where it is within reach", () => {
+        // Looking straight down from above (100, 0, 50) + (10, _, 5).
+        const point = floorReach(new Vector3(110, 2000, 55),
+            new Vector3(0, -1, 0), center, 300);
+        expect(point.x).toBeCloseTo(110);
+        expect(point.y).toBeCloseTo(55);
+    });
+
+    it("draws a straight outline, a depth either way, looking level", () => {
+        // 2D Front: looking along -z, the floor never met.
+        const direction = new Vector3(0, 0, -1);
+        const ends = [[-40, 30], [40, 30], [40, -30], [-40, -30]].map(
+            ([x, y]) => {
+                return floorReach(new Vector3(100 + x, y, 2050), direction,
+                    center, 300);
+            });
+        expect(ends.map((p) => { return Math.round(p.x); }))
+            .toEqual([60, 140, 140, 60]);
+        // The top corners reach behind the centre, the bottom ones in
+        // front, by the depth.
+        expect(ends.map((p) => { return Math.round(p.y); }))
+            .toEqual([-250, -250, 350, 350]);
+    });
+
+    it("stays within the depth as the view turns level", () => {
+        for (const angle of [30, 10, 1, 0.01]) {
+            const radians = angle * Math.PI / 180;
+            const direction = new Vector3(0, -Math.sin(radians),
+                -Math.cos(radians));
+            // A top corner: above the centre on the screen.
+            const up = new Vector3(0, Math.cos(radians), -Math.sin(radians));
+            const origin = center.clone().addScaledVector(up, 30)
+                .addScaledVector(direction, -2000);
+            const point = floorReach(origin, direction, center, 300);
+            expect(Math.abs(point.y - center.z)).toBeLessThanOrEqual(301);
         }
     });
 });

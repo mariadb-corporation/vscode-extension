@@ -129,8 +129,8 @@ export const spawnLsp: LspRunner = (binary, args, stdin) => {
  * `mariadb-lsp edit`, found when first needed.
  */
 export class LspEdit {
-    /** Whether the binary merges a table's ALTERs, once asked. */
-    #mergesAlters?: Promise<boolean>;
+    /** What the binary answered, by the arguments it was asked with. */
+    readonly #answers = new Map<string, Promise<unknown>>();
 
     /**
      * @param binary Finds the binary: undefined where there is none.
@@ -142,31 +142,120 @@ export class LspEdit {
     ) { }
 
     /**
+     * Asks the binary something: undefined where there is no binary yet,
+     * which one may be installed meanwhile.
+     *
+     * @param args What to run it with.
+     * @param read What its JSON answer says.
+     * @param fallback The answer of a failed run.
+     *
+     * @returns The answer.
+     */
+    async #probe<T>(
+        args: string[],
+        read: (answer: unknown) => T,
+        fallback: T,
+    ): Promise<T | undefined> {
+        const binary = await this.binary();
+        if (binary === undefined) {
+            return undefined;
+        }
+        try {
+            const { code, stdout } = await this.run(binary, args);
+
+            return code === 0 ? read(JSON.parse(stdout)) : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+
+    /**
+     * @param args What to run it with.
+     * @param read What its JSON answer says.
+     * @param fallback The answer of a failed run, kept; undefined to ask
+     *        again next time.
+     * @param otherwise The answer where it is not kept.
+     *
+     * @returns The answer, kept but where there was no binary, which one
+     *          may be installed meanwhile.
+     */
+    #kept<T>(
+        args: string[],
+        read: (answer: unknown) => T,
+        fallback: T | undefined,
+        otherwise: T,
+    ): Promise<T> {
+        const key = args.join(" ");
+        let answer = this.#answers.get(key) as Promise<T> | undefined;
+        if (answer === undefined) {
+            answer = this.#probe<T | undefined>(args, read, fallback)
+                .then((value) => {
+                    if (value === undefined) {
+                        this.#answers.delete(key);
+                    }
+
+                    return value ?? otherwise;
+                });
+            this.#answers.set(key, answer);
+        }
+
+        return answer;
+    }
+
+    /**
      * @returns Whether the binary merges the ALTER TABLE statements of a
      *          table into one, giving each its `table` and `spec`
      *          (`edit --ops` says `merge_alters`); an older one does not.
      */
     public mergesAlters(): Promise<boolean> {
-        this.#mergesAlters ??= (async () => {
-            const binary = await this.binary();
-            if (binary === undefined) {
-                // Asked again: one may be installed meanwhile.
-                this.#mergesAlters = undefined;
+        return this.#kept(["edit", "--ops"], (answer) => {
+            return (answer as { merge_alters?: unknown }).merge_alters === true;
+        }, false, false);
+    }
 
-                return false;
-            }
-            try {
-                const { code, stdout } = await this.run(binary,
-                    ["edit", "--ops"]);
+    /**
+     * @returns The members the binary's outline has beyond format 1's first
+     *          (`outline --features`): none for one without the list, or
+     *          where there is no binary.
+     */
+    public outlineFeatures(): Promise<string[]> {
+        // A failed run is not kept either: the binary may be updated, as
+        // a missing feature's message asks, or the run fail only once.
+        return this.#kept(["outline", "--features"], (answer) => {
+            const features = (answer as { features?: unknown }).features;
 
-                return code === 0 && (JSON.parse(stdout) as
-                    { merge_alters?: unknown }).merge_alters === true;
-            } catch {
-                return false;
-            }
-        })();
+            return Array.isArray(features)
+                ? features.filter((feature): feature is string => {
+                    return typeof feature === "string";
+                })
+                : [];
+        }, undefined, []);
+    }
 
-        return this.#mergesAlters;
+    /**
+     * @param file A SQL file: a project's development script.
+     *
+     * @returns Its outline (lsp-server `docs/outline-format.md`), as the
+     *          binary parses it.
+     */
+    public async outline(file: string): Promise<unknown> {
+        const binary = await this.binary();
+        if (binary === undefined) {
+            throw new Error("No usable mariadb-lsp was found: it is the "
+                + "MariaDB SQL language server of a MariaDB Shell "
+                + "installation, one on the PATH, or mariadb.lsp.path.");
+        }
+        const result = await this.run(binary, ["outline", file]);
+        const failed = new Error(`mariadb-lsp outline failed (exit `
+            + `${result.code}): ${result.stderr.trim() || "no output"}`);
+        if (result.code !== 0) {
+            throw failed;
+        }
+        try {
+            return JSON.parse(result.stdout) as unknown;
+        } catch {
+            throw failed;
+        }
     }
 
     /**
