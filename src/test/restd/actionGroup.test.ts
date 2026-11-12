@@ -91,7 +91,7 @@ describe("ActionGroup", () => {
         expect(rows.rows.size).toBe(1);
     });
 
-    it("says its only step's failure in its one row", async () => {
+    it("has its only step's failure as a row under it", async () => {
         const rows = collect();
         const group = new ActionGroup(rows.put, "General", WORDS);
 
@@ -101,9 +101,13 @@ describe("ActionGroup", () => {
             });
         })).rejects.toThrow("No space.");
 
-        expect(rows.last()).toMatchObject({ role: "statement", kind: "error",
+        expect(rows.last()).toMatchObject({ role: "run", kind: "error",
+            message: "Creating Sandbox on port 3311 failed" });
+        expect(rows.last().children).toMatchObject([{ kind: "error",
             message: "Creating Sandbox on port 3311 failed: No space.",
-            statement: "msm.create(path=/p)" });
+            statement: "msm.create(path=/p)" }]);
+        // Still the one action, its row now with a child.
+        expect(rows.rows.size).toBe(1);
     });
 
     it("shows a step's spinner while it runs", async () => {

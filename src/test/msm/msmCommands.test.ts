@@ -973,8 +973,11 @@ describe("Prepare Release", () => {
 
         expect(errorsPosted()).toEqual(["No statements."]);
         expect(lastAction(recorded).row.message)
+            .toBe("Preparing release 1.0.1 of sakila failed");
+        // The error is a row of its own, with the call.
+        expect(lastAction(recorded).row.children?.[0].message)
             .toBe("Preparing release 1.0.1 of sakila failed: No statements.");
-        expect(lastAction(recorded).row.statement)
+        expect(lastAction(recorded).row.children?.[0].statement)
             .toBe(`msm.prepare_release(schema_project_path=${PROJECT}, `
             + "version=1.0.1, next_version=1.0.2)");
         expect(recorded.shownActions).toEqual([GENERAL_ACTIONS]);

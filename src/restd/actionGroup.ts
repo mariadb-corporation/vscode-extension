@@ -185,16 +185,14 @@ export class ActionGroup {
 
     /**
      * Puts the whole up as one row: its only step's, which says what the
-     * whole does.
+     * whole does, running or done.
      *
      * @param step The step.
      */
     #showAlone(step: IStep): void {
         const pending = this.#finished === undefined
             || step.elapsedMs === undefined;
-        const error = step.error ?? this.#finished?.error;
-        const information = step.error === undefined
-            ? step.detail ?? step.call : step.call;
+        const information = step.detail ?? step.call;
         // What the whole came to, where it says more than the step did.
         const summary = this.#finished?.summary;
 
@@ -207,12 +205,8 @@ export class ActionGroup {
             statement: summary === undefined || summary === ""
                 || summary === information
                 ? information : `${summary}\n${information}`,
-            message: pending
-                ? `${this.words.doing}…`
-                : error === undefined
-                    ? this.words.done
-                    : `${this.words.doing} failed: ${error}`,
-            kind: pending ? "pending" : error === undefined ? "info" : "error",
+            message: pending ? `${this.words.doing}…` : this.words.done,
+            kind: pending ? "pending" : "info",
             ...(pending
                 ? {} : { elapsedMs: Date.now() - this.#when.getTime() }),
             ...(step.logPath === undefined ? {} : { logPath: step.logPath }),
@@ -223,10 +217,12 @@ export class ActionGroup {
     #show(): void {
         const base = { connection: this.connection, connectionLabel: "" };
         // One step called as the whole is: its row would only say again
-        // what the whole's does, so the whole is that step's row.
+        // what the whole's does, so the whole is that step's row - unless
+        // it failed, its error then a row of its own under the whole.
         const only = this.#steps.length === 1 ? this.#steps[0]! : undefined;
         if (only !== undefined && only.words.doing === this.words.doing
-            && only.words.done === this.words.done) {
+            && only.words.done === this.words.done
+            && only.error === undefined && this.#finished?.error === undefined) {
             this.#showAlone(only);
 
             return;
