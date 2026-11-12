@@ -285,7 +285,14 @@ export interface IModelFigure {
     restSchema?: string;
     restObject?: string;
     /**
-     * How deep a RestObjectFigure's footprint is on the page, which msm's
+     * Whether a card figure stands upright on the page, as its menu or
+     * Object Details set it: then its footprint is `width x depth` and
+     * `height` how high it stands. Left out, a RestObjectFigure stands and
+     * every other kind lies flat.
+     */
+    upright?: boolean;
+    /**
+     * How deep an upright figure's footprint is on the page, which msm's
      * layout keeps clear: its slab's thickness.
      */
     depth?: number;

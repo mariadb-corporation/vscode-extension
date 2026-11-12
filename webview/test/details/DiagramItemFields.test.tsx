@@ -26,7 +26,8 @@ import {
 
 const FIGURE = {
     kind: "figure", id: "f1", x: 819.6, y: 478.3, z: 0, width: 527.3,
-    height: 399.3, autoHeight: true, color: "", editable: true,
+    height: 399.3, autoHeight: true, upright: false, color: "",
+    editable: true,
 } as const;
 
 describe("the diagram item's fields", () => {
@@ -91,6 +92,20 @@ describe("the diagram item's fields", () => {
         fireEvent.input(z, { target: { value: "80" } });
         fireEvent.keyDown(z, { key: "Enter" });
         expect(change).toHaveBeenCalledWith({ z: 80 });
+    });
+
+    it("stands a figure upright, or lays it flat", () => {
+        const change = vi.fn();
+        const { rerender } = render(
+            <DiagramItemFields item={FIGURE} change={change} />);
+        fireEvent.click(screen.getByLabelText("Upright"));
+        expect(change).toHaveBeenCalledWith({ upright: true });
+
+        rerender(<DiagramItemFields item={{ ...FIGURE, upright: true }}
+            change={change} />);
+        expect(screen.getByLabelText("Upright")).toHaveProperty("checked", true);
+        fireEvent.click(screen.getByLabelText("Upright"));
+        expect(change).toHaveBeenLastCalledWith({ upright: false });
     });
 
     it("picks a figure's color from the palette, None for its kind's",

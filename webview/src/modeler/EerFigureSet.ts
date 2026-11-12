@@ -525,7 +525,7 @@ const sloped = (
 type FigureState = Pick<IModelFigure, "left" | "top" | "width" | "height"
     | "manualSizing" | "expanded" | "indicesExpanded"
     | "foreignKeysExpanded" | "triggersExpanded" | "layer" | "elevation"
-    | "color">;
+    | "color" | "upright" | "depth">;
 
 /** What a user can change of a connection. */
 type ConnectionState = Pick<IModelConnection, "middleSegmentOffset"
@@ -556,6 +556,8 @@ const figureState = (figure: IModelFigure): FigureState => {
         layer: figure.layer,
         elevation: figure.elevation,
         color: figure.color,
+        upright: figure.upright,
+        depth: figure.depth,
     };
 };
 
@@ -787,13 +789,15 @@ const isCard = (kind: FigureKind): boolean => {
 
 /**
  * @param kind What a figure is drawn as.
+ * @param figure The figure.
  *
- * @returns Whether its card stands upright on the page (a REST object's):
- *          its footprint a slab deep, its top what 2D shows, its face
- *          what the 3D view does.
+ * @returns Whether its card stands upright on the page: its footprint a
+ *          slab deep, its top what 2D Top shows, its face what 2D Front
+ *          does. As its menu set it; else a REST object's does, and every
+ *          other card lies flat.
  */
-const isUpright = (kind: FigureKind): boolean => {
-    return kind === "rest";
+const isUpright = (kind: FigureKind, figure: IModelFigure): boolean => {
+    return isCard(kind) && (figure.upright ?? kind === "rest");
 };
 
 export class EerFigureSet implements IFigureSet {
@@ -1008,8 +1012,9 @@ export class EerFigureSet implements IFigureSet {
                 width: rect.width,
                 // An upright card's, how high it stands: what a change of
                 // it changes.
-                height: isUpright(node.kind) ? node.layout.height : rect.height,
+                height: isUpright(node.kind, node.figure) ? node.layout.height : rect.height,
                 autoHeight: node.figure.manualSizing !== true,
+                upright: isUpright(node.kind, node.figure),
                 color: node.figure.color ?? "",
                 editable,
             };
@@ -1206,6 +1211,9 @@ export class EerFigureSet implements IFigureSet {
             figure.manualSizing = true;
             figure.height = Math.max(CARD.headerHeight, change.height);
         }
+        if (change.upright !== undefined) {
+            figure.upright = change.upright;
+        }
         if (change.color !== undefined) {
             // None is its kind's.
             if (change.color === "") {
@@ -1243,14 +1251,21 @@ export class EerFigureSet implements IFigureSet {
     #figureHit(
         probe: IProbe,
     ): { node: IFigureNode; uv: THREE.Vector2 } | undefined {
-        const hit = probe.raycaster.intersectObjects(this.#cardMeshes, false)[0];
-        if (hit === undefined || hit.uv === undefined) {
-            return undefined;
-        }
-        const node = this.#figures.get(
-            (hit.object.userData as { figureId: string }).figureId);
+        // A lying card's side label is no target: its card is, above it.
+        for (const hit of probe.raycaster.intersectObjects(this.#cardMeshes,
+            false)) {
+            const node = this.#figures.get(
+                (hit.object.userData as { figureId: string }).figureId);
+            if (node === undefined || hit.uv === undefined
+                || (hit.object === node.side
+                    && !isUpright(node.kind, node.figure))) {
+                continue;
+            }
 
-        return node === undefined ? undefined : { node, uv: hit.uv };
+            return { node, uv: hit.uv };
+        }
+
+        return undefined;
     }
 
     /** The layer under the pointer: the inner one, at its own height. */
@@ -1286,7 +1301,7 @@ export class EerFigureSet implements IFigureSet {
      */
     #topElevation(node: IFigureNode): number {
         return this.#figureElevation(node)
-            + (isUpright(node.kind) ? node.layout.height : 0);
+            + (isUpright(node.kind, node.figure) ? node.layout.height : 0);
     }
 
     /**
@@ -1306,7 +1321,7 @@ export class EerFigureSet implements IFigureSet {
             left: node.figure.left + (node.layer?.left ?? 0),
             top: node.figure.top + (node.layer?.top ?? 0),
             width: node.layout.width,
-            height: isUpright(node.kind) ? CARD_THICKNESS : node.layout.height,
+            height: isUpright(node.kind, node.figure) ? CARD_THICKNESS : node.layout.height,
         };
     }
 
@@ -1491,7 +1506,7 @@ export class EerFigureSet implements IFigureSet {
         setDrawOrder(slab, DRAW_ORDER.lifted);
         setDrawOrder(mesh, DRAW_ORDER.lifted + 0.5);
         this.#lifted.add(slab, mesh);
-        const upright = isUpright(kind);
+        const upright = (): boolean => { return isUpright(kind, figure); };
         const side = new THREE.Mesh(new THREE.BufferGeometry(),
             new THREE.MeshBasicMaterial({ transparent: true }));
         setDrawOrder(side, DRAW_ORDER.lifted + 0.25);
@@ -1527,7 +1542,7 @@ export class EerFigureSet implements IFigureSet {
                 plane: "lifted",
                 rect: () => { return this.#figureRect(node); },
                 // An upright card is as wide and high as its content.
-                resizable: !upright,
+                get resizable() { return !upright(); },
                 minWidth: MIN_FIGURE_WIDTH,
                 minHeight: card ? CARD.headerHeight : 20,
                 // An upright card's footprint is its top, where it is
@@ -1540,7 +1555,7 @@ export class EerFigureSet implements IFigureSet {
                 ...(card ? {
                     get menuBand() {
                         return {
-                            top: upright
+                            top: upright()
                                 ? (CARD_THICKNESS - CARD.headerHeight) / 2 : 0,
                             height: CARD.headerHeight,
                             color: contrastingText(figureColor(figure)),
@@ -1548,24 +1563,23 @@ export class EerFigureSet implements IFigureSet {
                     },
                 } : {}),
                 // An upright card's face has its header too, at its top.
-                ...(upright ? {
+                ...(card ? {
                     get frontMenuBand() {
-                        return {
+                        return upright() ? {
                             top: 0,
                             height: CARD.headerHeight,
                             color: contrastingText(figureColor(figure)),
-                        };
+                        } : undefined;
                     },
                 } : {}),
             },
         };
         this.#figures.set(figure.id, node);
         this.#cardMeshes.push(mesh);
-        if (upright) {
-            // Seen from above, only its top is there to be hit.
-            side.userData = { figureId: figure.id };
-            this.#cardMeshes.push(side);
-        }
+        // Seen from above, only an upright card's top is there to be hit
+        // (`#figureHit` passes a lying card's side over).
+        side.userData = { figureId: figure.id };
+        this.#cardMeshes.push(side);
         if (kind === "picture") {
             this.#preparePicture(figure);
         }
@@ -1596,17 +1610,21 @@ export class EerFigureSet implements IFigureSet {
             return { ...size, contentHeight: size.height, items: [] };
         }
         const content = this.#contentOf(kind, figure);
-        if (isUpright(kind)) {
-            // Not resizable: as wide as what Section 180 has it show now.
+        const upright = isUpright(kind, figure);
+        if (upright) {
+            // Not resizable: as wide as what it shows now.
             figure.width = cardWidth(content, this.#measure);
         } else {
             figure.width ??= cardWidth(content, this.#measure);
         }
         const layout = layoutCard(content, figure);
         keepAutoHeight(figure, layout);
-        if (isUpright(kind)) {
-            // What msm's layout keeps clear of the page: its footprint.
+        // What msm's layout keeps clear of the page: an upright card's
+        // footprint; a lying one's is the card.
+        if (upright) {
             figure.depth = CARD_THICKNESS;
+        } else {
+            delete figure.depth;
         }
 
         return layout;
@@ -1836,13 +1854,14 @@ export class EerFigureSet implements IFigureSet {
     #placeFigure(node: IFigureNode): void {
         const rect = this.#figureRect(node);
         const center = planeCenter(rect);
-        const upright = isUpright(node.kind);
+        const upright = isUpright(node.kind, node.figure);
 
         // The shapes depend on the card's size alone; a move only moves
         // them.
         const { width, height } = node.layout;
-        // The slab's colour is baked into it.
-        const size = `${width}x${height}:${figureColor(node.figure)}`;
+        // The slab's colour is baked into it, and its standing up.
+        const size = `${width}x${height}:${figureColor(node.figure)}:`
+            + String(upright);
         if (node.builtSize !== size) {
             node.builtSize = size;
             node.mesh.geometry.dispose();
@@ -1874,6 +1893,7 @@ export class EerFigureSet implements IFigureSet {
             node.slab.position.set(center.x, front, z);
             node.mesh.scale.z = scale;
         } else {
+            node.mesh.scale.z = 1;
             node.mesh.position.set(center.x, center.y, z + Z.face);
             // Just below the card, so the card's face wins the depth test.
             node.slab.position.set(center.x, center.y, z + Z.slab);
@@ -2884,26 +2904,34 @@ export class EerFigureSet implements IFigureSet {
             caption: "Auto-Size Height",
             disabled: figure.manualSizing !== true,
         };
+        // Lying, a card reads from above (2D Top); standing, from the
+        // front (2D Front).
+        const stand: IMenuEntry = {
+            id: "toggleUpright",
+            caption: isUpright(node.kind, figure)
+                ? "Lay Flat" : "Stand Upright",
+        };
         if (node.kind === "routines") {
             return this.#options.editable === true
                 ? [{ id: "addRoutine", caption: "Add Routine" },
-                    { id: "separator1" }, autoSize]
-                : [autoSize];
+                    { id: "separator1" }, stand, autoSize]
+                : [stand, autoSize];
         }
         if (node.kind === "events") {
             return this.#options.editable === true
                 ? [{ id: "addEvent", caption: "Add Event" },
-                    { id: "separator1" }, autoSize]
-                : [autoSize];
+                    { id: "separator1" }, stand, autoSize]
+                : [stand, autoSize];
         }
         if (node.kind === "rest") {
-            return [autoSize];
+            return [stand, autoSize];
         }
         if (node.kind === "view" || node.kind === "sequence") {
             return [
                 { id: "toggleExpanded",
                     caption: expanded ? "Collapse" : "Expand" },
                 { id: "separator1" },
+                stand,
                 autoSize,
             ];
         }
@@ -2942,6 +2970,7 @@ export class EerFigureSet implements IFigureSet {
                 disabled: !expanded,
             },
             { id: "separator2" },
+            stand,
             autoSize,
             ...rename,
         ];
@@ -3002,6 +3031,17 @@ export class EerFigureSet implements IFigureSet {
             case "autoSize": {
                 change(`Auto-Size ${name}`,
                     (figure) => { figure.manualSizing = false; });
+                break;
+            }
+
+            case "toggleUpright": {
+                // As Object Details does: its footprint changes, which may
+                // file it under another layer.
+                const upright = !isUpright(node.kind, node.figure);
+                host.change(`${upright ? "Stand" : "Lay"} ${name}`
+                    + (upright ? " Upright" : " Flat"), () => {
+                    this.#changeFigure(node, { upright });
+                });
                 break;
             }
 

@@ -212,6 +212,12 @@ const FigureFields = ({ item, change }: {
                     readOnly={readOnly}
                     onChange={(autoHeight) => { change({ autoHeight }); }} />
             </span> : null}
+            {/* Standing, H is how high; lying, how deep on the page. */}
+            {item.kind === "figure" ? <span className="itemCheckCell">
+                <CheckField label="Upright" checked={item.upright}
+                    readOnly={readOnly}
+                    onChange={(upright) => { change({ upright }); }} />
+            </span> : null}
         </div>
         <FigureColor item={item} readOnly={readOnly} change={change} />
     </section>;

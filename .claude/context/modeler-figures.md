@@ -3,6 +3,22 @@
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md), the viewer's
 figures; the viewer itself is [modeler.md](modeler.md).
 
+**Any card figure stands upright or lies flat** (the user's request: "so
+a REST object figure can be fully visible in 2D Top view and a table in
+2D Front"): `figure.upright`, set by the menu's Stand Upright / Lay Flat
+(`toggleUpright`) or Object Details' Upright check, both through
+`#changeFigure` (re-filed under its layer, its footprint changing); left
+out, a RestObjectFigure stands and every other kind lies flat
+(`isUpright(kind, figure)`). An upright card is drawn as described for
+RestObjectFigure below, whatever its kind: footprint `width x depth`
+(`depth` written while it stands, dropped while it lies), not resizable,
+its width its content's, a front menu button; the item's fields that
+depend on it are getters, and the geometry is built again with it (part
+of the key). A lying card's side label is a hit target no more
+(`#figureHit` skips it). Undoable (`upright`, `depth` in `FigureState`).
+msm is asked to keep `upright` and use `width x depth` for an upright
+figure's footprint in its layout.
+
 **A figure's or a layer's color** is picked in Object Details, at the
 bottom of its place and size (the user's request: "the color selection
 ... that we also use for e.g. the MSM Project editor"): the shared
