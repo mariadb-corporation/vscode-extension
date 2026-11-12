@@ -408,20 +408,26 @@ const sideLabelWidth = (width: number): number => {
 };
 
 /**
- * A table's shadow: a rounded rectangle around the card's, centred on the
- * origin, its corners concentric with the card's rounded ones.
+ * A figure's shadow: a rounded rectangle around what it covers of the
+ * page, centred on the origin, its corners concentric with the card's.
  *
- * @param width The card's width.
- * @param height The card's height.
+ * @param width How wide the figure is on the page.
+ * @param height How deep it is on the page.
+ * @param radius Its corners' radius there: a lying card's, or none for an
+ *               upright card's footprint, whose corners are square.
  *
  * @returns The geometry.
  */
-const shadowGeometry = (width: number, height: number): THREE.BufferGeometry => {
+const shadowGeometry = (
+    width: number,
+    height: number,
+    radius: number = CARD.radius,
+): THREE.BufferGeometry => {
     const w = width + 2 * SHADOW_SPREAD;
     const h = height + 2 * SHADOW_SPREAD;
 
     return new THREE.ShapeGeometry(
-        roundedRect(-w / 2, -h / 2, w, h, CARD.radius + SHADOW_SPREAD), 6);
+        roundedRect(-w / 2, -h / 2, w, h, radius + SHADOW_SPREAD), 6);
 };
 
 /**
@@ -1482,8 +1488,6 @@ export class EerFigureSet implements IFigureSet {
         // A picture lies on its layer as it is: no card under it, which
         // would show through a transparent one.
         slab.visible = shadow.visible = kind !== "picture";
-        // An upright card casts none onto the page.
-        shadow.visible &&= !upright;
 
         const card = isCard(kind);
         const node: IFigureNode = {
@@ -1514,6 +1518,14 @@ export class EerFigureSet implements IFigureSet {
                     menuBand: {
                         top: upright
                             ? (CARD_THICKNESS - CARD.headerHeight) / 2 : 0,
+                        height: CARD.headerHeight,
+                        color: contrastingText(figureColor(figure)),
+                    },
+                } : {}),
+                // An upright card's face has its header too, at its top.
+                ...(upright ? {
+                    frontMenuBand: {
+                        top: 0,
                         height: CARD.headerHeight,
                         color: contrastingText(figureColor(figure)),
                     },
@@ -1814,7 +1826,11 @@ export class EerFigureSet implements IFigureSet {
             node.side.geometry.dispose();
             node.side.geometry = sideLabelGeometry(width, height, upright);
             node.shadow.geometry.dispose();
-            node.shadow.geometry = shadowGeometry(width, height);
+            // Under what the figure covers of the page: an upright card's
+            // footprint.
+            node.shadow.geometry = upright
+                ? shadowGeometry(rect.width, rect.height, 0)
+                : shadowGeometry(width, height);
         }
 
         const lift = this.#host?.lift() ?? 0;

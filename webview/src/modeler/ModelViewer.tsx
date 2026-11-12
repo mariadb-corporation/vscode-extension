@@ -1155,7 +1155,7 @@ export const ModelViewer = (): JSX.Element => {
             onDragOver={onDragOver} onDrop={onDrop}>
             {overlays.map((overlay) => {
                 return <MenuButton
-                    key={overlay.id}
+                    key={overlay.key}
                     overlay={overlay}
                     open={sameOwner(menu?.owner, { kind: "item", id: overlay.id })}
                     onOpen={(x, y) => { openItemMenu(overlay.id, x, y); }}

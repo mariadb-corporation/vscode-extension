@@ -49,7 +49,14 @@ it stands, the face's (`layout`, which a hit's uv maps onto). The item's
 elevation is its top, where it is selected and its menu button sits
 (its `menuBand` as high as a card's header, centred on the 20-deep top,
 so the button is a table's and a layer's size: the user asked for that
-after a slab-high band made it smaller); the
+after a slab-high band made it smaller). A second button sits on its
+face's header in the 3D view (the user's request): the item's
+`frontMenuBand`, which the canvas lays upright on the rectangle's bottom
+edge, down from the item's top (`#menuOverlay(..., front)`, keyed
+`<id>:front`), not in 2D, where the face is edge-on. It casts a shadow
+under its footprint, square-cornered (`shadowGeometry(..., 0)`), on the
+page below it as a table's does: the lifted plane stands `LIFT` above
+the page in 3D, the card on it. The
 top label is a hit target too (`#cardMeshes`), the face being edge-on
 from above. Not resizable; menu Auto-Size Height only.
   Content `restObjectCardContent`: a heading `VIEW sakila.actor`, then the

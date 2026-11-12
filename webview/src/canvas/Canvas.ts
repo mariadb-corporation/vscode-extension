@@ -1602,7 +1602,6 @@ export class Canvas {
         if (set === undefined) {
             return [];
         }
-        const scale = this.#scale();
         const ids = new Set(this.#selected);
         if (this.#hover !== undefined && this.#pointer === undefined) {
             ids.add(this.#hover);
@@ -1610,55 +1609,101 @@ export class Canvas {
         const overlays: ICanvasOverlay[] = [];
         for (const id of ids) {
             const item = set.item(id);
-            const band = item?.menuBand;
-            if (item === undefined || band === undefined) {
+            if (item === undefined) {
                 continue;
             }
-            const rect = item.rect();
-            // Whole device pixels, so that the bars drawn in it line up.
-            const ratio = globalThis.devicePixelRatio || 1;
-            const size = Math.round(band.height * scale * MENU_BUTTON_SHARE
-                * ratio) / ratio;
-            if (size < MENU_BUTTON_MIN_PX || rect.width * scale < size * 3
-                || rect.height * scale < size) {
-                continue;
+            for (const overlay of [
+                this.#menuOverlay(id, item, item.menuBand, false),
+                // The face is edge-on in 2D.
+                this.#viewT === 0 ? undefined
+                    : this.#menuOverlay(id, item, item.frontMenuBand, true),
+            ]) {
+                if (overlay !== undefined) {
+                    overlays.push(overlay);
+                }
             }
-            // The button's square on the page, its right edge at a fixed
-            // distance from the item's in page units: the same place on
-            // the item at every zoom.
-            const side = size / scale;
-            const inset = (HANDLE_PX / 2 + 4) / pixelsPerUnit(
-                MENU_BUTTON_REFERENCE_ZOOM, this.#unitsPerMm());
-            const right = rect.left + rect.width - inset;
-            const square = {
-                left: right - side,
-                top: rect.top + band.top + (band.height - side) / 2,
-                width: side,
-                height: side,
-            };
-            const corners = this.#screenCorners(square, item.plane,
-                this.#elevationOf(item));
-            // Never under the Navigator, whose overview area is clear.
-            if (this.#navigatorPanel !== undefined && overlapsRect(
-                boundsOf(corners), this.#navigatorPanel)) {
-                continue;
-            }
-            const [topLeft, topRight, , bottomLeft] = corners;
-            overlays.push({
-                id,
-                size,
-                // In the 2D view a plain move to whole pixels, so the
-                // bars stay crisp; laid onto the item in a 3D one.
-                transform: this.#viewT === 0
-                    ? `translate(${Math.round(topLeft.x * ratio) / ratio}px, `
-                        + `${Math.round(topLeft.y * ratio) / ratio}px)`
-                    : affineTransform(topLeft, topRight, bottomLeft, size,
-                        size),
-                color: band.color,
-            });
         }
 
         return overlays;
+    }
+
+    /**
+     * @param id The item.
+     * @param item What the set says of it.
+     * @param band The band its button sits in, if it has one there.
+     * @param front Whether the band is of its front face, standing on the
+     *              rectangle's bottom edge, rather than of its top.
+     *
+     * @returns The button, where it is large enough to be shown and clear
+     *          of the Navigator.
+     */
+    #menuOverlay(
+        id: string,
+        item: ICanvasItem,
+        band: ICanvasItem["menuBand"],
+        front: boolean,
+    ): ICanvasOverlay | undefined {
+        if (band === undefined) {
+            return undefined;
+        }
+        const scale = this.#scale();
+        const rect = item.rect();
+        // Whole device pixels, so that the bars drawn in it line up.
+        const ratio = globalThis.devicePixelRatio || 1;
+        const size = Math.round(band.height * scale * MENU_BUTTON_SHARE
+            * ratio) / ratio;
+        if (size < MENU_BUTTON_MIN_PX || rect.width * scale < size * 3
+            || (!front && rect.height * scale < size)) {
+            return undefined;
+        }
+        // The button's square, its right edge at a fixed distance from
+        // the item's in page units: the same place on the item at every
+        // zoom.
+        const side = size / scale;
+        const inset = (HANDLE_PX / 2 + 4) / pixelsPerUnit(
+            MENU_BUTTON_REFERENCE_ZOOM, this.#unitsPerMm());
+        const right = rect.left + rect.width - inset;
+        const left = right - side;
+        const elevation = this.#elevationOf(item);
+        let corners: IPoint[];
+        if (front) {
+            // Upright on the face: down from the item's top.
+            const y = rect.top + rect.height;
+            const top = elevation - band.top - (band.height - side) / 2;
+            corners = [
+                this.#screenOfPage(left, y, item.plane, top),
+                this.#screenOfPage(right, y, item.plane, top),
+                this.#screenOfPage(right, y, item.plane, top - side),
+                this.#screenOfPage(left, y, item.plane, top - side),
+            ];
+        } else {
+            corners = this.#screenCorners({
+                left,
+                top: rect.top + band.top + (band.height - side) / 2,
+                width: side,
+                height: side,
+            }, item.plane, elevation);
+        }
+        // Never under the Navigator, whose overview area is clear.
+        if (this.#navigatorPanel !== undefined && overlapsRect(
+            boundsOf(corners), this.#navigatorPanel)) {
+            return undefined;
+        }
+        const [topLeft, topRight, , bottomLeft] = corners;
+
+        return {
+            id,
+            key: front ? `${id}:front` : id,
+            size,
+            // In the 2D view a plain move to whole pixels, so the bars
+            // stay crisp; laid onto the item in a 3D one.
+            transform: this.#viewT === 0
+                ? `translate(${Math.round(topLeft!.x * ratio) / ratio}px, `
+                    + `${Math.round(topLeft!.y * ratio) / ratio}px)`
+                : affineTransform(topLeft!, topRight!, bottomLeft!, size,
+                    size),
+            color: band.color,
+        };
     }
 
     // --- Editing in place -------------------------------------------------

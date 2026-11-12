@@ -76,6 +76,13 @@ export interface ICanvasItem {
      */
     readonly menuBand?: { top: number; height: number; color: string };
     /**
+     * For an item standing upright on its rectangle, whose top is its
+     * elevation: a band of its front face, the one along the rectangle's
+     * bottom edge, with a second menu button at its right, `top` below the
+     * item's top. Shown in the 3D view only: 2D sees the face edge-on.
+     */
+    readonly frontMenuBand?: { top: number; height: number; color: string };
+    /**
      * False for an item the canvas draws no selection outline and resize
      * handles for, such as a line: the set marks it selected itself (see
      * `IFigureSet.selectionChanged`).
@@ -435,7 +442,10 @@ export interface IFigureSet {
 
 /** Where an item's menu button goes. */
 export interface ICanvasOverlay {
+    /** The item whose menu it opens. */
     id: string;
+    /** Tells an item's buttons apart: its top's, or its front face's. */
+    key: string;
     /** The button's side before the transform, in CSS pixels. */
     size: number;
     /** The CSS transform about its top left corner (see `IEditPlacement`). */
