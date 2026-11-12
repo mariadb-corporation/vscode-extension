@@ -966,6 +966,10 @@ export const window = {
         return { dispose: () => { /* nothing to undo in a test */ } };
     },
 
+    registerUriHandler: (): Disposable => {
+        return { dispose: () => { /* nothing to undo in a test */ } };
+    },
+
     createOutputChannel: (name: string): MockOutputChannel => {
         const channel = new MockOutputChannel(name);
         outputChannels.push(channel);

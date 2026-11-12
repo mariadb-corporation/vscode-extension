@@ -23,7 +23,8 @@
     "onStartupFinished",
     "onLanguage:sql",
     "onLanguage:mariadb-sql",
-    "onWebviewPanel:mariadb.modelViewer"
+    "onWebviewPanel:mariadb.modelViewer",
+    "onUri"
   ],
   "main": "./dist/extension.js",
   "contributes": {

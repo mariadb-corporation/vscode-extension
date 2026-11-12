@@ -216,6 +216,12 @@ diagrams: see [mrs-msm.md](mrs-msm.md).
 
 See [msm-schema-objects.md](msm-schema-objects.md).
 
+## Links that open a project's diagram
+
+The `<scheme>://mariadb.mariadb-shell/msm/openDiagram` links a coding
+agent writes so the user can review a project it made: see
+[msm-links.md](msm-links.md).
+
 ## The commands
 
 | Command | Shown on | Does |
