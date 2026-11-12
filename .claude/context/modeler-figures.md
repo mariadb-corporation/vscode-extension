@@ -3,6 +3,21 @@
 Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md), the viewer's
 figures; the viewer itself is [modeler.md](modeler.md).
 
+**A figure's or a layer's color** is picked in Object Details, at the
+bottom of its place and size (the user's request: "the color selection
+... that we also use for e.g. the MSM Project editor"): the shared
+`ColorSwatches` with `FIGURE_PALETTE` (`modelFormat.ts`: the connection
+colors' names, as Workbench's figure colors and a red, stored as hex in
+the diagram's `color`). None drops a figure's own color (its kind's
+then) and gives a layer `LAYER_COLOR`; a color of its own (Workbench's)
+selects no swatch and stays until another is picked. One undoable
+change (`color` is in `FigureState` / `LayerState`): the slab is built
+again (its color is baked, so it is part of the geometry's key), the
+card drawn again, the menu buttons' bars take the header's text color
+(`menuBand` is read when drawn), a layer's plate and border are colored
+as it is placed. The swatch styles are `webview/src/swatches.css`,
+shared by the editors and Object Details.
+
 `kindOf` in `EerFigureSet.ts`; the cards' layout is `tableCard.ts`
 (`tableCardContent`, `viewCardContent`, `routineCardContent`, then one
 `layoutCard`), notes and pictures `noteCard.ts`. Workbench's colours by

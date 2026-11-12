@@ -29,6 +29,8 @@
  * webview (which draws it), so this file is free of `vscode`.
  */
 
+import type { ConnectionColor } from "../mcp/types.js";
+
 /** A column of a table, as the outline writes it. */
 export interface IOutlineColumn {
     name: string;
@@ -205,6 +207,41 @@ export const FIGURE_COLORS: Record<string, string> = {
     [NOTE_FIGURE]: "#FEFDED",
     [IMAGE_FIGURE]: "#FFFFFF",
     [REST_OBJECT_FIGURE]: "#6FBF73",
+};
+
+/**
+ * The colours Object Details offers a figure or a layer, by the names of
+ * the connections' colours, which its swatches share: Workbench's own
+ * figure colours, and a red.
+ */
+export const FIGURE_PALETTE: Readonly<Record<ConnectionColor, string>> = {
+    red: "#F4A6A6",
+    orange: FIGURE_COLORS[EVENT_GROUP_FIGURE]!,
+    yellow: FIGURE_COLORS[VIEW_FIGURE]!,
+    green: FIGURE_COLORS[ROUTINE_GROUP_FIGURE]!,
+    blue: FIGURE_COLORS[TABLE_FIGURE]!,
+    purple: FIGURE_COLORS[SEQUENCE_FIGURE]!,
+};
+
+/** A new layer's colour, Workbench's. */
+export const LAYER_COLOR = "#F0F1FE";
+
+/**
+ * @param color A figure's or a layer's colour, as stored.
+ *
+ * @returns Its name in `FIGURE_PALETTE`; "" for none; undefined for a
+ *          colour of its own, one Workbench or msm gave it.
+ */
+export const paletteColorOf = (
+    color: string | undefined,
+): ConnectionColor | "" | undefined => {
+    if (color === undefined || color === "") {
+        return "";
+    }
+
+    return (Object.keys(FIGURE_PALETTE) as ConnectionColor[]).find((name) => {
+        return FIGURE_PALETTE[name].toLowerCase() === color.toLowerCase();
+    });
 };
 
 /**

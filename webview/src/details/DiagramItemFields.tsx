@@ -35,6 +35,12 @@ import type {
     IDiagramLayerItem,
     DockSide,
 } from "../../../src/details/objectDetails.js";
+import {
+    FIGURE_PALETTE,
+    LAYER_COLOR,
+    paletteColorOf,
+} from "../../../src/modeler/modelFormat.js";
+import { ColorSwatches } from "../dialogParts.js";
 
 /** Page units with one decimal at most, in the user's notation. */
 const NUMBER_FORMAT = new Intl.NumberFormat(undefined, {
@@ -207,7 +213,38 @@ const FigureFields = ({ item, change }: {
                     onChange={(autoHeight) => { change({ autoHeight }); }} />
             </span> : null}
         </div>
+        <FigureColor item={item} readOnly={readOnly} change={change} />
     </section>;
+};
+
+/**
+ * A figure's or a layer's colour, as the editors' Color field offers one:
+ * stored with the diagram. None is a figure's kind's colour, or a new
+ * layer's.
+ */
+const FigureColor = ({ item, readOnly, change }: {
+    item: IDiagramFigureItem | IDiagramLayerItem;
+    readOnly: boolean;
+    change: ChangeItem;
+}): JSX.Element => {
+    // A layer's default is a colour of its own, which None stands for.
+    const stored = item.kind === "layer" && item.color === LAYER_COLOR
+        ? "" : item.color;
+    const picked = paletteColorOf(stored);
+
+    return <div className="itemColor">
+        <ColorSwatches id="itemColorCaption" value={picked ?? "custom"}
+            disabled={readOnly} palette={FIGURE_PALETTE}
+            hint={picked === undefined
+                ? `A color of its own (${stored}), kept until another is `
+                    + "picked."
+                : item.kind === "layer"
+                    ? "Stored with the diagram; None is a new layer's."
+                    : "Stored with the diagram; None is its kind's."}
+            onPick={(color) => {
+                change({ color: color === "" ? "" : FIGURE_PALETTE[color] });
+            }} />
+    </div>;
 };
 
 /** A layer: the tables on it, then its place and size. */

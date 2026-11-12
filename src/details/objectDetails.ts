@@ -70,6 +70,8 @@ export interface IDiagramFigureItem {
     width: number;
     height: number;
     autoHeight: boolean;
+    /** Its colour as stored: "" for its kind's. */
+    color: string;
     /** Whether the diagram can be changed: a live schema's is read only. */
     editable: boolean;
 }
@@ -89,6 +91,8 @@ export interface IDiagramLayerItem {
     height: number;
     /** The tables on it, by name, as Workbench files them. */
     tables: string[];
+    /** Its colour as stored. */
+    color: string;
     editable: boolean;
 }
 
@@ -127,7 +131,7 @@ export type DiagramItem = IDiagramFigureItem | IDiagramLayerItem
 /** What the view changes of a diagram item: the fields given. */
 export type DiagramItemChange = Partial<
     Pick<IDiagramFigureItem, "x" | "y" | "z" | "width" | "height"
-        | "autoHeight">
+        | "autoHeight" | "color">
     & Pick<IDiagramConnectionItem, "offset" | "split" | "many"
         | "identifying">
     & {

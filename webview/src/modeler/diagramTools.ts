@@ -20,6 +20,7 @@ import type { DiagramObjectRef } from "../../../src/modeler/modelerProtocol.js";
 import {
     FIGURE_COLORS,
     IMAGE_FIGURE,
+    LAYER_COLOR,
     NOTE_FIGURE,
     EVENT_GROUP_FIGURE,
     ROUTINE_GROUP_FIGURE,
@@ -165,9 +166,6 @@ const RELATIONSHIPS: Record<string, IRelationshipKind> = {
 
 /** A layer's least size, as Workbench asks for: smaller is a click. */
 const MIN_BAND = 5;
-
-/** The colour of a new layer, Workbench's. */
-const LAYER_COLOR = "#F0F1FE";
 
 /** The largest side a placed picture gets, in page units. */
 const MAX_PICTURE_SIDE = 400;

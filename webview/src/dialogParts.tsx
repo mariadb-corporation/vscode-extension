@@ -67,6 +67,11 @@ export const ColorSwatches = (props: {
     disabled: boolean;
     hint: string;
     onPick: (color: ConnectionColor | "") => void;
+    /**
+     * What each colour is where it is not the theme's: a diagram figure's,
+     * stored as such.
+     */
+    palette?: Readonly<Record<ConnectionColor, string>>;
 }): preact.JSX.Element => {
     return (
         <div class="field">
@@ -92,7 +97,8 @@ export const ColorSwatches = (props: {
                             class={props.value === choice
                                 ? "swatch selected" : "swatch"}
                             style={choice === "" ? undefined : {
-                                background: `var(--vscode-charts-${choice})`,
+                                background: props.palette?.[choice]
+                                    ?? `var(--vscode-charts-${choice})`,
                             }}
                             disabled={props.disabled}
                             onClick={() => { props.onPick(choice); }}

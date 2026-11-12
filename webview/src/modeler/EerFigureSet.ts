@@ -26,6 +26,7 @@ import {
     figureColor,
     figureType,
     IMAGE_FIGURE,
+    LAYER_COLOR,
     NOTE_FIGURE,
     EVENT_GROUP_FIGURE,
     ROUTINE_GROUP_FIGURE,
@@ -522,7 +523,8 @@ const sloped = (
 /** What a user can change of a table figure. */
 type FigureState = Pick<IModelFigure, "left" | "top" | "width" | "height"
     | "manualSizing" | "expanded" | "indicesExpanded"
-    | "foreignKeysExpanded" | "triggersExpanded" | "layer" | "elevation">;
+    | "foreignKeysExpanded" | "triggersExpanded" | "layer" | "elevation"
+    | "color">;
 
 /** What a user can change of a connection. */
 type ConnectionState = Pick<IModelConnection, "middleSegmentOffset"
@@ -530,7 +532,7 @@ type ConnectionState = Pick<IModelConnection, "middleSegmentOffset"
 
 /** What a user can change of a layer. */
 type LayerState = Pick<IModelLayer, "left" | "top" | "width" | "height"
-    | "name" | "elevation">;
+    | "name" | "elevation" | "color">;
 
 /** The shown diagram's figures and layers, as they are. */
 interface ISnapshot {
@@ -552,6 +554,7 @@ const figureState = (figure: IModelFigure): FigureState => {
         triggersExpanded: figure.triggersExpanded,
         layer: figure.layer,
         elevation: figure.elevation,
+        color: figure.color,
     };
 };
 
@@ -572,6 +575,7 @@ const layerState = (layer: IModelLayer): LayerState => {
         height: layer.height,
         name: layer.name,
         elevation: layer.elevation,
+        color: layer.color,
     };
 };
 
@@ -986,6 +990,7 @@ export class EerFigureSet implements IFigureSet {
                     .filter((table) => { return table.kind === "table"; })
                     .map((table) => { return tableOf(table.figure); })
                     .sort((a, b) => { return a.localeCompare(b); }),
+                color: layer.color,
                 editable,
             };
         }
@@ -1004,6 +1009,7 @@ export class EerFigureSet implements IFigureSet {
                 // it changes.
                 height: isUpright(node.kind) ? node.layout.height : rect.height,
                 autoHeight: node.figure.manualSizing !== true,
+                color: node.figure.color ?? "",
                 editable,
             };
         }
@@ -1111,6 +1117,11 @@ export class EerFigureSet implements IFigureSet {
             elevate.elevateBy(change.z - this.#elevation(layer));
             elevate.finish();
         }
+        if (change.color !== undefined) {
+            // None is a new layer's.
+            layer.color = change.color === "" ? LAYER_COLOR : change.color;
+            this.#placeLayer(node);
+        }
     }
 
     /**
@@ -1193,6 +1204,14 @@ export class EerFigureSet implements IFigureSet {
         if (change.height !== undefined) {
             figure.manualSizing = true;
             figure.height = Math.max(CARD.headerHeight, change.height);
+        }
+        if (change.color !== undefined) {
+            // None is its kind's.
+            if (change.color === "") {
+                delete figure.color;
+            } else {
+                figure.color = change.color;
+            }
         }
         this.#relayout(node);
         // Moved off or onto a layer, it is filed as a drag files it.
@@ -1299,19 +1318,11 @@ export class EerFigureSet implements IFigureSet {
 
     #buildLayer(layer: IModelLayer): void {
         const theme = this.#host!.theme;
-        const color = new THREE.Color(layer.color || "#e0e0e0");
-        // Solid, so that the grid lies under the layer rather than showing
-        // through it: the layer's tint over the paper, mixed the way the
-        // see-through plate it replaces was blended.
+        // Coloured as it is placed: its colour may change.
         const plate = new THREE.Mesh(new THREE.BufferGeometry(),
-            new THREE.MeshBasicMaterial({
-                color: tintOver(color, new THREE.Color(theme.paper),
-                    theme.dark ? 0.35 : 0.6),
-            }));
+            new THREE.MeshBasicMaterial());
         const border = new THREE.LineLoop(new THREE.BufferGeometry(),
-            new THREE.LineBasicMaterial({
-                color, transparent: true, opacity: 0.9,
-            }));
+            new THREE.LineBasicMaterial({ transparent: true, opacity: 0.9 }));
         const label = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
             new THREE.MeshBasicMaterial({ transparent: true }));
         setDrawOrder(plate, DRAW_ORDER.base);
@@ -1348,6 +1359,16 @@ export class EerFigureSet implements IFigureSet {
     /** Puts a layer's plate, border and name where the layer is. */
     #placeLayer(node: ILayerNode): void {
         const { layer } = node;
+        const theme = this.#host?.theme;
+        if (theme !== undefined) {
+            const color = new THREE.Color(layer.color || "#e0e0e0");
+            // Solid, so that the grid lies under the layer rather than
+            // showing through it: the layer's tint over the paper, mixed the
+            // way the see-through plate it replaces was blended.
+            node.plate.material.color.copy(tintOver(color,
+                new THREE.Color(theme.paper), theme.dark ? 0.35 : 0.6));
+            node.border.material.color.copy(color);
+        }
         const size = `${layer.width}x${layer.height}`;
         if (node.builtSize !== size) {
             node.builtSize = size;
@@ -1513,21 +1534,26 @@ export class EerFigureSet implements IFigureSet {
                 elevation: () => { return this.#topElevation(node); },
                 // Notes and pictures have no header, and no menu. As high
                 // as a card's header, so every button is one size: an
-                // upright card's centred on its top, a slab deep.
+                // upright card's centred on its top, a slab deep. Read
+                // when drawn: the header's colour may change.
                 ...(card ? {
-                    menuBand: {
-                        top: upright
-                            ? (CARD_THICKNESS - CARD.headerHeight) / 2 : 0,
-                        height: CARD.headerHeight,
-                        color: contrastingText(figureColor(figure)),
+                    get menuBand() {
+                        return {
+                            top: upright
+                                ? (CARD_THICKNESS - CARD.headerHeight) / 2 : 0,
+                            height: CARD.headerHeight,
+                            color: contrastingText(figureColor(figure)),
+                        };
                     },
                 } : {}),
                 // An upright card's face has its header too, at its top.
                 ...(upright ? {
-                    frontMenuBand: {
-                        top: 0,
-                        height: CARD.headerHeight,
-                        color: contrastingText(figureColor(figure)),
+                    get frontMenuBand() {
+                        return {
+                            top: 0,
+                            height: CARD.headerHeight,
+                            color: contrastingText(figureColor(figure)),
+                        };
                     },
                 } : {}),
             },
@@ -1814,7 +1840,8 @@ export class EerFigureSet implements IFigureSet {
         // The shapes depend on the card's size alone; a move only moves
         // them.
         const { width, height } = node.layout;
-        const size = `${width}x${height}`;
+        // The slab's colour is baked into it.
+        const size = `${width}x${height}:${figureColor(node.figure)}`;
         if (node.builtSize !== size) {
             node.builtSize = size;
             node.mesh.geometry.dispose();

@@ -171,8 +171,8 @@ figure sets, so the canvas knows nothing of tables or layers:
   preset picked is the webview's, kept in its state, so the default is
   what a viewer without one opens with.
 - **Three projections** (the toolbar's Projection section, the user's
-  names): **DB (2D)**, the page from above; **Isometric**, the 3D view;
-  **REST (2D)** (`ViewMode` `front`), level from the page's bottom edge
+  names): **2D Top**, the page from above; **Isometric**, the 3D view;
+  **2D Front** (`ViewMode` `front`), level from the page's bottom edge
   (`FRONT_VIEW`, tilt 0 and turn 0), so REST object figures, standing
   upright, show in full and what lies flat only its slab's front side,
   the view the 2D one turned round. The canvas blends the camera from

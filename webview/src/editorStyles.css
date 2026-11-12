@@ -27,6 +27,7 @@
 
 /* The icon font VS Code draws its own buttons with. */
 @import "@vscode/codicons/dist/codicon.css";
+@import "./swatches.css";
 
 * {
     box-sizing: border-box;
@@ -295,32 +296,6 @@ button:disabled {
 .row.wrap {
     flex-wrap: wrap;
     gap: 0.5rem 1rem;
-}
-
-.colors {
-    gap: 0.35rem;
-    /* The selected swatch's outline reaches 4px past it, and the tab
-       body's scrolling clips anything left of its edge. */
-    padding-left: 0.3rem;
-}
-
-.swatch {
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0;
-    border: 1px solid var(--vscode-contrastBorder, transparent);
-    border-radius: 50%;
-    background: transparent;
-    color: var(--vscode-descriptionForeground);
-}
-
-.swatch.selected {
-    outline: 2px solid var(--vscode-focusBorder);
-    outline-offset: 2px;
 }
 
 .checkbox {
