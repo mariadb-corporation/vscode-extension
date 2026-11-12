@@ -17,7 +17,7 @@
 
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type * as vscode from "vscode";
@@ -62,6 +62,13 @@ describe("parseMsmLink", () => {
             .toEqual({ link: { project: "/w/shop" } });
         expect(parseMsmLink("/msm/openDiagram", "project=/w/shop&diagram="))
             .toEqual({ link: { project: "/w/shop" } });
+    });
+
+    it("normalizes the project folder", () => {
+        expect(parseMsmLink("/msm/openDiagram",
+            "project=/w/x/../shop.msm.project/")).toEqual({
+            link: { project: resolve("/w/shop.msm.project") },
+        });
     });
 
     it("refuses other paths, no project and a relative one", () => {

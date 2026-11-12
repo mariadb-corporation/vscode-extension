@@ -16,7 +16,7 @@
  */
 
 import { stat } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 import type * as vscode from "vscode";
 
@@ -100,7 +100,10 @@ export const parseMsmLink = (
     }
     const diagram = parameters.get("diagram")?.trim() || undefined;
 
-    return { link: { project, diagram } };
+    // As the rest of the extension has a folder (a Uri's fsPath): no
+    // trailing separator, no "..", the platform's separators, so a listed
+    // project is found again and keeps its place.
+    return { link: { project: resolve(project), diagram } };
 };
 
 /**
@@ -117,9 +120,9 @@ export const notAProject = async (
         return `${folder} is no MSM project: its name has to end in `
             + `.msm.project.`;
     }
-    try {
-        await stat(join(folder, "msm.project.json"));
-    } catch {
+    const settings = await stat(join(folder, "msm.project.json"))
+        .catch(() => { return undefined; });
+    if (settings?.isFile() !== true) {
         return `${folder} is no MSM project: it has no msm.project.json.`;
     }
 

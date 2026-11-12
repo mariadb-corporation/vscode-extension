@@ -1263,9 +1263,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
 
                 return;
             }
-            void vscode.window.showWarningMessage(
-                `${path.basename(projectPath)} has no schema diagram named `
-                + `${wanted}.`);
+            // With no diagrams at all, the message below says enough.
+            if (listing.diagrams.length > 0) {
+                void vscode.window.showWarningMessage(
+                    `${path.basename(projectPath)} has no schema diagram `
+                    + `named ${wanted}.`);
+            }
         }
         if (listing.diagrams.length === 0) {
             const create = "New Schema Diagram...";
