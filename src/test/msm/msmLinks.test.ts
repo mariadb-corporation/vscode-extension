@@ -22,9 +22,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type * as vscode from "vscode";
 
+import { diagramNamed } from "../../msm/msmCommands.js";
 import {
-    diagramNamed, linkParameters, MsmLinkHandler, notAProject, parseMsmLink,
-    type IMsmLinkHost,
+    linkParameters, MsmLinkHandler, parseMsmLink, type IMsmLinkHost,
 } from "../../msm/msmLinks.js";
 
 describe("linkParameters", () => {
@@ -78,7 +78,6 @@ describe("diagramNamed", () => {
     it("prefers the exact name, else the one differing in case", () => {
         expect(diagramNamed(["Main", "main"], "main")).toBe("main");
         expect(diagramNamed(["Main", "Orders"], "orders")).toBe("Orders");
-        expect(diagramNamed(["Main", "MAIN"], "main")).toBeUndefined();
         expect(diagramNamed(["Main"], "Other")).toBeUndefined();
     });
 });
@@ -97,12 +96,8 @@ describe("MsmLinkHandler", () => {
         await rm(root, { recursive: true, force: true });
     });
 
-    /**
-     * @param names The project's diagrams.
-     *
-     * @returns A host recording what was done.
-     */
-    const hostWith = (names: string[]): IMsmLinkHost & { did: string[] } => {
+    /** @returns A host recording what was done. */
+    const recordingHost = (): IMsmLinkHost & { did: string[] } => {
         const did: string[] = [];
 
         return {
@@ -112,10 +107,8 @@ describe("MsmLinkHandler", () => {
 
                 return Promise.resolve();
             },
-            diagramNames: () => { return Promise.resolve(names); },
-            openDiagram: (_path, name) => { did.push(`open ${name}`); },
-            pickDiagram: () => {
-                did.push("pick");
+            openDiagram: (_path, name) => {
+                did.push(`open ${name ?? "(pick)"}`);
 
                 return Promise.resolve();
             },
@@ -134,39 +127,33 @@ describe("MsmLinkHandler", () => {
         return { path, query } as vscode.Uri;
     };
 
-    it("adds the project and opens the diagram named", async () => {
-        const host = hostWith(["Main", "Orders"]);
-        await new MsmLinkHandler(host).handleUri(
-            link(`project=${project}&diagram=orders`));
-        expect(host.did).toEqual([`add ${project}`, "open Orders"]);
-    });
-
-    it("lets the user pick where no diagram or an unknown one is named",
+    it("adds the project and opens the diagram named, or one picked",
         async () => {
-            const host = hostWith(["Main"]);
-            await new MsmLinkHandler(host).handleUri(
-                link(`project=${project}`));
-            await new MsmLinkHandler(host).handleUri(
-                link(`project=${project}&diagram=Other`));
+            const host = recordingHost();
+            const handler = new MsmLinkHandler(host);
+            await handler.handleUri(link(`project=${project}&diagram=Orders`));
+            await handler.handleUri(link(`project=${project}&diagram=`));
             expect(host.did).toEqual([
-                `add ${project}`, "pick",
-                `add ${project}`,
-                "warn shop.msm.project has no schema diagram named Other.",
-                "pick",
+                `add ${project}`, "open Orders",
+                `add ${project}`, "open (pick)",
             ]);
         });
 
     it("adds nothing that is no MSM project", async () => {
-        const host = hostWith([]);
-        await new MsmLinkHandler(host).handleUri(
-            link(`project=${root}&diagram=Main`));
-        await new MsmLinkHandler(host).handleUri(
-            link(`project=${join(root, "gone")}`));
-        await new MsmLinkHandler(host).handleUri(
-            link(`project=${project}`, "/msm/other"));
-        expect(host.did).toHaveLength(3);
-        expect(host.did.every((entry) => { return entry.startsWith("warn"); }))
-            .toBe(true);
-        expect(await notAProject(project)).toBeUndefined();
+        const plain = join(root, "shop");
+        await mkdir(plain);
+        await writeFile(join(plain, "msm.project.json"), "{}");
+        const host = recordingHost();
+        const handler = new MsmLinkHandler(host);
+        await handler.handleUri(link(`project=${plain}`));
+        await handler.handleUri(link(`project=${join(root, "gone.msm.project")}`));
+        await handler.handleUri(link(`project=${project}`, "/msm/other"));
+        expect(host.did).toEqual([
+            `warn ${plain} is no MSM project: its name has to end in `
+                + ".msm.project.",
+            `warn ${join(root, "gone.msm.project")} is no MSM project: it `
+                + "has no msm.project.json.",
+            "warn This MariaDB link is not known: /msm/other",
+        ]);
     });
 });

@@ -388,8 +388,6 @@ export const decorationTypes: MockDecorationType[] = [];
 
 /** Every `registerFileDecorationProvider` call's provider, in order. */
 export const fileDecorationProviders: unknown[] = [];
-/** Every `registerUriHandler` call's handler, in order. */
-export const uriHandlers: unknown[] = [];
 /** What `window.visibleTextEditors` reports. */
 export let visibleTextEditors: MockTextEditor[] = [];
 
@@ -968,9 +966,7 @@ export const window = {
         return { dispose: () => { /* nothing to undo in a test */ } };
     },
 
-    registerUriHandler: (handler: unknown): Disposable => {
-        uriHandlers.push(handler);
-
+    registerUriHandler: (): Disposable => {
         return { dispose: () => { /* nothing to undo in a test */ } };
     },
 

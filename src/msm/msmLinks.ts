@@ -16,33 +16,30 @@
  */
 
 import { stat } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import type * as vscode from "vscode";
 
 import { reportError } from "../errorMessages.js";
+import { isProjectFolder } from "./msmFields.js";
 
 /**
- * The paths of the links this extension answers, under
+ * The path of the one link this extension answers so far, under
  * `<scheme>://mariadb.mariadb-shell`. A coding agent that made an MSM
- * project writes one into its answer, so that a click shows its work:
+ * project writes it into its answer, so that a click shows its work:
  *
  * `vscode://mariadb.mariadb-shell/msm/openDiagram?project=<folder>&diagram=<name>`
  *
- * The scheme is the editor's own (`vscode.env.uriScheme`): `vscode`,
- * `vscode-insiders`, or a Theia app's `uriScheme`.
+ * It adds the project to the MSM Projects view (where it is listed, it
+ * keeps its place) and opens one of its diagrams: the one named by
+ * `diagram`, else one picked. The scheme is the editor's own
+ * (`vscode.env.uriScheme`): `vscode`, `vscode-insiders`, or a Theia app's
+ * `uriScheme`.
  */
-export const MSM_LINK_PATHS = {
-    /**
-     * Adds the project to the MSM Projects view (where it is listed, it
-     * keeps its place) and opens one of its diagrams: the one named by
-     * `diagram`, else one picked.
-     */
-    openDiagram: "/msm/openDiagram",
-} as const;
+const OPEN_DIAGRAM_PATH = "/msm/openDiagram";
 
 /** What an Open Diagram link asks for. */
-export interface IMsmDiagramLink {
+interface IMsmDiagramLink {
     /** The project folder, absolute. */
     project: string;
 
@@ -87,7 +84,7 @@ export const parseMsmLink = (
     path: string,
     query: string,
 ): { link: IMsmDiagramLink } | { error: string } => {
-    if (path !== MSM_LINK_PATHS.openDiagram) {
+    if (path !== OPEN_DIAGRAM_PATH) {
         return { error: `This MariaDB link is not known: ${path}` };
     }
     const parameters = linkParameters(query);
@@ -101,28 +98,24 @@ export const parseMsmLink = (
                 + `absolute path: ${project}`,
         };
     }
-    const diagram = parameters.get("diagram")?.trim();
+    const diagram = parameters.get("diagram")?.trim() || undefined;
 
-    return {
-        link: diagram === undefined || diagram === ""
-            ? { project } : { project, diagram },
-    };
+    return { link: { project, diagram } };
 };
 
 /**
  * @param folder A folder a link named.
  *
- * @returns Why it is no MSM project, or `undefined` where it is one.
+ * @returns Why it is no MSM project, or `undefined` where it is one: a
+ *          `*.msm.project` folder, as the rest of the extension wants it,
+ *          holding an `msm.project.json`.
  */
 export const notAProject = async (
     folder: string,
 ): Promise<string | undefined> => {
-    try {
-        if (!(await stat(folder)).isDirectory()) {
-            return `${folder} is not a folder.`;
-        }
-    } catch {
-        return `${folder} does not exist.`;
+    if (!isProjectFolder(folder)) {
+        return `${folder} is no MSM project: its name has to end in `
+            + `.msm.project.`;
     }
     try {
         await stat(join(folder, "msm.project.json"));
@@ -133,28 +126,6 @@ export const notAProject = async (
     return undefined;
 };
 
-/**
- * @param names A project's diagrams.
- * @param wanted The one a link named.
- *
- * @returns The diagram meant: the one of that name, else the one only
- *          differing in case; `undefined` where there is none, or several.
- */
-export const diagramNamed = (
-    names: string[],
-    wanted: string,
-): string | undefined => {
-    if (names.includes(wanted)) {
-        return wanted;
-    }
-    const lower = wanted.toLowerCase();
-    const alike = names.filter((name) => {
-        return name.toLowerCase() === lower;
-    });
-
-    return alike.length === 1 ? alike[0] : undefined;
-};
-
 /** What following a link needs of the rest of the extension. */
 export interface IMsmLinkHost {
     /**
@@ -163,16 +134,13 @@ export interface IMsmLinkHost {
      */
     addToProjects(projectPath: string): Promise<void>;
 
-    /** The names of a project's diagrams, as msm lists them. */
-    diagramNames(projectPath: string): Promise<string[]>;
+    /**
+     * Opens a diagram of a project: the one named, in any case, else one
+     * the user picks, told where the name was not found.
+     */
+    openDiagram(projectPath: string, name?: string): Promise<void>;
 
-    /** Opens a diagram of a project. */
-    openDiagram(projectPath: string, name: string): void;
-
-    /** Opens a diagram of a project, asking which where it has several. */
-    pickDiagram(projectPath: string): Promise<void>;
-
-    /** Tells the user a link could not be followed as it asked. */
+    /** Tells the user a link could not be followed. */
     warn(message: string): void;
 
     /** Writes to the MariaDB output channel. */
@@ -181,7 +149,7 @@ export interface IMsmLinkHost {
 
 /**
  * Follows the links under `<scheme>://mariadb.mariadb-shell` (see
- * {@link MSM_LINK_PATHS}).
+ * {@link OPEN_DIAGRAM_PATH}).
  *
  * Anyone can write such a link, a web page too, so it is followed only as
  * far as the user could go by hand: a folder that is an MSM project is
@@ -220,21 +188,7 @@ export class MsmLinkHandler implements vscode.UriHandler {
         }
         try {
             await this.#host.addToProjects(project);
-            if (diagram === undefined) {
-                await this.#host.pickDiagram(project);
-
-                return;
-            }
-            const names = await this.#host.diagramNames(project);
-            const name = diagramNamed(names, diagram);
-            if (name !== undefined) {
-                this.#host.openDiagram(project, name);
-
-                return;
-            }
-            this.#host.warn(`${basename(project)} has no schema diagram `
-                + `named ${diagram}.`);
-            await this.#host.pickDiagram(project);
+            await this.#host.openDiagram(project, diagram);
         } catch (error) {
             reportError(this.#host.log, error,
                 `open the MSM project ${project}`);

@@ -302,19 +302,38 @@ export const newDiagramName = (taken: readonly string[]): string => {
 };
 
 /**
+ * Diagram names are unique in any case: their files would collide where
+ * the file system ignores case.
+ *
+ * @param taken The names of the project's diagrams.
+ * @param name A diagram's name, in any case.
+ *
+ * @returns The diagram of that name, the exact one first; `undefined`
+ *          where there is none.
+ */
+export const diagramNamed = (
+    taken: readonly string[],
+    name: string,
+): string | undefined => {
+    if (taken.includes(name)) {
+        return name;
+    }
+    const wanted = name.toLowerCase();
+
+    return taken.find((other) => { return other.toLowerCase() === wanted; });
+};
+
+/**
  * @param taken The names of the project's diagrams.
  * @param name A name for a new one.
  *
- * @returns Whether a diagram has that name already, in any case: their
- *          files would collide where the file system ignores case.
+ * @returns Whether a diagram has that name already, in any case.
  */
 const diagramNameTaken = (
     taken: readonly string[],
     name: string,
 ): boolean => {
-    const wanted = name.toLowerCase();
-
-    return taken.some((other) => { return other.toLowerCase() === wanted; });
+    return diagramNamed(taken, name) !== undefined;
 };
 
 /** The name msm keeps for a project's schema snapshot row. */

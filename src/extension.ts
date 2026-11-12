@@ -52,8 +52,8 @@ import {
     msmToolArgs,
 } from "./mcp/msmApi.js";
 import {
-    diagramNameProblem, msmAction, msmCall, MsmCommands, newDiagramName,
-    projectPathOf,
+    diagramNamed, diagramNameProblem, msmAction, msmCall, MsmCommands,
+    newDiagramName, projectPathOf,
 } from "./msm/msmCommands.js";
 import { projectOfScriptFile, schemaNameOfFolder } from "./msm/msmFields.js";
 import { MsmLinkHandler } from "./msm/msmLinks.js";
@@ -1241,14 +1241,32 @@ export const activate = (context: vscode.ExtensionContext): void => {
             name, modelerHost);
     };
     /**
-     * Opens a diagram of a project, asking which where the project has
-     * several.
+     * Opens a diagram of a project: the one named, else one asked for where
+     * the project has several.
      *
      * @param projectPath The project folder.
+     * @param wanted The diagram's name, in any case; where the project has
+     *               none of that name, the user is told and asked.
      */
-    const pickProjectDiagram = async (projectPath: string): Promise<void> => {
+    const pickProjectDiagram = async (
+        projectPath: string,
+        wanted?: string,
+    ): Promise<void> => {
         const listing = await (await msmApi()).listSchemaDiagrams(
             projectPath);
+        if (wanted !== undefined) {
+            const name = diagramNamed(listing.diagrams.map((diagram) => {
+                return diagram.name;
+            }), wanted);
+            if (name !== undefined) {
+                openProjectDiagram(projectPath, name);
+
+                return;
+            }
+            void vscode.window.showWarningMessage(
+                `${path.basename(projectPath)} has no schema diagram named `
+                + `${wanted}.`);
+        }
         if (listing.diagrams.length === 0) {
             const create = "New Schema Diagram...";
             void vscode.window.showInformationMessage(
@@ -1982,9 +2000,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             addToProjects: (projectPath) => {
                 return msmCommands.addToProjects(projectPath);
             },
-            diagramNames: diagramNamesOf,
-            openDiagram: openProjectDiagram,
-            pickDiagram: pickProjectDiagram,
+            openDiagram: pickProjectDiagram,
             warn: (message) => {
                 void vscode.window.showWarningMessage(message);
             },

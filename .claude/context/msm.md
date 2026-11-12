@@ -226,9 +226,10 @@ opens one of its diagrams:
 
 `src/msm/msmLinks.ts`, a `vscode.window.registerUriHandler` (activation
 event `onUri`). `project` is the absolute project folder, `diagram` the
-diagram's name (exact, else the one differing only in case); left out or
-not found, the user picks one (`pickProjectDiagram`, which offers New
-Schema Diagram... where there is none). Adding is `addToProjects`, an
+diagram's name (`diagramNamed`: exact, else in any case, as names are
+unique in any case); `pickProjectDiagram(project, wanted)` opens it, or,
+left out or not found (told so), lets the user pick one, offering New
+Schema Diagram... where there is none. Adding is `addToProjects`, an
 action, where a listed project keeps its place.
 
 - **The scheme is the editor's**, `vscode.env.uriScheme`: `vscode`,
@@ -240,8 +241,8 @@ action, where a listed project keeps its place.
   extension for a link (`onUri:<scheme>://<id>`) and looks for the handler
   right after, with no queue; VS Code queues.
 - **Anyone can write such a link**, a web page too, so it goes only as far
-  as the user could by hand: the folder must exist and hold
-  `msm.project.json`, nothing runs, nothing in the project changes, MCP
+  as the user could by hand: the folder must be a `*.msm.project` one
+  (`isProjectFolder`, as the dialogs want) and hold `msm.project.json`, nothing runs, nothing in the project changes, MCP
   access is not touched. VS Code asks the user before handing an outside
   link to an extension; Theia does not ask.
 - **Opening one from code, in Theia, is `vscode.open`**, never
