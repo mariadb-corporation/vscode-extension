@@ -282,6 +282,11 @@ export interface ICanvasHost {
      *          3D one, between while the view turns.
      */
     lift(): number;
+    /**
+     * @returns How far the view has turned to the front one (2D Front), 0
+     *          to 1: 0 in 2D Top and the Isometric view.
+     */
+    front(): number;
     /** Asks for a frame. */
     invalidate(): void;
     /**

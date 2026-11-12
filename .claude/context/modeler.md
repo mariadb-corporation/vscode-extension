@@ -180,7 +180,11 @@ figure sets, so the canvas knows nothing of tables or layers:
   the Isometric angles to the front (`#frontT`), so every switch turns
   animated; the lift is full there (`liftFactor` of the tilt, 0). The
   items' tops are edge-on: their menu buttons are not shown, an upright
-  card's front one is. Kept per diagram as any view (`mode: "front"`).
+  card's front one is. The relationship lines' end markers (crow's foot,
+  bars) are turned up about their line as the view turns to the front
+  (`turnedMarker`, by `host.front()` x 90°: the user's request), else
+  they would be edge-on there; flat in the other two views. Kept per
+  diagram as any view (`mode: "front"`).
   An orbit from it starts at the lowest tilt. Not done: moving figures in
   it (the pointer's ray runs along the page, which it never meets).
 - **The Isometric button is a split button**: the main part goes to the

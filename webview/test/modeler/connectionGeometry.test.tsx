@@ -28,6 +28,7 @@ import {
     sideSlots,
     splitStubs,
     spreadAnchors,
+    turnedMarker,
     type IAnchors,
 } from "../../src/modeler/connectionGeometry.js";
 
@@ -300,5 +301,31 @@ describe("ends placed by hand", () => {
 
         expect(facing.middle?.axis).toBe("x");
         expect(facing.points[0]).toEqual({ x: 116, y: 30 });
+    });
+});
+
+describe("turnedMarker", () => {
+    it("leaves a marker flat unturned, and stands what is across the line "
+        + "up when turned by 90 degrees", () => {
+        const at = { x: 100, y: 25 };
+        const foot = crowsFoot(at, "right", false);
+
+        const flat = turnedMarker(foot, at, "right", 0);
+        expect(flat.map((segment) => {
+            return segment.map(({ x, y }) => { return { x, y }; });
+        })).toEqual(foot);
+        expect(flat.flat().every((point) => { return point.dz === 0; }))
+            .toBe(true);
+
+        const turned = turnedMarker(foot, at, "right", Math.PI / 2);
+        // The prongs' ends were half a marker above and below the line on
+        // the page; now on the line, as far above and below it.
+        const ends = turned.slice(1).map(([, end]) => {
+            return [Math.round(end.y), Math.round(end.dz)];
+        });
+        expect(ends).toEqual([[25, MARKER_SIZE / 2], [25, -MARKER_SIZE / 2]]);
+        // Along the line nothing moves: the root stays where it was.
+        expect(turned[0][0]).toMatchObject({ x: 100 + MARKER_SIZE, y: 25 });
+        expect(turned[0][0].dz).toBeCloseTo(0, 10);
     });
 });

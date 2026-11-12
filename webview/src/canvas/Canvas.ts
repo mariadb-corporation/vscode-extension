@@ -924,6 +924,7 @@ export class Canvas {
             scale: () => { return this.#scale(); },
             viewport: () => { return this.#viewport(); },
             lift: () => { return this.#lift(); },
+            front: () => { return this.#viewT * this.#frontT; },
             invalidate: () => { this.#invalidate(); },
             startEdit: (spec) => { this.#startEdit(spec); },
             select: (ids) => { this.#select(ids, false); },

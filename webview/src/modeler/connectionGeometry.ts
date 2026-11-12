@@ -602,6 +602,42 @@ export const oneMarker = (
     return segments;
 };
 
+/**
+ * Turns an end marker about its line, so that what lies across the line
+ * stands up instead: lying flat on the page, a marker is edge-on in the
+ * front view (2D Front), which sees it once turned by 90 degrees.
+ *
+ * @param segments The marker, as `crowsFoot` or `oneMarker` drew it.
+ * @param at Where the line meets the figure.
+ * @param side The figure's side it meets.
+ * @param angle How far to turn it, in radians: 0 leaves it flat.
+ *
+ * @returns Its segments' ends, each with how high above the line it is.
+ */
+export const turnedMarker = (
+    segments: readonly Segment[],
+    at: IPoint,
+    side: Side,
+    angle: number,
+): Array<[IPoint & { dz: number }, IPoint & { dz: number }]> => {
+    const out = outward(side);
+    const across = { x: -out.y, y: out.x };
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const turn = (point: IPoint): IPoint & { dz: number } => {
+        // How far across the line, which goes up as much as it is turned.
+        const off = (point.x - at.x) * across.x + (point.y - at.y) * across.y;
+
+        return {
+            x: point.x - across.x * off * (1 - cos),
+            y: point.y - across.y * off * (1 - cos),
+            dz: off * sin,
+        };
+    };
+
+    return segments.map(([from, to]) => { return [turn(from), turn(to)]; });
+};
+
 /** How far a split connection's stubs reach out of their figures. */
 const SPLIT_STUB_LENGTH = 40;
 

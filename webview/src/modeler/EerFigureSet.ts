@@ -111,6 +111,7 @@ import {
     pointOnSide,
     sideSlots,
     spreadAnchors,
+    turnedMarker,
     type IAnchors,
     type Side,
     splitStubs,
@@ -2356,17 +2357,28 @@ export class EerFigureSet implements IFigureSet {
 
                     return [{ ...from, z: a }, { ...to, z: b }];
                 });
-        const at = (z: number) => {
-            return ([from, to]: Segment): [IPoint & { z: number },
-                IPoint & { z: number }] => {
-                return [{ ...from, z }, { ...to, z }];
-            };
+        // Turned up as the view turns to the front, where lying flat
+        // they would be edge-on.
+        const angle = (this.#host?.front() ?? 0) * Math.PI / 2;
+        const ended = (
+            segments: Segment[],
+            point: IPoint,
+            side: Side,
+            z: number,
+        ): Array<[IPoint & { z: number }, IPoint & { z: number }]> => {
+            return turnedMarker(segments, point, side, angle).map((ends) => {
+                return [{ ...ends[0], z: z + ends[0].dz },
+                    { ...ends[1], z: z + ends[1].dz }];
+            });
         };
+        const first = route.points[0];
+        const last = route.points[route.points.length - 1];
         const markers = [
-            ...(node.many ? crowsFoot : oneMarker)(route.points[0],
-                route.startSide, node.mandatory).map(at(startZ)),
-            ...oneMarker(route.points[route.points.length - 1], route.endSide,
-                node.referencedMandatory).map(at(endZ)),
+            ...ended((node.many ? crowsFoot : oneMarker)(first,
+                route.startSide, node.mandatory), first, route.startSide,
+            startZ),
+            ...ended(oneMarker(last, route.endSide, node.referencedMandatory),
+                last, route.endSide, endZ),
         ];
         node.line.geometry.dispose();
         node.line.geometry = sloped(segments);
