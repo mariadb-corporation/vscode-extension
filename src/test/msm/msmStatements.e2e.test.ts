@@ -37,24 +37,27 @@ import {
     type IOutlineRest,
 } from "../../mrs/restOutline.js";
 import { projectRestSource } from "../../msm/projectRestSource.js";
+import { fillTemplate } from "../../msm/schemaObjects.js";
 import { MCP_SERVER_ARGS } from "../../shell/constants.js";
 import { LspEdit } from "../../tableEditor/lspEdit.js";
 
 /**
- * A project's REST items written by msm, not by the extension: what the
- * REST dialogs save goes to `msm.set_rest_statements`, and Delete REST
- * Service, Schema or Object goes to `msm.drop_rest_object`. msm places them in
- * Section 180; mariadb-lsp's outline reads back where they went. Opt-in.
- * Run with
+ * A project's statements written by msm, not by the extension: what the
+ * REST dialogs save goes to `msm.set_rest_statements`, Delete REST
+ * Service, Schema or Object to `msm.drop_rest_object`, and a schema
+ * object's filled template from its Add to `msm.set_schema_statements`.
+ * msm places them; mariadb-lsp's outline reads back where they went.
+ * Opt-in. Run with
  *
  *     MARIADB_SHELL_E2E=/path/to/mariadb-shell \
- *     MARIADB_LSP=/path/to/mariadb-lsp npx vitest run msmRest.e2e
+ *     MARIADB_LSP=/path/to/mariadb-lsp npx vitest run msmStatements.e2e
  *
  * The shell runs with a configuration home of its own, whose plugins are a
  * mariadb-shell-plugins checkout (MARIADB_SHELL_PLUGINS, else the one next
  * to this repository). MARIADB_LSP is a mariadb-lsp with `rest_statements`,
- * set with `mcp setup --lspPath` for msm to use: without it msm takes the
- * one next to the shell, and refuses one without the feature.
+ * and the replace_* edit ops, set with `mcp setup --lspPath` for msm to
+ * use: without it msm takes the one next to the shell, and refuses one
+ * without them.
  */
 
 const shell = process.env.MARIADB_SHELL_E2E;
@@ -79,7 +82,7 @@ const CUSTOMERS = "CREATE OR REPLACE REST VIEW /customers "
     + "    customerId: customer_id @KEY,\n    name: name\n};";
 
 describe.runIf(shell !== undefined && lspBinary !== undefined)(
-    "a project's REST items written by msm", () => {
+    "a project's statements written by msm", () => {
         let home: string;
         let connection: IMcpConnection;
         let msm: MsmApi;
@@ -249,4 +252,60 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
                 expect(outlineRestService(await restOf(), "/svc"))
                     .toBeUndefined();
             }, 60_000);
+
+        /** An Add of the MSM Projects view, with msm's own template. */
+        const addFromTemplate = async (kind: "view" | "trigger", name: string,
+            table?: string) => {
+            const defaults = await msm.getObjectTemplates();
+            const statement = fillTemplate(kind, defaults.templates[kind],
+                defaults.placeholders[kind], { name, schema: "shop",
+                    ...(table === undefined ? {} : { table }) });
+
+            return await msm.setSchemaStatements(project, [statement],
+                baseHash, [{ kind, name,
+                    ...(table === undefined ? {} : { table }) }]);
+        };
+
+        it("adds a view and a trigger from msm's templates", async () => {
+            const view = await addFromTemplate("view", "recent");
+            next(view);
+            const [added] = view.statements;
+            expect(added).toMatchObject({ kind: "view", name: "recent",
+                replaced: false });
+            const lines = readFileSync(added!.file, "utf8").split("\n");
+            expect(lines[added!.line - 1]).toMatch(/VIEW `recent`/u);
+
+            const trigger = await addFromTemplate("trigger", "orders_bi",
+                "orders");
+            next(trigger);
+            expect(trigger.statements[0]).toMatchObject({ kind: "trigger",
+                name: "orders_bi", replaced: false });
+            const outline = await lsp.outline(script) as {
+                schemas: Array<{ views: Array<{ name: string }>;
+                    triggers: Array<{ name: string; table: string }> }>;
+            };
+            expect(outline.schemas[0]!.views.map((v) => { return v.name; }))
+                .toContain("recent");
+            expect(outline.schemas[0]!.triggers).toContainEqual(
+                expect.objectContaining({ name: "orders_bi" }));
+        }, 60_000);
+
+        it("refuses a template that creates something else, writing "
+            + "nothing", async () => {
+            const before = readFileSync(script, "utf8");
+            await expect(msm.setSchemaStatements(project,
+                ["CREATE TABLE `other` (id INT)"], baseHash,
+                [{ kind: "view", name: "other" }])).rejects.toThrow(/Statement 1/u);
+            expect(readFileSync(script, "utf8")).toBe(before);
+        }, 60_000);
+
+        it("replaces a view where it stands", async () => {
+            const result = await msm.setSchemaStatements(project,
+                ["CREATE VIEW `recent` AS SELECT 2 AS two"], baseHash,
+                [{ kind: "view", name: "recent" }]);
+            next(result);
+            expect(result.statements[0]).toMatchObject({ kind: "view",
+                name: "recent", replaced: true, changed: true });
+            expect(readFileSync(script, "utf8")).toMatch(/SELECT 2 AS two/u);
+        }, 60_000);
     });

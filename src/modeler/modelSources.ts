@@ -20,9 +20,10 @@ import { basename } from "node:path";
 
 import type {
     IMsmApi,
-    IMsmNewObject,
+    IMsmExpectedObject,
     IMsmRestItem,
     IMsmSchemaEdit,
+    IMsmSchemaStatementsSet,
 } from "../mcp/msmApi.js";
 import {
     callArguments,
@@ -653,34 +654,35 @@ export class ProjectModelSource implements IModelSource {
     }
 
     /**
-     * Adds a schema object from a SQL template, as an edit of the schema
-     * in turn with the viewer's: the diagrams' changes go first, and the
-     * snapshot it leaves is the one the next edit is made against.
+     * Puts CREATE statements of schema objects into the project, where msm
+     * keeps each kind, as an edit of the schema in turn with the viewer's.
      *
-     * @param object What to add.
-     * @param baseHash The snapshot's `source_hash` it was named against.
+     * @param statements One CREATE each.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     * @param expect What each statement must create.
+     * @param words What the Actions tab says of them.
      *
-     * @returns Where msm wrote the new statement.
+     * @returns Where each statement went.
      */
-    public async addObject(
-        object: IMsmNewObject,
+    public async setSchemaStatements(
+        statements: string[],
         baseHash: string,
-    ): Promise<{ file: string; line: number }> {
+        expect: IMsmExpectedObject[],
+        words: { doing: string; done: string },
+    ): Promise<IMsmSchemaStatementsSet["statements"]> {
         await this.flush();
-        const added = await this.#enqueuedAction({
-            doing: `Adding the ${object.kind} ${object.name} to ${this.#schema}`,
-            done: `Added the ${object.kind} ${object.name} to ${this.#schema}`,
-        }, "msm.add_schema_object", { kind: object.kind, name: object.name,
-            ...(object.table === undefined ? {} : { table: object.table }),
-            ...(object.template === undefined ? {} : { template: "(yours)" }) },
-        (api) => {
-            return api.addSchemaObject(this.projectPath, object, baseHash);
-        }, (result) => {
-            return `${result.file}:${String(result.line)}`;
-        });
-        this.#bases = hashesOf(added.rows);
+        const set = await this.#enqueuedAction(words,
+            "msm.set_schema_statements", { expect }, (api) => {
+                return api.setSchemaStatements(this.projectPath, statements,
+                    baseHash, expect);
+            }, (result) => {
+                return result.statements.map((statement) => {
+                    return `${statement.file}:${String(statement.line)}`;
+                }).join(", ");
+            });
+        this.#bases = hashesOf(set.rows);
 
-        return added;
+        return set.statements;
     }
 
     /**

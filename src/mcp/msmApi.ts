@@ -32,7 +32,9 @@ import type {
     IOnlineAlterSetting,
 } from "../tableEditor/onlineAlter.js";
 import type { ITaskStarted } from "./taskApi.js";
-import { CONNECTION_COLORS, type ConnectionColor } from "./types.js";
+import {
+    CONNECTION_COLORS, type ConnectionColor, type ObjectType,
+} from "./types.js";
 
 /** One copyright notice of a schema project. */
 export interface IMsmCopyright {
@@ -408,12 +410,13 @@ export interface IMsmObjectTemplates {
     placeholders: Record<MsmObjectKind, string[]>;
 }
 
-/** What a new schema object is made of. */
-export interface IMsmNewObject {
-    kind: MsmObjectKind;
+/**
+ * What a statement of `msm.set_schema_statements` must create, checked by
+ * msm before anything is written.
+ */
+export interface IMsmExpectedObject {
+    kind: ObjectType;
     name: string;
-    /** The user's template; left out, msm's default. */
-    template?: string;
     /** A trigger's table. */
     table?: string;
 }
@@ -430,11 +433,14 @@ export interface IMsmSchemaEditResult {
     notes: Array<{ kind?: string; message: string }>;
 }
 
-/** What `msm.add_schema_object` answers with. */
-export interface IMsmObjectAdded extends IMsmSchemaEditResult {
-    /** The file the new statement is in, and the line it starts on (1-based). */
-    file: string;
-    line: number;
+/** What `msm.set_schema_statements` answers with. */
+export interface IMsmSchemaStatementsSet extends IMsmSchemaEditResult {
+    /**
+     * Where each statement went, 1-based; whether it replaced an object
+     * the project has, and whether that changed it.
+     */
+    statements: Array<{ kind: ObjectType; name: string; file: string;
+        line: number; replaced: boolean; changed: boolean }>;
 }
 
 /**
@@ -531,8 +537,9 @@ export interface IMsmApi {
     editSchema(projectPath: string, edits: IMsmSchemaEdit[],
         baseHash: string): Promise<IMsmSchemaEditResult>;
     getObjectTemplates(): Promise<IMsmObjectTemplates>;
-    addSchemaObject(projectPath: string, object: IMsmNewObject,
-        baseHash: string): Promise<IMsmObjectAdded>;
+    setSchemaStatements(projectPath: string, statements: string[],
+        baseHash: string,
+        expect?: IMsmExpectedObject[]): Promise<IMsmSchemaStatementsSet>;
     setRestStatements(projectPath: string, statements: string[],
         baseHash: string,
         replaces?: IMsmRestItem): Promise<IMsmRestStatementsSet>;
@@ -840,18 +847,17 @@ export const msmToolArgs = {
             schema_project_path: projectPath,
         };
     },
-    addSchemaObject: (
+    setSchemaStatements: (
         projectPath: string,
-        object: IMsmNewObject,
+        statements: string[],
         baseHash: string,
+        expect?: IMsmExpectedObject[],
     ): Record<string, unknown> => {
         return given({
             schema_project_path: projectPath,
-            kind: object.kind,
-            name: object.name,
+            statements,
             base_hash: baseHash,
-            template: object.template,
-            table: object.table,
+            expect,
         });
     },
     setRestStatements: (
@@ -1439,29 +1445,34 @@ export class MsmApi implements IMsmApi {
     }
 
     /**
-     * Adds a view, routine, trigger, event or sequence to the project from
-     * a SQL template filled with its name, where msm keeps that kind (its
-     * section, or the section's breakout file), as an edit of the schema.
+     * Puts CREATE statements of schema objects into the project where msm
+     * keeps each kind: a new object is added, a view, routine, trigger or
+     * event the project has is replaced where it stands, and a table or
+     * sequence it has is refused (`msm.edit_schema` changes those). One
+     * edit of the schema: all of them or none.
      *
      * @param projectPath The project folder.
-     * @param object What to add.
-     * @param baseHash The snapshot's `source_hash` it was named against.
+     * @param statements One CREATE each, named without the schema.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     * @param expect What each statement must create; a mismatch is
+     *        refused before anything is written.
      *
-     * @returns The edit's result, and where the new statement is.
+     * @returns The edit's result, and where each statement went.
      */
-    public async addSchemaObject(
+    public async setSchemaStatements(
         projectPath: string,
-        object: IMsmNewObject,
+        statements: string[],
         baseHash: string,
-    ): Promise<IMsmObjectAdded> {
-        const tool = "msm.add_schema_object";
+        expect?: IMsmExpectedObject[],
+    ): Promise<IMsmSchemaStatementsSet> {
+        const tool = "msm.set_schema_statements";
         const result = decodeObject<IEditResultOnTheWire & {
-            file: string; line: number; }>(tool,
-            await this.caller.callTool(tool, msmToolArgs.addSchemaObject(
-                projectPath, object, baseHash)));
+            statements?: IMsmSchemaStatementsSet["statements"]; }>(tool,
+            await this.caller.callTool(tool, msmToolArgs.setSchemaStatements(
+                projectPath, statements, baseHash, expect)));
 
-        return { ...editResultOf(result), file: result.file,
-            line: result.line };
+        return { ...editResultOf(result),
+            statements: result.statements ?? [] };
     }
 
     /**

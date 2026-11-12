@@ -1362,26 +1362,33 @@ export const activate = (context: vscode.ExtensionContext): void => {
         return hash;
     };
     /**
-     * Runs an msm REST tool, saying what a MariaDB Shell without it lacks.
+     * Runs an msm tool, saying what a MariaDB Shell without it lacks.
      *
      * @param tool The tool.
+     * @param doing What it is called for, for the message.
      * @param call The call.
+     * @param otherwise How else it can be done, `, or ...`.
      *
      * @returns What it answered.
      */
-    const restTool = async <T>(tool: string, call: () => Promise<T>,
-    ): Promise<T> => {
+    const msmTool = async <T>(tool: string, doing: string,
+        call: () => Promise<T>, otherwise = ""): Promise<T> => {
         try {
             return await call();
         } catch (error) {
             if (isUnknownTool(error, tool)) {
-                throw new Error("Changing the REST services of an MSM project "
-                    + `needs a MariaDB Shell whose msm has ${tool}. Update `
-                    + "the MariaDB Shell, or edit MSM Section "
-                    + `${REST_SECTION} of the development script.`);
+                throw new Error(`${doing} needs a MariaDB Shell whose msm `
+                    + `has ${tool}. Update the MariaDB Shell${otherwise}.`);
             }
             throw error;
         }
+    };
+    /** {@link msmTool} for an msm REST tool. */
+    const restTool = <T>(tool: string, call: () => Promise<T>,
+    ): Promise<T> => {
+        return msmTool(tool, "Changing the REST services of an MSM project",
+            call, `, or edit MSM Section ${REST_SECTION} of the development `
+            + "script");
     };
     /**
      * Has msm put REST statements a dialog saved into MSM Section 180 of a
@@ -1606,8 +1613,21 @@ export const activate = (context: vscode.ExtensionContext): void => {
     context.subscriptions.push(...new SchemaObjectCommands({
         msmApi,
         snapshot: snapshotOrMake,
-        addObject: (projectPath, object, baseHash) => {
-            return projectDiagrams(projectPath).addObject(object, baseHash);
+        addObject: async (projectPath, statement, expect, baseHash) => {
+            const words = `the ${expect.kind} ${expect.name} to `
+                + path.basename(projectPath);
+            const [added] = await msmTool("msm.set_schema_statements",
+                "Adding schema objects to an MSM project", () => {
+                    return projectDiagrams(projectPath).setSchemaStatements(
+                        [statement], baseHash, [expect],
+                        { doing: `Adding ${words}`, done: `Added ${words}` });
+                });
+            if (added === undefined) {
+                throw new Error(`msm did not say where it added the `
+                    + `${expect.kind} ${expect.name}.`);
+            }
+
+            return added;
         },
         newTable: (projectPath, schema) => {
             editTable({ kind: "project", projectPath, schema, table: "" });

@@ -23,11 +23,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type {
     IMsmApi,
-    IMsmNewObject,
+    IMsmExpectedObject,
     IMsmObjectTemplates,
 } from "../../mcp/msmApi.js";
 import type { ISchemaDefinition } from "../../modeler/modelFormat.js";
 import {
+    fillTemplate,
     MSM_ADD_COMMANDS,
     MSM_TEMPLATE_COMMANDS,
     ObjectTemplates,
@@ -92,6 +93,8 @@ describe("objectNameProblem", () => {
             .toBe("The schema has a function TOTAL already.");
         expect(objectNameProblem(takenNames("event", SNAPSHOT), "x".repeat(65)))
             .toMatch(/64 characters/u);
+        expect(objectNameProblem(takenNames("view", SNAPSHOT), "a`b"))
+            .toMatch(/backtick/u);
     });
 });
 
@@ -116,9 +119,39 @@ describe("ObjectTemplates", () => {
         });
 });
 
+describe("fillTemplate", () => {
+    const fill = (template: string, placeholders = ["name", "schema"]) => {
+        return fillTemplate("view", template, placeholders,
+            { name: "v", schema: "s" });
+    };
+
+    it("fills $name and ${name}, keeps $$ as a $, and drops the ;", () => {
+        expect(fill("CREATE VIEW ${schema}.$name AS SELECT '$$1' ;; \n"))
+            .toBe("CREATE VIEW s.v AS SELECT '$1'");
+    });
+
+    it("refuses a $ that is no placeholder, as msm does", () => {
+        expect(() => { return fill("CREATE VIEW ${name} AS SELECT $1"); })
+            .toThrow("The template of a view has a $ that is no placeholder: "
+                + "write $$ for one.");
+        expect(() => { return fill("CREATE VIEW ${na me}"); })
+            .toThrow(/no placeholder/u);
+    });
+
+    it("refuses a placeholder the kind does not take", () => {
+        expect(() => { return fill("CREATE VIEW ${table}"); })
+            .toThrow("The template of a view uses the placeholder ${table}; "
+                + "it takes ${name}, ${schema}.");
+    });
+
+    it("refuses an empty template", () => {
+        expect(() => { return fill("  \n"); }).toThrow(/CREATE statement/u);
+    });
+});
+
 describe("SchemaObjectCommands", () => {
-    let added: Array<{ projectPath: string; object: IMsmNewObject;
-        baseHash: string }>;
+    let added: Array<{ projectPath: string; statement: string;
+        expect: IMsmExpectedObject; baseHash: string }>;
     let newTables: string[];
     let updated: string[];
     let templates: ObjectTemplates;
@@ -136,8 +169,8 @@ describe("SchemaObjectCommands", () => {
                 } as unknown as IMsmApi);
             },
             snapshot: () => { return Promise.resolve(snapshot); },
-            addObject: (projectPath, object, baseHash) => {
-                added.push({ projectPath, object, baseHash });
+            addObject: (projectPath, statement, expect, baseHash) => {
+                added.push({ projectPath, statement, expect, baseHash });
 
                 return Promise.resolve({
                     file: `${PROJECT}/development/sections/150.sql`, line: 12 });
@@ -174,7 +207,7 @@ describe("SchemaObjectCommands", () => {
         expect(inputBoxCalls).toEqual([]);
     });
 
-    it("names a view, has msm add it from its template, and opens it at "
+    it("names a view, has msm add its template filled, and opens it at "
         + "its statement", async () => {
         setUp();
         inputBoxAnswers.push(" recent ");
@@ -182,9 +215,10 @@ describe("SchemaObjectCommands", () => {
 
         expect(inputBoxCalls[0].validateInput?.("orders"))
             .toBe("The schema has a table orders already.");
-        // msm's template: none sent.
+        // msm's template, and what it must create.
         expect(added).toEqual([{ projectPath: PROJECT,
-            object: { kind: "view", name: "recent" }, baseHash: "h1" }]);
+            statement: "CREATE VIEW recent AS SELECT 1",
+            expect: { kind: "view", name: "recent" }, baseHash: "h1" }]);
         expect(updated).toEqual([PROJECT]);
         const [editor] = shownEditors as unknown as Array<{
             document: { fsPath: string };
@@ -194,15 +228,17 @@ describe("SchemaObjectCommands", () => {
         expect(editor.selection.start.line).toBe(11);
     });
 
-    it("sends the user's template where there is one", async () => {
+    it("fills the user's template where there is one", async () => {
         setUp();
-        await templates.ensure("procedure", "CREATE PROCEDURE ${name}() "
-            + "BEGIN SELECT 1; END");
+        await templates.ensure("procedure", "CREATE PROCEDURE `${schema}`."
+            + "`${name}`() BEGIN SELECT 1; END;\n");
         inputBoxAnswers.push("refresh");
         await run(MSM_ADD_COMMANDS.procedure, group("procedure"));
 
-        expect(added[0].object).toEqual({ kind: "procedure", name: "refresh",
-            template: "CREATE PROCEDURE ${name}() BEGIN SELECT 1; END" });
+        expect(added[0].statement).toBe("CREATE PROCEDURE `shop`.`refresh`() "
+            + "BEGIN SELECT 1; END");
+        expect(added[0].expect).toEqual({ kind: "procedure",
+            name: "refresh" });
     });
 
     it("asks a trigger's table from the schema's tables", async () => {
@@ -213,7 +249,9 @@ describe("SchemaObjectCommands", () => {
 
         expect(quickPickCalls[0].map((item) => { return item.label; }))
             .toEqual(["orders", "items"]);
-        expect(added[0].object).toEqual({ kind: "trigger", name: "orders_bi",
+        expect(added[0].statement).toBe("CREATE TRIGGER orders_bi BEFORE "
+            + "INSERT ON orders FOR EACH ROW BEGIN END");
+        expect(added[0].expect).toEqual({ kind: "trigger", name: "orders_bi",
             table: "orders" });
     });
 

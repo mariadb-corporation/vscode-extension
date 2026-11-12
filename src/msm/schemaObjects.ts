@@ -18,9 +18,10 @@
 /**
  * Adding schema objects to an MSM project from its object group rows in
  * the MSM Projects view: a table in the table editor, every other kind
- * from a SQL template msm fills with its name and places where it keeps
- * that kind. The templates are msm's, unless the user changed one: a
- * changed template is a file of the extension's own storage.
+ * from a SQL template filled with its name, which msm places where it
+ * keeps that kind (`msm.set_schema_statements`). The templates are msm's,
+ * unless the user changed one: a changed template is a file of the
+ * extension's own storage.
  */
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -32,7 +33,7 @@ import { reportError } from "../errorMessages.js";
 import {
     MSM_OBJECT_KINDS,
     type IMsmApi,
-    type IMsmNewObject,
+    type IMsmExpectedObject,
     type IMsmObjectTemplates,
     type MsmObjectKind,
 } from "../mcp/msmApi.js";
@@ -110,10 +111,69 @@ export const objectNameProblem = (
     if (name.length > 64) {
         return "A name can be 64 characters at most.";
     }
+    if (name.includes("`")) {
+        return "A name cannot have a backtick: the templates quote it with "
+            + "them.";
+    }
     const type = taken.get(name.toLowerCase());
 
     return type === undefined ? undefined
         : `The schema has a ${type} ${name} already.`;
+};
+
+/**
+ * A `$` of a template: `$$`, `$name`, `${name}`, else a `$` that is no
+ * placeholder - Python's string.Template, which msm's templates are.
+ */
+const PLACEHOLDER = /\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\}|)/giu;
+
+/**
+ * Fills a template as msm does (string.Template): the CREATE statement of
+ * a new object. Its SQL is not read; msm checks that it creates what was
+ * asked for.
+ *
+ * @param kind The kind, for the messages.
+ * @param template The template.
+ * @param placeholders The ones the kind takes.
+ * @param values The name, the schema and a trigger's table.
+ *
+ * @returns The statement, without its `;`.
+ */
+export const fillTemplate = (
+    kind: MsmObjectKind,
+    template: string,
+    placeholders: readonly string[],
+    values: { name: string; schema: string; table?: string },
+): string => {
+    if (template.trim() === "") {
+        throw new Error(`The template of a ${kind} must be its CREATE `
+            + "statement.");
+    }
+    const given: Record<string, string | undefined> = values;
+    const filled = template.replace(PLACEHOLDER,
+        (_match, dollar?: string, named?: string, braced?: string) => {
+            if (dollar !== undefined) {
+                return "$";
+            }
+            const placeholder = named ?? braced;
+            if (placeholder === undefined) {
+                throw new Error(`The template of a ${kind} has a $ that is `
+                    + "no placeholder: write $$ for one.");
+            }
+            const value = placeholders.includes(placeholder)
+                ? given[placeholder] : undefined;
+            if (value === undefined) {
+                throw new Error(`The template of a ${kind} uses the `
+                    + `placeholder \${${placeholder}}; it takes `
+                    + `${placeholders.map((name) => {
+                        return `\${${name}}`;
+                    }).join(", ")}.`);
+            }
+
+            return value;
+        });
+
+    return filled.trim().replace(/;+$/u, "").trimEnd();
 };
 
 /**
@@ -200,8 +260,13 @@ export interface ISchemaObjectsHost {
      * none yet (a new project).
      */
     snapshot(projectPath: string): Promise<ISchemaDefinition | undefined>;
-    /** Adds an object through msm, in turn with the diagrams' edits. */
-    addObject(projectPath: string, object: IMsmNewObject,
+    /**
+     * Adds an object's CREATE through msm, in turn with the diagrams'
+     * edits; msm refuses a statement that does not create what is
+     * expected.
+     */
+    addObject(projectPath: string, statement: string,
+        expect: IMsmExpectedObject,
         baseHash: string): Promise<{ file: string; line: number }>;
     /** Opens the table editor on a new table of the project. */
     newTable(projectPath: string, schema: string): void;
@@ -308,12 +373,16 @@ export class SchemaObjectCommands {
                 return;
             }
         }
-        const template = await this.host.templates.read(kind);
-        const added = await this.host.addObject(row.projectPath, {
-            kind, name: name.trim(),
-            ...(template === undefined ? {} : { template }),
-            ...(table === undefined ? {} : { table }),
-        }, definition.source_hash);
+        const defaults = await this.#templates();
+        const statement = fillTemplate(kind,
+            await this.host.templates.read(kind) ?? defaults.templates[kind],
+            defaults.placeholders[kind] ?? [],
+            { name: name.trim(), schema: row.schema,
+                ...(table === undefined ? {} : { table }) });
+        const added = await this.host.addObject(row.projectPath, statement,
+            { kind, name: name.trim(),
+                ...(table === undefined ? {} : { table }) },
+            definition.source_hash);
         await this.host.snapshotUpdated(row.projectPath);
         // Where the new statement starts, for its body to be written.
         const at = new vscode.Position(Math.max(added.line - 1, 0), 0);
@@ -329,14 +398,7 @@ export class SchemaObjectCommands {
      * @param type The kind.
      */
     public async editTemplate(type: MsmObjectKind): Promise<void> {
-        this.#defaults ??= this.host.msmApi().then((api) => {
-            return api.getObjectTemplates();
-        });
-        // Asked again next time where asking failed.
-        const defaults = await this.#defaults.catch((error: unknown) => {
-            this.#defaults = undefined;
-            throw error;
-        });
+        const defaults = await this.#templates();
         const start = defaults.templates[type] as string | undefined;
         if (start === undefined) {
             throw new Error(`msm has no template of a ${type}.`);
@@ -347,8 +409,21 @@ export class SchemaObjectCommands {
         const placeholders = (defaults.placeholders[type] ?? [])
             .map((name) => { return `\${${name}}`; }).join(", ");
         void vscode.window.showInformationMessage(`The template every new `
-            + `${type} starts from; saving it keeps it. msm fills in `
+            + `${type} starts from; saving it keeps it. Its Add fills in `
             + `${placeholders || "nothing"}.`);
+    }
+
+    /** @returns msm's templates, asked for once. */
+    async #templates(): Promise<IMsmObjectTemplates> {
+        this.#defaults ??= this.host.msmApi().then((api) => {
+            return api.getObjectTemplates();
+        });
+
+        // Asked again next time where asking failed.
+        return await this.#defaults.catch((error: unknown) => {
+            this.#defaults = undefined;
+            throw error;
+        });
     }
 
     /**
