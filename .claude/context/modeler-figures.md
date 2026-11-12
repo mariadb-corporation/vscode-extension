@@ -16,8 +16,11 @@ its width its content's, a front menu button; the item's fields that
 depend on it are getters, and the geometry is built again with it (part
 of the key). A lying card's side label is a hit target no more
 (`#figureHit` skips it). Undoable (`upright`, `depth` in `FigureState`).
-msm is asked to keep `upright` and use `width x depth` for an upright
-figure's footprint in its layout.
+msm keeps `upright` and `depth` (mariadb-shell-plugins #114): a missing
+or non-boolean `upright` is the kind's default, an upright figure's
+footprint is `width x depth` (20 where missing), a flat one's `width x
+height`; its layout places an upright table by that footprint, keeping
+its card's size, and never moves REST object figures.
 
 **A figure's or a layer's color** is picked in Object Details, at the
 bottom of its place and size (the user's request: "the color selection
