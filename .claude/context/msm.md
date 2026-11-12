@@ -245,7 +245,11 @@ first four with input boxes one after another; Deploy is new.
   each showing the call (`msmCall`, through `callArguments` as every
   other call: `msm.prepare_release(version=0.0.1, next_version=0.0.2)`)
   and, once done, what it came to; `ActionGroup.run` ends the whole as its
-  steps went. Reading a project is "Read MSM project <folder>" with three
+  steps went. A whole whose only step is worded as it is (`msmAction`,
+  one call) is that step's row alone (`#showAlone`, a statement row: the
+  call while it runs, then what the whole came to and what the call did,
+  the error in its message): its child only said the parent's message
+  again (the user: "we should remove those child nodes"). Reading a project is "Read MSM project <folder>" with three
   steps (information, released versions, deployment scripts). File work is filed under General Actions;
   a deploy under its connection, with `db.connect` as its first step.
 - **A deploy runs on a session of its own** (`MSM Deploy <n>`, numbered as

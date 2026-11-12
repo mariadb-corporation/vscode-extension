@@ -331,8 +331,10 @@ describe("followSandbox", () => {
             return Promise.reject(new Error("It is running."));
         })).rejects.toThrow("It is running.");
 
-        expect(last()).toMatchObject({ kind: "error" });
-        expect(last()?.children).toHaveLength(1);
+        // Its one step is the row, the error in it.
+        expect(last()).toMatchObject({ kind: "error",
+            message: expect.stringContaining("failed: It is running.") });
+        expect(last()?.children).toBeUndefined();
     });
 
     it("changes a sandbox without a daemon as before, reporting nothing",

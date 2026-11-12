@@ -536,8 +536,7 @@ describe("New MSM Project", () => {
             copyrightHolder: "Ada",
         } });
 
-        const [created, read] = [...actions(recorded).values()]
-            .filter((put) => { return put.row.role === "run"; });
+        const [created, read] = [...actions(recorded).values()];
         expect(created.connection).toBe(GENERAL_ACTIONS);
         expect(created.row.kind).toBe("info");
         expect(created.row.message)
@@ -550,6 +549,8 @@ describe("New MSM Project", () => {
         expect(read.row.kind).toBe("info");
         expect(read.row.message)
             .toBe("Read the new MSM project sakila.msm.project");
+        // One call: its own row, no child saying it again.
+        expect(read.row.children).toBeUndefined();
         // Every row was up while it ran, the spinner on it.
         expect(recorded.rows[0].row.kind).toBe("pending");
         expect(recorded.rows[0].row.message)
@@ -571,8 +572,7 @@ describe("New MSM Project", () => {
             // Created: the dialog closed, its action done.
             expect(panel().disposed).toBe(true);
             expect(errorsPosted()).toEqual([]);
-            const [created, read] = [...actions(recorded).values()]
-                .filter((put) => { return put.row.role === "run"; });
+            const [created, read] = [...actions(recorded).values()];
             expect(created.row.kind).toBe("info");
             // The reading is the failure, and says so.
             expect(read.row.kind).toBe("error");
@@ -940,9 +940,10 @@ describe("Prepare Release", () => {
         const { connection, row } = lastAction(recorded);
         expect(connection).toBe(GENERAL_ACTIONS);
         expect(row.message).toBe("Prepared release 1.0.1 of sakila");
-        expect(row.summary).toBe("Development goes on with 1.0.2");
-        expect(row.children?.[0].statement).toBe("2 files written\n"
-            + "sakila_1.0.1.sql\nsakila_1.0.0_to_1.0.1.sql");
+        // One call: one row, what the release came to before its files.
+        expect(row.children).toBeUndefined();
+        expect(row.statement).toBe("Development goes on with 1.0.2\n"
+            + "2 files written\nsakila_1.0.1.sql\nsakila_1.0.0_to_1.0.1.sql");
     });
 
     it("refuses a release the plugin would refuse, before calling it",
@@ -972,8 +973,8 @@ describe("Prepare Release", () => {
 
         expect(errorsPosted()).toEqual(["No statements."]);
         expect(lastAction(recorded).row.message)
-            .toBe("Preparing release 1.0.1 of sakila failed");
-        expect(lastAction(recorded).row.children?.[0].statement)
+            .toBe("Preparing release 1.0.1 of sakila failed: No statements.");
+        expect(lastAction(recorded).row.statement)
             .toBe(`msm.prepare_release(schema_project_path=${PROJECT}, `
             + "version=1.0.1, next_version=1.0.2)");
         expect(recorded.shownActions).toEqual([GENERAL_ACTIONS]);
@@ -1006,7 +1007,7 @@ describe("Generate Deployment Script", () => {
         const { row } = lastAction(recorded);
         expect(row.message)
             .toBe("Generated the deployment script for sakila 1.0.0");
-        expect(row.summary).toBe(
+        expect(row.statement).toContain(
             `${PROJECT}/releases/deployment/sakila_deployment_1.0.0.sql`);
     });
 

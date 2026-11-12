@@ -64,6 +64,48 @@ describe("ActionGroup", () => {
         expect(rows.rows.size).toBe(1);
     });
 
+    it("is one row where its only step is called as it is", async () => {
+        const rows = collect();
+        const group = new ActionGroup(rows.put, "General", WORDS);
+        let release: () => void = () => { /* set below */ };
+        const running = group.run(() => {
+            return group.step(WORDS, "msm.create(path=/p)", () => {
+                return new Promise<string>((resolve) => {
+                    release = () => { resolve("2 files"); };
+                });
+            }, { detail: (said) => { return said; } });
+        }, () => { return "Next: 1.0.2"; });
+        await Promise.resolve();
+        // The call shows while it runs, with the whole's words.
+        expect(rows.last()).toMatchObject({ role: "statement",
+            kind: "pending", message: "Creating Sandbox on port 3311…",
+            statement: "msm.create(path=/p)" });
+        expect(rows.last().children).toBeUndefined();
+
+        release();
+        await running;
+        // What the whole came to first, then what the call did.
+        expect(rows.last()).toMatchObject({ role: "statement", kind: "info",
+            message: "Created Sandbox on port 3311",
+            statement: "Next: 1.0.2\n2 files" });
+        expect(rows.rows.size).toBe(1);
+    });
+
+    it("says its only step's failure in its one row", async () => {
+        const rows = collect();
+        const group = new ActionGroup(rows.put, "General", WORDS);
+
+        await expect(group.run(() => {
+            return group.step(WORDS, "msm.create(path=/p)", () => {
+                return Promise.reject(new Error("No space."));
+            });
+        })).rejects.toThrow("No space.");
+
+        expect(rows.last()).toMatchObject({ role: "statement", kind: "error",
+            message: "Creating Sandbox on port 3311 failed: No space.",
+            statement: "msm.create(path=/p)" });
+    });
+
     it("shows a step's spinner while it runs", async () => {
         const rows = collect();
         const group = new ActionGroup(rows.put, "General", WORDS);

@@ -112,7 +112,9 @@ interface IFake {
  */
 const calls = (fake: IFake): string[] => {
     return fake.actions.flatMap((row) => {
-        return (row.children ?? []).map((child) => { return child.statement; });
+        // A call alone is its action's row, without a child.
+        return row.role === "statement" ? [row.statement]
+            : (row.children ?? []).map((child) => { return child.statement; });
     });
 };
 
