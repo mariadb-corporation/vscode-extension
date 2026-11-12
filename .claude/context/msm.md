@@ -218,56 +218,9 @@ See [msm-schema-objects.md](msm-schema-objects.md).
 
 ## Links that open a project's diagram
 
-So a user can check an MSM project a coding agent made, the agent writes a
-link into its answer that adds the project to the MSM Projects view and
-opens one of its diagrams:
-
-`<scheme>://mariadb.mariadb-shell/msm/openDiagram?project=<folder>&diagram=<name>`
-
-`src/msm/msmLinks.ts`, a `vscode.window.registerUriHandler` (activation
-event `onUri`). `project` is the absolute project folder, `diagram` the
-diagram's name (`diagramNamed`: exact, else in any case, as names are
-unique in any case); `pickProjectDiagram(project, wanted)` opens it, or,
-left out or not found (told so), lets the user pick one, offering New
-Schema Diagram... where there is none. Adding is `addToProjects`, an
-action, where a listed project keeps its place.
-
-- **The scheme is the editor's**, `vscode.env.uriScheme`: `vscode`,
-  `vscode-insiders`, or the Theia app's `electron.uriScheme` (default
-  `theia`; mariadb-shell-workbench keeps the default so far). An agent
-  cannot know it, so the skill writes `vscode://` and the agent's client
-  rewrites it (mariadb-shell-agent's extension does, see below).
-- **Registered before `activate` returns**: Theia's opener activates the
-  extension for a link (`onUri:<scheme>://<id>`) and looks for the handler
-  right after, with no queue; VS Code queues.
-- **Anyone can write such a link**, a web page too, so it goes only as far
-  as the user could by hand: the folder must be a `*.msm.project` one
-  (`isProjectFolder`, as the dialogs want) and hold `msm.project.json`, nothing runs, nothing in the project changes, MCP
-  access is not touched. VS Code asks the user before handing an outside
-  link to an extension; Theia does not ask.
-- **Opening one from code, in Theia, is `vscode.open`**, never
-  `env.openExternal`: that passes `openExternalApp`, whose
-  `ExternalAppOpenHandler` (600) outranks plugin-ext's `uri-main` handler
-  (500), so the link goes to the OS and comes back only where the packaged
-  app registered its scheme; it also decodes the query and `encodeURI`
-  does not encode `&` `=` `#` again. `vscode.open` reaches `uri-main`,
-  encoding intact. Theia finds the handler by the lowercased plugin id in a
-  case-sensitive map, so the authority must be `mariadb.mariadb-shell`.
-- **The query arrives decoded once** (VS Code's and Theia's `Uri.query`),
-  so an encoded `&` or `=` in a folder name is back as is, and
-  `URLSearchParams` would split there (and turn `+` into a space). Only the
-  keys `project=` and `diagram=` start a parameter (`linkParameters`).
-- **Where a link can be clicked**: Copilot Chat and Claude Code show
-  `vscode://` links. mariadb-shell-agent's chat (the web-shell's
-  `Markdown.tsx`) passes hrefs through react-markdown's `defaultUrlTransform`,
-  which blanks every scheme but `http(s)`, `irc(s)`, `mailto`, `xmpp`. The
-  fork's agreed change (a `mariadb/patches/` patch, fork build 26.11.1):
-  an href whose authority is exactly `mariadb.mariadb-shell` is rendered
-  inert (`href="#"`) and posted to its extension (`openExtensionLink`),
-  which checks the authority again, puts in `vscode.env.uriScheme` and
-  opens it with `env.openExternal` in VS Code, `vscode.open` in Theia, the
-  query byte for byte. Links the `msa` CLI prints in a terminal are not
-  covered. The skill telling agents to write the link is ai-plugins'.
+The `<scheme>://mariadb.mariadb-shell/msm/openDiagram` links a coding
+agent writes so the user can review a project it made: see
+[msm-links.md](msm-links.md).
 
 ## The commands
 
