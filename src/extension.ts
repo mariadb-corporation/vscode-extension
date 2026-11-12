@@ -56,6 +56,7 @@ import {
     projectPathOf,
 } from "./msm/msmCommands.js";
 import { projectOfScriptFile, schemaNameOfFolder } from "./msm/msmFields.js";
+import { MsmLinkHandler } from "./msm/msmLinks.js";
 import { closeEditorsIn, openEditorsAt } from "./msm/projectEditors.js";
 import {
     renameSchema, renameSummary, renameWords,
@@ -1973,7 +1974,22 @@ export const activate = (context: vscode.ExtensionContext): void => {
         log,
     });
     context.subscriptions.push(...msmCommands.register(),
-        ...registerMsmProjectsCommands(msmProjects, log));
+        ...registerMsmProjectsCommands(msmProjects, log),
+        // The links an agent writes to show an MSM project it made (see
+        // msmLinks.ts). Registered before activate returns: Theia looks
+        // for the handler right after activating for a link.
+        vscode.window.registerUriHandler(new MsmLinkHandler({
+            addToProjects: (projectPath) => {
+                return msmCommands.addToProjects(projectPath);
+            },
+            diagramNames: diagramNamesOf,
+            openDiagram: openProjectDiagram,
+            pickDiagram: pickProjectDiagram,
+            warn: (message) => {
+                void vscode.window.showWarningMessage(message);
+            },
+            log,
+        })));
 
     context.subscriptions.push(
         // Draws a connection's color on its row (see connectionColors.ts).
