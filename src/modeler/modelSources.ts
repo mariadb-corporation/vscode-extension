@@ -333,12 +333,11 @@ export class ProjectModelSource implements IModelSource {
     public async read(): Promise<{ model: ISchemaModel; source: string }> {
         // Read from disk meanwhile: msm's call does not need them.
         const restObjects = this.restObjects();
-        const rows = await this.#enqueuedAction({
-            doing: `Reading the diagrams of ${this.#schema}`,
-            done: `Read the diagrams of ${this.#schema}`,
-        }, "msm.get_schema_diagrams", {}, (api) => {
-            return api.getSchemaDiagrams(this.projectPath);
-        }, (read) => { return counted(read.length, "document"); });
+        // Not an action: every viewer opened and reload reads them.
+        const rows = await this.#enqueue(() => {
+            return this.#quietCall(`read the diagrams of ${this.#schema}`,
+                (api) => { return api.getSchemaDiagrams(this.projectPath); });
+        });
         this.#bases = hashesOf(rows);
         this.#gone.clear();
         const model = assembleSchemaModel(rows);
@@ -466,15 +465,12 @@ export class ProjectModelSource implements IModelSource {
         }
         this.onSaveState?.({ state: "saving" });
         try {
-            await this.#action({
-                doing: `Saving the diagram ${name} of ${this.#schema}`,
-                done: `Saved the diagram ${name} of ${this.#schema}`,
-            }, "msm.set_schema_diagram", { document: name }, (api) => {
+            // Not an action: the auto-store saves after every change, and
+            // the viewer's status line says how it went.
+            await this.#quietCall(`save the diagram ${name} of `
+                + this.#schema, (api) => {
                 return api.setSchemaDiagram(this.projectPath,
                     pending.document);
-            }, (files) => {
-                return files.length === 0
-                    ? "Nothing changed" : counted(files.length, "file");
             });
         } catch (error) {
             // The draft stays, for the next change or the next start.
@@ -760,6 +756,28 @@ export class ProjectModelSource implements IModelSource {
         return this.#enqueue(() => {
             return this.#action(words, tool, args, call, detail);
         });
+    }
+
+    /**
+     * Makes one msm call that is no action of its own, now: one made so
+     * often that the Actions tab would be full of it. Its failure is
+     * logged, and thrown for the caller to show.
+     *
+     * @param what What it does, for the log: "save the diagram ...".
+     * @param call The call.
+     *
+     * @returns What it returns.
+     */
+    async #quietCall<T>(
+        what: string,
+        call: (api: IMsmApi) => Promise<T>,
+    ): Promise<T> {
+        try {
+            return await call(await this.host.msmApi());
+        } catch (error) {
+            this.host.log(`Could not ${what}: ${errorText(error)}`);
+            throw error;
+        }
     }
 
     /**

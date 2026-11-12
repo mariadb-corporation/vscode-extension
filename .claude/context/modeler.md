@@ -75,8 +75,11 @@ kept outside the repository.
   for each picture an image figure shows, saves with
   `msm.set_schema_diagram` and edits the schema with `msm.edit_schema`;
   every call is an action of the Actions tab under General Actions
-  (`ActionGroup`, the call as its row shows it, a document by its name),
-  and they run one at a time per project (msm reads and writes the
+  (`ActionGroup`, the call as its row shows it, a document by its name)
+  but reading the diagrams and the auto-store's saves, which flooded it
+  (the user: "do not log those on the Action tab"; `#quietCall`: a
+  failure goes to the log, the viewer showing it as before), and they run
+  one at a time per project (msm reads and writes the
   project's files, the connector does not serialize). One source per
   project (`projectSources` in `extension.ts`).
 - **Auto Layout** (a project's diagram only: a live schema's is not

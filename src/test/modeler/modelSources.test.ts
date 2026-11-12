@@ -234,7 +234,8 @@ describe("ProjectModelSource", () => {
         fake = setUp();
     });
 
-    it("reads a project's diagrams through msm, as an action", async () => {
+    it("reads a project's diagrams through msm, without an action",
+        async () => {
         expect(fake.source.schemaTitle).toBe("shop");
         expect(fake.source.target("Main")).toEqual({ kind: "project",
             projectPath: PROJECT, diagram: "Main" });
@@ -244,8 +245,9 @@ describe("ProjectModelSource", () => {
         expect(model.sourceHash).toBe("sha256:one");
         expect(model.diagrams.map((entry) => { return entry.name; }))
             .toEqual(["Main"]);
-        expect(calls(fake)).toContainEqual(expect.stringContaining(
-            "msm.get_schema_diagrams(schema_project_path="));
+        expect(fake.calls).toContainEqual(["get", PROJECT]);
+        // Every viewer opened reads them: the Actions tab is no log of it.
+        expect(fake.actions).toEqual([]);
     });
 
     it("keeps a change at once, saves it once settled, then drops it",
@@ -280,6 +282,8 @@ describe("ProjectModelSource", () => {
 
         expect(fake.calls.filter((call) => { return call[0] === "set"; }))
             .toHaveLength(1);
+        // The auto-store saves after every change: no Actions row of it.
+        expect(fake.actions).toEqual([]);
     });
 
     it("keeps the draft where a save fails", async () => {
