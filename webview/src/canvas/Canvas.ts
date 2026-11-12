@@ -466,9 +466,9 @@ export class Canvas {
             zoom: this.#zoom,
             x: this.#target.x,
             y: this.#target.z,
-            ...this.#viewMode === "front" && this.#target.y !== 0
-                ? { height: this.#target.y }
-                : {},
+            // Off the page where a pan in 2D Front left it; a turn to
+            // another view puts it back (#restTarget).
+            ...this.#target.y === 0 ? {} : { height: this.#target.y },
             mode: this.#viewMode,
             tilt: this.#isoAngles.tilt,
             turn: this.#isoAngles.turn,
@@ -606,8 +606,7 @@ export class Canvas {
         }
         this.#viewT = view.mode === "2d" ? 0 : 1;
         this.#frontT = view.mode === "front" ? 1 : 0;
-        this.#target.set(view.x,
-            view.mode === "front" ? view.height ?? 0 : 0, view.y);
+        this.#target.set(view.x, view.height ?? 0, view.y);
         this.#setZoom(view.zoom);
         this.#invalidate();
     }
@@ -1429,8 +1428,8 @@ export class Canvas {
     /**
      * Slides the target along the camera's line of sight back onto the
      * page, where a pan in 2D Front left it above or below: the other
-     * views keep it there (`view` has a height in 2D Front alone). The
-     * picture does not move, the camera being orthographic. Not where the
+     * views keep it there (`view` keeps a height only while it is off
+     * the page). The picture does not move, the camera being orthographic. Not where the
      * camera still looks along the page.
      */
     #restTarget(): void {

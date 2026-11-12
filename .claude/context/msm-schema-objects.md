@@ -86,6 +86,8 @@ hidden from the palette: they need the row).
   extension.ts). A project with no snapshot yet has msm make its first.
   The diagrams' own adds and drops stay `msm.edit_schema` ops: their undo
   needs the ops' inverses.
+  `msmStatements.e2e.test.ts` (see [mrs-msm.md](mrs-msm.md)) runs it
+  against a real shell.
 - **Templates** are msm's (`msm.get_object_templates`: a plain CREATE per
   kind, string.Template placeholders `${name}`, a trigger's `${table}`,
   `${schema}`), unless the user changed one: `ObjectTemplates` keeps the

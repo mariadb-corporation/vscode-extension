@@ -392,7 +392,7 @@ export interface IMsmSchemaEdit {
 
 /**
  * The kinds of schema object msm adds from a SQL template
- * (`msm.add_schema_object`); a table is made with the table editor.
+ * (`msm.set_schema_statements`); a table is made with the table editor.
  */
 export const MSM_OBJECT_KINDS = ["view", "procedure", "function", "trigger",
     "event", "sequence"] as const;
@@ -539,7 +539,7 @@ export interface IMsmApi {
     getObjectTemplates(): Promise<IMsmObjectTemplates>;
     setSchemaStatements(projectPath: string, statements: string[],
         baseHash: string,
-        expect?: IMsmExpectedObject[]): Promise<IMsmSchemaStatementsSet>;
+        expect: IMsmExpectedObject[]): Promise<IMsmSchemaStatementsSet>;
     setRestStatements(projectPath: string, statements: string[],
         baseHash: string,
         replaces?: IMsmRestItem): Promise<IMsmRestStatementsSet>;
@@ -557,7 +557,7 @@ interface IEditResultOnTheWire {
 }
 
 /**
- * @param result What msm.edit_schema, or msm.add_schema_object, said.
+ * @param result What msm.edit_schema, or a set_*_statements tool, said.
  *
  * @returns It as the extension reads it, every list there.
  */
@@ -851,7 +851,7 @@ export const msmToolArgs = {
         projectPath: string,
         statements: string[],
         baseHash: string,
-        expect?: IMsmExpectedObject[],
+        expect: IMsmExpectedObject[],
     ): Record<string, unknown> => {
         return given({
             schema_project_path: projectPath,
@@ -1463,7 +1463,7 @@ export class MsmApi implements IMsmApi {
         projectPath: string,
         statements: string[],
         baseHash: string,
-        expect?: IMsmExpectedObject[],
+        expect: IMsmExpectedObject[],
     ): Promise<IMsmSchemaStatementsSet> {
         const tool = "msm.set_schema_statements";
         const result = decodeObject<IEditResultOnTheWire & {

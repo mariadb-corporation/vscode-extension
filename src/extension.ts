@@ -1614,13 +1614,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
         msmApi,
         snapshot: snapshotOrMake,
         addObject: async (projectPath, statement, expect, baseHash) => {
-            const words = `the ${expect.kind} ${expect.name} to `
-                + path.basename(projectPath);
             const [added] = await msmTool("msm.set_schema_statements",
                 "Adding schema objects to an MSM project", () => {
                     return projectDiagrams(projectPath).setSchemaStatements(
-                        [statement], baseHash, [expect],
-                        { doing: `Adding ${words}`, done: `Added ${words}` });
+                        [statement], baseHash, [expect]);
                 });
             if (added === undefined) {
                 throw new Error(`msm did not say where it added the `

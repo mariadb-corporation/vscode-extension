@@ -660,7 +660,6 @@ export class ProjectModelSource implements IModelSource {
      * @param statements One CREATE each.
      * @param baseHash The snapshot's `source_hash` they were made against.
      * @param expect What each statement must create.
-     * @param words What the Actions tab says of them.
      *
      * @returns Where each statement went.
      */
@@ -668,10 +667,14 @@ export class ProjectModelSource implements IModelSource {
         statements: string[],
         baseHash: string,
         expect: IMsmExpectedObject[],
-        words: { doing: string; done: string },
     ): Promise<IMsmSchemaStatementsSet["statements"]> {
         await this.flush();
-        const set = await this.#enqueuedAction(words,
+        const objects = `${expect.map((object) => {
+            return `the ${object.kind} ${object.name}`;
+        }).join(", ")} to ${this.#schema}`;
+        const set = await this.#enqueuedAction({
+            doing: `Adding ${objects}`, done: `Added ${objects}`,
+        },
             "msm.set_schema_statements", { expect }, (api) => {
                 return api.setSchemaStatements(this.projectPath, statements,
                     baseHash, expect);

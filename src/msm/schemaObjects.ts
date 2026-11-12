@@ -41,6 +41,7 @@ import type { ObjectType } from "../mcp/types.js";
 import type { ISchemaDefinition } from "../modeler/modelFormat.js";
 import type { IMsmObjectGroupNode } from "../tree/msmProjectsTreeProvider.js";
 import { OBJECT_TYPE_LABELS, outlineObjects } from "../tree/schemaTree.js";
+import { TEMPLATE_PLACEHOLDER } from "./msmFields.js";
 
 /** Add <Kind>..., by the kind of the group row it is on. */
 export const MSM_ADD_COMMANDS: Record<ObjectType, string> = {
@@ -122,12 +123,6 @@ export const objectNameProblem = (
 };
 
 /**
- * A `$` of a template: `$$`, `$name`, `${name}`, else a `$` that is no
- * placeholder - Python's string.Template, which msm's templates are.
- */
-const PLACEHOLDER = /\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\}|)/giu;
-
-/**
  * Fills a template as msm does (string.Template): the CREATE statement of
  * a new object. Its SQL is not read; msm checks that it creates what was
  * asked for.
@@ -150,7 +145,7 @@ export const fillTemplate = (
             + "statement.");
     }
     const given: Record<string, string | undefined> = values;
-    const filled = template.replace(PLACEHOLDER,
+    const filled = template.replace(TEMPLATE_PLACEHOLDER,
         (_match, dollar?: string, named?: string, braced?: string) => {
             if (dollar !== undefined) {
                 return "$";
@@ -345,6 +340,9 @@ export class SchemaObjectCommands {
             throw new Error("The project has no schema snapshot: run Update "
                 + "Schema Snapshot on its schema row first.");
         }
+        // Asked for while the name is typed; awaited once it is.
+        const defaults = this.#templates();
+        defaults.catch(() => { /* reported where awaited */ });
         const taken = takenNames(kind, definition);
         const name = await vscode.window.showInputBox({
             title: `Add ${OBJECT_TYPE_LABELS[kind]}`,
@@ -373,16 +371,15 @@ export class SchemaObjectCommands {
                 return;
             }
         }
-        const defaults = await this.#templates();
-        const statement = fillTemplate(kind,
-            await this.host.templates.read(kind) ?? defaults.templates[kind],
-            defaults.placeholders[kind] ?? [],
-            { name: name.trim(), schema: row.schema,
-                ...(table === undefined ? {} : { table }) });
+        const expect: IMsmExpectedObject = { kind, name: name.trim(),
+            ...(table === undefined ? {} : { table }) };
+        const [templates, mine] = await Promise.all([defaults,
+            this.host.templates.read(kind)]);
+        const statement = fillTemplate(kind, mine ?? templates.templates[kind],
+            templates.placeholders[kind] ?? [],
+            { ...expect, schema: row.schema });
         const added = await this.host.addObject(row.projectPath, statement,
-            { kind, name: name.trim(),
-                ...(table === undefined ? {} : { table }) },
-            definition.source_hash);
+            expect, definition.source_hash);
         await this.host.snapshotUpdated(row.projectPath);
         // Where the new statement starts, for its body to be written.
         const at = new vscode.Position(Math.max(added.line - 1, 0), 0);

@@ -396,6 +396,14 @@ export const CUSTOM_LICENSE_START = "/*\n${copyright_notices}\n *\n"
     + " * The terms the project's scripts are licensed under.\n */";
 
 /**
+ * A `$` of a template as Python's string.Template reads it, which msm's
+ * templates are: `$$` (group 1), `$name` (2), `${name}` (3), else a `$`
+ * that is no placeholder (none of them).
+ */
+export const TEMPLATE_PLACEHOLDER =
+    /\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\}|)/giu;
+
+/**
  * @param text A custom license's text.
  *
  * @returns Why msm would refuse it, or why the scripts would not run with
@@ -407,9 +415,7 @@ export const customLicenseProblem = (text: string): string | undefined => {
     if (trimmed === "") {
         return "Enter the license's text.";
     }
-    // As Python's string.Template reads it.
-    for (const match of text.matchAll(
-        /\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\}|)/giu)) {
+    for (const match of text.matchAll(TEMPLATE_PLACEHOLDER)) {
         const name = match[2] ?? match[3];
         if (match[1] === "$") {
             continue;

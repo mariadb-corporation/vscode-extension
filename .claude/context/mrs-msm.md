@@ -62,9 +62,9 @@ as possible.
   their edits, as an action of the General Actions; then
   `snapshotUpdated`. An editor with unsaved changes on the script is
   refused (msm writes the file on disk). A MariaDB Shell without the tool
-  (`isUnknownTool`) gets a message to update it. The extension parses no
-  REST SQL to place a statement (the old `withRestStatements` /
-  `restSectionEdit` are gone).
+  (`isUnknownTool`) gets a message to update it, and one whose
+  mariadb-lsp has no `rest_statements` gets msm's own. The extension
+  parses no REST SQL to place a statement.
 - **Deleting** a project's REST service, schema or object: the Connections
   view's Delete commands on the MSM Projects rows, confirmed, then
   `msm.drop_rest_object(kind, service, schema, object, base_hash)`
@@ -72,6 +72,16 @@ as possible.
   of it and of what is on it, their leading comments too, and writes no
   DROP (a release's Section 280 drops it from servers); an item the
   section only names keeps it, with a note shown. Gated as writing is.
+- **Opt-in end-to-end**: `src/test/msm/msmStatements.e2e.test.ts` runs a
+  real shell (this repo's plugins linked in, as `mrsShell.e2e`) on a new
+  project: REST items added, replaced, renamed and deleted, schema objects
+  added from msm's templates and replaced, a mismatched `expect` refused
+  with the file untouched. `MARIADB_SHELL_E2E=<mariadb-shell>
+  MARIADB_LSP=<mariadb-lsp> npx vitest run msmStatements.e2e`. msm's MCP
+  tools take mariadb-lsp from `mcp setup --lspPath` (the test runs it in
+  its own shell home), else the one next to the shell, never from a tool
+  argument: a shell whose bundled lsp is older than the plugins is
+  refused.
 - **The source of a project**: auth apps are `BUILT_IN_AUTH_APPS`
   (MariaDB, MRS), as every metadata has them. A click on a REST row opens
   the script on its statement.
