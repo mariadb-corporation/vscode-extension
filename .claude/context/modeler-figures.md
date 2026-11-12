@@ -46,7 +46,10 @@ does, so 2D shows only the top, a title-only box. The footprint is
 `width x depth` (`depth`, 20 = `CARD_THICKNESS`, written to the figure so
 msm's layout keeps it clear) and is `#figureRect`; `height` is how high
 it stands, the face's (`layout`, which a hit's uv maps onto). The item's
-elevation is its top, where it is selected and its menu button sits; the
+elevation is its top, where it is selected and its menu button sits
+(its `menuBand` as high as a card's header, centred on the 20-deep top,
+so the button is a table's and a layer's size: the user asked for that
+after a slab-high band made it smaller); the
 top label is a hit target too (`#cardMeshes`), the face being edge-on
 from above. Not resizable; menu Auto-Size Height only.
   Content `restObjectCardContent`: a heading `VIEW sakila.actor`, then the

@@ -1507,11 +1507,14 @@ export class EerFigureSet implements IFigureSet {
                 // An upright card's footprint is its top, where it is
                 // selected and moved.
                 elevation: () => { return this.#topElevation(node); },
-                // Notes and pictures have no header, and no menu.
+                // Notes and pictures have no header, and no menu. As high
+                // as a card's header, so every button is one size: an
+                // upright card's centred on its top, a slab deep.
                 ...(card ? {
                     menuBand: {
-                        top: 0,
-                        height: upright ? CARD_THICKNESS : CARD.headerHeight,
+                        top: upright
+                            ? (CARD_THICKNESS - CARD.headerHeight) / 2 : 0,
+                        height: CARD.headerHeight,
                         color: contrastingText(figureColor(figure)),
                     },
                 } : {}),
