@@ -867,6 +867,23 @@ describe("the schema dialog", () => {
         ]);
         expect(alter).toContain("ITEMS PER PAGE 25");
     });
+
+    it("edits a script's REST schema as its statement again, never moved",
+        () => {
+            const context = { services: ["/svc"], existingPath: "/SAKILA",
+                existingService: "/SVC", forScript: true };
+            const [statement] = schemaStatements(schemaValues(), context);
+            expect(statement).toMatch(
+                /^CREATE OR REPLACE REST SCHEMA \/sakila ON SERVICE \/svc/u);
+            expect(() => {
+                return schemaStatements(schemaValues({ requestPath: "/s" }),
+                    context);
+            }).toThrow(/renamed/u);
+            expect(() => {
+                return schemaStatements(schemaValues({ servicePath: "/other" }),
+                    context);
+            }).toThrow(/another service/u);
+        });
 });
 
 describe("the object dialog", () => {

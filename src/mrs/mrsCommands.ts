@@ -97,10 +97,14 @@ import {
     type IUserDialogValues,
 } from "./mrsDialogs.js";
 import { words } from "./mrsActions.js";
-import { liveRestSource, type IRestSource } from "./restSource.js";
+import { found, liveRestSource, type IRestSource } from "./restSource.js";
+import type { IMsmRestItem } from "../mcp/msmApi.js";
+import type { IProjectRestSource } from "../msm/projectRestSource.js";
 import { MrsDialogPanel, type IMrsDialogSpec } from "./mrsDialogPanel.js";
 import type {
     IMrsDataMappingField,
+    IMrsObject,
+    IMrsSchema,
     IMrsService,
     IMrsStatus,
     MrsObjectType,
@@ -123,6 +127,7 @@ import {
     useServiceSql,
     userRef,
     quoteText,
+    samePath,
 } from "./restSql.js";
 
 /**
@@ -163,13 +168,34 @@ export interface IMrsCommandsHost {
      *
      * @param projectPath The project folder.
      */
-    projectRest?(projectPath: string): IRestSource | undefined;
+    projectRest?(projectPath: string): IProjectRestSource | undefined;
     log(message: string): void;
 }
 
 /** A row of the MSM Projects view: it is in a project, not on a server. */
 interface IProjectRow {
     projectPath: string;
+}
+
+/** A REST service's row of a project in the MSM Projects view. */
+interface IProjectRestServiceRow extends IProjectRow {
+    kind: "restService";
+    service: IMrsService;
+}
+
+/** A REST schema's row of a project in the MSM Projects view. */
+interface IProjectRestSchemaRow extends IProjectRow {
+    kind: "restSchema";
+    service: IMrsService;
+    schema: IMrsSchemaNode["schema"];
+}
+
+/** A REST object's row of a project in the MSM Projects view. */
+interface IProjectRestObjectRow extends IProjectRow {
+    kind: "restObject";
+    service: IMrsService;
+    schema: IMrsSchemaNode["schema"];
+    object: IMrsObjectNode["object"];
 }
 
 /** The title of the dialog adding a REST service, on a server or a project. */
@@ -477,6 +503,38 @@ export class MrsCommands {
             `The REST ${kind} SQL was exported`);
     }
 
+    /**
+     * Asks for confirmation, then has msm remove a REST item from a
+     * project's MSM Section 180, with what is on it: its statements, not
+     * a server's endpoint (a release's update script drops that).
+     *
+     * @param projectPath The project.
+     * @param item The item.
+     * @param action The confirming button.
+     */
+    async #dropFromProject(
+        projectPath: string,
+        item: IMsmRestItem,
+        action: string,
+    ): Promise<void> {
+        const source = this.host.projectRest?.(projectPath);
+        const named = `${item.service}${item.schema ?? ""}${item.object ?? ""}`;
+        const onIt = item.kind === "object" ? ""
+            : `, and everything on it,`;
+        if (source === undefined || !await confirm(`Are you sure the REST `
+            + `${item.kind} ${named}${onIt} should be removed from the `
+            + "project's development script?", action)) {
+            return;
+        }
+        try {
+            await source.drop(item);
+        } catch (error) {
+            source.failed();
+            throw error;
+        }
+        source.saved();
+    }
+
     /** Asks for confirmation, then drops what the statement drops. */
     async #drop(
         node: IMrsNodeBase,
@@ -631,13 +689,35 @@ export class MrsCommands {
         }
     }
 
-    public async editService(node?: IMrsServiceNode): Promise<void> {
+    /**
+     * Opens the REST service dialog on a service: a server's of the
+     * Connections view, or a project's of the MSM Projects view, read from
+     * mariadb-lsp's outline of its development script and saved there.
+     */
+    public async editService(
+        node?: IMrsServiceNode | IProjectRestServiceRow,
+    ): Promise<void> {
         if (node?.kind === "mrsService") {
             await this.#serviceDialog(this.#live(node), node.service);
+        } else if (node?.kind === "restService") {
+            const source = await this.#sourceOf(node);
+            if (source !== undefined) {
+                await this.#serviceDialog(source, await source.service(
+                    node.service.full_service_path));
+            }
         }
     }
 
-    public async deleteService(node?: IMrsServiceNode): Promise<void> {
+    public async deleteService(
+        node?: IMrsServiceNode | IProjectRestServiceRow,
+    ): Promise<void> {
+        if (node?.kind === "restService") {
+            await this.#dropFromProject(node.projectPath,
+                { kind: "service", service: node.service.full_service_path },
+                "Delete REST Service");
+
+            return;
+        }
         if (node?.kind !== "mrsService") {
             return;
         }
@@ -945,7 +1025,9 @@ export class MrsCommands {
             }),
             ...(schema === undefined
                 ? (dbObjects === undefined ? {} : { dbObjects })
-                : { existingPath: schema.request_path }),
+                : { existingPath: schema.request_path,
+                    ...(service === undefined
+                        ? {} : { existingService: service.full_service_path }) }),
             ...this.#scriptContext(source),
         };
 
@@ -1011,14 +1093,38 @@ export class MrsCommands {
         }
     }
 
-    public async editSchema(node?: IMrsSchemaNode): Promise<void> {
+    /**
+     * Opens the REST schema dialog on a REST schema: a server's of the
+     * Connections view, or a project's of the MSM Projects view, read from
+     * mariadb-lsp's outline of its development script and saved there.
+     */
+    public async editSchema(
+        node?: IMrsSchemaNode | IProjectRestSchemaRow,
+    ): Promise<void> {
         if (node?.kind === "mrsSchema") {
             await this.#schemaDialog(this.#live(node), node.schema.name,
                 node.service, node.schema);
+        } else if (node?.kind === "restSchema") {
+            const source = await this.#sourceOf(node);
+            if (source !== undefined) {
+                const schema = await source.schema(
+                    node.service.full_service_path, node.schema.request_path);
+                await this.#schemaDialog(source, schema.name, node.service,
+                    schema);
+            }
         }
     }
 
-    public async deleteSchema(node?: IMrsSchemaNode): Promise<void> {
+    public async deleteSchema(
+        node?: IMrsSchemaNode | IProjectRestSchemaRow,
+    ): Promise<void> {
+        if (node?.kind === "restSchema") {
+            await this.#dropFromProject(node.projectPath, { kind: "schema",
+                service: node.service.full_service_path,
+                schema: node.schema.request_path }, "Delete REST Schema");
+
+            return;
+        }
         if (node?.kind !== "mrsSchema") {
             return;
         }
@@ -1091,7 +1197,9 @@ export class MrsCommands {
     ): Promise<void> {
         const objectType = object?.object_type ?? newObject!.objectType;
         const dbObject = object?.name ?? newObject!.name;
-        const dbSchema = object?.schema_name ?? schema.name;
+        // A script's statement may name no schema: its REST schema's.
+        const dbSchema = object === undefined || object.schema_name === ""
+            ? schema.name : object.schema_name;
         const stored = object === undefined ? undefined
             : await source.object(object.object_type,
                 service.full_service_path, schema.request_path,
@@ -1135,8 +1243,15 @@ export class MrsCommands {
             }, document, service.full_service_path, schema.request_path),
             context,
             save: async (values) => {
+                // In a script, the edited object's statement is where its
+                // new one goes, whatever path that names.
                 await source.run(objectStatements(
-                    values as IObjectDialogValues, context));
+                    values as IObjectDialogValues, context),
+                object === undefined ? undefined : {
+                    servicePath: service.full_service_path,
+                    schemaPath: schema.request_path,
+                    requestPath: object.request_path,
+                });
             },
             loadColumns: async (refSchema, table) => {
                 return await source.columns("TABLE", refSchema, table);
@@ -1216,14 +1331,81 @@ export class MrsCommands {
             { name: node.name, objectType });
     }
 
-    public async editDbObject(node?: IMrsObjectNode): Promise<void> {
+    /**
+     * Opens the REST Object dialog on a REST object: a server's of the
+     * Connections view, or a project's of the MSM Projects view, read back
+     * from its statement in the project's MSM Section 180 and saved there.
+     */
+    public async editDbObject(
+        node?: IMrsObjectNode | IProjectRestObjectRow,
+    ): Promise<void> {
         if (node?.kind === "mrsObject") {
             await this.#objectDialog(this.#live(node), node.service,
                 node.schema, node.object);
+        } else if (node?.kind === "restObject") {
+            const source = await this.#sourceOf(node);
+            if (source !== undefined) {
+                await this.#objectDialog(source, node.service, node.schema,
+                    node.object);
+            }
         }
     }
 
-    public async deleteDbObject(node?: IMrsObjectNode): Promise<void> {
+    /**
+     * Opens the REST Object dialog on a project's REST object by its paths,
+     * as a diagram's REST object figure names it.
+     *
+     * @param projectPath The project.
+     * @param servicePath The object's REST service.
+     * @param schemaPath Its REST schema.
+     * @param requestPath Its path.
+     */
+    public async editProjectRestObject(
+        projectPath: string,
+        servicePath: string,
+        schemaPath: string,
+        requestPath: string,
+    ): Promise<void> {
+        const source = this.host.projectRest?.(projectPath);
+        if (source === undefined) {
+            return;
+        }
+        const what = `REST object ${servicePath}${schemaPath}${requestPath}`
+            + " in the project's development script";
+        let service: IMrsService;
+        let schema: IMrsSchema;
+        let object: IMrsObject;
+        try {
+            service = found(await source.services(), (candidate) => {
+                return samePath(candidate.full_service_path, servicePath);
+            }, what);
+            schema = found(await source.schemas(service.full_service_path),
+                (candidate) => {
+                    return samePath(candidate.request_path, schemaPath);
+                }, what);
+            object = found(await source.objects(service.full_service_path,
+                schema.request_path), (candidate) => {
+                return samePath(candidate.request_path, requestPath);
+            }, what);
+        } catch (error) {
+            void vscode.window.showErrorMessage((error as Error).message);
+
+            return;
+        }
+        await this.#objectDialog(source, service, schema, object);
+    }
+
+    public async deleteDbObject(
+        node?: IMrsObjectNode | IProjectRestObjectRow,
+    ): Promise<void> {
+        if (node?.kind === "restObject") {
+            await this.#dropFromProject(node.projectPath, { kind: "object",
+                service: node.service.full_service_path,
+                schema: node.schema.request_path,
+                object: node.object.request_path }, "Delete REST Object");
+
+            return;
+        }
         if (node?.kind !== "mrsObject") {
             return;
         }

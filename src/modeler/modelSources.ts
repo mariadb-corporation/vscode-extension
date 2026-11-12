@@ -21,6 +21,7 @@ import { basename } from "node:path";
 import type {
     IMsmApi,
     IMsmNewObject,
+    IMsmRestItem,
     IMsmSchemaEdit,
 } from "../mcp/msmApi.js";
 import {
@@ -680,6 +681,65 @@ export class ProjectModelSource implements IModelSource {
         this.#bases = hashesOf(added.rows);
 
         return added;
+    }
+
+    /**
+     * Puts REST statements into the project's MSM Section 180, where msm
+     * keeps them, as an edit of the schema in turn with the viewer's.
+     *
+     * @param statements One CREATE of a REST item each.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     * @param words What the Actions tab says of them.
+     * @param replaces The REST object a renamed one stands in for.
+     *
+     * @returns How many statements were set.
+     */
+    public async setRestStatements(
+        statements: string[],
+        baseHash: string,
+        words: { doing: string; done: string },
+        replaces?: IMsmRestItem,
+    ): Promise<number> {
+        await this.flush();
+        const set = await this.#enqueuedAction(words,
+            "msm.set_rest_statements", { statements: statements.length,
+                ...(replaces === undefined ? {} : { replaces }) },
+            (api) => {
+                return api.setRestStatements(this.projectPath, statements,
+                    baseHash, replaces);
+            }, (result) => {
+                return counted(result.statements.length, "statement");
+            });
+        this.#bases = hashesOf(set.rows);
+
+        return set.statements.length;
+    }
+
+    /**
+     * Removes a REST service, schema or object from the project's MSM
+     * Section 180, with what is on it, in turn with the viewer's edits.
+     *
+     * @param item What to remove.
+     * @param baseHash The snapshot's `source_hash` it was named against.
+     * @param words What the Actions tab says of it.
+     *
+     * @returns msm's notes: one where the project only names the item.
+     */
+    public async dropRestObject(
+        item: IMsmRestItem,
+        baseHash: string,
+        words: { doing: string; done: string },
+    ): Promise<string[]> {
+        await this.flush();
+        const dropped = await this.#enqueuedAction(words, "msm.drop_rest_object",
+            { ...item }, (api) => {
+                return api.dropRestObject(this.projectPath, item, baseHash);
+            }, (result) => {
+                return counted(result.removed.length, "statement");
+            });
+        this.#bases = hashesOf(dropped.rows);
+
+        return dropped.notes.map((note) => { return note.message; });
     }
 
     /**

@@ -34,7 +34,10 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
   script's statements are of its run: `ActionGroup` (`src/restd/
   actionGroup.ts`). The same for start / stop / delete of a sandbox that
   has a daemon: the daemon after the server on start, before it on stop
-  and delete (`followSandbox`).
+  and delete (`followSandbox`). A group whose only step is worded as it
+  is shows as that one row while it runs and once done; a failed one
+  keeps its step's row, with the error, under it (see
+  [msm.md](msm.md)).
 - **A row offers its log**: a `$(go-to-file)` button (the Tasks view's
   Show Log icon) beside the ↗ and → arrows, from `IActionRow.logPath`.
   A failed row's says why: failed dump & load task rows have it too, for

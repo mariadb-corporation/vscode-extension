@@ -18,7 +18,6 @@
 import { describe, expect, it } from "vitest";
 
 import type { ISchemaDefinition } from "../../modeler/modelFormat.js";
-import { withRestStatements } from "../../mrs/restScript.js";
 import {
     BUILT_IN_AUTH_APPS,
     projectRestSource,
@@ -77,11 +76,16 @@ const project = (hasSnapshot = true) => {
     const source = projectRestSource({
         snapshot: () => { return Promise.resolve(snapshot); },
         restSql: () => { return Promise.resolve(state.sql); },
+        // msm places them; appended here, to be read back.
         write: (statements) => {
-            state.sql = withRestStatements(state.sql, statements);
+            state.sql += statements.map((statement) => {
+                return `\n${statement}\n`;
+            }).join("");
 
             return Promise.resolve();
         },
+        drop: () => { return Promise.resolve(); },
+        restOutline: () => { return Promise.resolve(undefined); },
         saved: () => { state.saved += 1; },
         failed: () => { state.failed += 1; },
     });
@@ -187,10 +191,10 @@ describe("a project as the REST dialogs' source", () => {
             return [schema.request_path, schema.name];
         })).toEqual([["/shop", "shop"]]);
         expect(await source.schemas("/other")).toEqual([]);
-        expect(state.sql).toBe("\n-- Create a REST service\n\n"
-            + "CREATE OR REPLACE REST SERVICE /svc;\n\n"
-            + "CREATE OR REPLACE REST SCHEMA /shop ON SERVICE /svc FROM "
-            + "`shop`;\n\n\n");
+        expect(state.sql).toBe("\n-- Create a REST service\n\n\n"
+            + "\nCREATE OR REPLACE REST SERVICE /svc;\n"
+            + "\nCREATE OR REPLACE REST SCHEMA /shop ON SERVICE /svc FROM "
+            + "`shop`;\n");
     });
 
     it("reads objects of the project's schema only", async () => {

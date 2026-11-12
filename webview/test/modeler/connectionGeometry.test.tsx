@@ -28,8 +28,12 @@ import {
     sideSlots,
     splitStubs,
     spreadAnchors,
+    standAnchors,
+    standingSlots,
+    atOfHeight,
     turnedMarker,
     type IAnchors,
+    type IConnectionLevels,
 } from "../../src/modeler/connectionGeometry.js";
 
 describe("routeConnection", () => {
@@ -327,5 +331,80 @@ describe("turnedMarker", () => {
         // Along the line nothing moves: the root stays where it was.
         expect(turned[0][0]).toMatchObject({ x: 100 + MARKER_SIZE, y: 25 });
         expect(turned[0][0].dz).toBeCloseTo(0, 10);
+    });
+});
+
+describe("standAnchors", () => {
+    // An upright card 100 high standing on the page: a slab deep.
+    const standing = { left: 0, top: 0, width: 100, height: 20 };
+    const stand = { foot: 0, height: 100 };
+    const flat = (top: number) => {
+        return { left: 300, top, width: 100, height: 50 };
+    };
+    const ends = (
+        id: string,
+        endLevel: number,
+        extra: Partial<IConnectionLevels> = {},
+    ): IConnectionLevels => {
+        return { id, startFigure: "standing", endFigure: id, start: standing,
+            end: flat(0), startLevel: 10, endLevel, startStand: stand,
+            ...extra };
+    };
+    const anchorsOf = (connections: IConnectionLevels[]) => {
+        return new Map<string, IAnchors>(connections.map((c) => {
+            return [c.id, { start: 3, end: 25, startSide: "right",
+                endSide: "left" }];
+        }));
+    };
+
+    it("spreads an upright card's edge ends up its height", () => {
+        const connections = [ends("low", -10), ends("high", 90)];
+        const { anchors, heights } = standAnchors(connections,
+            anchorsOf(connections), 8);
+        // The higher figure's line meets the card higher up, so seen
+        // from the front they do not cross.
+        expect(heights.get("high")!.start).toBeGreaterThan(
+            heights.get("low")!.start);
+        expect(standingSlots(stand, 2, 8)).toEqual([
+            heights.get("high")!.start, heights.get("low")!.start]);
+        // On the page, both meet the footprint's side in its middle.
+        expect(anchors.get("low")!.start).toBe(10);
+        expect(anchors.get("high")!.start).toBe(10);
+        // The flat figure's ends keep their place and level.
+        expect(anchors.get("low")!.end).toBe(25);
+        expect(heights.get("low")!.end).toBe(-10);
+    });
+
+    it("keeps one line in the middle of the card's height", () => {
+        const connections = [ends("one", -10)];
+        const { heights } = standAnchors(connections, anchorsOf(connections));
+        expect(heights.get("one")!.start).toBe(50);
+    });
+
+    it("orders ends placed by hand by their at, 0 at the top", () => {
+        const connections = [
+            ends("top", -10, { startDock: { side: "right", at: 0 } }),
+            ends("foot", 90, { startDock: { side: "right", at: 1 } }),
+        ];
+        const { heights } = standAnchors(connections,
+            anchorsOf(connections));
+        expect(heights.get("top")!.start).toBeGreaterThan(
+            heights.get("foot")!.start);
+    });
+
+    it("leaves ends on an upright card's face at its level", () => {
+        const connections = [ends("face", -10)];
+        const anchors = new Map<string, IAnchors>([["face", { start: 50,
+            end: 350, startSide: "bottom", endSide: "top" }]]);
+        const result = standAnchors(connections, anchors);
+        expect(result.anchors.get("face")!.start).toBe(50);
+        expect(result.heights.get("face")!.start).toBe(10);
+    });
+
+    it("turns a height up the edge into a dock's at", () => {
+        expect(atOfHeight(stand, 100)).toBe(0);
+        expect(atOfHeight(stand, 0)).toBe(1);
+        expect(atOfHeight(stand, 50, 8)).toBeCloseTo(0.5);
+        expect(atOfHeight(stand, 500)).toBe(0);
     });
 });

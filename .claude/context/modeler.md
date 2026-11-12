@@ -185,8 +185,22 @@ figure sets, so the canvas knows nothing of tables or layers:
   (`turnedMarker`, by `host.front()` x 90°: the user's request), else
   they would be edge-on there; flat in the other two views. Kept per
   diagram as any view (`mode: "front"`).
-  An orbit from it starts at the lowest tilt. Not done: moving figures in
-  it (the pointer's ray runs along the page, which it never meets).
+  An orbit from it starts at the lowest tilt. **Selecting, sizing and
+  moving in it** (the user's request: the selection rectangle and handles
+  flipped, figures moved up / down on Z and left / right on X): an item
+  with `frontSpan` (every figure: an upright card foot to top, a lying
+  one its slab's side) has its outline and handles stood up on the face
+  it shows (`#updateDecorations`, turned 90° about x, `FRONT_DECORATION_OUT`
+  in front of it); the pointer is read across and up (`#frontAt`, an
+  upright plane, heights as an item's `elevation`), as the page is never
+  met. Handles: an upright card's eight (`frontHeightResizable`: its top
+  or foot moves, the other stays, its height then sized by hand), a lying
+  one's left and right (`resizeFrontTo`). A drag moves across
+  (`moveBy(dx, 0)`) and up (`IMoveSession.elevateBy`: a selected layer
+  with what lies on it, a selected figure its own Z, both in
+  0..`MAX_LAYER_ELEVATION`). A lying card's side label is a hit target
+  there (`#figureHit`), its UV not taken for a row (`face`). Layers and
+  lines have no front outline; a layer is not moved there.
 - **The Isometric button is a split button**: the main part goes to the
   3D view last chosen, only the chevron opens the list; a pick also goes
   to the 3D view. Kept in the webview's state (`saveState` / `loadState`).
@@ -320,64 +334,9 @@ shortcuts: see [modeler-view.md](modeler-view.md).
 
 ## Rendering notes
 
-- **Grid** like Illustrator's (`gridSpacing`): 10 mm main / 2 mm sub at
-  the base level, five per cell; sublines closer than 6 px are dropped and
-  the main lines become the sublines of a grid five times wider; they fade
-  in over 8 px. Rebuilt only on a level change.
-- **Cards are Canvas2D textures**, not troika-three-text: troika's CDN
-  font, blob worker and missing font file do not pass the webview's CSP.
-  Redrawn at a step of device pixels per unit 150 ms after the zoom
-  settles (`zoomSettled`).
-- **Each card has a slab** (`CARD_THICKNESS` 20 units: just room for the
-  header's icon and bold title, which its front side shows in the
-  header's text colour - `drawSideLabel`, a plane that is the slab's
-  child so it grows with it; shaded by baked vertex colours from
-  a light at the upper left), flat in 2D, growing with the lift. It is
-  inset a unit inside the card (`SLAB_INSET`): as large as the card, its
-  light top showed through the card's anti-aliased corners as a fringe.
-  Rounded rectangles (`roundedRect`) use circular arcs, as Canvas2D's
-  `roundRect` does; quadratic corners bulged past the card's.
-- **Draw order is fixed** (`DRAW_ORDER`: pages, grid, base, shadows,
-  lifted, connections, decorations), since three.js sorts transparent
-  meshes by distance, which put tilted plates over shadows.
-- **Connections are fat lines** (`LineSegments2` / `LineMaterial`, 1.6 CSS
-  px, `CONNECTION_WIDTH`): WebGL's own lines are a pixel wide whatever is
-  asked. Their material needs the canvas's size (`host.viewport()`, set
-  in `viewChanged`); in the Navigator they come out thinner.
-  Each connection is two of them: the route, dashed (5 on, 4 off,
-  `CONNECTION_DASH`) for a non-identifying relationship as Workbench
-  draws it, and its end markers, always solid (a dashed material dashes
-  every segment it holds). `identifying` is read from the catalog
-  (`relationshipKindOf`) when built and on `#refresh`.
-- **A connection is an item** (`outlined: false`): a click selects it as
-  it does a table, and the canvas leaves its marking to the set
-  (`selectionChanged`) - the line in the selection colour and, on a Z, a
-  handle in the middle of the middle segment (`grabAt`, sized in pixels in
-  `beforeRender`). Dragging it moves the segment towards either table,
-  kept `MIDDLE_CLEARANCE` (two markers) clear of both, and stores
-  Workbench's `middleSegmentOffset` (from halfway), which the snapshot
-  undoes. `drawSplit` ones are a 40-unit stub out of each table, no handle.
-
-- **Layer plates are solid**: the layer's tint over the paper, mixed in
-  sRGB as the old 35% / 60% see-through plate was blended (`tintOver`),
-  so the grid lies under the layers rather than showing through. Nested
-  plates would fight in one plane, so a smaller layer lies a little
-  higher (`#stackHeight`, 0.003 per larger layer).
-- **The grid's main lines** are at 38%, the sublines at 40% (before
-  their fade, which at 100% leaves about a third of it).
-- **The printable areas' dashed lines are hidden by default**
-  (`Canvas.marginsVisible`); the toolbar's hamburger at its right end
-  (`CanvasToolbar` `onMenu`) offers "Show Printable Area", kept in the
-  webview state (`margins`).
-- **Sheet edges:** the paper's outline in full, the sheets' edges where
-  they overlap (inside the diagram) dotted (1.5 on, 4 off) at 30%
-  (`INNER_EDGE_OPACITY`).
-- **The paper** is the editor's background, lifted 8% towards white on a
-  dark theme (`paperColor` in `theme.ts`; `#1e1e1e` gives `#303030`), so
-  it does not look black; the layer tints and handles take it from there.
-- **Around the paper** is the theme's widget background darkened to 60%
-  (dark themes) or 80% (light) in sRGB (`outsideColor`), the Navigator's
-  margin too.
+Cards as canvas textures, slabs, draw order, fat connection lines, layer
+plates, the grid, the paper and the printable area: see
+[modeler-rendering.md](modeler-rendering.md).
 
 ## Known gaps / next steps
 

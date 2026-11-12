@@ -20,7 +20,17 @@ canvas renders the scene into that part of its own WebGL canvas with a
 second, top-down camera (`#renderNavigator`, scissor + viewport), so it
 stays 2D in a 3D view without a second WebGL context. The part in view is
 the four screen corners on the page (`INavigatorState.view`): a rectangle
-in 2D, a quadrilateral in 3D, drawn as an SVG polygon in
+in 2D, a quadrilateral in 3D, each corner's ray kept within a screen's
+height of the view's centre (`floorReach`; the user's request: in 2D
+Front "straight lines ... with a max height which is greater than
+visible but should not get towards infinite" while the view turns), so
+2D Front shows a straight rectangle twice the screen's height deep where
+the floor is never met, and the turn from Isometric no longer skews it; and in 2D Front its top and
+bottom run past the overview (`NAVIGATOR_BEYOND`, blended there by the
+turn), so only its sides show, and a drag or press in it pans across
+only (`navigatorPan` / `navigatorCenter` keep the target's depth: the
+user's request);
+drawn as an SVG polygon in
 `--vscode-focusBorder`, 1px, over black at 7%. Dragging pans
 (`navigatorPan`); a press outside it centres the view there first
 (`navigatorCenter`).
@@ -28,8 +38,10 @@ in 2D, a quadrilateral in 3D, drawn as an SVG polygon in
 ## Where a diagram opens
 
 Each diagram opens as it was last left: zoom, the page point in the
-middle of the view, the projection (2D / 3D), the 3D preset or the
-user's own angles. Kept by VS Code in the workspace's state (key
+middle of the view, the projection (2D / 3D / 2D Front), the 3D preset
+or the user's own angles, and in 2D Front the height a pan moved the
+view to (`height`, optional: left out on the floor and by older
+versions; the other projections slide the target back onto the page). Kept by VS Code in the workspace's state (key
 `mariadb.diagramViews`, `src/modeler/diagramViews.ts`: by the model
 source's `key`, then the diagram's name), never in the diagram, so
 looking changes no file. The canvas reports every step (`onViewChanged`,

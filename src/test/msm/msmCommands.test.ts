@@ -230,6 +230,10 @@ const setUp = (options: ISetUp = {}): IRecorded => {
             { templates: {}, placeholders: {} } as never),
         addSchemaObject: answer("addSchemaObject", { rows: [], files: [],
             migration: [], notes: [], file: "", line: 1 }),
+        setRestStatements: answer("setRestStatements", { rows: [],
+            files: [], migration: [], notes: [], statements: [] }),
+        dropRestObject: answer("dropRestObject", { rows: [], files: [], migration: [],
+            notes: [], removed: [] }),
     };
     setWorkspaceFolders([{ name: "work", uri: Uri.file("/work") }]);
     registeredCommands.set("revealInExplorer", (uri: unknown) => {

@@ -49,6 +49,7 @@ import {
     isPlaceOf,
     parseSchemaObjectUris,
     type IDiagramView,
+    type IRestObjectPaths,
     type ModelerHostMessage,
     type ModelerTarget,
     type SaveState,
@@ -661,6 +662,13 @@ export const ModelViewer = (): JSX.Element => {
                         onEditTable: (table: string) => {
                             post({ type: "editTable", table });
                         },
+                        // A project's only: a live schema's diagrams have
+                        // no REST object figures.
+                        ...(message.target.kind === "project" ? {
+                            onEditRestObject: (object: IRestObjectPaths) => {
+                                post({ type: "editRestObject", ...object });
+                            },
+                        } : {}),
                         // The lines followed the foreign keys: saved, as an
                         // action would be.
                         onConnectionsSynced: saveChanged,

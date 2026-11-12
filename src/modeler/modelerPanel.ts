@@ -30,6 +30,7 @@ import type { IDiagramDocument } from "./modelFormat.js";
 import { isStaleSnapshot, type IModelSource } from "./modelSources.js";
 import type {
     DiagramObjectRef,
+    IRestObjectPaths,
     ISchemaObjectRef,
     ModelerHostMessage,
     ModelerTarget,
@@ -80,6 +81,8 @@ export interface IModelerHost {
     draggedObjects?(): string | undefined;
     /** Opens a table of the shown schema in the table editor. */
     editTable?(target: ModelerTarget, table: string): void;
+    /** Opens a project's REST object in the REST Object dialog. */
+    editRestObject?(target: ModelerTarget, object: IRestObjectPaths): void;
     /** How each diagram was last looked at, kept by VS Code. */
     views?: DiagramViews;
 }
@@ -335,6 +338,13 @@ export class ModelerPanel {
             case "editTable": {
                 this.host.editTable?.(this.source.target(this.#diagram),
                     message.table);
+                break;
+            }
+
+            case "editRestObject": {
+                this.host.editRestObject?.(this.source.target(this.#diagram),
+                    { service: message.service, schema: message.schema,
+                        object: message.object });
                 break;
             }
 

@@ -202,6 +202,17 @@ export const createRest = (forScript = false): string => {
     return forScript ? "CREATE OR REPLACE REST" : "CREATE REST";
 };
 
+/**
+ * @param left A path.
+ * @param right Another one.
+ *
+ * @returns Whether both are the same, as the server compares paths:
+ *          whatever their case.
+ */
+export const samePath = (left: string, right: string): boolean => {
+    return left.toLowerCase() === right.toLowerCase();
+};
+
 /** A service as the service dialog edits it. */
 export interface IServiceValues {
     /** `[devs@]/path`. */
@@ -256,6 +267,8 @@ const serviceOptions = (
  * @param forScript Whether it is kept in a script that is run again and
  *        again: `CREATE OR REPLACE`, which a shell updates in place,
  *        keeping the service's id, its schemas and its auth app links.
+ * @param removeApps The auth apps to unlink: a script's edit, as the links
+ *        it does not name are kept.
  *
  * @returns `CREATE REST SERVICE`.
  */
@@ -263,10 +276,11 @@ export const createServiceSql = (
     values: IServiceValues,
     authApps: string[] = [],
     forScript = false,
+    removeApps: string[] = [],
 ): string => {
     return statement(
         `${createRest(forScript)} SERVICE ${quoteServicePath(values.path)}`,
-        serviceOptions(values, authApps, []));
+        serviceOptions(values, authApps, removeApps));
 };
 
 /**

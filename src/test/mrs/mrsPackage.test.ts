@@ -224,9 +224,11 @@ describe("the REST Service contributions", () => {
             "mariadb.mrs.deleteDaemon": ["mariadbMrsDaemon"],
         };
 
+        // The Connections view's; the MSM Projects view's rows are its own.
         for (const [command, values] of Object.entries(deletes)) {
             const entries = menus["view/item/context"]!.filter((entry) => {
-                return entry.command === command;
+                return entry.command === command
+                    && entry.when?.includes("view == mariadb.connections");
             });
 
             expect(entries.length, command).toBeGreaterThan(0);

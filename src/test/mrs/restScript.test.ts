@@ -21,7 +21,6 @@ import {
     fieldLinesOf,
     parseRestScript,
     restObjectDefinitions,
-    restSectionEdit,
     restSectionOf,
     objectEntries,
     objectOf,
@@ -30,7 +29,6 @@ import {
     serviceEntries,
     serviceOf,
     sectionSpan,
-    withRestStatements,
 } from "../../mrs/restScript.js";
 
 const SERVICE = `CREATE REST SERVICE IF NOT EXISTS /myService/v1
@@ -178,67 +176,6 @@ describe("parseRestScript", () => {
     });
 });
 
-describe("withRestStatements", () => {
-    it("puts a first statement after the section's comment, keeping the "
-        + "blank lines before the next section", () => {
-        expect(withRestStatements("\n-- Create a REST service\n\n\n",
-            [SERVICE])).toBe(`\n-- Create a REST service\n\n${SERVICE}\n\n\n`);
-        expect(withRestStatements("\n\n", [SERVICE])).toBe(`\n${SERVICE}\n\n`);
-        expect(withRestStatements("", [SERVICE])).toBe(`\n${SERVICE}\n`);
-    });
-
-    it("adds what the script does not create yet last", () => {
-        const procedure = "CREATE OR REPLACE REST PROCEDURE /tidy\n"
-            + "    ON SERVICE /myService/v1 SCHEMA /shop\n"
-            + "    AS `shop`.`tidy`;";
-        const sql = withRestStatements(BODY, [procedure]);
-
-        expect(sql).toBe(BODY.replace(`${VIEW}\n`,
-            `${VIEW}\n\n${procedure}\n`));
-        expect(parseRestScript(sql)).toHaveLength(4);
-    });
-
-    it("replaces a REST schema's or object's statement where it stands",
-        () => {
-            const changed = VIEW.replace("AUTHENTICATION REQUIRED",
-                "AUTHENTICATION NOT REQUIRED").replace("/item", "/ITEM");
-            const sql = withRestStatements(BODY, [changed]);
-
-            expect(sql).toBe(BODY.replace(VIEW, changed));
-            expect(parseRestScript(sql)).toHaveLength(3);
-        });
-
-    it("writes a statement saved twice in one go once, the last one",
-        () => {
-            const first = "CREATE OR REPLACE REST SCHEMA /b ON SERVICE "
-                + "/myService/v1 FROM `b`;";
-            const second = first.replace(";", " DISABLED;");
-
-            expect(withRestStatements(BODY, [first, VIEW, second])).toBe(
-                BODY.replace(`${VIEW}\n`, `${VIEW}\n\n${second}\n`));
-        });
-
-    it("replaces a service's statement too, whatever its case and form",
-        () => {
-            const changed = "CREATE OR REPLACE REST SERVICE /MYSERVICE/v1\n"
-                + "    DISABLED;";
-            const sql = withRestStatements(BODY, [changed]);
-
-            expect(sql).toBe(BODY.replace(SERVICE, changed));
-            expect(parseRestScript(sql).map((entry) => {
-                return entry.kind;
-            })).toEqual(["service", "schema", "object"]);
-        });
-
-    it("keeps a script's CRLF line ends", () => {
-        const sql = withRestStatements("\r\n-- REST\r\n\r\n",
-            ["CREATE OR REPLACE REST SERVICE /svc\n    ENABLED;"]);
-
-        expect(sql).toBe("\r\n-- REST\r\n\r\nCREATE OR REPLACE REST SERVICE "
-            + "/svc\r\n    ENABLED;\r\n\r\n");
-    });
-});
-
 describe("a development script's sections", () => {
     it("finds a section's body between its header and the next", () => {
         const text = script(BODY);
@@ -265,17 +202,6 @@ describe("a development script's sections", () => {
 
         expect(text.slice(span.start, span.end))
             .toBe(BODY.replaceAll("\n", "\r\n"));
-    });
-
-    it("puts statements into Section 180 and nowhere else", () => {
-        const text = script("\n-- Create a REST service\n\n\n");
-        const { span, sql } = restSectionEdit(text, [SERVICE]);
-        const changed = text.slice(0, span.start) + sql + text.slice(span.end);
-
-        expect(changed).toBe(
-            script(`\n-- Create a REST service\n\n${SERVICE}\n\n\n`));
-        expect(() => { restSectionEdit("SELECT 1;", [SERVICE]); })
-            .toThrow("The development script has no MSM Section 180");
     });
 });
 

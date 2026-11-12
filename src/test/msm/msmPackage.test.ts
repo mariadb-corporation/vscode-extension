@@ -314,13 +314,19 @@ describe("the MSM Projects view's menus", () => {
             expect(onRow(`mariadbMsmObject.${type}`, false), type)
                 .not.toContain("mariadb.mrs.addDbObject");
         }
-        // A server's REST rows have menus a project's cannot serve.
-        for (const row of ["mariadbMsmRestService", "mariadbMsmRestSchema"]) {
-            expect(onRow(row, false), row).toEqual([]);
-        }
-        // A REST object goes onto a diagram, as the project's objects do.
+        // A project's REST service and schema are edited and deleted with
+        // the Connections view's commands (msm removes their statements);
+        // a server's other menus stay off them.
+        expect(onRow("mariadbMsmRestService", false))
+            .toEqual(["mariadb.mrs.editService", "mariadb.mrs.deleteService"]);
+        expect(onRow("mariadbMsmRestSchema", false))
+            .toEqual(["mariadb.mrs.editSchema", "mariadb.mrs.deleteSchema"]);
+        // A REST object goes onto a diagram, as the project's objects do,
+        // and is edited with the Connections view's dialog, as its table
+        // is with the table editor.
         expect(onRow("mariadbMsmRestObject", false))
-            .toEqual(["mariadb.addToDiagram"]);
+            .toEqual(["mariadb.addToDiagram", "mariadb.mrs.editDbObject",
+                "mariadb.mrs.deleteDbObject"]);
     });
 
     it("adds an empty diagram from the Diagrams folder's + and its menu, "

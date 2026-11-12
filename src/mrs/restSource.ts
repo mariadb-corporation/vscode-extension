@@ -15,7 +15,9 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import type { IObjectPlace } from "./dataMapping.js";
 import type { IMrsScope, MrsApi } from "./mrsApi.js";
+import { samePath } from "./restSql.js";
 import type { IDbObject } from "./mrsDialogs.js";
 import type {
     IMrsColumns,
@@ -47,11 +49,17 @@ export interface IRestSource {
     authApps(servicePath?: string): Promise<string[]>;
     services(): Promise<IMrsService[]>;
     schemas(servicePath: string): Promise<IMrsSchema[]>;
+    /** @returns A service as it is stored, for its dialog to edit. */
+    service(servicePath: string): Promise<IMrsService>;
+    /** @returns A REST schema as it is stored, for its dialog to edit. */
+    schema(servicePath: string, schemaPath: string): Promise<IMrsSchema>;
     /**
      * @returns A REST object as it is stored, its data mappings with it.
      */
     object(objectType: string, servicePath: string, schemaPath: string,
         requestPath: string): Promise<IMrsObject>;
+    /** @returns A REST schema's objects, as a list reports them. */
+    objects(servicePath: string, schemaPath: string): Promise<IMrsObject[]>;
     /**
      * @returns A database schema's tables, views, procedures and
      *          functions.
@@ -69,13 +77,42 @@ export interface IRestSource {
         schema: string;
         name: string;
     }>): Promise<IMrsColumns[]>;
-    /** Runs the statements, or keeps them in the script. */
-    run(statements: string[]): Promise<void>;
+    /**
+     * Runs the statements, or keeps them in the script.
+     *
+     * @param statements The statements.
+     * @param replaces The REST object an edit saves, where it was: in a
+     *        script, its statement is where the new one goes, though the
+     *        new one names another path (a server's ALTER says it).
+     */
+    run(statements: string[], replaces?: IObjectPlace): Promise<void>;
     /** Shows what a save changed: the tree is drawn again. */
     saved(): void;
     /** Brings up where a failed save is shown. */
     failed(): void;
 }
+
+/**
+ * @param items What a server or a project has.
+ * @param matches Which one is wanted.
+ * @param what What it is, to say it is gone.
+ *
+ * @returns The one wanted.
+ *
+ * @throws Error where there is none.
+ */
+export const found = <T>(
+    items: T[],
+    matches: (item: T) => boolean,
+    what: string,
+): T => {
+    const item = items.find(matches);
+    if (item === undefined) {
+        throw new Error(`There is no ${what} any more.`);
+    }
+
+    return item;
+};
 
 /**
  * @param api The REST SQL calls.
@@ -100,9 +137,22 @@ export const liveRestSource = (
         },
         services: () => { return api.services(scope); },
         schemas: (servicePath) => { return api.schemas(scope, servicePath); },
+        service: async (servicePath) => {
+            return found(await api.services(scope), (service) => {
+                return samePath(service.full_service_path, servicePath);
+            }, `REST service ${servicePath}`);
+        },
+        schema: async (servicePath, schemaPath) => {
+            return found(await api.schemas(scope, servicePath), (schema) => {
+                return samePath(schema.request_path, schemaPath);
+            }, `REST schema ${servicePath}${schemaPath}`);
+        },
         object: (objectType, servicePath, schemaPath, requestPath) => {
             return api.object(scope, objectType, servicePath, schemaPath,
                 requestPath);
+        },
+        objects: (servicePath, schemaPath) => {
+            return api.objects(scope, servicePath, schemaPath);
         },
         dbObjects: (dbSchema) => { return api.dbObjects(scope, dbSchema); },
         columns: (objectType, schema, name) => {

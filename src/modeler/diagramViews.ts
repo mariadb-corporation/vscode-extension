@@ -47,7 +47,9 @@ const isView = (value: unknown): value is IDiagramView => {
         })
         && (view.mode === "2d" || view.mode === "iso"
             || view.mode === "front")
-        && typeof view.isoPreset === "string";
+        && typeof view.isoPreset === "string"
+        && (view.height === undefined || (typeof view.height === "number"
+            && Number.isFinite(view.height)));
 };
 
 export class DiagramViews {

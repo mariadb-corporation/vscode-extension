@@ -11,11 +11,22 @@ a REST object figure can be fully visible in 2D Top view and a table in
 out, a RestObjectFigure stands and every other kind lies flat
 (`isUpright(kind, figure)`). An upright card is drawn as described for
 RestObjectFigure below, whatever its kind: footprint `width x depth`
-(`depth` written while it stands, dropped while it lies), not resizable,
-its width its content's, a front menu button; the item's fields that
+(`depth` written while it stands, dropped while it lies), sized across
+only (the user's request: a handle on the left and right to adjust the
+width; `widthOnly` on the item, which leaves the canvas's other six
+handles out; in 2D Front all eight, up its face too: see
+[modeler.md](modeler.md)), its width kept as sized, else its content's, a front menu
+button; the item's fields that
 depend on it are getters, and the geometry is built again with it (part
 of the key). A lying card's side label is a hit target no more
 (`#figureHit` skips it). Undoable (`upright`, `depth` in `FigureState`).
+An upright card's foot is a slab (`CARD_THICKNESS`) below its Z, so at
+the same Z it stands where the lying cards' slabs end, not on their faces
+(the user's request); `#figureElevation` takes it off, so its top, its
+lines and its marks follow. The stored `elevation` is unchanged. Its
+shadow is not lowered with it: shadows lie in the base group, without
+the lifted plane's offset, and a slab lower is under the paper, hidden
+in 3D (`#placeFigure` places it at the figure's Z).
 msm keeps `upright` and `depth` (mariadb-shell-plugins #114): a missing
 or non-boolean `upright` is the kind's default, an upright figure's
 footprint is `width x depth` (20 where missing), a flat one's `width x
@@ -131,7 +142,18 @@ from above. Not resizable; menu Auto-Size Height only.
   table's colour darkened (`DOCK_SHADE`, `dockColor`) where each line
   meets its table, upright on the slab's
   side face at the line's height and growing with the lift (`placeDock`),
-  so none shows in 2D.
+  so none shows in 2D. **On an upright card** (the user's request: the
+  docks "re-calculated to fit the new vertical positioning") the lines
+  on its left and right edges spread up its height, top to foot, as a
+  lying card's spread down its side (`standAnchors`, after
+  `spreadAnchors`): each meets the footprint in its side's middle, at its
+  own height, ordered by how high the figure at the other end is (a
+  hand-placed one by its `at`, 0 at the top), so they do not cross in 2D
+  Front; dragging an end there reads its height off the upright plane
+  through the footprint (`#heightOn`; `atOfHeight`), and the free places
+  shown run up the edge (`standingSlots`). Lines into its face or back
+  run half a slab above its foot (`#lineElevation`). Every connection
+  height goes through `#endElevation` (`#heights`).
   **Lines follow the foreign key
   definitions, not their names** (the user's rule: a key the table
   editor drops and adds again under another name, or one renamed in the

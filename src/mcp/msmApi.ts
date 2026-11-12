@@ -21,6 +21,7 @@ import {
     decodeObject,
     decodeScalar,
     decodeVoid,
+    McpToolError,
 } from "./protocol.js";
 import type {
     IDiagramDocument,
@@ -436,6 +437,54 @@ export interface IMsmObjectAdded extends IMsmSchemaEditResult {
     line: number;
 }
 
+/**
+ * A REST service, schema or object of a project's MSM Section 180, by its
+ * paths as the section writes them (a service with its developers,
+ * `mike,anna@/svc`).
+ */
+export interface IMsmRestItem {
+    kind: "service" | "schema" | "object";
+    service: string;
+    /** A schema's or an object's. */
+    schema?: string;
+    /** An object's. */
+    object?: string;
+}
+
+/** What `msm.set_rest_statements` answers with. */
+export interface IMsmRestStatementsSet extends IMsmSchemaEditResult {
+    /**
+     * Where each statement went, 1-based, and whether it replaced one; its
+     * kind is `service`, `schema`, or an object's type (`view`,
+     * `procedure`, `function`).
+     */
+    statements: Array<{ kind: string; service: string; schema?: string;
+        object?: string; file: string; line: number; replaced: boolean }>;
+}
+
+/** What `msm.drop_rest_object` answers with. */
+export interface IMsmRestDropped extends IMsmSchemaEditResult {
+    /** Where each statement removed stood, 1-based. */
+    removed: Array<{ file: string; line: number }>;
+}
+
+/**
+ * @param error Why a call of an msm tool failed.
+ * @param tool The tool, `msm.drop_rest_object`.
+ *
+ * @returns Whether the MariaDB Shell has no such tool yet: it answers
+ *          `Unknown tool: <name>`, the name with the server's tool-name
+ *          separator (`.` by default, `_` with `--toolNameSeparator=_`).
+ */
+export const isUnknownTool = (error: unknown, tool: string): boolean => {
+    const name = tool.replace(/^msm\./u, "");
+
+    return error instanceof McpToolError
+        && error.message.includes("Unknown tool: msm")
+        && (error.message.includes(`msm.${name}`)
+            || error.message.includes(`msm_${name}`));
+};
+
 /** The `msm.*` tools, as typed calls. */
 export interface IMsmApi {
     createProject(options: IMsmCreateOptions): Promise<string>;
@@ -484,6 +533,11 @@ export interface IMsmApi {
     getObjectTemplates(): Promise<IMsmObjectTemplates>;
     addSchemaObject(projectPath: string, object: IMsmNewObject,
         baseHash: string): Promise<IMsmObjectAdded>;
+    setRestStatements(projectPath: string, statements: string[],
+        baseHash: string,
+        replaces?: IMsmRestItem): Promise<IMsmRestStatementsSet>;
+    dropRestObject(projectPath: string, item: IMsmRestItem,
+        baseHash: string): Promise<IMsmRestDropped>;
 }
 
 /** `msm.edit_schema`'s answer, by the server's names. */
@@ -798,6 +852,33 @@ export const msmToolArgs = {
             base_hash: baseHash,
             template: object.template,
             table: object.table,
+        });
+    },
+    setRestStatements: (
+        projectPath: string,
+        statements: string[],
+        baseHash: string,
+        replaces?: IMsmRestItem,
+    ): Record<string, unknown> => {
+        return given({
+            schema_project_path: projectPath,
+            statements,
+            base_hash: baseHash,
+            replaces,
+        });
+    },
+    dropRestObject: (
+        projectPath: string,
+        item: IMsmRestItem,
+        baseHash: string,
+    ): Record<string, unknown> => {
+        return given({
+            schema_project_path: projectPath,
+            kind: item.kind,
+            service: item.service,
+            schema: item.schema,
+            object: item.object,
+            base_hash: baseHash,
         });
     },
     deploySchema: (options: IMsmDeployOptions): Record<string, unknown> => {
@@ -1381,5 +1462,59 @@ export class MsmApi implements IMsmApi {
 
         return { ...editResultOf(result), file: result.file,
             line: result.line };
+    }
+
+    /**
+     * Puts REST statements into the project's MSM Section 180, where msm
+     * keeps them: an item the section creates has its statement replaced
+     * where it stands, a new one goes after its siblings or its parent.
+     *
+     * @param projectPath The project folder.
+     * @param statements One CREATE of a REST service, schema or object
+     *        each, naming its service and schema.
+     * @param baseHash The snapshot's `source_hash` they were made against.
+     * @param replaces The REST object a statement of another path stands
+     *        in for (one renamed in its dialog).
+     *
+     * @returns The edit's result, and where each statement went.
+     */
+    public async setRestStatements(
+        projectPath: string,
+        statements: string[],
+        baseHash: string,
+        replaces?: IMsmRestItem,
+    ): Promise<IMsmRestStatementsSet> {
+        const tool = "msm.set_rest_statements";
+        const result = decodeObject<IEditResultOnTheWire & {
+            statements?: IMsmRestStatementsSet["statements"]; }>(tool,
+            await this.caller.callTool(tool, msmToolArgs.setRestStatements(
+                projectPath, statements, baseHash, replaces)));
+
+        return { ...editResultOf(result),
+            statements: result.statements ?? [] };
+    }
+
+    /**
+     * Removes a REST service, schema or object from the project's MSM
+     * Section 180: every statement of it, and of what is on it.
+     *
+     * @param projectPath The project folder.
+     * @param item What to remove.
+     * @param baseHash The snapshot's `source_hash` it was named against.
+     *
+     * @returns The edit's result, and where the statements removed stood.
+     */
+    public async dropRestObject(
+        projectPath: string,
+        item: IMsmRestItem,
+        baseHash: string,
+    ): Promise<IMsmRestDropped> {
+        const tool = "msm.drop_rest_object";
+        const result = decodeObject<IEditResultOnTheWire & {
+            removed?: IMsmRestDropped["removed"]; }>(tool,
+            await this.caller.callTool(tool, msmToolArgs.dropRestObject(
+                projectPath, item, baseHash)));
+
+        return { ...editResultOf(result), removed: result.removed ?? [] };
     }
 }

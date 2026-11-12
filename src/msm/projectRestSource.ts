@@ -15,6 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import type { IMsmRestItem } from "../mcp/msmApi.js";
 import type {
     IOutlineRoutine,
     IOutlineTable,
@@ -23,7 +24,22 @@ import type {
 import type { IDbObject } from "../mrs/mrsDialogs.js";
 import { outlineDetails } from "../details/objectDetails.js";
 import type { ObjectType } from "../mcp/types.js";
+import type { IObjectPlace } from "../mrs/dataMapping.js";
 import {
+    outlineRestObject,
+    outlineRestSchema,
+    outlineRestService,
+    REST_SETTINGS,
+    storedSchema,
+    storedService,
+    REST_OBJECT_DETAILS,
+    storedMappings,
+    storedObject,
+    type IOutlineRest,
+} from "../mrs/restOutline.js";
+import {
+    objectEntries,
+    objectOf,
     parseRestScript,
     schemaEntries,
     schemaOf,
@@ -52,14 +68,45 @@ import { counted } from "../text.js";
  */
 export const BUILT_IN_AUTH_APPS = ["MariaDB", "MRS"];
 
+/** A project as a source of the REST dialogs, which can drop its items. */
+export interface IProjectRestSource extends IRestSource {
+    /**
+     * Removes a REST service, schema or object from the project's MSM
+     * Section 180, with what is on it.
+     *
+     * @param item The item, by its paths.
+     */
+    drop(item: IMsmRestItem): Promise<void>;
+}
+
 /** What the source needs of the project. */
 export interface IProjectRestHost extends Pick<IRestSource, "saved" | "failed"> {
     /** msm's snapshot of the development script, made where there is none. */
     snapshot(): Promise<ISchemaDefinition | undefined>;
     /** The REST SQL of the development script: its MSM Section 180. */
     restSql(): Promise<string>;
-    /** Puts statements into that section. */
-    write(statements: string[]): Promise<void>;
+    /**
+     * Has msm put statements into that section, where it keeps them.
+     *
+     * @param statements One CREATE of a REST item each.
+     * @param replaces The REST object a statement of another path stands
+     *        in for: one renamed in its dialog.
+     */
+    write(statements: string[], replaces?: IObjectPlace): Promise<void>;
+    /**
+     * Has msm remove a REST item from that section, with what is on it.
+     *
+     * @param item The item.
+     */
+    drop(item: IMsmRestItem): Promise<void>;
+    /**
+     * mariadb-lsp's outline of the development script, its `rest` member:
+     * undefined where the binary's outline lacks the feature.
+     *
+     * @param feature What the outline has to report: `rest_object_details`
+     *        or `rest_settings`.
+     */
+    restOutline(feature: string): Promise<IOutlineRest | undefined>;
 }
 
 /**
@@ -222,7 +269,9 @@ const tableColumns = (
  * @returns What `SHOW REST COLUMNS` reports of a live object, from the
  *          snapshot. A view's columns are those its statement names: the
  *          snapshot has no others, and a view without a column list has
- *          none.
+ *          none. A VIEW, as a REST object's type asks for one, is a table
+ *          where the snapshot has no view of the name: a REST VIEW serves
+ *          either, which a server tells apart itself.
  *
  * @throws Error where the snapshot has no such object.
  */
@@ -232,8 +281,10 @@ export const snapshotColumns = (
     name: string,
 ): IMrsColumns => {
     const base = { schema: definition.schema, name };
-    const found = outlineDetails(definition,
-        { type: objectType.toLowerCase() as ObjectType, name });
+    const type = objectType.toLowerCase() as ObjectType;
+    const found = outlineDetails(definition, { type, name })
+        ?? (type === "view"
+            ? outlineDetails(definition, { type: "table", name }) : undefined);
 
     switch (found?.type) {
         case "procedure":
@@ -285,11 +336,45 @@ export const snapshotColumns = (
 };
 
 /**
+ * @param item A service, schema or object the outline reports, if it does.
+ * @param what What it is, to say it is not there.
+ * @param path Its path, to say which.
+ *
+ * @returns It, where the dialog can edit it.
+ *
+ * @throws Error where the script has none, its OPTIONS are a patch, or
+ *         it is a routine written with FORCE.
+ */
+const editable = <T extends { merge_options?: boolean; force?: boolean }>(
+    item: T | undefined,
+    what: string,
+    path: string,
+): T => {
+    if (item === undefined) {
+        throw new Error(`The project's development script creates no `
+            + `${what}.`);
+    }
+    if (item.merge_options === true) {
+        throw new Error(`${path} has MERGE OPTIONS, which the dialog cannot `
+            + "keep. Edit its statement in the development script.");
+    }
+    // A routine's FORCE: the dialog's statement does not write it.
+    if (item.force === true) {
+        throw new Error(`${path} has FORCE, which the dialog cannot keep. `
+            + "Edit its statement in the development script.");
+    }
+
+    return item;
+};
+
+/**
  * @param host What the source needs of the project.
  *
  * @returns The project as a source of the REST dialogs.
  */
-export const projectRestSource = (host: IProjectRestHost): IRestSource => {
+export const projectRestSource = (
+    host: IProjectRestHost,
+): IProjectRestSource => {
     const definition = async (schema: string): Promise<ISchemaDefinition> => {
         const snapshot = await host.snapshot();
         if (snapshot === undefined) {
@@ -304,31 +389,70 @@ export const projectRestSource = (host: IProjectRestHost): IRestSource => {
 
         return snapshot;
     };
-    // A dialog lists the services, then each one's schemas: the section
-    // is read once, until something is written to it.
-    let read: Promise<IRestScriptEntry[]> | undefined;
-    const entries = (): Promise<IRestScriptEntry[]> => {
-        if (read === undefined) {
-            const reading = host.restSql().then(parseRestScript);
+    // A dialog lists the services, then each one's schemas, and reads
+    // the outline for a service and its auth apps: each is read once,
+    // until something is written to the script.
+    const reads = new Map<string, Promise<unknown>>();
+    const cached = <T>(key: string, load: () => Promise<T>): Promise<T> => {
+        let reading = reads.get(key) as Promise<T> | undefined;
+        if (reading === undefined) {
+            const loading = load();
             // A failed read is tried again; a later one is not dropped.
-            reading.catch(() => {
-                if (read === reading) {
-                    read = undefined;
+            loading.catch(() => {
+                if (reads.get(key) === loading) {
+                    reads.delete(key);
                 }
             });
-            read = reading;
+            reads.set(key, loading);
+            reading = loading;
         }
 
-        return read;
+        return reading;
+    };
+    const entries = (): Promise<IRestScriptEntry[]> => {
+        return cached("script", async () => {
+            return parseRestScript(await host.restSql());
+        });
+    };
+    const restOutline = (feature: string): Promise<IOutlineRest | undefined> => {
+        return cached(`outline:${feature}`, () => {
+            return host.restOutline(feature);
+        });
     };
 
+    /**
+     * @param feature What the outline has to report.
+     * @param what What is edited, to say what needs it.
+     *
+     * @returns mariadb-lsp's outline of the script, its `rest` member.
+     */
+    const outline = async (
+        feature: string,
+        what: string,
+    ): Promise<IOutlineRest> => {
+        const rest = await restOutline(feature);
+        if (rest === undefined) {
+            throw new Error(`Editing a ${what} of an MSM project needs a `
+                + "mariadb-lsp whose outline reports it "
+                + `(${feature}). Update the MariaDB Shell, or edit the `
+                + "statement in the development script.");
+        }
+
+        return rest;
+    };
     return {
         forScript: true,
-        // A script links what a server will have: the built-in apps. Which
-        // of them a service is linked to is not read back from it.
-        authApps: (servicePath) => {
-            return Promise.resolve(servicePath === undefined
-                ? [...BUILT_IN_AUTH_APPS] : []);
+        // A script links what a server will have: the built-in apps; which
+        // of them a service is linked to, mariadb-lsp's outline says.
+        // (none where it does not report them).
+        authApps: async (servicePath) => {
+            if (servicePath === undefined) {
+                return [...BUILT_IN_AUTH_APPS];
+            }
+            const rest = await restOutline(REST_SETTINGS);
+            const found = outlineRestService(rest, servicePath);
+
+            return found === undefined ? [] : storedService(found).auth_apps ?? [];
         },
         services: async () => {
             return serviceEntries(await entries()).map(serviceOf);
@@ -336,9 +460,38 @@ export const projectRestSource = (host: IProjectRestHost): IRestSource => {
         schemas: async (servicePath) => {
             return schemaEntries(await entries(), servicePath).map(schemaOf);
         },
-        object: () => {
-            return Promise.reject(new Error("A project's REST objects are "
-                + "edited in its development script."));
+        service: async (servicePath) => {
+            return storedService(editable(outlineRestService(
+                await outline(REST_SETTINGS, "REST service"), servicePath),
+            `REST service ${servicePath}`, servicePath));
+        },
+        schema: async (servicePath, schemaPath) => {
+            return storedSchema(servicePath, editable(outlineRestSchema(
+                await outline(REST_SETTINGS, "REST schema"), servicePath,
+                schemaPath), `REST schema ${servicePath}${schemaPath}`,
+            schemaPath));
+        },
+        // Read from mariadb-lsp's outline of the script: this extension
+        // parses no SQL itself.
+        object: async (objectType, servicePath, schemaPath, requestPath) => {
+            const rest = await outline(REST_OBJECT_DETAILS, "REST object");
+            const found = outlineRestObject(rest, servicePath, schemaPath,
+                requestPath);
+            const details = editable(found?.object,
+                `REST object ${servicePath}${schemaPath}${requestPath}`,
+                requestPath);
+            const dbSchema = found!.dbSchema;
+            const mappings = await storedMappings(objectType, dbSchema,
+                details, async (type, schema, name) => {
+                    return snapshotColumns(await definition(schema), type, name);
+                });
+
+            return storedObject(details, servicePath, schemaPath, dbSchema,
+                mappings);
+        },
+        objects: async (servicePath, schemaPath) => {
+            return objectEntries(await entries(), servicePath, schemaPath)
+                .map(objectOf);
         },
         dbObjects: async (dbSchema) => {
             return snapshotDbObjects(await definition(dbSchema));
@@ -361,9 +514,13 @@ export const projectRestSource = (host: IProjectRestHost): IRestSource => {
                     object.objectType, object.name);
             }));
         },
-        run: async (statements) => {
-            read = undefined;
-            await host.write(statements);
+        run: async (statements, replaces) => {
+            reads.clear();
+            await host.write(statements, replaces);
+        },
+        drop: async (item) => {
+            reads.clear();
+            await host.drop(item);
         },
         saved: host.saved,
         failed: host.failed,

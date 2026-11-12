@@ -932,7 +932,7 @@ export interface IObjectPlace {
  * @param place Where the object is to be.
  * @param settings Its settings.
  * @param existingPath Its request path as it is now, to ALTER it; left out
- *        to CREATE it.
+ *        to CREATE it. A script's is created all the same.
  * @param forScript Whether a new one is kept in a script that is run again
  *        and again: `CREATE OR REPLACE`.
  *
@@ -949,7 +949,9 @@ export const objectSql = (
     const where = `ON SERVICE ${quoteServicePath(place.servicePath)} `
         + `SCHEMA ${quoteRequestPath(place.schemaPath)}`;
     const routine = isRoutine(document.objectType);
-    const lines: string[] = existingPath === undefined
+    // A script's statement is run again and again: no ALTER, its new
+    // form replaces it (`IRestSource.run`'s `replaces`).
+    const lines: string[] = existingPath === undefined || forScript
         ? [
             `${createRest(forScript)} ${keyword} `
             + quoteRequestPath(place.requestPath),

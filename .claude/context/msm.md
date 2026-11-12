@@ -209,8 +209,8 @@ MSM Projects (`mariadb.msmProjects`).
 ## REST services of a project
 
 A project's MariaDB REST Service row, below its schema, and the REST
-commands on its schema and object rows: see "REST in MSM projects" in
-[mrs.md](mrs.md).
+commands on its schema and object rows, and its REST objects on its
+diagrams: see [mrs-msm.md](mrs-msm.md).
 
 ## New MSM Project from Schema, adding schema objects
 

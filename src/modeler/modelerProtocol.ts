@@ -53,6 +53,11 @@ export interface IDiagramView {
     x: number;
     y: number;
     /**
+     * In 2D Front, how far above the page the middle of the view is,
+     * where a pan moved it up or down. Not kept by older versions.
+     */
+    height?: number;
+    /**
      * The projection: the page from above (DB), the 3D view, or level
      * from the page's front (REST).
      */
@@ -202,6 +207,13 @@ export type ISchemaObjects = Pick<ISchemaModel,
     "sourceHash" | "tables" | "views" | "routines" | "triggers" | "events"
     | "sequences">;
 
+/** A REST object, by its paths as Section 180 writes them. */
+export interface IRestObjectPaths {
+    service: string;
+    schema: string;
+    object: string;
+}
+
 /** Messages from the viewer to the extension. */
 export type ModelerWebviewMessage =
     /** The page has loaded and can take the model. */
@@ -250,6 +262,11 @@ export type ModelerWebviewMessage =
     | { type: "pointerArrived"; x: number; y: number }
     /** A table card's menu: Edit Table, in the table editor. */
     | { type: "editTable"; table: string }
+    /**
+     * A REST object figure's menu: Edit REST Object, in the REST Object
+     * dialog; its paths as Section 180 writes them.
+     */
+    | ({ type: "editRestObject" } & IRestObjectPaths)
     /** The toolbar's menu: Auto Layout, of a project's diagram. */
     | { type: "layoutDiagram"; diagram: string };
 

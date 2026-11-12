@@ -40,6 +40,7 @@ import {
 import {
     quoteIdentifier,
     quoteText,
+    samePath,
 } from "./restSql.js";
 import {
     alterAuthAppSql,
@@ -742,15 +743,22 @@ export const serviceStatements = (
         return [createServiceSql(service, values.authApps,
             context.forScript), ...use];
     }
+    const unlinked = context.linkedAuthApps.filter((name) => {
+        return !values.authApps.includes(name);
+    });
+    // A script's edit: its statement again, run on every deploy, the
+    // links it no longer has removed (the others are kept).
+    if (context.forScript === true) {
+        refuseScriptRename("service", context.existingPath, service.path);
+
+        return [createServiceSql(service, values.authApps, true, unlinked)];
+    }
 
     return [
         alterServiceSql(context.existingPath, service,
             values.authApps.filter((name) => {
                 return !context.linkedAuthApps.includes(name);
-            }),
-            context.linkedAuthApps.filter((name) => {
-                return !values.authApps.includes(name);
-            })),
+            }), unlinked),
         ...use,
     ];
 };
@@ -781,6 +789,8 @@ export interface ISchemaContext extends IScriptContext {
     services: string[];
     /** The REST schema's path, when it is edited. */
     existingPath?: string;
+    /** The service it is on, when it is edited. */
+    existingService?: string;
     /**
      * The database schema's tables, views, procedures and functions, for
      * a new REST schema's REST Objects tab; absent when one is edited.
@@ -1021,9 +1031,47 @@ export const schemaStatements = (
         metadata: json(values.metadata),
     };
 
-    return [context.existingPath === undefined
-        ? createSchemaSql(schema, context.forScript)
-        : alterSchemaSql(context.existingPath, schema)];
+    if (context.existingPath === undefined) {
+        return [createSchemaSql(schema, context.forScript)];
+    }
+    if (context.forScript === true) {
+        // A script's edit: its statement again, on the same service.
+        refuseScriptRename("schema", context.existingPath,
+            schema.requestPath);
+        if (context.existingService !== undefined
+            && !samePath(context.existingService, schema.servicePath)) {
+            throw new Error("A REST schema of an MSM project is moved to "
+                + "another service in its development script: the "
+                + "statements of its REST objects name the service.");
+        }
+
+        return [createSchemaSql(schema, true)];
+    }
+
+    return [alterSchemaSql(context.existingPath, schema)];
+};
+
+/**
+ * Refuses to rename a REST service or schema of a script: the statements
+ * of what is created on it name its path, which a rename would leave
+ * behind.
+ *
+ * @param kind What it is.
+ * @param before Its path as it was.
+ * @param after Its path as saved.
+ *
+ * @throws Error where they differ.
+ */
+const refuseScriptRename = (
+    kind: "service" | "schema",
+    before: string,
+    after: string,
+): void => {
+    if (!samePath(before, after)) {
+        throw new Error(`A REST ${kind} of an MSM project is renamed in its `
+            + "development script: the statements of what is created on it "
+            + "name its path.");
+    }
 };
 
 // --- REST objects -----------------------------------------------------
