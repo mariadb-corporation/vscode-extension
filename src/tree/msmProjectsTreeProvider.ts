@@ -37,7 +37,11 @@ import type {
 import { OBJECT_TYPES, type ConnectionColor } from "../mcp/types.js";
 import { schemaNameOfFolder } from "../msm/msmFields.js";
 import {
-    schemaDefinitionOf, type ISchemaDefinition,
+    DIAGRAM_FORMAT,
+    documentOf,
+    schemaDefinitionOf,
+    type IDiagramDocument,
+    type ISchemaDefinition,
 } from "../modeler/modelFormat.js";
 import { colorUriOf } from "./connectionColors.js";
 import type { IFolderNode } from "./connectionsModel.js";
@@ -49,10 +53,19 @@ import {
     rebase,
     type IFolderMemento,
 } from "./customFolders.js";
+import {
+    diagramRowsOf,
+    type DiagramRowNode,
+    type IDiagramFigureNode,
+    type IDiagramLayerNode,
+    type IDiagramMemberNode,
+} from "./diagramRows.js";
 import { ExpandedRows } from "./expandedRows.js";
 import {
     DiagramsTreeItem,
     DiagramTreeItem,
+    GROUP_ICONS,
+    OBJECT_ICONS,
     ObjectGroupTreeItem,
     objectGroupsOf,
     objectsOf,
@@ -89,7 +102,7 @@ import {
 } from "./mrsTreeItems.js";
 import { FolderTreeItem } from "./treeItems.js";
 import { ViewStateTracker, type ViewState } from "./viewState.js";
-import { errorText } from "../text.js";
+import { counted, errorText } from "../text.js";
 
 /** The id the MSM Projects view is contributed under. */
 export const MSM_PROJECTS_VIEW_ID = "mariadb.msmProjects";
@@ -241,7 +254,7 @@ export type MsmRestNode = IMsmRestRootNode | IMsmRestServiceNode
     | IMsmRestSchemaNode | IMsmRestObjectNode;
 
 export type MsmProjectsNode = IMsmFolderNode | IMsmProjectNode | IMsmFileNode
-    | IMsmSchemaNode | IMsmDiagramsNode | IMsmDiagramNode
+    | IMsmSchemaNode | IMsmDiagramsNode | IMsmDiagramNode | DiagramRowNode
     | IMsmObjectGroupNode | IMsmObjectNode | MsmRestNode;
 
 /**
@@ -256,10 +269,14 @@ export const restObjectRefOf = (node: IMsmRestObjectNode): IRestObjectRef => {
 };
 
 /**
- * The command a click on a project's diagram runs: VS Code has no
- * double-click on tree rows, so the second click within a moment opens it.
+ * Every click on a row that cannot be expanded (an object, a REST object,
+ * a diagram, a layer or figure with nothing under it): a double-click
+ * opens it (`ProjectNavigation`). A row that can is left without, as
+ * VS Code expands such a row only on its twistie: its double-click is the
+ * two expands it makes (`ProjectNavigation.toggled`). Kept here, as the
+ * tree draws it.
  */
-export const MSM_DIAGRAM_CLICK_COMMAND = "mariadb.msm.diagramClicked";
+export const MSM_ROW_CLICK_COMMAND = "mariadb.msm.rowClicked";
 
 /** The commands on a project's diagrams. */
 export const MSM_DIAGRAM_COMMANDS = {
@@ -404,6 +421,12 @@ export class MsmProjectsTreeProvider
         new Map<string, Promise<ISchemaDefinition | undefined>>();
     /** Each project's REST SQL as read, until the next refresh. */
     readonly #rest = new Map<string, Promise<IRestRead | undefined>>();
+    /**
+     * Each diagram's document, by project and name (`diagramKey`), until
+     * the next refresh or until a save hands over the new one.
+     */
+    readonly #diagrams =
+        new Map<string, Promise<IDiagramDocument | undefined>>();
     readonly #viewState: ViewStateTracker;
 
     public readonly customFolders: FolderSet;
@@ -439,6 +462,7 @@ export class MsmProjectsTreeProvider
         this.#listings.clear();
         this.#snapshots.clear();
         this.#rest.clear();
+        this.#diagrams.clear();
         this.#onDidChangeTreeData.fire(undefined);
     }
 
@@ -476,7 +500,39 @@ export class MsmProjectsTreeProvider
         this.#listings.delete(projectPath);
         this.#snapshots.delete(projectPath);
         this.#rest.delete(projectPath);
+        for (const key of [...this.#diagrams.keys()]) {
+            if (key.startsWith(diagramKey(projectPath, ""))) {
+                this.#diagrams.delete(key);
+            }
+        }
         this.#onDidChangeTreeData.fire(undefined);
+    }
+
+    /**
+     * Follows a diagram the viewer saved: its rows are drawn from the
+     * document saved, not read again.
+     *
+     * @param projectPath The project.
+     * @param document The diagram as saved.
+     *
+     * @returns Nothing.
+     */
+    public diagramSaved(projectPath: string, document: IDiagramDocument): void {
+        this.#diagrams.set(diagramKey(projectPath, document.name),
+            Promise.resolve(document));
+        // The listing keeps the figure count its row shows.
+        void (this.#listings.get(projectPath) ?? Promise.resolve(undefined))
+            .then((listing) => {
+                const listed = listing?.diagrams.find((entry) => {
+                    return entry.name === document.name;
+                });
+                if (listed !== undefined) {
+                    listed.figures = document.figures.length;
+                }
+            }, () => { /* Read again on the next expand. */ })
+            .finally(() => {
+                this.#onDidChangeTreeData.fire(undefined);
+            });
     }
 
     /**
@@ -589,6 +645,12 @@ export class MsmProjectsTreeProvider
                 return diagramItem(node, this.host.resolveIcon);
             }
 
+            case "diagramLayer":
+            case "diagramFigure":
+            case "diagramMember": {
+                return diagramRowTreeItem(node, this.host.resolveIcon);
+            }
+
             case "objectGroup": {
                 const item = new ObjectGroupTreeItem(node, this.host.resolveIcon,
                     "mariadbMsm");
@@ -601,6 +663,7 @@ export class MsmProjectsTreeProvider
                 const item = new ObjectTreeItem(node, this.host.resolveIcon,
                     "mariadbMsm");
                 item.id = rowIdOf(node);
+                item.command = rowClick(item, node);
 
                 return item;
             }
@@ -660,6 +723,26 @@ export class MsmProjectsTreeProvider
                     return await this.#diagramsOf(node.projectPath);
                 }
 
+                case "diagram": {
+                    // In turn: reading the diagram keeps the snapshot that
+                    // comes with it.
+                    const document = await this.#diagram(node.projectPath,
+                        node.name);
+                    const definition = await this.snapshot(node.projectPath);
+
+                    return document === undefined ? [] : diagramRowsOf(
+                        { projectPath: node.projectPath, diagram: node.name },
+                        document, definition);
+                }
+
+                case "diagramLayer": {
+                    return node.figures;
+                }
+
+                case "diagramFigure": {
+                    return node.members;
+                }
+
                 case "objectGroup": {
                     const definition = await this.snapshot(node.projectPath);
 
@@ -674,7 +757,7 @@ export class MsmProjectsTreeProvider
                     return await this.#restChildren(node);
                 }
 
-                case "diagram":
+                case "diagramMember":
                 case "object":
                 case "restObject": {
                     return [];
@@ -715,6 +798,34 @@ export class MsmProjectsTreeProvider
                 throw error;
             }
         });
+    }
+
+    /**
+     * @param projectPath A project folder.
+     * @param name One of its diagrams.
+     *
+     * @returns The diagram's document, read once until the next refresh
+     *          (or the next save); nothing where msm has none of the name.
+     */
+    #diagram(projectPath: string,
+        name: string): Promise<IDiagramDocument | undefined> {
+        return this.#cached(this.#diagrams, diagramKey(projectPath, name),
+            async () => {
+                const rows = await (await this.host.msmApi())
+                    .getSchemaDiagrams(projectPath, name);
+                if (!this.#snapshots.has(projectPath)) {
+                    this.#snapshots.set(projectPath,
+                        Promise.resolve(schemaDefinitionOf(rows)));
+                }
+                const row = rows.find((entry) => {
+                    return entry.format === DIAGRAM_FORMAT
+                        && entry.name === name;
+                });
+
+                return row === undefined ? undefined : {
+                    ...documentOf(row) as unknown as IDiagramDocument,
+                    name };
+            });
     }
 
     /**
@@ -842,12 +953,8 @@ export class MsmProjectsTreeProvider
         const listing = await this.#listingOf(projectPath);
 
         return (listing?.diagrams ?? []).map((diagram) => {
-            return {
-                kind: "diagram",
-                projectPath,
-                name: diagram.name,
-                figures: diagram.figures,
-            };
+            return { kind: "diagram" as const, projectPath,
+                name: diagram.name, figures: diagram.figures };
         });
     }
 
@@ -1196,7 +1303,7 @@ export class MsmProjectsTreeProvider
  * @returns Its id: the same across refreshes and restarts, so the rows
  *          left expanded are drawn so again.
  */
-const rowIdOf = (node: Exclude<MsmProjectsNode, IMsmFolderNode>): string => {
+export const rowIdOf = (node: Exclude<MsmProjectsNode, IMsmFolderNode>): string => {
     switch (node.kind) {
         case "project": {
             return `msmProject:${node.project.projectPath}`;
@@ -1212,6 +1319,21 @@ const rowIdOf = (node: Exclude<MsmProjectsNode, IMsmFolderNode>): string => {
 
         case "diagram": {
             return `msmDiagram:${node.projectPath}:${node.name}`;
+        }
+
+        case "diagramLayer": {
+            return `msmDiagramLayer:${node.projectPath}:${node.diagram}:`
+                + node.layer.id;
+        }
+
+        case "diagramFigure": {
+            return `msmDiagramFigure:${node.projectPath}:${node.diagram}:`
+                + node.figure.id;
+        }
+
+        case "diagramMember": {
+            return `msmDiagramMember:${node.projectPath}:${node.diagram}:`
+                + `${node.figureId}:${node.objectType}:${node.name}`;
         }
 
         case "objectGroup": {
@@ -1362,10 +1484,103 @@ const diagramItem = (
     resolveIcon: IconResolver,
 ): vscode.TreeItem => {
     const item = new DiagramTreeItem(node, resolveIcon, "mariadbMsm",
-        MSM_DIAGRAM_CLICK_COMMAND);
+        MSM_ROW_CLICK_COMMAND);
     item.id = rowIdOf(node);
+    // Its layers and figures below it: a click expands it.
+    if (node.figures !== 0) {
+        item.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+        item.command = undefined;
+    }
 
     return item;
+};
+
+/** The icons of the figures below a diagram, by what they show. */
+const FIGURE_ICONS: Record<IDiagramFigureNode["figureKind"],
+    string | vscode.ThemeIcon> = {
+    table: OBJECT_ICONS.table,
+    view: OBJECT_ICONS.view,
+    sequence: OBJECT_ICONS.sequence,
+    routineGroup: GROUP_ICONS.procedure,
+    eventGroup: GROUP_ICONS.event,
+    rest: "mrsDbObject.svg",
+};
+
+/**
+ * @param node A layer of a project's diagram, a figure, or what a group
+ *             figure lists.
+ * @param resolveIcon The icons' lookup.
+ *
+ * @returns Its row: a layer with the figures lying on it, a group with
+ *          its routines or events.
+ */
+const diagramRowTreeItem = (
+    node: IDiagramLayerNode | IDiagramFigureNode | IDiagramMemberNode,
+    resolveIcon: IconResolver,
+): vscode.TreeItem => {
+    const collapsed = vscode.TreeItemCollapsibleState.Collapsed;
+    const none = vscode.TreeItemCollapsibleState.None;
+    const icon = (name: string | vscode.ThemeIcon) => {
+        return typeof name === "string" ? resolveIcon(name) : name;
+    };
+    let item: vscode.TreeItem;
+    if (node.kind === "diagramLayer") {
+        item = new vscode.TreeItem(node.layer.name,
+            node.figures.length === 0 ? none : collapsed);
+        item.iconPath = new vscode.ThemeIcon("layers");
+        item.description = counted(node.figures.length, "figure");
+        item.contextValue = "mariadbMsmDiagramLayer";
+    } else if (node.kind === "diagramFigure") {
+        item = new vscode.TreeItem(node.label,
+            node.members.length === 0 ? none : collapsed);
+        item.iconPath = icon(FIGURE_ICONS[node.figureKind]);
+        if (node.figureKind === "rest") {
+            item.description = node.figure.restService;
+        } else if (node.members.length > 0) {
+            item.description = counted(node.members.length,
+                node.figureKind === "eventGroup" ? "event" : "routine");
+        }
+        item.contextValue = `mariadbMsmDiagramFigure.${node.figureKind}`;
+    } else {
+        item = new vscode.TreeItem(node.name, none);
+        item.iconPath = icon(OBJECT_ICONS[node.objectType]);
+        item.contextValue = `mariadbMsmDiagramMember.${node.objectType}`;
+    }
+    item.id = rowIdOf(node);
+    // A double-click shows it in its diagram, as the button does.
+    item.command = rowClick(item, node);
+
+    return item;
+};
+
+/**
+ * @param item A row's item, its collapsible state set.
+ * @param node The row: a double-click opens its definition, or its
+ *             diagram.
+ *
+ * @returns The command every click on it runs, which tells a double-click;
+ *          none where it can be expanded, which a click then does
+ *          (see {@link MSM_ROW_CLICK_COMMAND}).
+ */
+const rowClick = (item: vscode.TreeItem,
+    node: MsmProjectsNode): vscode.Command | undefined => {
+    const collapsible = item.collapsibleState !== undefined
+        && item.collapsibleState !== vscode.TreeItemCollapsibleState.None;
+
+    return collapsible ? undefined
+        : { command: MSM_ROW_CLICK_COMMAND, title: "Open",
+            arguments: [node] };
+};
+
+/**
+ * @param projectPath A project folder.
+ * @param name One of its diagrams, or "" for the start of the project's
+ *             keys.
+ *
+ * @returns The key of the diagram's document.
+ */
+const diagramKey = (projectPath: string, name: string): string => {
+    return `${projectPath}\0${name}`;
 };
 
 /** The context values of a project's REST rows, which their menus go by. */
@@ -1412,13 +1627,8 @@ const restItem = (
     item.iconPath = resolveIcon(look.icon);
     item.id = rowIdOf(node);
     item.contextValue = MSM_REST_CONTEXT[node.kind];
-    item.command = {
-        command: "vscode.open",
-        title: "Open",
-        arguments: [vscode.Uri.file(node.file), {
-            selection: new vscode.Range(node.line, 0, node.line, 0),
-        }],
-    };
+    // A double-click opens its statement, as the button does.
+    item.command = rowClick(item, node);
 
     return item;
 };
@@ -1472,6 +1682,9 @@ const whatFailed = (node: MsmProjectsNode | undefined): string => {
     }
     if (node?.kind === "diagrams") {
         return `list the diagrams of ${node.projectPath}`;
+    }
+    if (node?.kind === "diagram") {
+        return `read the diagram ${node.name} of ${node.projectPath}`;
     }
 
     return "list the MSM projects";

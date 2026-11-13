@@ -442,6 +442,18 @@ export interface IDiagramRow {
 /** The view a schema's diagrams are kept in. */
 export const DIAGRAMS_VIEW = "msm_schema_diagrams";
 
+/** How high a figure or a layer can be raised, in page units. */
+export const MAX_ELEVATION = 240;
+
+/**
+ * @param elevation A height a figure or a layer is raised to.
+ *
+ * @returns It, kept in the range the viewer keeps heights in.
+ */
+export const inElevationRange = (elevation: number | undefined): number => {
+    return Math.min(MAX_ELEVATION, Math.max(0, elevation ?? 0));
+};
+
 /**
  * @param figure A figure.
  *

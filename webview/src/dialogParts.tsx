@@ -65,7 +65,8 @@ export const ColorSwatches = (props: {
     /** The color picked; "" for none. */
     value: string;
     disabled: boolean;
-    hint: string;
+    /** A line under the swatches, if they need one. */
+    hint?: string;
     onPick: (color: ConnectionColor | "") => void;
     /**
      * What each colour is where it is not the theme's: a diagram figure's,
@@ -113,7 +114,8 @@ export const ColorSwatches = (props: {
                     );
                 })}
             </div>
-            <span class="field-hint">{props.hint}</span>
+            {props.hint === undefined ? null
+                : <span class="field-hint">{props.hint}</span>}
         </div>
     );
 };

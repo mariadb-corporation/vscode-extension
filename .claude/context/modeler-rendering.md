@@ -26,10 +26,27 @@ whole is [modeler.md](modeler.md).
 - **Figure shadows** are `--vscode-widget-shadow` at 18% on a dark theme
   and 8% on a light one (`SHADOW_OPACITY`; the user's request: lighter in
   light mode), set when the figure is built, which a theme change redoes.
+  VS Code's themes write that colour with alpha (`#0000005c`), which
+  `THREE.Color` cannot read (it warns and keeps white, which draws every
+  shadow white): `readTheme` passes each colour through `opaqueColor`,
+  which drops a hex colour's alpha. Headless renders need the same form
+  in their stand-in variables to show the problem.
+- **A raised layer casts a shadow on the page** (`ILayerNode.shadow`):
+  the figures' shadow style around the layer's rounded outline
+  (`shadowGeometry(..., LAYER_RADIUS)`), offset as theirs, at `Z.shadow`
+  on the page (a hair above the paper, wherever the layer stands), shown
+  only while its elevation is above 0 and the view has lift: in 2D it
+  would lie in the plate's plane and darken it. A layer over another
+  layer has its shadow under that one's plate.
 - **Connections are fat lines** (`LineSegments2` / `LineMaterial`, 1.6 CSS
   px, `CONNECTION_WIDTH`): WebGL's own lines are a pixel wide whatever is
   asked. Their material needs the canvas's size (`host.viewport()`, set
-  in `viewChanged`); in the Navigator they come out thinner.
+  in `viewChanged`). In the Navigator's overview they are drawn at
+  `NAVIGATOR_CONNECTION_WIDTH` (0.5; the user's request: the main view's
+  width made a relationship a blot between two tiny cards): the canvas
+  calls the set's `navigatorRender(true)` / `(false)` around that render
+  (`IFigureSet.navigatorRender`, optional), which sets the lines' and
+  markers' `linewidth` and puts it back.
   Each connection is two of them: the route, dashed (5 on, 4 off,
   `CONNECTION_DASH`) for a non-identifying relationship as Workbench
   draws it, and its end markers, always solid (a dashed material dashes

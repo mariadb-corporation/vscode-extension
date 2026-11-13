@@ -29,10 +29,12 @@ import {
     callArguments,
     GENERAL_ACTIONS,
 } from "../connections/connectionActivity.js";
+import type { ObjectType } from "../mcp/types.js";
 import { schemaNameOfFolder } from "../msm/msmFields.js";
 import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
 import { counted, errorText } from "../text.js";
 import type { DiagramDrafts } from "./diagramDrafts.js";
+import { editTitle, nameOf } from "./editTitles.js";
 import {
     assembleSchemaModel,
     DIAGRAM_FORMAT,
@@ -42,6 +44,7 @@ import {
     type IModelDiagram,
     type IRestObjectDefinition,
     type ISchemaModel,
+    schemaDefinitionOf,
     withoutPictures,
 } from "./modelFormat.js";
 import type { ModelerTarget, SaveState } from "./modelerProtocol.js";
@@ -255,6 +258,8 @@ export interface IProjectSourceHost {
      * @returns Whether to keep them over the project's diagram.
      */
     keepDraft(diagram: string, when: Date): Promise<boolean>;
+    /** A diagram was saved: the MSM Projects view draws it as saved. */
+    diagramSaved?(projectPath: string, document: IDiagramDocument): void;
     log(message: string): void;
 }
 
@@ -300,6 +305,12 @@ export class ProjectModelSource implements IModelSource {
     readonly #pending = new Map<string, IPending>();
     /** Each diagram's hash as the project has it. */
     #bases = new Map<string, string>();
+    /**
+     * The snapshot each of this source's own changes replaced, by its
+     * `source_hash`, with the one it was replaced by: a change queued
+     * behind them is made against the newest, not the one its caller read.
+     */
+    readonly #replaced = new Map<string, string>();
     /**
      * Diagrams deleted or renamed away since the model was last read:
      * changes the page still sends under such a name would make it again.
@@ -481,6 +492,7 @@ export class ProjectModelSource implements IModelSource {
         }
         const base = diagramHash(pending.document);
         this.#bases.set(name, base);
+        this.host.diagramSaved?.(this.projectPath, pending.document);
         const newer = this.#pending.get(name);
         if (newer === pending) {
             this.#pending.delete(name);
@@ -633,7 +645,6 @@ export class ProjectModelSource implements IModelSource {
             }
             throw error;
         }
-        this.#bases = hashesOf(result.rows);
         for (const document of documents) {
             // Changes made since are newer, and saved in their turn.
             if (!this.#pending.has(document.name)) {
@@ -676,15 +687,15 @@ export class ProjectModelSource implements IModelSource {
             doing: `Adding ${objects}`, done: `Added ${objects}`,
         },
             "msm.set_schema_statements", { expect }, (api) => {
-                return api.setSchemaStatements(this.projectPath, statements,
-                    baseHash, expect);
+                return this.#against(baseHash, (hash) => {
+                    return api.setSchemaStatements(this.projectPath,
+                        statements, hash, expect);
+                });
             }, (result) => {
                 return result.statements.map((statement) => {
                     return `${statement.file}:${String(statement.line)}`;
                 }).join(", ");
             });
-        this.#bases = hashesOf(set.rows);
-
         return set.statements;
     }
 
@@ -710,13 +721,13 @@ export class ProjectModelSource implements IModelSource {
             "msm.set_rest_statements", { statements: statements.length,
                 ...(replaces === undefined ? {} : { replaces }) },
             (api) => {
-                return api.setRestStatements(this.projectPath, statements,
-                    baseHash, replaces);
+                return this.#against(baseHash, (hash) => {
+                    return api.setRestStatements(this.projectPath,
+                        statements, hash, replaces);
+                });
             }, (result) => {
                 return counted(result.statements.length, "statement");
             });
-        this.#bases = hashesOf(set.rows);
-
         return set.statements.length;
     }
 
@@ -735,14 +746,68 @@ export class ProjectModelSource implements IModelSource {
         baseHash: string,
         words: { doing: string; done: string },
     ): Promise<string[]> {
-        await this.flush();
-        const dropped = await this.#enqueuedAction(words, "msm.drop_rest_object",
-            { ...item }, (api) => {
-                return api.dropRestObject(this.projectPath, item, baseHash);
+        return this.#dropFromProject(words, "msm.drop_rest_object", { ...item },
+            (api) => {
+                return this.#against(baseHash, (hash) => {
+                    return api.dropRestObject(this.projectPath, item, hash);
+                });
             }, (result) => {
                 return counted(result.removed.length, "statement");
             });
-        this.#bases = hashesOf(dropped.rows);
+    }
+
+    /**
+     * Drops a schema object from the project, as an edit of the schema in
+     * turn with the viewer's.
+     *
+     * @param kind The object's kind.
+     * @param name Its name.
+     * @param baseHash The snapshot's `source_hash` it was named against.
+     *
+     * @returns msm's notes, for a person.
+     */
+    public async dropSchemaObject(
+        kind: ObjectType,
+        name: string,
+        baseHash: string,
+    ): Promise<string[]> {
+        const object = `the ${kind} ${name}`;
+
+        return this.#dropFromProject({
+            doing: `Removing ${object} from ${this.#schema}`,
+            done: `Removed ${object} from ${this.#schema}`,
+        }, "msm.drop_schema_object", { kind, name }, (api) => {
+            return this.#against(baseHash, (hash) => {
+                return api.dropSchemaObject(this.projectPath, kind, name,
+                    hash);
+            });
+        }, (result) => {
+            return counted(result.files.length, "file");
+        });
+    }
+
+    /**
+     * Drops something from the project after the edits waiting, in turn
+     * with the viewer's.
+     *
+     * @param words What the Actions tab says of it.
+     * @param tool The msm tool.
+     * @param args Its arguments, for the Actions tab.
+     * @param call The call.
+     * @param detail What the Actions tab says it did.
+     *
+     * @returns msm's notes, for a person.
+     */
+    async #dropFromProject<T extends { notes: Array<{ message: string }> }>(
+        words: { doing: string; done: string },
+        tool: string,
+        args: Record<string, unknown>,
+        call: (api: IMsmApi) => Promise<T>,
+        detail: (value: T) => string,
+    ): Promise<string[]> {
+        await this.flush();
+        const dropped = await this.#enqueuedAction(words, tool, args, call,
+            detail);
 
         return dropped.notes.map((note) => { return note.message; });
     }
@@ -783,17 +848,50 @@ export class ProjectModelSource implements IModelSource {
         });
     }
 
+    /**
+     * Makes a change of the project against its newest snapshot, as it
+     * runs in the queue: the one its caller read, or the one this
+     * source's own changes since replaced it with. One made outside is
+     * still refused as stale.
+     *
+     * @param baseHash The snapshot's `source_hash` the caller read.
+     * @param call The msm call, against a snapshot's hash.
+     *
+     * @returns What msm answered; the diagrams' and the snapshot's hashes
+     *          are taken from it.
+     */
+    async #against<T extends { rows: IDiagramRow[] }>(baseHash: string,
+        call: (hash: string) => Promise<T>): Promise<T> {
+        // A change undone gives an earlier hash again: followed once each.
+        const seen = new Set([baseHash]);
+        let hash = baseHash;
+        for (let next = this.#replaced.get(hash);
+            next !== undefined && !seen.has(next);
+            next = this.#replaced.get(hash)) {
+            seen.add(next);
+            hash = next;
+        }
+        const result = await call(hash);
+        this.#bases = hashesOf(result.rows);
+        const now = schemaDefinitionOf(result.rows)?.source_hash;
+        if (now !== undefined && now !== hash) {
+            this.#replaced.set(hash, now);
+        }
+
+        return result;
+    }
+
     /** Makes schema edits through msm, as an action of the queue. */
     #editAction(
         edits: IMsmSchemaEdit[],
         baseHash: string,
     ): ReturnType<IMsmApi["editSchema"]> {
-        return this.#enqueuedAction({
-            doing: `Editing the schema of ${this.#schema}`,
-            done: `Edited the schema of ${this.#schema}`,
-        }, "msm.edit_schema", { edits: edits.map(describeEdit).join("; ") },
+        return this.#enqueuedAction(editTitle(edits, this.#schema),
+            "msm.edit_schema",{ edits: edits.map(describeEdit).join("; ") },
         (api) => {
-            return api.editSchema(this.projectPath, edits, baseHash);
+            return this.#against(baseHash, (hash) => {
+                return api.editSchema(this.projectPath, edits, hash);
+            });
         }, (edited) => {
             return counted(edited.files.length, "file");
         });
@@ -889,13 +987,8 @@ export const isStaleSnapshot = (message: string): boolean => {
 export const describeEdit = (edit: IMsmSchemaEdit): string => {
     // A name, or an object named: `add_table`'s table.
     const names = ["table", "view", "routine", "column", "foreign_key",
-        "index", "name"].map((key) => {
-        const value = edit[key];
-
-        return typeof value === "object" && value !== null
-            ? (value as { name?: unknown }).name
-            : value;
-    }).filter((value): value is string => { return typeof value === "string"; });
+        "index", "name"].map((key) => { return nameOf(edit[key]); })
+        .filter((value) => { return value !== undefined; });
     const renamed = typeof edit.new_name === "string"
         ? [`-> ${edit.new_name}`] : [];
 

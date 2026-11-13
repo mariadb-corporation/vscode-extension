@@ -96,6 +96,8 @@ interface IFake {
     states: SaveState[];
     actions: IActionRow[];
     asked: string[];
+    /** The diagrams the MSM Projects view was told were saved. */
+    saved: string[];
     /** Makes the next save fail. */
     failSave: (error?: Error) => void;
     failRemove: (error?: Error) => void;
@@ -206,6 +208,7 @@ const setUp = (keep = false): IFake => {
     const states: SaveState[] = [];
     const actions: IActionRow[] = [];
     const asked: string[] = [];
+    const saved: string[] = [];
     const source = new ProjectModelSource(PROJECT, {
         msmApi: () => { return Promise.resolve(api); },
         put: (_connection, row) => { actions.push(row); },
@@ -215,12 +218,15 @@ const setUp = (keep = false): IFake => {
 
             return Promise.resolve(keep);
         },
+        diagramSaved: (path, document) => {
+            saved.push(`${path} ${document.name}`);
+        },
         log: () => { /* not looked at */ },
     }, 0);
     source.onSaveState = (state) => { states.push(state); };
 
     return {
-        source, calls, rows, drafts, states, actions, asked, listing,
+        source, calls, rows, drafts, states, actions, asked, saved, listing,
         failSave: (error = new Error("disk full")) => { saveError = error; },
         failRemove: (error = new Error("unknown tool")) => {
             removeError = error;
@@ -274,6 +280,8 @@ describe("ProjectModelSource", () => {
             expect(await fake.drafts.list(PROJECT)).toEqual([]);
             expect(fake.states.map((state) => { return state.state; }))
                 .toEqual(["pending", "saving", "saved"]);
+            // The MSM Projects view draws it as saved.
+            expect(fake.saved).toEqual([`${PROJECT} Main`]);
         });
 
     it("saves the last of quick changes once", async () => {
@@ -351,6 +359,21 @@ describe("ProjectModelSource", () => {
         expect(outcome.notes).toEqual(["A view refers to it."]);
         expect(calls(fake)).toContainEqual(expect.stringContaining(
             "edits=rename_table customer -> client"));
+    });
+
+    it("makes a change queued behind its own edit against the edit's "
+        + "snapshot, not the one its caller read", async () => {
+        await fake.source.read();
+        // Both read sha256:one; the first edit replaces it by sha256:two.
+        await Promise.all([
+            fake.source.edit([{ op: "rename_table", table: "customer",
+                new_name: "client" }], "sha256:one"),
+            fake.source.edit([{ op: "rename_table", table: "client",
+                new_name: "buyer" }], "sha256:one"),
+        ]);
+
+        expect(fake.calls.filter((call) => { return call[0] === "edit"; }))
+            .toEqual([["edit", "sha256:one"], ["edit", "sha256:two"]]);
     });
 
     it("makes a stale snapshot again after what waits is saved, and only "

@@ -241,6 +241,17 @@ const confirm = async (message: string, action: string): Promise<boolean> => {
     return answer === action;
 };
 
+/**
+ * Add <Kind> to REST Service..., by the kind of the object row it is on:
+ * one command per kind, as a menu entry's title cannot follow the row.
+ */
+export const MRS_ADD_OBJECT_COMMANDS = {
+    table: "mariadb.mrs.addTableToService",
+    view: "mariadb.mrs.addViewToService",
+    procedure: "mariadb.mrs.addProcedureToService",
+    function: "mariadb.mrs.addFunctionToService",
+} as const;
+
 /** The MRS commands, registered by {@link MrsCommands.register}. */
 export class MrsCommands {
     public constructor(private readonly host: IMrsCommandsHost) { }
@@ -274,7 +285,8 @@ export class MrsCommands {
             "mariadb.mrs.deleteSchema": this.deleteSchema,
             "mariadb.mrs.copyCreateSchemaSql": this.copyCreateSchemaSql,
             "mariadb.mrs.dumpCreateSchemaSql": this.dumpCreateSchemaSql,
-            "mariadb.mrs.addDbObject": this.addDbObject,
+            ...Object.fromEntries(Object.values(MRS_ADD_OBJECT_COMMANDS)
+                .map((id) => { return [id, this.addDbObject]; })),
             "mariadb.mrs.editDbObject": this.editDbObject,
             "mariadb.mrs.deleteDbObject": this.deleteDbObject,
             "mariadb.mrs.copyDbObjectRequestPath": this.copyDbObjectRequestPath,

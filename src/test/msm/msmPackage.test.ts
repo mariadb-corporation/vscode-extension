@@ -26,13 +26,17 @@ import {
     MSM_IMPORT_COMMAND,
     MSM_LIST_COMMANDS,
 } from "../../msm/msmCommands.js";
+import { MRS_ADD_OBJECT_COMMANDS } from "../../mrs/mrsCommands.js";
+import { MSM_NAVIGATION_COMMANDS } from "../../msm/projectNavigation.js";
 import { MSM_FOLDER_COMMANDS } from "../../msm/msmProjectsCommands.js";
 import {
     MSM_ADD_COMMANDS,
+    MSM_DELETE_COMMANDS,
     MSM_TEMPLATE_COMMANDS,
 } from "../../msm/schemaObjects.js";
 import {
     MSM_DIAGRAM_COMMANDS,
+    MSM_ROW_CLICK_COMMAND,
     MSM_SCHEMA_COMMANDS,
 } from "../../tree/msmProjectsTreeProvider.js";
 
@@ -59,6 +63,7 @@ const manifest = JSON.parse(readFileSync(
         menus: Record<string, IMenuEntry[]>;
         submenus: Array<{ id: string; label: string }>;
         viewsWelcome: Array<{ view: string; contents: string; when?: string }>;
+        views: Record<string, Array<{ id: string; initialSize?: number }>>;
     };
 };
 const { commands, menus, submenus } = manifest.contributes;
@@ -78,6 +83,17 @@ const shownOn = (when: string, folder: string): boolean => {
 
     return !clause.includes("false");
 };
+
+describe("the MSM side bar", () => {
+    it("opens with MSM Projects on 3/5 of its height, Object Details on "
+        + "2/5", () => {
+        // VS Code shares a container's height out by the views' sizes.
+        expect(manifest.contributes.views["mariadb-msm"].map((view) => {
+            return [view.id, view.initialSize];
+        })).toEqual([["mariadb.msmProjects", 60],
+            ["mariadb.msmObjectDetails", 40]]);
+    });
+});
 
 describe("New MSM Project from Schema", () => {
     it("is on a Connections view schema row only, not in the palette", () => {
@@ -114,6 +130,21 @@ describe("adding schema objects to a project", () => {
             }
         });
 
+    it("puts a Delete in each object row's menu, by its kind", () => {
+        for (const [type, id] of Object.entries(MSM_DELETE_COMMANDS)) {
+            expect(rowMenu.filter((entry) => {
+                return entry.command === id;
+            }), id).toEqual([{ command: id, when: "view == "
+                + `mariadb.msmProjects && viewItem == mariadbMsmObject.${type}`,
+            group: "9_delete@0" }]);
+            expect(commands.find((entry) => {
+                return entry.command === id;
+            })?.title).toMatch(/^Delete \w+\.\.\.$/u);
+            expect(menus.commandPalette).toContainEqual(
+                { command: id, when: "false" });
+        }
+    });
+
     it("offers a template's commands on every group row but Tables", () => {
         for (const id of Object.values(MSM_TEMPLATE_COMMANDS)) {
             const when = rowMenu.find((entry) => {
@@ -143,7 +174,10 @@ describe("the MariaDB Schema Management menu", () => {
             ...Object.values(MSM_DIAGRAM_COMMANDS),
             ...Object.values(MSM_SCHEMA_COMMANDS),
             ...Object.values(MSM_ADD_COMMANDS),
-            ...Object.values(MSM_TEMPLATE_COMMANDS), MSM_IMPORT_COMMAND];
+            ...Object.values(MSM_DELETE_COMMANDS),
+            ...Object.values(MSM_NAVIGATION_COMMANDS),
+            ...Object.values(MSM_TEMPLATE_COMMANDS), MSM_IMPORT_COMMAND,
+            MSM_ROW_CLICK_COMMAND];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
         }).map((entry) => { return entry.command; }).sort())
@@ -289,11 +323,38 @@ describe("the MSM Projects view's menus", () => {
 
     it("makes a project's schema snapshot again from its schema row, and "
         + "renames the schema", () => {
-        expect(onRow("mariadbMsmSchema", true))
-            .toEqual([MSM_SCHEMA_COMMANDS.updateSnapshot]);
+        expect(onRow("mariadbMsmSchema", true)).toEqual([
+            MSM_SCHEMA_COMMANDS.updateSnapshot,
+            MSM_NAVIGATION_COMMANDS.openDefinition]);
         expect(onRow("mariadbMsmSchema", false)).toEqual([
             MSM_SCHEMA_COMMANDS.updateSnapshot, MSM_DIAGRAM_COMMANDS.create,
-            MSM_SCHEMA_COMMANDS.rename, "mariadb.mrs.addSchema"]);
+            MSM_SCHEMA_COMMANDS.rename, "mariadb.mrs.addSchema",
+            MSM_NAVIGATION_COMMANDS.openDefinition]);
+    });
+
+    it("opens a schema's, object's or REST item's statement, and shows a "
+        + "diagram's layer or figure in it, from a button and the menu",
+    () => {
+        for (const row of ["mariadbMsmSchema", "mariadbMsmObject.table",
+            "mariadbMsmObject.event", "mariadbMsmRestService",
+            "mariadbMsmRestSchema", "mariadbMsmRestObject"]) {
+            expect(onRow(row, true), row)
+                .toContain(MSM_NAVIGATION_COMMANDS.openDefinition);
+            expect(onRow(row, false), row)
+                .toContain(MSM_NAVIGATION_COMMANDS.openDefinition);
+        }
+        for (const row of ["mariadbMsmDiagramLayer",
+            "mariadbMsmDiagramFigure.table", "mariadbMsmDiagramFigure.rest",
+            "mariadbMsmDiagramMember.function"]) {
+            expect(onRow(row, true), row)
+                .toEqual([MSM_NAVIGATION_COMMANDS.showInDiagram]);
+            expect(onRow(row, false), row)
+                .toEqual([MSM_NAVIGATION_COMMANDS.showInDiagram]);
+        }
+        expect(onRow("mariadbMsmDiagram", true)).not
+            .toContain(MSM_NAVIGATION_COMMANDS.showInDiagram);
+        expect(onRow("mariadbMsmObjectGroup.table", true)).not
+            .toContain(MSM_NAVIGATION_COMMANDS.openDefinition);
     });
 
     it("adds a REST service from a project's MariaDB REST Service row, its "
@@ -306,27 +367,38 @@ describe("the MSM Projects view's menus", () => {
 
     it("adds a project's tables, views, procedures and functions to a REST "
         + "service, as the Connections view's", () => {
-        for (const type of ["table", "view", "procedure", "function"]) {
+        // Each kind its own command, so the entry names the kind.
+        for (const [type, id] of Object.entries(MRS_ADD_OBJECT_COMMANDS)) {
             expect(onRow(`mariadbMsmObject.${type}`, false), type)
-                .toContain("mariadb.mrs.addDbObject");
+                .toContain(id);
+            expect(menus["view/item/context"]).toContainEqual({
+                command: id, group: "5_mrs@1", when: "view == "
+                    + `mariadb.connections && viewItem == mariadbObject.${type}`,
+            });
+            expect(onRow("mariadbMsmObject.trigger", false)).not.toContain(id);
+            const kind = type.charAt(0).toUpperCase() + type.slice(1);
+            expect(commands.find((entry) => {
+                return entry.command === id;
+            })?.title).toBe(`Add ${kind} to REST Service...`);
         }
-        for (const type of ["trigger", "event", "sequence"]) {
-            expect(onRow(`mariadbMsmObject.${type}`, false), type)
-                .not.toContain("mariadb.mrs.addDbObject");
-        }
+        expect(onRow("mariadbMsmObject.table", false)).not
+            .toContain(MRS_ADD_OBJECT_COMMANDS.view);
         // A project's REST service and schema are edited and deleted with
         // the Connections view's commands (msm removes their statements);
         // a server's other menus stay off them.
         expect(onRow("mariadbMsmRestService", false))
-            .toEqual(["mariadb.mrs.editService", "mariadb.mrs.deleteService"]);
+            .toEqual(["mariadb.mrs.editService", "mariadb.mrs.deleteService",
+                MSM_NAVIGATION_COMMANDS.openDefinition]);
         expect(onRow("mariadbMsmRestSchema", false))
-            .toEqual(["mariadb.mrs.editSchema", "mariadb.mrs.deleteSchema"]);
+            .toEqual(["mariadb.mrs.editSchema", "mariadb.mrs.deleteSchema",
+                MSM_NAVIGATION_COMMANDS.openDefinition]);
         // A REST object goes onto a diagram, as the project's objects do,
         // and is edited with the Connections view's dialog, as its table
         // is with the table editor.
         expect(onRow("mariadbMsmRestObject", false))
             .toEqual(["mariadb.addToDiagram", "mariadb.mrs.editDbObject",
-                "mariadb.mrs.deleteDbObject"]);
+                "mariadb.mrs.deleteDbObject",
+                MSM_NAVIGATION_COMMANDS.openDefinition]);
     });
 
     it("adds an empty diagram from the Diagrams folder's + and its menu, "

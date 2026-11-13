@@ -58,13 +58,14 @@ describe("the diagram item's fields", () => {
         const change = vi.fn();
         const { rerender } = render(
             <DiagramItemFields item={FIGURE} change={change} />);
-        fireEvent.click(screen.getByLabelText("Auto"));
+        fireEvent.click(screen.getByLabelText("Auto-Height"));
         expect(change).toHaveBeenCalledWith({ autoHeight: false });
 
         rerender(<DiagramItemFields item={{ ...FIGURE, editable: false }}
             change={change} />);
         expect(screen.getByLabelText("Width")).toHaveProperty("readOnly", true);
-        expect(screen.getByLabelText("Auto")).toHaveProperty("disabled", true);
+        expect(screen.getByLabelText("Auto-Height"))
+            .toHaveProperty("disabled", true);
     });
 
     it("shows a relationship line's offset and split", () => {
@@ -87,7 +88,7 @@ describe("the diagram item's fields", () => {
         change={change} />);
 
         expect(screen.getByText("customers")).toBeTruthy();
-        expect(screen.queryByLabelText("Auto")).toBeNull();
+        expect(screen.queryByLabelText("Auto-Height")).toBeNull();
         const z = screen.getByLabelText("Elevation above the page");
         fireEvent.input(z, { target: { value: "80" } });
         fireEvent.keyDown(z, { key: "Enter" });

@@ -52,6 +52,26 @@ export interface IDiagramTheme {
 const DARK_PAPER_LIFT = 0.08;
 
 /**
+ * A theme colour three.js can take: a hex colour with an alpha channel
+ * (`#0000005c`, `#0003`, as VS Code's themes write `widget.shadow`) loses
+ * it, which `THREE.Color` cannot read - it warns and keeps white, which
+ * drew every figure's shadow white. What the canvas draws translucent
+ * has its opacity of its own (`SHADOW_OPACITY`).
+ *
+ * @param value A colour as CSS has it.
+ *
+ * @returns It, opaque where it was a hex colour with alpha.
+ */
+export const opaqueColor = (value: string): string => {
+    const hex = /^#([0-9a-f]{3,8})$/iu.exec(value)?.[1];
+    if (hex?.length === 8) {
+        return `#${hex.slice(0, 6)}`;
+    }
+
+    return hex?.length === 4 ? `#${hex.slice(0, 3)}` : value;
+};
+
+/**
  * The paper's colour: the editor's background, lifted a little towards
  * white on a dark theme, whose background can be all but black - which
  * made the sheets look like holes rather than paper.
@@ -85,7 +105,7 @@ export const readTheme = (): IDiagramTheme => {
     const read = (name: string, fallback: string): string => {
         const value = style.getPropertyValue(name).trim();
 
-        return value === "" ? fallback : value;
+        return value === "" ? fallback : opaqueColor(value);
     };
     const dark = document.body.classList.contains("vscode-dark")
         || document.body.classList.contains("vscode-high-contrast");

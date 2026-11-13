@@ -30,7 +30,8 @@ viewer is [`modeler.md`](modeler.md), its palette
 | File | Role |
 | --- | --- |
 | `src/tree/schemaTree.ts` | A schema's rows for both trees: row shapes (`ISchemaRow`, `IObjectGroupRow`, `IObjectRow`, ...) a tree's nodes extend with where they are (`uri` or `projectPath`), `objectGroupsOf` / `objectsOf`, the icons and labels, the item classes with a context-value prefix (`mariadb` / `mariadbMsm`: `mariadbObject.table`, `mariadbMsmObject.table`, so the live-only menus stay off MSM rows), `outlineObjects` (the snapshot's objects as `db.list_objects` lists them), `objectUriList` for drags, `ADD_TO_DIAGRAM_COMMAND` |
-| `src/tree/msmProjectsTreeProvider.ts` | A project's schema row, its Diagrams and object folders; the listing and snapshot read once per project until `refresh()`, `snapshot()` for the details view |
+| `src/tree/msmProjectsTreeProvider.ts` | A project's schema row, its Diagrams and object folders; the listing, snapshot and each diagram's document read once per project until `refresh()` (a diagram's also handed over by `diagramSaved`), `snapshot()` for the details view |
+| `src/tree/diagramRows.ts` | Pure: a diagram's rows below it (`diagramRowsOf`: layers with their figures, then figures on none; `figureKindOf`), the object a row shows for Object Details (`diagramRowObject`) |
 | `src/modeler/modelerProtocol.ts` | `ISchemaObjectRef`, the `mariadb-schema-object:` URIs a drag carries (`schemaObjectUri`, `parseSchemaObjectUris`, `isPlaceOf`), and the messages `placeObjects`, `applySchemaChange`, `selection` |
 | `webview/src/modeler/placeObjects.ts` | Pure: the figures and connections placing objects adds (`placementOf`), the objects of selected figures (`objectsOfFigures`) |
 | `src/details/detailEdits.ts` | Pure: a table change of the view (`TableDetailChange`) as edits and their inverse (`tableDetailEdits`) |
@@ -40,6 +41,65 @@ viewer is [`modeler.md`](modeler.md), its palette
 | `webview/src/details/DiagramItemFields.tsx` | The diagram item selected: a figure's or a layer's place and size, a figure's Upright, a figure's or a layer's color, a layer's tables, a line's tables, kind, offset and split |
 
 ## How it behaves
+
+- **A diagram row of MSM Projects expands** into the diagram's structure
+  (`diagramRows.ts`): its layers by name (`layers` codicon, "N figures"),
+  each with the figures filed under it (a figure's `layer`, else the
+  layer's `figures` list), then the figures on no layer; figures sorted
+  by kind (table, view, sequence, routine group, event group, REST
+  object), then by label. A routine or event group lists its routines
+  (procedure or function, as the snapshot has them) or events. A REST
+  object figure is labelled by its REST schema's and its own path, its
+  service as the description. Notes and images show no object and are
+  left out. Context values `mariadbMsmDiagramLayer`,
+  `mariadbMsmDiagramFigure.<kind>`, `mariadbMsmDiagramMember.<type>` (no
+  menus yet). The document is read with `msm.get_schema_diagrams(path,
+  name)` once until the project is refreshed; a viewer's save hands the
+  saved document over (`IProjectSourceHost.diagramSaved` ->
+  `MsmProjectsTreeProvider.diagramSaved`, which also updates the cached
+  listing's figure count), so the rows and the diagram's figure count
+  follow moves onto layers and placed objects without a read. Reading a
+  diagram's document also keeps the snapshot msm sends with it, so
+  expanding a diagram is one `msm.get_schema_diagrams` call. Selecting a layer or figure row shows it in Object Details as a
+  click on the diagram does (`showDiagramRow` in extension.ts): where its
+  diagram is open in a viewer, by selecting it there
+  (`ModelerPanel.select`, `selectItem`, `Canvas.selectItems`; the view
+  stays put), whose selection comes back editable; else read only, from
+  the diagram as saved (`diagramRowItem`, which mirrors
+  `EerFigureSet.itemProps`: the figure's place with its layer's, sizes as
+  stored, a REST figure's paths but not what it serves), with the
+  object a table's, view's or sequence's figure shows. A group's routine
+  or event shows its object alone.
+- **Going to what a row stands for** (`src/msm/projectNavigation.ts`,
+  `MSM_NAVIGATION_COMMANDS`; MSM Projects only, a live schema has no
+  source): a `$(go-to-file)` button (and the menu's Open Definition) on
+  the schema, object and REST service / schema / object rows opens the
+  statement in its file, the name selected; a `$(eye)` button (Show in
+  Diagram) on a diagram's layer, figure and group member rows opens the
+  diagram, centred on the item (a member's group figure) and selected.
+  A double-click on those rows does the same, and on a diagram row opens
+  the diagram (`ProjectNavigation`, through one `DoubleClick` keyed by the
+  row's `rowIdOf`), so no row opens on a single click. A single click
+  selects, which Object Details follows. VS Code expands a row with a
+  `command` only on its twistie (`expandOnlyOnTwistieClick` in its
+  `treeView.ts`), so only rows that cannot be expanded get
+  `mariadb.msm.rowClicked` (`rowClick`). A click on one that can (a
+  schema, a REST service or schema, a diagram, a layer or a group
+  figure with something under it) expands or collapses it. Its
+  double-click is two toggles, which `onDidExpandElement` /
+  `onDidCollapseElement` hand to `ProjectNavigation.toggled`; the row is
+  left as it was.
+  Schema and objects are found in a fresh `mariadb-lsp outline` of the
+  development script (`definitions.ts`, `definitionOf`: `range` /
+  `selection_range`, `source` into `includes` for an included file; the
+  schema by name, else every schema, as a script may name it through a
+  placeholder; a schema the script does not declare opens the script),
+  not in the snapshot, which may be older. REST rows keep the file and
+  line their row has (`restScript.ts`). Show in Diagram:
+  `ModelerPanel.reveal` (kept until the page has the model) posts
+  `revealItem`; the viewer keeps it until `Canvas.load` has put the view
+  in place (`readyRef`), then `Canvas.reveal(id)` centres the view on the
+  item at its zoom (across only in 2D Front) and selects it.
 
 - **The schema row** reads msm's snapshot (`msm.get_schema_diagrams`, the
   `msm-schema/1` row), which is what the diagrams draw and edit against.
@@ -98,6 +158,10 @@ viewer is [`modeler.md`](modeler.md), its palette
   a project it opens one of its diagrams first if none is open, the
   objects waiting for the model (`ModelerPanel.place`). A live schema's
   needs its diagram open.
+- **First-start layout of the MSM side bar**: `initialSize` MSM Projects
+  60, Object Details 40, so Object Details opens on 2/5 of the height
+  (the weights work as in [connections.md](connections.md)'s first-start
+  layout; a height the user dragged is kept by VS Code over them).
 - **Object Details** follows the last selection of its own side bar,
   kept apart: below MSM Projects a project's object (its tree, or a
   project's diagram), below Connections a live one (its tree, or a live
@@ -105,7 +169,18 @@ viewer is [`modeler.md`](modeler.md), its palette
   and a view is empty until something is selected on its side. Figures
   selected on a diagram post `selection` (a routine group's routines).
   The object is read only and compressed for a side bar, a row
-  a line as the trees above it: a table's comment, columns (the diagram
+  a line as the trees above it. Its header: the type's icon as the trees
+  draw it (`TypeIcon`, the light and dark SVG of `images/` inlined, the
+  body's `vscode-dark` / high-contrast class picking one), the name, then
+  the type ("Table") muted, on one line cut short with "…" (never
+  wrapped, the whole as its tooltip); a rule below it from where the name
+  starts - 20px in, where the column names start and about where the
+  inputs do (`--details-indent`) - to the right edge; under it, right-aligned
+  within the rule's span, the schema (where it is, project or connection, as its
+  tooltip), or a REST object's full path (what it serves as its tooltip).
+  A layer's or line's header is the name, then "Layer" / "Relationship",
+  and the rule, nothing under it. One component draws them all
+  (`DetailsHeader` in `DiagramItemFields.tsx`). Then a table's comment, columns (the diagram
   card's key / NOT NULL / column icons, drawn as masks in the theme's
   colour; name; then, as on the card, the type with AI and the default in
   dimmed italics, cut short with the whole row as a tooltip), indexes and foreign keys; a view's columns;
@@ -121,25 +196,41 @@ viewer is [`modeler.md`](modeler.md), its palette
   the object's details, editable (read only on a live schema's diagram,
   as the diagram is), `DiagramItemFields.tsx`:
   - a card figure: X / Y (on the page, its layer's position included),
-    Z (its own `elevation` above its layer), W / H and Auto (height from
-    content, `manualSizing` off), laid out as a design tool's transform
-    panel (X / W, Y / H, Z / Auto under H's input), and Upright (stands
+    Z (its own `elevation` above its layer), W / H and Auto-Height
+    (height from content, `manualSizing` off), laid out as a design
+    tool's transform panel (X / W, Y / H, Z / Auto-Height under H's
+    input), and Upright under it, pulled up (`itemCheckFollows`) as its
+    row has no input (stands
     on the page or lies on it; H is then how high it stands, see
     [modeler-figures.md](modeler-figures.md));
   - a layer (no schema object): its tables (filed under it) and
     X / Y / Z / W / H, changed as a drag would, so its tables follow;
   - below either, its Color: the editors' `ColorSwatches` over
     `FIGURE_PALETTE`, stored in the diagram (None a figure's kind's
-    color, a new layer's for a layer); a REST object figure has no schema
-    object, so the view shows its fields alone;
-  - a relationship line (no schema object): its source and target
-    tables, kind, middle segment offset and Split.
+    color, a new layer's for a layer), its caption styled as the
+    sections' `h3` titles; a hint only for a colour no swatch shows; a REST object figure has no schema
+    object: its item carries `rest` (the figure's service, schema and
+    object paths, and what Section 180 serves, from `EerFigureSet.itemProps`),
+    which heads its fields as an object is headed (`RestHeader`: the trees'
+    REST object icon, the request path, "REST View" / "REST Procedure" /
+    "REST Function", else "REST Object"; the service and schema paths and
+    the database object below);
+  - a relationship line (no schema object): headed by the toolbar's
+    relationship tool icon of its kind (1:1 / 1:n, identifying or not;
+    `RelationshipIcon`, a mask in the theme's colour; 1:n where the key is
+    not in the snapshot), then its source and target tables, kind, middle
+    segment offset and Split.
   A field commits on Enter or blur; Escape puts it back. The viewer posts
   the item with `selection` and again as `item` after every history change
   (moves, undo); the provider keeps it per side with the panel's editor
   (`ISelectedItem`) and sends the view's `changeItem` to that diagram,
   where `EerFigureSet.changeItem` makes it one undoable action. A tree row
-  selected drops it.
+  selected drops it; a diagram selection with no object (cleared by a
+  click on the canvas, or several items) empties the view, the object
+  with the item (`ObjectDetailsProvider.showSelection` -> `clear`): the
+  viewer posts an empty `selection` for it (`onSelection` in
+  `ModelViewer.tsx`), not an item-only `item`, which would drop the item
+  and keep the object.
 - **A relationship's kind** (1:1 / 1:n, identifying or not:
   `relationshipKindOf`, as msm derives `many`) is changed as a schema
   change (`relationshipKindChange`, sent through

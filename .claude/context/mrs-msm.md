@@ -10,7 +10,8 @@ its development script, sharing the editors and re-implementing as little
 as possible.
 
 - **One set of commands and dialogs.** `addService`, `addSchema` and
-  `addDbObject` take a project's row too (`projectPath` on the node) and
+  `addDbObject` (the handler of `MRS_ADD_OBJECT_COMMANDS`, one command per
+  kind) take a project's row too (`projectPath` on the node) and
   ask `IMrsCommandsHost.projectRest` for the project as an `IRestSource`;
   a server's rows get `liveRestSource`. The dialogs' code is unchanged but
   for `forScript` on their contexts (`IScriptContext`).
@@ -160,8 +161,9 @@ as possible.
   menu), its services, their REST schemas and objects looking as a
   server's (`serviceLook` / `schemaLook` / `objectLook` of
   `mrsTreeItems.ts`, which `MrsTreeItem` uses too), with context values of their own
-  (`mariadbMsmRest*`, no server menus); a click opens the script on the
-  statement. Read with `IMsmProjectsHost.restDefinition` once per refresh.
+  (`mariadbMsmRest*`, no server menus); a double-click, or the row's
+  Open Definition button, opens the script on the statement (see
+  [object-details.md](object-details.md)). Read with `IMsmProjectsHost.restDefinition` once per refresh.
 - **Checked end to end** with the shell (26.11.1) and mariadb-lsp: msm
   makes the snapshot of a script with these statements in Section 180.
   Not yet checked: deploying such a script, i.e. the REST SQL run by the

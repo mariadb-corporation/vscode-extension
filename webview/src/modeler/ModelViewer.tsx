@@ -357,6 +357,20 @@ export const ModelViewer = (): JSX.Element => {
     const viewsRef = useRef(new Map<string, IDiagramView>());
     /** The diagram on the canvas, whose view a change is of. */
     const shownRef = useRef<string>();
+    /** The diagram the canvas has finished loading, which can be revealed in. */
+    const readyRef = useRef<string>();
+    /** An item to show once its diagram is loaded (Show in Diagram). */
+    const revealRef = useRef<{ diagram: string; id: string }>();
+    /** Shows the item waiting, where its diagram is loaded. */
+    const revealWaiting = (): void => {
+        const waiting = revealRef.current;
+        // Once its diagram is loaded it is done with, shown or not (an
+        // item since removed): it would jump there on a later load.
+        if (waiting !== undefined && readyRef.current === waiting.diagram) {
+            canvasRef.current?.reveal(waiting.id);
+            revealRef.current = undefined;
+        }
+    };
     /** Keeps the view once it settles. */
     const viewTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -553,15 +567,20 @@ export const ModelViewer = (): JSX.Element => {
             onTool: (next) => { setTool(next); },
             onHint: setHint,
             onSelection: (ids) => {
+                const before = selectedRef.current;
                 selectedRef.current = ids;
                 const shown = loadedRef.current;
                 if (shown === undefined) {
                     return;
                 }
-                // Nothing selected: Object Details keeps the object, but
-                // no longer edits the item that was.
+                // Nothing selected (a click on the canvas): Object Details
+                // empties, the object with the item. Nothing selected
+                // before either (a theme change, a figure removed): it
+                // keeps what it shows, which may be a tree's object.
                 if (ids.length === 0) {
-                    post({ type: "item" });
+                    if (before.length > 0) {
+                        post({ type: "selection", objects: [] });
+                    }
 
                     return;
                 }
@@ -763,6 +782,23 @@ export const ModelViewer = (): JSX.Element => {
                     break;
                 }
 
+                case "selectItem": {
+                    if (readyRef.current === message.diagram) {
+                        canvasRef.current?.selectItems([message.id]);
+                    }
+                    break;
+                }
+
+                case "revealItem": {
+                    revealRef.current = { diagram: message.diagram,
+                        id: message.id };
+                    if (shownRef.current !== message.diagram) {
+                        setDiagramName(message.diagram);
+                    }
+                    revealWaiting();
+                    break;
+                }
+
                 case "applySchemaChange": {
                     loadedRef.current?.set.applySchemaChange(message.change);
                     break;
@@ -851,7 +887,13 @@ export const ModelViewer = (): JSX.Element => {
             setIsoPresetId(presetIdOf(view.isoPreset, true));
         }
         loaded.set.show(diagram);
+        // A reveal waits until the load has put the view where it goes.
+        readyRef.current = undefined;
         canvas.load(loaded.set, loaded.pageSettings, view)
+            .then(() => {
+                readyRef.current = diagram.name;
+                revealWaiting();
+            })
             .catch((reason: unknown) => {
                 setError(String(reason));
             });

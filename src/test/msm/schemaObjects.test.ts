@@ -30,6 +30,7 @@ import type { ISchemaDefinition } from "../../modeler/modelFormat.js";
 import {
     fillTemplate,
     MSM_ADD_COMMANDS,
+    MSM_DELETE_COMMANDS,
     MSM_TEMPLATE_COMMANDS,
     ObjectTemplates,
     objectNameProblem,
@@ -45,7 +46,9 @@ import {
     quickPickCalls,
     registeredCommands,
     resetVscodeMock,
+    setWarningMessageAnswer,
     shownEditors,
+    warningMessageCalls,
 } from "../mocks/vscode.js";
 
 const PROJECT = "/work/shop.msm.project";
@@ -153,6 +156,7 @@ describe("SchemaObjectCommands", () => {
     let added: Array<{ projectPath: string; statement: string;
         expect: IMsmExpectedObject; baseHash: string }>;
     let newTables: string[];
+    let dropped: string[];
     let updated: string[];
     let templates: ObjectTemplates;
 
@@ -160,6 +164,7 @@ describe("SchemaObjectCommands", () => {
         const snapshot = withSnapshot ? SNAPSHOT : undefined;
         added = [];
         newTables = [];
+        dropped = [];
         updated = [];
         templates = new ObjectTemplates(mkdtempSync(join(tmpdir(), "t-")));
         new SchemaObjectCommands({
@@ -174,6 +179,12 @@ describe("SchemaObjectCommands", () => {
 
                 return Promise.resolve({
                     file: `${PROJECT}/development/sections/150.sql`, line: 12 });
+            },
+            dropObject: (projectPath, kind, name) => {
+                dropped.push(`${projectPath} ${kind} ${name}`);
+
+                return Promise.resolve(kind === "table"
+                    ? ["The update script drops orders."] : []);
             },
             newTable: (projectPath, schema) => {
                 newTables.push(`${projectPath} ${schema}`);
@@ -191,6 +202,11 @@ describe("SchemaObjectCommands", () => {
     const group = (objectType: string): unknown => {
         return { kind: "objectGroup", projectPath: PROJECT, schema: "shop",
             objectType };
+    };
+
+    const object = (objectType: string, name: string): unknown => {
+        return { kind: "object", projectPath: PROJECT, schema: "shop",
+            objectType, name };
     };
 
     const run = async (id: string, arg: unknown): Promise<void> => {
@@ -279,6 +295,33 @@ describe("SchemaObjectCommands", () => {
         await run(MSM_ADD_COMMANDS.view, { kind: "object", name: "x" });
 
         expect(inputBoxCalls).toEqual([]);
+    });
+
+    it("deletes an object once confirmed, and shows msm's notes",
+        async () => {
+            setUp();
+            setWarningMessageAnswer("Delete Table");
+            await run(MSM_DELETE_COMMANDS.table, object("table", "orders"));
+
+            expect(warningMessageCalls[0].message).toBe("Delete the table "
+                + "orders from the MSM project of shop?");
+            expect(JSON.stringify(warningMessageCalls[0]))
+                .toMatch(/Its triggers are deleted with it/u);
+            expect(dropped).toEqual([`${PROJECT} table orders`]);
+            expect(updated).toEqual([PROJECT]);
+            expect(informationMessages).toEqual([
+                "The update script drops orders."]);
+        });
+
+    it("deletes nothing when not confirmed, or on another row", async () => {
+        setUp();
+        setWarningMessageAnswer(undefined);
+        await run(MSM_DELETE_COMMANDS.function, object("function", "total"));
+        await run(MSM_DELETE_COMMANDS.view, group("view"));
+
+        expect(warningMessageCalls).toHaveLength(1);
+        expect(dropped).toEqual([]);
+        expect(updated).toEqual([]);
     });
 
     it("opens a kind's template, a copy of msm's at first, and resets it",

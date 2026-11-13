@@ -346,7 +346,7 @@ describe("MariaDB REST Service", () => {
     it("adds a table as a REST view, with its reference", async () => {
         const title = "Enter Configuration Values for the New REST Object";
         await openDialog(connections, [...CONNECTION, "uitest", "Tables", "city"],
-            ["Add Database Object to REST Service..."], title);
+            ["Add Table to REST Service..."], title);
         await inDialog(title, async (view) => {
             assert.deepEqual(await tabNames(view),
                 ["Data Mapping", "Settings", "Authorization", "Options"]);
@@ -459,10 +459,10 @@ describe("MariaDB REST Service", () => {
     it("adds a procedure with a result set", async () => {
         assert.ok((await contextMenuEntries(await treeItem(connections,
             [...CONNECTION, "uitest", "Procedures", "cities"])))
-            .includes("Add Database Object to REST Service..."));
+            .includes("Add Procedure to REST Service..."));
         const title = "Enter Configuration Values for the New REST Object";
         await openDialog(connections, [...CONNECTION, "uitest", "Procedures", "cities"],
-            ["Add Database Object to REST Service..."], title);
+            ["Add Procedure to REST Service..."], title);
         await inDialog(title, async (view) => {
             await setField(view, "requestPath", "/citiesProc");
             const modes = await view.findWebElements(

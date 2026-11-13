@@ -101,6 +101,16 @@ import {
     objectRefOf,
 } from "./tree/schemaTree.js";
 import {
+    diagramRowItem,
+    diagramRowObject,
+    type DiagramRowNode,
+} from "./tree/diagramRows.js";
+import {
+    diagramItemIdOf,
+    isDiagramRow,
+    ProjectNavigation,
+} from "./msm/projectNavigation.js";
+import {
     COLLAPSED_FOLDERS_KEY,
     FolderColors,
     FolderSet,
@@ -213,7 +223,6 @@ import {
     pickFolderColor,
 } from "./tree/folderPrompts.js";
 import {
-    MSM_DIAGRAM_CLICK_COMMAND,
     MSM_DIAGRAM_COMMANDS,
     MSM_SCHEMA_COMMANDS,
     MSM_PROJECTS_VIEW_ID,
@@ -955,6 +964,33 @@ export const activate = (context: vscode.ExtensionContext): void => {
         },
         connectionLabel,
     });
+    /**
+     * Shows a diagram's layer, figure or group member selected in the MSM
+     * Projects view in Object Details, as a click on it on the diagram
+     * would: where the diagram is open, by selecting it there (its
+     * selection comes back editable); else as the diagram was saved, read
+     * only. A member is a routine or event, not a figure: its object.
+     *
+     * @param node The row.
+     */
+    const showDiagramRow = (node: DiagramRowNode): void => {
+        const place = { projectPath: node.projectPath };
+        const ref = diagramRowObject(node);
+        if (node.kind === "diagramMember") {
+            if (ref !== undefined) {
+                objectDetails.show(place, ref);
+            }
+
+            return;
+        }
+        if (ModelerPanel.select(projectDiagrams(node.projectPath),
+            node.diagram, diagramItemIdOf(node))) {
+            return;
+        }
+        const item = diagramRowItem(node);
+        objectDetails.showSelection(place, ref === undefined ? [] : [ref],
+            item === undefined ? undefined : { item });
+    };
     context.subscriptions.push(objectDetails,
         ...OBJECT_DETAILS_VIEWS.map((id) => {
             return vscode.window.registerWebviewViewProvider(id,
@@ -965,6 +1001,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
             if (node?.kind === "object") {
                 objectDetails.show({ projectPath: node.projectPath },
                     objectRefOf(node));
+            } else if (node !== undefined && isDiagramRow(node)) {
+                showDiagramRow(node);
             }
         }),
         connectionsView.onDidChangeSelection((event) => {
@@ -991,16 +1029,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
             const place = target.kind === "project"
                 ? { projectPath: target.projectPath }
                 : { connection: target.connection, schema: target.schema };
-            const [first] = objects;
-            const selected = item === undefined ? undefined : { item, edit };
-            if (first !== undefined) {
-                objectDetails.show(place, first, selected);
-            } else if (selected !== undefined) {
-                objectDetails.showItem(place, selected);
-            } else {
-                // Several items and no object: none is edited any more.
-                objectDetails.itemChanged(place, undefined);
-            }
+            objectDetails.showSelection(place, objects,
+                item === undefined ? undefined : { item, edit });
         },
         itemChanged: (target, item) => {
             objectDetails.itemChanged(target.kind === "project"
@@ -1168,6 +1198,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         { modal: true }, keep, "Use the Project's");
 
                     return answer === keep;
+                },
+                diagramSaved: (path, document) => {
+                    msmProjects.diagramSaved(path, document);
                 },
                 log,
             });
@@ -1363,7 +1396,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
      * @returns The `source_hash` of its snapshot, which msm makes first
      *          for a project that has none: REST is changed against it.
      */
-    const restBaseHash = async (projectPath: string): Promise<string> => {
+    const projectBaseHash = async (projectPath: string): Promise<string> => {
         const hash = (await snapshotOrMake(projectPath))?.source_hash;
         if (hash === undefined) {
             throw new Error(`The MSM project ${projectPath} has no schema `
@@ -1432,7 +1465,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         const said = describeRestSql(statements);
         const project = `the MSM project ${projectDiagrams(projectPath)
             .schemaTitle}`;
-        const baseHash = await restBaseHash(projectPath);
+        const baseHash = await projectBaseHash(projectPath);
         await restTool("msm.set_rest_statements", () => {
             return projectDiagrams(projectPath).setRestStatements(statements,
                 baseHash, {
@@ -1461,7 +1494,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         const named = `${item.service}${item.schema ?? ""}${item.object ?? ""}`;
         const project = `the MSM project ${projectDiagrams(projectPath)
             .schemaTitle}`;
-        const baseHash = await restBaseHash(projectPath);
+        const baseHash = await projectBaseHash(projectPath);
         const notes = await restTool("msm.drop_rest_object", () => {
             return projectDiagrams(projectPath).dropRestObject(item, baseHash, {
                 doing: `Removing the REST ${item.kind} ${named} from ${project}`,
@@ -1631,6 +1664,28 @@ export const activate = (context: vscode.ExtensionContext): void => {
             reportError(log, error, "open the table editor");
         });
     };
+    // Open Definition and Show in Diagram on the MSM Projects rows, and
+    // a double-click on them.
+    const projectNavigation = new ProjectNavigation({
+        outline: (file) => { return lspEdit.outline(file); },
+        developmentScript,
+        openDiagram: openProjectDiagram,
+        showInDiagram: (projectPath, diagram, itemId) => {
+            openProjectDiagram(projectPath, diagram);
+            ModelerPanel.reveal(projectDiagrams(projectPath), diagram, itemId);
+        },
+        log,
+    });
+    context.subscriptions.push(...projectNavigation.register(),
+        // A row that can be expanded has no click command, or a click
+        // would not expand it: its double-click is the two expands it
+        // makes.
+        msmProjectsView.onDidExpandElement((event) => {
+            void projectNavigation.toggled(event.element);
+        }),
+        msmProjectsView.onDidCollapseElement((event) => {
+            void projectNavigation.toggled(event.element);
+        }));
     // Add Table... and the other kinds' Add on a project's group rows.
     context.subscriptions.push(...new SchemaObjectCommands({
         msmApi,
@@ -1647,6 +1702,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
             }
 
             return added;
+        },
+        dropObject: async (projectPath, kind, name) => {
+            const baseHash = await projectBaseHash(projectPath);
+
+            return msmTool("msm.drop_schema_object",
+                "Deleting schema objects of an MSM project", () => {
+                    return projectDiagrams(projectPath).dropSchemaObject(kind,
+                        name, baseHash);
+                });
         },
         newTable: (projectPath, schema) => {
             editTable({ kind: "project", projectPath, schema, table: "" });
@@ -1673,8 +1737,6 @@ export const activate = (context: vscode.ExtensionContext): void => {
             : { kind: "connection", connection: target.connection,
                 schema: target.schema, table });
     };
-    /** Two quick clicks on a project's diagram open it. */
-    const projectDiagramClicks = new DoubleClick();
     /**
      * @param target What a viewer showed before a restart.
      *
@@ -1941,13 +2003,6 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         schema: node.schema, table: node.name }
                     : { kind: "connection", connection: node.uri,
                         schema: node.schema, table: node.name });
-            }),
-        vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,
-            (node?: IMsmDiagramNode) => {
-                if (node?.kind === "diagram" && projectDiagramClicks.click(
-                    JSON.stringify([node.projectPath, node.name]))) {
-                    openProjectDiagram(node.projectPath, node.name);
-                }
             }),
     );
     const msmCommands = new MsmCommands({

@@ -183,7 +183,10 @@ const DockRow = ({ label, side, readOnly, onReset }: {
     </tr>;
 };
 
-/** A table figure or a layer: X / W, Y / H, Z and a figure's Auto. */
+/**
+ * A table figure or a layer: X / W, Y / H, Z and a figure's Auto-Height
+ * and Upright.
+ */
 const FigureFields = ({ item, change }: {
     item: IDiagramFigureItem | IDiagramLayerItem;
     change: ChangeItem;
@@ -208,12 +211,13 @@ const FigureFields = ({ item, change }: {
                 value={item.z} readOnly={readOnly}
                 onCommit={(z) => { change({ z }); }} />
             {item.kind === "figure" ? <span className="itemCheckCell">
-                <CheckField label="Auto" checked={item.autoHeight}
+                <CheckField label="Auto-Height" checked={item.autoHeight}
                     readOnly={readOnly}
                     onChange={(autoHeight) => { change({ autoHeight }); }} />
             </span> : null}
             {/* Standing, H is how high; lying, how deep on the page. */}
-            {item.kind === "figure" ? <span className="itemCheckCell">
+            {item.kind === "figure" ? <span
+                className="itemCheckCell itemCheckFollows">
                 <CheckField label="Upright" checked={item.upright}
                     readOnly={readOnly}
                     onChange={(upright) => { change({ upright }); }} />
@@ -241,12 +245,11 @@ const FigureColor = ({ item, readOnly, change }: {
     return <div className="itemColor">
         <ColorSwatches id="itemColorCaption" value={picked ?? "custom"}
             disabled={readOnly} palette={FIGURE_PALETTE}
+            // Only a colour no swatch shows is worth a word.
             hint={picked === undefined
                 ? `A color of its own (${stored}), kept until another is `
                     + "picked."
-                : item.kind === "layer"
-                    ? "Stored with the diagram; None is a new layer's."
-                    : "Stored with the diagram; None is its kind's."}
+                : undefined}
             onPick={(color) => {
                 change({ color: color === "" ? "" : FIGURE_PALETTE[color] });
             }} />
@@ -338,13 +341,51 @@ export const DiagramItemFields = ({ item, change }:
     }
 };
 
-/** A layer or a relationship line selected: no schema object to show. */
-export const ItemHeader = ({ item }:
-    { item: IDiagramLayerItem | IDiagramConnectionItem }): JSX.Element => {
+/**
+ * The head of whatever the view shows: the icon, the name, then what it
+ * is, on one line cut short with "…" rather than wrapped; a rule below it
+ * from where the name starts (as the column names and the inputs below
+ * do) to the right edge; under the rule, where it is (its schema, a REST
+ * object's path), from the same place.
+ *
+ * @param props.icon The icon, if it has one; its place is kept anyway.
+ * @param props.name What it is called.
+ * @param props.kind What it is: "Table".
+ * @param props.under What goes under the rule, if anything.
+ * @param props.underTitle That line's tooltip.
+ */
+export const DetailsHeader = ({ icon, name, kind, under, underTitle }: {
+    icon?: JSX.Element;
+    name: string;
+    kind: string;
+    under?: string;
+    underTitle?: string;
+}): JSX.Element => {
     return <header className="detailsHeader">
-        <span className="detailsKind">
-            {item.kind === "layer" ? "Layer" : "Relationship"}</span>
-        <span className="detailsName">{item.kind === "layer" ? item.name
-            : `${item.source} → ${item.target}`}</span>
+        <div className="detailsTitle">
+            <span className="detailsTitleIcon">{icon}</span>
+            <span className="detailsTitleText" title={`${name} ${kind}`}>
+                <span className="detailsName">{name}</span>
+                {" "}
+                <span className="detailsKind">{kind}</span>
+            </span>
+        </div>
+        <div className="detailsRule" />
+        {under === undefined ? null
+            : <div className="detailsWhere" title={underTitle}>{under}</div>}
     </header>;
+};
+
+/**
+ * A layer or a relationship line selected: no schema object to show.
+ * The icon, where it has one, goes first, as an object's type icon does.
+ */
+export const ItemHeader = ({ item, icon }: {
+    item: IDiagramLayerItem | IDiagramConnectionItem;
+    icon?: JSX.Element;
+}): JSX.Element => {
+    return <DetailsHeader icon={icon}
+        name={item.kind === "layer" ? item.name
+            : `${item.source} → ${item.target}`}
+        kind={item.kind === "layer" ? "Layer" : "Relationship"} />;
 };

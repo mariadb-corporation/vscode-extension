@@ -166,12 +166,14 @@
       "mariadb-msm": [
         {
           "id": "mariadb.msmProjects",
-          "name": "MSM Projects"
+          "name": "MSM Projects",
+          "initialSize": 60
         },
         {
           "id": "mariadb.msmObjectDetails",
           "name": "Object Details",
-          "type": "webview"
+          "type": "webview",
+          "initialSize": 40
         }
       ],
       "mariadb-panel": [
@@ -956,8 +958,23 @@
         "category": "MariaDB"
       },
       {
-        "command": "mariadb.mrs.addDbObject",
-        "title": "Add Database Object to REST Service...",
+        "command": "mariadb.mrs.addTableToService",
+        "title": "Add Table to REST Service...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.mrs.addViewToService",
+        "title": "Add View to REST Service...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.mrs.addProcedureToService",
+        "title": "Add Procedure to REST Service...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.mrs.addFunctionToService",
+        "title": "Add Function to REST Service...",
         "category": "MariaDB"
       },
       {
@@ -1289,6 +1306,58 @@
         "title": "Add Sequence...",
         "category": "MariaDB",
         "icon": "$(add)"
+      },
+      {
+        "command": "mariadb.msm.deleteTable",
+        "title": "Delete Table...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deleteView",
+        "title": "Delete View...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deleteProcedure",
+        "title": "Delete Procedure...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deleteFunction",
+        "title": "Delete Function...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deleteTrigger",
+        "title": "Delete Trigger...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deleteEvent",
+        "title": "Delete Event...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.deleteSequence",
+        "title": "Delete Sequence...",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.msm.openDefinition",
+        "title": "Open Definition",
+        "category": "MariaDB",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "mariadb.msm.showInDiagram",
+        "title": "Show in Diagram",
+        "category": "MariaDB",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "mariadb.msm.rowClicked",
+        "title": "Open",
+        "category": "MariaDB"
       },
       {
         "command": "mariadb.msm.editObjectTemplate",
@@ -1876,8 +1945,23 @@
           "group": "6_msm@1"
         },
         {
-          "command": "mariadb.mrs.addDbObject",
-          "when": "view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view|procedure|function)$/",
+          "command": "mariadb.mrs.addTableToService",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.table",
+          "group": "5_mrs@1"
+        },
+        {
+          "command": "mariadb.mrs.addViewToService",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.view",
+          "group": "5_mrs@1"
+        },
+        {
+          "command": "mariadb.mrs.addProcedureToService",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.procedure",
+          "group": "5_mrs@1"
+        },
+        {
+          "command": "mariadb.mrs.addFunctionToService",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.function",
           "group": "5_mrs@1"
         },
         {
@@ -2121,6 +2205,41 @@
           "group": "0_msm@1"
         },
         {
+          "command": "mariadb.msm.deleteTable",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.table",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.msm.deleteView",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.view",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.msm.deleteProcedure",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.procedure",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.msm.deleteFunction",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.function",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.msm.deleteTrigger",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.trigger",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.msm.deleteEvent",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.event",
+          "group": "9_delete@0"
+        },
+        {
+          "command": "mariadb.msm.deleteSequence",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.sequence",
+          "group": "9_delete@0"
+        },
+        {
           "command": "mariadb.msm.updateSchemaSnapshot",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmSchema",
           "group": "0_msm@0"
@@ -2191,8 +2310,23 @@
           "group": "2_rest@0"
         },
         {
-          "command": "mariadb.mrs.addDbObject",
-          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmObject\\.(table|view|procedure|function)$/",
+          "command": "mariadb.mrs.addTableToService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.table",
+          "group": "2_rest@0"
+        },
+        {
+          "command": "mariadb.mrs.addViewToService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.view",
+          "group": "2_rest@0"
+        },
+        {
+          "command": "mariadb.mrs.addProcedureToService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.procedure",
+          "group": "2_rest@0"
+        },
+        {
+          "command": "mariadb.mrs.addFunctionToService",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmObject.function",
           "group": "2_rest@0"
         },
         {
@@ -2239,6 +2373,26 @@
           "command": "mariadb.msm.removeProjectFolder",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmFolder.empty",
           "group": "1_folder@2"
+        },
+        {
+          "command": "mariadb.msm.openDefinition",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsm(Schema|Object\\..+|RestService|RestSchema|RestObject)$/",
+          "group": "inline@9"
+        },
+        {
+          "command": "mariadb.msm.openDefinition",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsm(Schema|Object\\..+|RestService|RestSchema|RestObject)$/",
+          "group": "0_open@0"
+        },
+        {
+          "command": "mariadb.msm.showInDiagram",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagram(Layer|Figure\\..+|Member\\..+)$/",
+          "group": "inline@9"
+        },
+        {
+          "command": "mariadb.msm.showInDiagram",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagram(Layer|Figure\\..+|Member\\..+)$/",
+          "group": "0_open@0"
         }
       ],
       "editor/title": [
@@ -2336,6 +2490,46 @@
         },
         {
           "command": "mariadb.msm.addSequence",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteTable",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteView",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteProcedure",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteFunction",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteTrigger",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteEvent",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.deleteSequence",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.openDefinition",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.showInDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.rowClicked",
           "when": "false"
         },
         {
@@ -2563,7 +2757,19 @@
           "when": "false"
         },
         {
-          "command": "mariadb.mrs.addDbObject",
+          "command": "mariadb.mrs.addTableToService",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.mrs.addViewToService",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.mrs.addProcedureToService",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.mrs.addFunctionToService",
           "when": "false"
         },
         {

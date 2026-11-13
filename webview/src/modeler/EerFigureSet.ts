@@ -26,6 +26,7 @@ import {
     figureColor,
     figureType,
     IMAGE_FIGURE,
+    inElevationRange,
     LAYER_COLOR,
     NOTE_FIGURE,
     EVENT_GROUP_FIGURE,
@@ -94,6 +95,7 @@ import {
     slabUnder,
     Z,
 } from "../canvas/threeHelpers.js";
+import type { IDiagramTheme } from "../canvas/theme.js";
 import { foreignKeyOf, sameName, type ISchemaCatalog } from "./catalog.js";
 import { syncConnections } from "./connectionSync.js";
 import {
@@ -192,6 +194,13 @@ import {
  * own are a pixel wide whatever is asked.
  */
 const CONNECTION_WIDTH = 1.6;
+
+/**
+ * How wide they are drawn in the Navigator's overview, in CSS pixels: at
+ * its scale the main view's width made a relationship a blot between two
+ * tiny cards.
+ */
+const NAVIGATOR_CONNECTION_WIDTH = 0.5;
 
 /**
  * A non-identifying relationship's dashes, as Workbench draws them: on
@@ -335,11 +344,14 @@ const LAYER_RADIUS = 5;
  */
 const LAYER_THICKNESS = 3;
 
+/**
+ * How near a layer's slab the pointer picks it in 2D Front, in pixels:
+ * the slab is only a few pixels high there.
+ */
+const LAYER_FRONT_REACH_PX = 6;
+
 /** A layer's name: where it sits, in page units from the layer's corner. */
 const LAYER_LABEL = { left: 6, top: 4, height: 18, fontSize: 12 } as const;
-
-/** How high a layer can be raised, in page units. */
-const MAX_LAYER_ELEVATION = 240;
 
 /** A layer's colour where it has none. */
 const DEFAULT_LAYER_COLOR = new THREE.Color("#e0e0e0");
@@ -351,15 +363,6 @@ const DEFAULT_LAYER_COLOR = new THREE.Color("#e0e0e0");
  */
 const ownElevation = (figure: IModelFigure): number => {
     return inElevationRange(figure.elevation ?? 0);
-};
-
-/**
- * @param elevation A height a figure or a layer is raised to.
- *
- * @returns It, kept in the layers' range.
- */
-const inElevationRange = (elevation: number): number => {
-    return Math.min(MAX_LAYER_ELEVATION, Math.max(0, elevation));
 };
 
 /** The texture scales a card is drawn at: device pixels per unit. */
@@ -430,6 +433,27 @@ const uprightGeometry = <T extends THREE.BufferGeometry>(
  */
 const sideLabelWidth = (width: number): number => {
     return Math.max(1, width - 2 * CARD.radius);
+};
+
+/**
+ * @param theme The diagram's theme.
+ *
+ * @returns A shadow on the page, its geometry still to be set: built
+ *          again on a change of theme (`setTheme`).
+ */
+const shadowMesh = (
+    theme: IDiagramTheme,
+): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> => {
+    const shadow = new THREE.Mesh(new THREE.BufferGeometry(),
+        new THREE.MeshBasicMaterial({
+            color: theme.shadow,
+            transparent: true,
+            opacity: theme.dark ? SHADOW_OPACITY.dark : SHADOW_OPACITY.light,
+            depthWrite: false,
+        }));
+    setDrawOrder(shadow, DRAW_ORDER.shadows);
+
+    return shadow;
 };
 
 /**
@@ -660,6 +684,8 @@ interface ILayerNode {
     slab: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     border: THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial>;
     label: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+    /** Its shadow on the page, while it stands above it. */
+    shadow: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     labelWidth: number;
     builtName?: string;
     builtSize?: string;
@@ -1025,8 +1051,21 @@ export class EerFigureSet implements IFigureSet {
         const node = this.#figures.get(id);
         if (node !== undefined && isCard(node.kind)) {
             const rect = this.#figureRect(node);
+            const definition = node.kind === "rest"
+                ? this.#restObjectOf(node.figure) : undefined;
 
             return {
+                // A REST object has no schema object to read: its own.
+                ...node.kind === "rest" ? { rest: {
+                    service: node.figure.restService ?? "",
+                    schema: node.figure.restSchema ?? "",
+                    object: node.figure.restObject ?? "",
+                    ...definition === undefined ? {} : {
+                        objectType: definition.objectType,
+                        dbSchema: definition.dbSchema,
+                        dbObject: definition.dbObject,
+                    },
+                } } : {},
                 kind: "figure",
                 id,
                 x: rect.left,
@@ -1302,6 +1341,10 @@ export class EerFigureSet implements IFigureSet {
 
     /** The layer under the pointer: the inner one, at its own height. */
     #layerAt(probe: IProbe): ILayerNode | undefined {
+        const front = probe.frontOn?.("base");
+        if (front !== undefined) {
+            return this.#layerInFront(front);
+        }
         let found: ILayerNode | undefined;
         for (const node of this.#layers.values()) {
             const point = probe.pointOn("base", this.#layerTop(node.layer));
@@ -1314,6 +1357,39 @@ export class EerFigureSet implements IFigureSet {
         }
 
         return found;
+    }
+
+    /**
+     * The layer whose slab is under the pointer in 2D Front, where a slab
+     * is a thin band: within a few pixels of it, the nearest, the inner
+     * one where two are as near.
+     *
+     * @param at The pointer, across and up (`IProbe.frontOn`).
+     *
+     * @returns The layer, or nothing.
+     */
+    #layerInFront(at: IPoint): ILayerNode | undefined {
+        // Heights show scaled by the lift.
+        const reach = LAYER_FRONT_REACH_PX / ((this.#host?.scale() ?? 1)
+            * Math.max(0.1, this.#host?.lift() ?? 1));
+        let found: { node: ILayerNode; distance: number } | undefined;
+        for (const node of this.#layers.values()) {
+            const { layer } = node;
+            const foot = this.#elevation(layer);
+            const distance = at.y < foot ? foot - at.y
+                : Math.max(0, at.y - this.#layerTop(layer));
+            if (at.x < layer.left || at.x > layer.left + layer.width
+                || distance > reach) {
+                continue;
+            }
+            if (found === undefined || distance < found.distance
+                || (distance === found.distance && layer.width * layer.height
+                    < found.node.layer.width * found.node.layer.height)) {
+                found = { node, distance };
+            }
+        }
+
+        return found?.node;
     }
 
     /** @returns A layer's elevation, kept in its range. */
@@ -1428,10 +1504,13 @@ export class EerFigureSet implements IFigureSet {
         // A layer's border and name go over its plate.
         setDrawOrder(border, DRAW_ORDER.base + 0.5);
         setDrawOrder(label, DRAW_ORDER.base + 0.5);
-        this.#base.add(slab, plate, border, label);
+        // Its shadow on the page, as a card's on what it lies on: built
+        // again on a change of theme (`setTheme`).
+        const shadow = shadowMesh(theme);
+        this.#base.add(slab, plate, border, label, shadow);
 
         const node: ILayerNode = {
-            layer, plate, slab, border, label, labelWidth: 0,
+            layer, plate, slab, border, label, shadow, labelWidth: 0,
             item: {
                 id: layer.id,
                 plane: "base",
@@ -1442,6 +1521,12 @@ export class EerFigureSet implements IFigureSet {
                 // Its face: on top of its slab.
                 elevation: () => { return this.#layerTop(layer); },
                 elevatable: true,
+                // 2D Front shows its slab: outlined there, moved across
+                // and up, sized across only.
+                frontSpan: () => {
+                    return { bottom: this.#elevation(layer),
+                        top: this.#layerTop(layer) };
+                },
                 // As high as a card's header, so the button is the size
                 // of a card's, centred on the name's line.
                 menuBand: {
@@ -1484,6 +1569,9 @@ export class EerFigureSet implements IFigureSet {
             node.border.geometry.dispose();
             node.border.geometry = new THREE.BufferGeometry()
                 .setFromPoints(shape.getPoints(6));
+            node.shadow.geometry.dispose();
+            node.shadow.geometry = shadowGeometry(layer.width, layer.height,
+                LAYER_RADIUS);
         }
         if (node.builtName !== layer.name) {
             node.builtName = layer.name;
@@ -1512,6 +1600,11 @@ export class EerFigureSet implements IFigureSet {
             z + Z.plate + this.#stackHeight(layer) - 0.01);
         node.slab.scale.z = liftScale(lift);
         node.border.position.set(center.x, center.y, z + Z.plateBorder);
+        // A raised layer's shadow lies on the page, a hair above the paper,
+        // offset as a card's; where it stands on the page, or the view is
+        // flat, it has none (it would darken its own plate in 2D).
+        node.shadow.visible = this.#elevation(layer) > 0 && lift > 0;
+        node.shadow.position.set(center.x + 1, center.y - 2, Z.shadow);
         node.label.position.set(
             layer.left + LAYER_LABEL.left + node.labelWidth / 2,
             -(layer.top + LAYER_LABEL.top + LAYER_LABEL.height / 2),
@@ -1608,16 +1701,7 @@ export class EerFigureSet implements IFigureSet {
         side.visible = isCard(kind);
         slab.add(side);
 
-        const shadow = new THREE.Mesh(new THREE.BufferGeometry(),
-            new THREE.MeshBasicMaterial({
-                color: host.theme.shadow,
-                transparent: true,
-                // Built again on a change of theme (`setTheme`).
-                opacity: host.theme.dark
-                    ? SHADOW_OPACITY.dark : SHADOW_OPACITY.light,
-                depthWrite: false,
-            }));
-        setDrawOrder(shadow, DRAW_ORDER.shadows);
+        const shadow = shadowMesh(host.theme);
         this.#base.add(shadow);
         // A picture lies on its layer as it is: no card under it, which
         // would show through a transparent one.
@@ -1998,11 +2082,14 @@ export class EerFigureSet implements IFigureSet {
             node.slab.position.set(center.x, center.y, z + Z.slab);
         }
         node.slab.scale.z = scale;
-        // At the figure's Z, not an upright card's foot a slab below it,
-        // which lies under the paper and would hide the shadow in 3D.
-        // On its layer's face, above the layer's slab.
-        const shadowZ = ((node.layer === undefined ? 0
-            : this.#layerTop(node.layer)) + ownElevation(node.figure)) * lift;
+        // On the surface under the figure - its layer's face, above the
+        // layer's slab, else the page - whatever its own Z: one raised
+        // above it casts its shadow down there, where the space between
+        // shows how high it stands. Raised with the figure, the shadow hid
+        // under its slab. Never an upright card's foot either, a slab
+        // lower, which lies under the paper and would hide it in 3D.
+        const shadowZ = (node.layer === undefined ? 0
+            : this.#layerTop(node.layer)) * lift;
         node.shadow.position.set(center.x + 1, center.y - 2,
             shadowZ + Z.shadow);
     }
@@ -2686,6 +2773,15 @@ export class EerFigureSet implements IFigureSet {
         }
     }
 
+    public navigatorRender(drawing: boolean): void {
+        const width = drawing ? NAVIGATOR_CONNECTION_WIDTH : CONNECTION_WIDTH;
+        for (const node of this.#connections) {
+            for (const line of [node.line, node.markers]) {
+                line.material.linewidth = width;
+            }
+        }
+    }
+
     public beforeRender(): void {
         // The handles keep their size on the screen as the zoom changes.
         const scale = this.#host?.scale();
@@ -2998,6 +3094,11 @@ export class EerFigureSet implements IFigureSet {
     #resizeLayer(node: ILayerNode): IResizeSession {
         return {
             resizeTo: (rect) => { this.#setLayerRect(node, rect); },
+            // In 2D Front, across only: its depth on the page is not seen.
+            resizeFrontTo: (rect) => {
+                this.#setLayerRect(node, { ...layerRect(node.layer),
+                    left: rect.left, width: rect.width });
+            },
             finish: () => {
                 this.#fileOnLayer(node);
 
@@ -3868,7 +3969,7 @@ export class EerFigureSet implements IFigureSet {
         const node = this.#layers.get(id);
         if (node !== undefined) {
             for (const object of [node.plate, node.slab, node.border,
-                node.label]) {
+                node.label, node.shadow]) {
                 object.removeFromParent();
                 disposeGroup(object);
             }

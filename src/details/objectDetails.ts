@@ -76,6 +76,24 @@ export interface IDiagramFigureItem {
     color: string;
     /** Whether the diagram can be changed: a live schema's is read only. */
     editable: boolean;
+    /**
+     * A REST object figure's REST object, which has no schema object for
+     * the view to read: its paths, and what Section 180 says it serves.
+     */
+    rest?: IDiagramRestObject;
+}
+
+/** A REST object figure's REST object, as Object Details heads it. */
+export interface IDiagramRestObject {
+    /** The service's path as the figure has it (developers included). */
+    service: string;
+    schema: string;
+    object: string;
+    /** VIEW, PROCEDURE or FUNCTION, where Section 180 creates it. */
+    objectType?: string;
+    /** The database object it serves, where Section 180 creates it. */
+    dbSchema?: string;
+    dbObject?: string;
 }
 
 /**

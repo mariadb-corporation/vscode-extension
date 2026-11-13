@@ -32,7 +32,7 @@ import type { IFolderMemento } from "../../tree/customFolders.js";
 import { draggedObjects } from "../../tree/schemaTree.js";
 import type { IServerStatus } from "../../mcp/serverStarter.js";
 import {
-    MSM_DIAGRAM_CLICK_COMMAND,
+    MSM_ROW_CLICK_COMMAND,
     MSM_EXPANDED_ROWS_KEY,
     MSM_PROJECTS_DRAG_MIME,
     MSM_PROJECTS_VIEW_STATE_CONTEXT_KEY,
@@ -83,6 +83,25 @@ const listed = (
     };
 };
 
+/** The project's diagram: a layer with a table, and figures on none. */
+const MAIN_DIAGRAM = {
+    format: "msm-diagram/1", name: "Main", width: 1000, height: 800,
+    layers: [{ id: "L1", name: "Sales", left: 0, top: 0, width: 400,
+        height: 300, color: "#F0F1FE", figures: ["f1"] }],
+    figures: [
+        { id: "f1", type: "TableFigure", name: "orders", table: "orders",
+            left: 10, top: 10, layer: "L1" },
+        { id: "f2", type: "RoutineGroupFigure", name: "Routines", left: 500,
+            top: 10, routines: ["count_orders", "tidy"] },
+        { id: "f3", type: "NoteFigure", name: "Note", left: 500, top: 300,
+            text: "Hello" },
+        { id: "f4", type: "RestObjectFigure", name: "orders", left: 700,
+            top: 10, restService: "/svc", restSchema: "/shop",
+            restObject: "/orders" },
+    ],
+    connections: [],
+};
+
 interface IFake {
     tree: MsmProjectsTreeProvider;
     updates: Array<[string, IMsmProjectDetails]>;
@@ -125,6 +144,9 @@ const setUp = (
                         comment: "Old rows" }],
                     sequences: [{ name: "order_no" }],
                 }),
+            }, {
+                name: "Main", format: "msm-diagram/1",
+                document: JSON.stringify(MAIN_DIAGRAM),
             }]);
         },
         // The listing carries the versions: no project is read for them.
@@ -316,12 +338,10 @@ describe("the MSM Projects view", () => {
         // Its own context value: a server's menus stay off it.
         expect(svc.contextValue).toBe("mariadbMsmRestService");
         expect(svc.id).toBe(`msmRestService:${project}:/svc`);
-        // A click opens the script on the statement.
-        expect(svc.command?.command).toBe("vscode.open");
-        expect((svc.command?.arguments?.[0] as Uri).fsPath).toBe(file);
-        expect((svc.command?.arguments?.[1] as {
-            selection: { start: { line: number } } }).selection.start.line)
-            .toBe(102);
+        // A click expands it: no click command, its double-click being
+        // the two expands.
+        expect(svc.command).toBeUndefined();
+        expect(services[0]).toMatchObject({ file, line: 102 });
 
         const schemas = await fake.tree.getChildren(services[0]);
         expect(labels(fake, schemas)).toEqual(["/shop (shop)"]);
@@ -341,9 +361,12 @@ describe("the MSM Projects view", () => {
             ["/tidy", "tidy", "mariadbMsmRestObject",
                 TreeItemCollapsibleState.None],
         ]);
-        expect((fake.tree.getTreeItem(objects[1]!).command?.arguments?.[1] as {
-            selection: { start: { line: number } } }).selection.start.line)
-            .toBe(108);
+        // Nothing under it: a double-click opens the script on the
+        // statement it has.
+        expect(fake.tree.getTreeItem(objects[1]!).command).toEqual({
+            command: MSM_ROW_CLICK_COMMAND, title: "Open",
+            arguments: [objects[1]] });
+        expect(objects[1]).toMatchObject({ line: 108 });
         expect(await fake.tree.getChildren(objects[0])).toEqual([]);
 
         // Dragged to a diagram, a REST object goes by its paths.
@@ -476,13 +499,54 @@ describe("the MSM Projects view", () => {
             expect(row.description).toBe("3 figures");
             expect(row.contextValue).toBe("mariadbMsmDiagram");
             expect(icon(row)).toMatch(/\/light\/schemaDiagram\.svg$/u);
-            expect(row.command).toEqual({
-                command: MSM_DIAGRAM_CLICK_COMMAND,
-                title: "Open Diagram",
-                arguments: [rows[0]],
-            });
-            expect(await fake.tree.getChildren(rows[0])).toEqual([]);
+            // Its figures below it: a click expands it, so it has no
+            // click command; its double-click is the two expands.
+            expect(row.collapsibleState)
+                .toBe(TreeItemCollapsibleState.Collapsed);
+            expect(row.command).toBeUndefined();
             expect(fake.tree.getParent(rows[0])).toBeUndefined();
+        });
+
+    it("expands a diagram into its layers and figures, and draws a saved "
+        + "one as saved", async () => {
+            const project = makeProject(root, "shop");
+            const fake = setUp([listed(project)]);
+            const [node] = await fake.tree.getChildren();
+            const [diagrams] = await fake.tree.getChildren(node);
+            const [diagram] = await fake.tree.getChildren(diagrams);
+            expect(fake.tree.getTreeItem(diagram).collapsibleState)
+                .toBe(TreeItemCollapsibleState.Collapsed);
+
+            const rows = await fake.tree.getChildren(diagram);
+            const labels = (nodes: readonly unknown[]): unknown[] => {
+                return nodes.map((row) => {
+                    return fake.tree.getTreeItem(row as never).label;
+                });
+            };
+            // The layer, then the figures on none; the note shows no object.
+            expect(labels(rows)).toEqual(["Sales", "Routines", "/shop/orders"]);
+            const layer = fake.tree.getTreeItem(rows[0]);
+            expect(layer.contextValue).toBe("mariadbMsmDiagramLayer");
+            expect(layer.description).toBe("1 figure");
+            expect(labels(await fake.tree.getChildren(rows[0])))
+                .toEqual(["orders"]);
+            // The group's routines, of their kinds in the snapshot.
+            const routines = await fake.tree.getChildren(rows[1]);
+            expect(routines).toMatchObject([
+                { kind: "diagramMember", objectType: "function",
+                    name: "count_orders" },
+                { kind: "diagramMember", objectType: "procedure", name: "tidy" },
+            ]);
+            expect(fake.tree.getTreeItem(rows[2]).description).toBe("/svc");
+
+            // A save draws the diagram as saved, without reading it again.
+            fake.tree.diagramSaved(project, { ...MAIN_DIAGRAM, layers: [],
+                figures: [MAIN_DIAGRAM.figures[0]] } as never);
+            expect(labels(await fake.tree.getChildren(diagram)))
+                .toEqual(["orders"]);
+            const [listedAgain] = await fake.tree.getChildren(diagrams);
+            expect(fake.tree.getTreeItem(listedAgain).description)
+                .toBe("1 figure");
         });
 
     it("shows no diagrams where the MariaDB Shell has none", async () => {

@@ -21,7 +21,8 @@
  * from a SQL template filled with its name, which msm places where it
  * keeps that kind (`msm.set_schema_statements`). The templates are msm's,
  * unless the user changed one: a changed template is a file of the
- * extension's own storage.
+ * extension's own storage. Deleting one from its object row, which msm
+ * does (`msm.drop_schema_object`).
  */
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -39,7 +40,10 @@ import {
 } from "../mcp/msmApi.js";
 import type { ObjectType } from "../mcp/types.js";
 import type { ISchemaDefinition } from "../modeler/modelFormat.js";
-import type { IMsmObjectGroupNode } from "../tree/msmProjectsTreeProvider.js";
+import type {
+    IMsmObjectGroupNode,
+    IMsmObjectNode,
+} from "../tree/msmProjectsTreeProvider.js";
 import { OBJECT_TYPE_LABELS, outlineObjects } from "../tree/schemaTree.js";
 import { TEMPLATE_PLACEHOLDER } from "./msmFields.js";
 
@@ -52,6 +56,17 @@ export const MSM_ADD_COMMANDS: Record<ObjectType, string> = {
     trigger: "mariadb.msm.addTrigger",
     event: "mariadb.msm.addEvent",
     sequence: "mariadb.msm.addSequence",
+};
+
+/** Delete <Kind>..., by the kind of the object row it is on. */
+export const MSM_DELETE_COMMANDS: Record<ObjectType, string> = {
+    table: "mariadb.msm.deleteTable",
+    view: "mariadb.msm.deleteView",
+    procedure: "mariadb.msm.deleteProcedure",
+    function: "mariadb.msm.deleteFunction",
+    trigger: "mariadb.msm.deleteTrigger",
+    event: "mariadb.msm.deleteEvent",
+    sequence: "mariadb.msm.deleteSequence",
 };
 
 /** A template's own commands, on the group rows of the kinds that have one. */
@@ -263,6 +278,14 @@ export interface ISchemaObjectsHost {
     addObject(projectPath: string, statement: string,
         expect: IMsmExpectedObject,
         baseHash: string): Promise<{ file: string; line: number }>;
+    /**
+     * Drops an object through msm, in turn with the diagrams' edits; msm
+     * refuses one another object needs.
+     *
+     * @returns msm's notes, for a person.
+     */
+    dropObject(projectPath: string, kind: ObjectType,
+        name: string): Promise<string[]>;
     /** Opens the table editor on a new table of the project. */
     newTable(projectPath: string, schema: string): void;
     /** The snapshot changed: the tree, Object Details and diagrams follow. */
@@ -308,6 +331,23 @@ export class SchemaObjectCommands {
                 return onGroup(id, (row) => {
                     return this.add(row);
                 }, "add the schema object");
+            }),
+            ...Object.values(MSM_DELETE_COMMANDS).map((id) => {
+                return vscode.commands.registerCommand(id,
+                    async (row?: unknown) => {
+                        const object = row as IMsmObjectNode | undefined;
+                        // Only on a project's object row.
+                        if (object?.kind !== "object"
+                            || typeof object.projectPath !== "string") {
+                            return;
+                        }
+                        try {
+                            await this.delete(object);
+                        } catch (error) {
+                            reportError(this.host.log, error,
+                                "delete the schema object");
+                        }
+                    });
             }),
             onGroup(MSM_TEMPLATE_COMMANDS.edit, async (row) => {
                 if (isTemplated(row.objectType)) {
@@ -386,6 +426,33 @@ export class SchemaObjectCommands {
         await vscode.window.showTextDocument(vscode.Uri.file(added.file), {
             preview: false, selection: new vscode.Range(at, at),
         });
+    }
+
+    /**
+     * Deletes the object of a project's object row, once confirmed: msm
+     * removes its statements, and the trees and diagrams follow.
+     *
+     * @param row The object row.
+     */
+    public async delete(row: IMsmObjectNode): Promise<void> {
+        const kind = row.objectType;
+        const label = OBJECT_TYPE_LABELS[kind];
+        const action = `Delete ${label}`;
+        const answer = await vscode.window.showWarningMessage(
+            `Delete the ${kind} ${row.name} from the MSM project of `
+            + `${row.schema}?`, { modal: true, detail: (kind === "table"
+                ? "Its triggers are deleted with it. " : "")
+                + "Once the project has a release, the next update script "
+                + "drops it." }, action);
+        if (answer !== action) {
+            return;
+        }
+        const notes = await this.host.dropObject(row.projectPath, kind,
+            row.name);
+        await this.host.snapshotUpdated(row.projectPath);
+        for (const note of notes) {
+            void vscode.window.showInformationMessage(note);
+        }
     }
 
     /**
