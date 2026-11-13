@@ -75,7 +75,11 @@ kept outside the repository.
   for each picture an image figure shows, saves with
   `msm.set_schema_diagram` and edits the schema with `msm.edit_schema`;
   every call is an action of the Actions tab under General Actions
-  (`ActionGroup`, the call as its row shows it, a document by its name)
+  (`ActionGroup`, the call as its row shows it, a document by its name;
+  an `msm.edit_schema` row is titled by its edits, `editTitle` in
+  `editTitles.ts`: the first two in words, as "Added the column email to
+  orders", then "and N more changes", falling back to "Edited the schema
+  of `<schema>`" for an op it has no words for)
   but reading the diagrams and the auto-store's saves, which flooded it
   (the user: "do not log those on the Action tab"; `#quietCall`: a
   failure goes to the log, the viewer showing it as before), and they run
@@ -199,8 +203,14 @@ figure sets, so the canvas knows nothing of tables or layers:
   (`moveBy(dx, 0)`) and up (`IMoveSession.elevateBy`: a selected layer
   with what lies on it, a selected figure its own Z, both in
   0..`MAX_LAYER_ELEVATION`). A lying card's side label is a hit target
-  there (`#figureHit`), its UV not taken for a row (`face`). Layers and
-  lines have no front outline; a layer is not moved there.
+  there (`#figureHit`), its UV not taken for a row (`face`). A layer
+  shows its slab there (`frontSpan`: its elevation to its face): picked
+  within `LAYER_FRONT_REACH_PX` of it (`#layerInFront`, from the probe's
+  `frontOn`, as `pointOn` meets no plane seen edge-on; the nearest, the
+  inner one on a tie), outlined, moved across and up with what lies on
+  it (the move session's `elevateBy`), sized across only by its left and
+  right handles (`resizeFrontTo`: left and width, its depth kept). Lines
+  have no front outline.
 - **The Isometric button is a split button**: the main part goes to the
   3D view last chosen, only the chevron opens the list; a pick also goes
   to the 3D view. Kept in the webview's state (`saveState` / `loadState`).
@@ -290,7 +300,17 @@ shortcuts: see [modeler-view.md](modeler-view.md).
   from the left or top keeps the filed tables in place on the page.
 - **Option + drag raises or lowers a layer** in the 3D view
   (`beginElevate`; `layer.elevation`, the viewer's own field, 0..240),
-  with the tables filed under it. Elevation scales with the lift, so 2D
+  with the tables filed under it. So does **the elevation handle** a
+  selected elevatable item (a layer) shows in Isometric only: a handle
+  square turned 90° about y (`IDecoration.elevator`), stood up on the
+  left edge `ELEVATION_HANDLE_GAP` handles below the top left one (at
+  most a quarter of the height down, clear of the middle handle), its
+  middle at the outline's height and a hair outside it
+  (`FRONT_DECORATION_OUT`, so the outline does not cross it), so it
+  reads as "up and down"; `ns-resize`, hit where its middle lands on the
+  screen (`#elevationHandleAt`), one undo step as Option + drag. Hidden in
+  2D Top and 2D Front, where it would be seen edge-on (2D Front moves up
+  and down by a plain drag). Elevation scales with the lift, so 2D
   stays flat; a foreign key between tables at different heights keeps
   its first and last segments at their tables' heights and spans the
   difference in its middle segment alone. Lines meet each table halfway

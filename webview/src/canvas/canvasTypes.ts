@@ -157,6 +157,16 @@ export interface IProbe {
      *          where the ray misses it.
      */
     pointOn(plane: ItemPlane, elevation?: number): IPoint | undefined;
+    /**
+     * In 2D Front, where the page is seen edge-on and `pointOn` meets no
+     * plane: the pointer across the page (x) and how high above a plane
+     * (y, as an item's elevation).
+     *
+     * @param plane A plane.
+     *
+     * @returns The point, or nothing outside 2D Front.
+     */
+    frontOn?(plane: ItemPlane): IPoint | undefined;
 }
 
 /** A move under way, from the press to the release. */

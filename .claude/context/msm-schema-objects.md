@@ -1,7 +1,8 @@
-# MSM: projects from live schemas, and adding schema objects
+# MSM: projects from live schemas, and adding and deleting schema objects
 
 New MSM Project from Schema (a schema on a server made into a project) and
-the Add commands on a project's object group rows. Part of
+the Add commands on a project's object group rows, and the Delete commands
+on its object rows. Part of
 [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md); the rest of MariaDB Schema
 Management is in [msm.md](msm.md).
 
@@ -98,3 +99,27 @@ hidden from the palette: they need the row).
   the first time; saving it is changing it; a notification names the
   placeholders filled in. **Reset Template to msm's Default** deletes the
   file.
+
+## Deleting schema objects
+
+Each object row of a project's schema in the MSM Projects view
+(`mariadbMsmObject.<type>`) has a Delete of its kind in its menu, group
+`9_delete@0` as the REST rows' (`MSM_DELETE_COMMANDS`,
+`mariadb.msm.deleteTable` ... `deleteSequence`; hidden from the palette).
+`SchemaObjectCommands.delete` asks in a modal warning (a table's says its
+triggers go with it), then calls `msm.drop_schema_object(kind, name,
+base_hash)` (mariadb-shell-plugins #118) through
+`ProjectModelSource.dropSchemaObject`, in the project's queue after the
+diagrams' changes. msm turns it into `msm.edit_schema`'s one `drop_*` op
+(lsp-server's `drop_table` takes the table's triggers, ALTERs and indexes),
+keeps the DROP for the next update script once the project has a
+release, and reconciles every diagram (the object's figures and lines
+go). msm refuses an object another one needs (`referenced`: a table a
+foreign key references, a sequence a column default uses, a trigger
+another follows or precedes); the error is shown. The tree, Object Details
+and diagrams follow (`snapshotUpdated`), and msm's notes are shown. As for
+the REST tools, an editor with unsaved changes of the development script
+refuses it (`projectBaseHash` in extension.ts), and a shell without the
+tool gets the Update the MariaDB Shell message. The diagram's own Delete
+stays an `msm.edit_schema` op: its undo needs the inverse.
+`msmStatements.e2e.test.ts` drops a view, then a table with its trigger.

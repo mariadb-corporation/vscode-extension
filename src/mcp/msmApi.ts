@@ -545,6 +545,8 @@ export interface IMsmApi {
         replaces?: IMsmRestItem): Promise<IMsmRestStatementsSet>;
     dropRestObject(projectPath: string, item: IMsmRestItem,
         baseHash: string): Promise<IMsmRestDropped>;
+    dropSchemaObject(projectPath: string, kind: ObjectType, name: string,
+        baseHash: string): Promise<IMsmSchemaEditResult>;
 }
 
 /** `msm.edit_schema`'s answer, by the server's names. */
@@ -886,6 +888,19 @@ export const msmToolArgs = {
             object: item.object,
             base_hash: baseHash,
         });
+    },
+    dropSchemaObject: (
+        projectPath: string,
+        kind: ObjectType,
+        name: string,
+        baseHash: string,
+    ): Record<string, unknown> => {
+        return {
+            schema_project_path: projectPath,
+            kind,
+            name,
+            base_hash: baseHash,
+        };
     },
     deploySchema: (options: IMsmDeployOptions): Record<string, unknown> => {
         return given({
@@ -1527,5 +1542,31 @@ export class MsmApi implements IMsmApi {
                 projectPath, item, baseHash)));
 
         return { ...editResultOf(result), removed: result.removed ?? [] };
+    }
+
+    /**
+     * Drops a schema object from the project: msm removes its statements
+     * (a table's triggers with it) and, once the project has a release,
+     * keeps the DROP for the next update script. Refused for an object
+     * another one needs.
+     *
+     * @param projectPath The project folder.
+     * @param kind The object's kind.
+     * @param name Its name.
+     * @param baseHash The snapshot's `source_hash` it was named against.
+     *
+     * @returns The edit's result.
+     */
+    public async dropSchemaObject(
+        projectPath: string,
+        kind: ObjectType,
+        name: string,
+        baseHash: string,
+    ): Promise<IMsmSchemaEditResult> {
+        const tool = "msm.drop_schema_object";
+
+        return editResultOf(decodeObject<IEditResultOnTheWire>(tool,
+            await this.caller.callTool(tool, msmToolArgs.dropSchemaObject(
+                projectPath, kind, name, baseHash))));
     }
 }

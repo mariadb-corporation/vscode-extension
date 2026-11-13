@@ -139,7 +139,9 @@ viewer is [`modeler.md`](modeler.md), its palette
   (moves, undo); the provider keeps it per side with the panel's editor
   (`ISelectedItem`) and sends the view's `changeItem` to that diagram,
   where `EerFigureSet.changeItem` makes it one undoable action. A tree row
-  selected drops it.
+  selected drops it; a diagram selection with no object (cleared by a
+  click on the canvas, or several items) empties the view, the object
+  with the item (`ObjectDetailsProvider.clear`).
 - **A relationship's kind** (1:1 / 1:n, identifying or not:
   `relationshipKindOf`, as msm derives `many`) is changed as a schema
   change (`relationshipKindChange`, sent through

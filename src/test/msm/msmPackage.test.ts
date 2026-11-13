@@ -26,9 +26,11 @@ import {
     MSM_IMPORT_COMMAND,
     MSM_LIST_COMMANDS,
 } from "../../msm/msmCommands.js";
+import { MRS_ADD_OBJECT_COMMANDS } from "../../mrs/mrsCommands.js";
 import { MSM_FOLDER_COMMANDS } from "../../msm/msmProjectsCommands.js";
 import {
     MSM_ADD_COMMANDS,
+    MSM_DELETE_COMMANDS,
     MSM_TEMPLATE_COMMANDS,
 } from "../../msm/schemaObjects.js";
 import {
@@ -114,6 +116,21 @@ describe("adding schema objects to a project", () => {
             }
         });
 
+    it("puts a Delete in each object row's menu, by its kind", () => {
+        for (const [type, id] of Object.entries(MSM_DELETE_COMMANDS)) {
+            expect(rowMenu.filter((entry) => {
+                return entry.command === id;
+            }), id).toEqual([{ command: id, when: "view == "
+                + `mariadb.msmProjects && viewItem == mariadbMsmObject.${type}`,
+            group: "9_delete@0" }]);
+            expect(commands.find((entry) => {
+                return entry.command === id;
+            })?.title).toMatch(/^Delete \w+\.\.\.$/u);
+            expect(menus.commandPalette).toContainEqual(
+                { command: id, when: "false" });
+        }
+    });
+
     it("offers a template's commands on every group row but Tables", () => {
         for (const id of Object.values(MSM_TEMPLATE_COMMANDS)) {
             const when = rowMenu.find((entry) => {
@@ -143,6 +160,7 @@ describe("the MariaDB Schema Management menu", () => {
             ...Object.values(MSM_DIAGRAM_COMMANDS),
             ...Object.values(MSM_SCHEMA_COMMANDS),
             ...Object.values(MSM_ADD_COMMANDS),
+            ...Object.values(MSM_DELETE_COMMANDS),
             ...Object.values(MSM_TEMPLATE_COMMANDS), MSM_IMPORT_COMMAND];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
@@ -306,14 +324,22 @@ describe("the MSM Projects view's menus", () => {
 
     it("adds a project's tables, views, procedures and functions to a REST "
         + "service, as the Connections view's", () => {
-        for (const type of ["table", "view", "procedure", "function"]) {
+        // Each kind its own command, so the entry names the kind.
+        for (const [type, id] of Object.entries(MRS_ADD_OBJECT_COMMANDS)) {
             expect(onRow(`mariadbMsmObject.${type}`, false), type)
-                .toContain("mariadb.mrs.addDbObject");
+                .toContain(id);
+            expect(menus["view/item/context"]).toContainEqual({
+                command: id, group: "5_mrs@1", when: "view == "
+                    + `mariadb.connections && viewItem == mariadbObject.${type}`,
+            });
+            expect(onRow("mariadbMsmObject.trigger", false)).not.toContain(id);
+            const kind = type.charAt(0).toUpperCase() + type.slice(1);
+            expect(commands.find((entry) => {
+                return entry.command === id;
+            })?.title).toBe(`Add ${kind} to REST Service...`);
         }
-        for (const type of ["trigger", "event", "sequence"]) {
-            expect(onRow(`mariadbMsmObject.${type}`, false), type)
-                .not.toContain("mariadb.mrs.addDbObject");
-        }
+        expect(onRow("mariadbMsmObject.table", false)).not
+            .toContain(MRS_ADD_OBJECT_COMMANDS.view);
         // A project's REST service and schema are edited and deleted with
         // the Connections view's commands (msm removes their statements);
         // a server's other menus stay off them.

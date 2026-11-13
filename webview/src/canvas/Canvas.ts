@@ -213,6 +213,16 @@ const resizedAcross = (
         : { left: rect.left, width: rect.width };
 };
 
+/**
+ * How far below the top left handle the elevation handle stands on an
+ * elevatable item's left edge, in handles, at most a quarter of the
+ * item's height so it stays clear of the left edge's middle handle.
+ */
+const ELEVATION_HANDLE_GAP = 2.5;
+
+/** The cursor of the elevation handle: it moves the item up and down. */
+const ELEVATION_CURSOR = "ns-resize";
+
 /** The eight handles, clockwise from the top left corner. */
 const HANDLES: readonly IHandle[] = [
     { fx: 0, fy: 0, cursor: "nwse-resize" },
@@ -254,6 +264,11 @@ interface IDecoration {
     group: THREE.Group;
     outline: THREE.LineLoop;
     handles: THREE.Group;
+    /**
+     * The elevation handle of an elevatable item in the 3D view: a handle
+     * stood up on its left edge (turned about y), dragged up and down.
+     */
+    elevator: THREE.Group;
     plane: ItemPlane;
     builtSize?: string;
 }
@@ -1606,6 +1621,10 @@ export class Canvas {
             pointOn: (plane, elevation) => {
                 return this.#pageAt(screen, plane, elevation);
             },
+            frontOn: (plane) => {
+                return this.#isFront() ? this.#frontAt(screen, plane)
+                    : undefined;
+            },
         };
     }
 
@@ -1755,7 +1774,64 @@ export class Canvas {
                     (0.5 - fy) * height, 0);
                 handle.scale.set(handleSize, handleSize, 1);
             });
+            // Stood up on the left edge, below the top left handle, its
+            // middle at the outline's height as the other handles': a
+            // square seen from the side reads as "up". A hair outside the
+            // outline, so its line does not cross the square.
+            decoration.elevator.visible = this.#elevationHandled(item);
+            decoration.elevator.position.set(
+                -rect.width / 2 - OUTLINE_OFFSET - FRONT_DECORATION_OUT,
+                height / 2 - Math.min(ELEVATION_HANDLE_GAP * handleSize,
+                    height / 4), 0);
+            decoration.elevator.scale.set(handleSize, handleSize, 1);
         }
+    }
+
+    /**
+     * @param item A selected item.
+     *
+     * @returns Whether it shows the elevation handle: an elevatable item,
+     *          in the Isometric view (in 2D Top and 2D Front a standing
+     *          handle is seen edge-on, and 2D Front moves up and down by
+     *          a plain drag).
+     */
+    #elevationHandled(item: ICanvasItem): boolean {
+        return item.elevatable === true && !this.#locked
+            && this.#set?.beginElevate !== undefined
+            && this.#viewT === 1 && this.#frontT === 0;
+    }
+
+    /**
+     * The elevation handle under a point of the screen: the item it
+     * belongs to.
+     *
+     * @param screen The point, relative to the canvas.
+     *
+     * @returns The item, or nothing.
+     */
+    #elevationHandleAt(screen: IPoint): ICanvasItem | undefined {
+        if (this.#set === undefined) {
+            return undefined;
+        }
+        const world = new THREE.Vector3();
+        for (const [id, decoration] of this.#decorations) {
+            const item = this.#set.item(id);
+            if (item === undefined || !decoration.elevator.visible
+                || !this.#elevationHandled(item)) {
+                continue;
+            }
+            // It stands across the page: taken where its middle lands on
+            // the screen, as far around as a lying handle.
+            decoration.elevator.updateWorldMatrix(true, false);
+            const at = this.#screenAt(
+                decoration.elevator.getWorldPosition(world));
+            if (Math.hypot(at.x - screen.x, at.y - screen.y)
+                <= HANDLE_REACH_PX) {
+                return item;
+            }
+        }
+
+        return undefined;
     }
 
     /**
@@ -1777,11 +1853,17 @@ export class Canvas {
         for (let index = 0; index < HANDLES.length; index += 1) {
             handles.add(handleSquare(fill, line));
         }
-        group.add(outline, handles);
+        // Turned about y, it stands up along the left edge; seen from
+        // either side as the view turns.
+        const elevator = handleSquare(new THREE.MeshBasicMaterial({
+            color: this.#theme.paper, side: THREE.DoubleSide }), line);
+        elevator.rotation.set(0, Math.PI / 2, 0);
+        elevator.visible = false;
+        group.add(outline, handles, elevator);
         setDrawOrder(group, DRAW_ORDER.decorations);
         (plane === "lifted" ? this.#liftedGroup : this.#baseGroup).add(group);
 
-        return { group, outline, handles, plane };
+        return { group, outline, handles, elevator, plane };
     }
 
     /**
@@ -2063,6 +2145,8 @@ export class Canvas {
             canvas.style.cursor = "grab";
         } else if (pointer?.kind === "resize") {
             canvas.style.cursor = pointer.handle.cursor;
+        } else if (pointer?.kind === "elevate") {
+            canvas.style.cursor = ELEVATION_CURSOR;
         } else if (pointer?.kind === "grab") {
             canvas.style.cursor = pointer.cursor;
         } else if (this.#figureTool()) {
@@ -2166,6 +2250,21 @@ export class Canvas {
             }
         }
 
+        // The elevation handle: up and down, as Option + drag.
+        const raised = this.#elevationHandleAt(screen);
+        if (raised !== undefined && set?.beginElevate !== undefined) {
+            const before = set.snapshot();
+            this.#pointer = {
+                kind: "elevate",
+                last: screen,
+                session: set.beginElevate(raised.id),
+                before,
+            };
+            this.#updateCursor();
+
+            return;
+        }
+
         // A handle the figure set draws itself, such as a connection's.
         const grab = this.#locked ? undefined
             : set?.grabAt?.(this.#probe(screen));
@@ -2232,6 +2331,8 @@ export class Canvas {
         }
         if (pointer === undefined) {
             const cursor = this.#handleAt(screen)?.handle.cursor
+                ?? (this.#elevationHandleAt(screen) === undefined
+                    ? undefined : ELEVATION_CURSOR)
                 ?? (this.#locked ? undefined
                     : this.#set?.grabAt?.(this.#probe(screen))?.cursor);
             if (cursor !== this.#hoverCursor) {

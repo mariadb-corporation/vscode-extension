@@ -235,6 +235,20 @@ describe("a diagram item in the Object Details view", () => {
         expect(changes).toEqual([["c1", { split: true }]]);
     });
 
+    it("empties its view, the object with the item, once the diagram's "
+        + "selection is cleared", async () => {
+        const { provider, live, msm } = setUp();
+        provider.show(LIVE, ORDERS);
+        provider.show(PROJECT, ORDERS, { item: FIGURE });
+        await settle();
+        provider.clear(PROJECT);
+
+        expect(msm.posted.at(-1)).toEqual({ type: "show" });
+        // The other side bar's object stays.
+        expect(live.posted.at(-1)).toMatchObject({ type: "show",
+            details: { object: { type: "table" } } });
+    });
+
     it("drops the item once a tree row is selected", async () => {
         const { provider, msm } = setUp();
         provider.show(PROJECT, ORDERS, { item: FIGURE });

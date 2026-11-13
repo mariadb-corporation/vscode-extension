@@ -56,6 +56,7 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.msm.createProject` | New MSM Project... | MariaDB Schema Management submenu of an Explorer folder not named `*.msm.project`; the palette (the first workspace folder). Opens the dialog (see [msm.md](msm.md)) |
 | `mariadb.msm.importLiveSchema` | New MSM Project from Schema... | A Connections view schema row (not the palette). Lists the schema's objects, opens the wizard on them, runs the import as a task (see [msm.md](msm.md)) |
 | `mariadb.msm.addTable` ... `addSequence` | Add Table... / View... / Procedure... / Function... / Trigger... / Event... / Sequence... | An MSM project's object group row, inline `$(add)` and its menu. A table opens the table editor on a new table; the others are named and added from a template through msm (see [msm.md](msm.md)) |
+| `mariadb.msm.deleteTable` ... `deleteSequence` | Delete Table... / View... / Procedure... / Function... / Trigger... / Event... / Sequence... | An MSM project's object row, its menu. Confirmed, then dropped through `msm.drop_schema_object` (see [msm-schema-objects.md](msm-schema-objects.md)) |
 | `mariadb.msm.editObjectTemplate`, `resetObjectTemplate` | Edit Template... / Reset Template to msm's Default | The object group rows but Tables. The kind's template, the user's copy in the extension's storage |
 | `mariadb.msm.showProjectInformation` | Show MSM Project Information... | MariaDB Schema Management submenu of a `*.msm.project` folder; the palette asks for the folder |
 | `mariadb.msm.prepareRelease` | Prepare MSM Release... | As above |
@@ -104,7 +105,7 @@ The four Explorer operations (information, release, deployment script, deploy) a
 | `mariadb.mrs.deleteSchema` | Delete REST Schema... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.copyCreateSchemaSql` | Copy CREATE REST SCHEMA Statement | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.dumpCreateSchemaSql` | Dump CREATE REST SCHEMA Statement... | REST Service rows (see [mrs.md](mrs.md)) |
-| `mariadb.mrs.addDbObject` | Add Database Object to REST Service... | REST Service rows; an MSM project's table, view, procedure and function rows (see [mrs.md](mrs.md)) |
+| `mariadb.mrs.addTableToService` / `addViewToService` / `addProcedureToService` / `addFunctionToService` | Add Table / View / Procedure / Function to REST Service... | A table, view, procedure or function row of the Connections view and of an MSM project, each on its own kind (`MRS_ADD_OBJECT_COMMANDS`; a menu entry's title is fixed per command); all run `addDbObject` (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.editDbObject` | Edit REST Object... | REST Service rows (see [mrs.md](mrs.md)); a project's REST object rows of the MSM Projects view, and a REST object figure's menu on a project's diagram (`editProjectRestObject`; see [mrs-msm.md](mrs-msm.md)) |
 | `mariadb.mrs.deleteDbObject` | Delete REST Object... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.copyDbObjectRequestPath` | Copy REST Object Request Path | REST Service rows (see [mrs.md](mrs.md)) |

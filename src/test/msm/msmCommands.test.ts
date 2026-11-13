@@ -234,6 +234,8 @@ const setUp = (options: ISetUp = {}): IRecorded => {
             files: [], migration: [], notes: [], statements: [] }),
         dropRestObject: answer("dropRestObject", { rows: [], files: [], migration: [],
             notes: [], removed: [] }),
+        dropSchemaObject: answer("dropSchemaObject", { rows: [], files: [],
+            migration: [], notes: [] }),
     };
     setWorkspaceFolders([{ name: "work", uri: Uri.file("/work") }]);
     registeredCommands.set("revealInExplorer", (uri: unknown) => {

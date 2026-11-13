@@ -194,13 +194,19 @@ export class ObjectDetailsProvider
      * @returns Nothing.
      */
     public showItem(place: SchemaObjectPlace, selected: ISelectedItem): void {
-        const side = sideOf(place);
-        const state = this.#sides[side];
-        state.selected = selected;
-        // Whatever read is still going is of the object before.
-        state.subject = undefined;
-        state.reads += 1;
-        this.#post(side, { type: "show" });
+        this.#showNoObject(sideOf(place), selected);
+    }
+
+    /**
+     * Empties the view of the side bar a diagram's objects belong to: its
+     * selection was cleared, or holds several items and no object.
+     *
+     * @param place Where its diagram's objects are.
+     *
+     * @returns Nothing.
+     */
+    public clear(place: SchemaObjectPlace): void {
+        this.#showNoObject(sideOf(place), undefined);
     }
 
     /**
@@ -264,6 +270,17 @@ export class ObjectDetailsProvider
         return [...this.#views].filter((view) => {
             return sideOfView(view.viewType) === side;
         });
+    }
+
+    /** Shows a side's diagram item, if any, with no object above it. */
+    #showNoObject(side: DetailsSide, selected: ISelectedItem | undefined):
+        void {
+        const state = this.#sides[side];
+        state.selected = selected;
+        // Whatever read is still going is of the object before.
+        state.subject = undefined;
+        state.reads += 1;
+        this.#post(side, { type: "show" });
     }
 
     #post(side: DetailsSide, message: DetailsHostMessage): void {

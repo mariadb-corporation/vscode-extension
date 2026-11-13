@@ -998,8 +998,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
             } else if (selected !== undefined) {
                 objectDetails.showItem(place, selected);
             } else {
-                // Several items and no object: none is edited any more.
-                objectDetails.itemChanged(place, undefined);
+                // Nothing selected, or several items and no object.
+                objectDetails.clear(place);
             }
         },
         itemChanged: (target, item) => {
@@ -1363,7 +1363,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
      * @returns The `source_hash` of its snapshot, which msm makes first
      *          for a project that has none: REST is changed against it.
      */
-    const restBaseHash = async (projectPath: string): Promise<string> => {
+    const projectBaseHash = async (projectPath: string): Promise<string> => {
         const hash = (await snapshotOrMake(projectPath))?.source_hash;
         if (hash === undefined) {
             throw new Error(`The MSM project ${projectPath} has no schema `
@@ -1432,7 +1432,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         const said = describeRestSql(statements);
         const project = `the MSM project ${projectDiagrams(projectPath)
             .schemaTitle}`;
-        const baseHash = await restBaseHash(projectPath);
+        const baseHash = await projectBaseHash(projectPath);
         await restTool("msm.set_rest_statements", () => {
             return projectDiagrams(projectPath).setRestStatements(statements,
                 baseHash, {
@@ -1461,7 +1461,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         const named = `${item.service}${item.schema ?? ""}${item.object ?? ""}`;
         const project = `the MSM project ${projectDiagrams(projectPath)
             .schemaTitle}`;
-        const baseHash = await restBaseHash(projectPath);
+        const baseHash = await projectBaseHash(projectPath);
         const notes = await restTool("msm.drop_rest_object", () => {
             return projectDiagrams(projectPath).dropRestObject(item, baseHash, {
                 doing: `Removing the REST ${item.kind} ${named} from ${project}`,
@@ -1647,6 +1647,15 @@ export const activate = (context: vscode.ExtensionContext): void => {
             }
 
             return added;
+        },
+        dropObject: async (projectPath, kind, name) => {
+            const baseHash = await projectBaseHash(projectPath);
+
+            return msmTool("msm.drop_schema_object",
+                "Deleting schema objects of an MSM project", () => {
+                    return projectDiagrams(projectPath).dropSchemaObject(kind,
+                        name, baseHash);
+                });
         },
         newTable: (projectPath, schema) => {
             editTable({ kind: "project", projectPath, schema, table: "" });

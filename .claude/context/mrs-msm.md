@@ -10,7 +10,8 @@ its development script, sharing the editors and re-implementing as little
 as possible.
 
 - **One set of commands and dialogs.** `addService`, `addSchema` and
-  `addDbObject` take a project's row too (`projectPath` on the node) and
+  `addDbObject` (the handler of `MRS_ADD_OBJECT_COMMANDS`, one command per
+  kind) take a project's row too (`projectPath` on the node) and
   ask `IMrsCommandsHost.projectRest` for the project as an `IRestSource`;
   a server's rows get `liveRestSource`. The dialogs' code is unchanged but
   for `forScript` on their contexts (`IScriptContext`).

@@ -335,6 +335,12 @@ const LAYER_RADIUS = 5;
  */
 const LAYER_THICKNESS = 3;
 
+/**
+ * How near a layer's slab the pointer picks it in 2D Front, in pixels:
+ * the slab is only a few pixels high there.
+ */
+const LAYER_FRONT_REACH_PX = 6;
+
 /** A layer's name: where it sits, in page units from the layer's corner. */
 const LAYER_LABEL = { left: 6, top: 4, height: 18, fontSize: 12 } as const;
 
@@ -1302,6 +1308,10 @@ export class EerFigureSet implements IFigureSet {
 
     /** The layer under the pointer: the inner one, at its own height. */
     #layerAt(probe: IProbe): ILayerNode | undefined {
+        const front = probe.frontOn?.("base");
+        if (front !== undefined) {
+            return this.#layerInFront(front);
+        }
         let found: ILayerNode | undefined;
         for (const node of this.#layers.values()) {
             const point = probe.pointOn("base", this.#layerTop(node.layer));
@@ -1314,6 +1324,39 @@ export class EerFigureSet implements IFigureSet {
         }
 
         return found;
+    }
+
+    /**
+     * The layer whose slab is under the pointer in 2D Front, where a slab
+     * is a thin band: within a few pixels of it, the nearest, the inner
+     * one where two are as near.
+     *
+     * @param at The pointer, across and up (`IProbe.frontOn`).
+     *
+     * @returns The layer, or nothing.
+     */
+    #layerInFront(at: IPoint): ILayerNode | undefined {
+        // Heights show scaled by the lift.
+        const reach = LAYER_FRONT_REACH_PX / ((this.#host?.scale() ?? 1)
+            * Math.max(0.1, this.#host?.lift() ?? 1));
+        let found: { node: ILayerNode; distance: number } | undefined;
+        for (const node of this.#layers.values()) {
+            const { layer } = node;
+            const foot = this.#elevation(layer);
+            const distance = at.y < foot ? foot - at.y
+                : Math.max(0, at.y - this.#layerTop(layer));
+            if (at.x < layer.left || at.x > layer.left + layer.width
+                || distance > reach) {
+                continue;
+            }
+            if (found === undefined || distance < found.distance
+                || (distance === found.distance && layer.width * layer.height
+                    < found.node.layer.width * found.node.layer.height)) {
+                found = { node, distance };
+            }
+        }
+
+        return found?.node;
     }
 
     /** @returns A layer's elevation, kept in its range. */
@@ -1442,6 +1485,12 @@ export class EerFigureSet implements IFigureSet {
                 // Its face: on top of its slab.
                 elevation: () => { return this.#layerTop(layer); },
                 elevatable: true,
+                // 2D Front shows its slab: outlined there, moved across
+                // and up, sized across only.
+                frontSpan: () => {
+                    return { bottom: this.#elevation(layer),
+                        top: this.#layerTop(layer) };
+                },
                 // As high as a card's header, so the button is the size
                 // of a card's, centred on the name's line.
                 menuBand: {
@@ -2998,6 +3047,11 @@ export class EerFigureSet implements IFigureSet {
     #resizeLayer(node: ILayerNode): IResizeSession {
         return {
             resizeTo: (rect) => { this.#setLayerRect(node, rect); },
+            // In 2D Front, across only: its depth on the page is not seen.
+            resizeFrontTo: (rect) => {
+                this.#setLayerRect(node, { ...layerRect(node.layer),
+                    left: rect.left, width: rect.width });
+            },
             finish: () => {
                 this.#fileOnLayer(node);
 

@@ -397,7 +397,9 @@ describe("MrsCommands.register", () => {
             "addUser", "copyCreateServiceSql", "copyCreateSchemaSql",
             "copyCreateDbObjectSql", "copyCreateContentSetSql",
             "copyCreateContentFileSql", "copyCreateAuthAppSql",
-            "copyCreateUserSql", "addSchema", "addDbObject",
+            "copyCreateUserSql", "addSchema", "addTableToService",
+            "addViewToService", "addProcedureToService",
+            "addFunctionToService",
             "showPrivateItems", "hidePrivateItems", "exportServiceSdk",
             "dumpServiceAsProject", "addContentSet", "addAndLinkAuthApp",
             "copyDbObjectRequestPath", "openDbObjectRequestPath",
@@ -1399,7 +1401,7 @@ describe("REST objects", () => {
             [COLUMNS]: ACTOR_COLUMNS,
         });
 
-        await run("mariadb.mrs.addDbObject", tableNode);
+        await run("mariadb.mrs.addTableToService", tableNode);
 
         const spec = dialog();
         expect(spec.dialog).toBe("object");
@@ -1430,7 +1432,7 @@ describe("REST objects", () => {
     it("refuses an object type REST does not serve", async () => {
         const { api } = await setup(CONFIGURED);
 
-        await run("mariadb.mrs.addDbObject", {
+        await run("mariadb.mrs.addTableToService", {
             ...tableNode, objectType: "trigger",
         });
 
@@ -1444,7 +1446,7 @@ describe("REST objects", () => {
         async () => {
             await setup({ [METADATA_SCHEMAS]: [] });
 
-            await run("mariadb.mrs.addDbObject", tableNode);
+            await run("mariadb.mrs.addTableToService", tableNode);
 
             expect(errorMessages).toHaveLength(1);
             expect(errorMessages[0]).toMatch(/^The MariaDB REST Service is /);
@@ -1453,7 +1455,7 @@ describe("REST objects", () => {
     it("says a service is needed first", async () => {
         await setup({ ...CONFIGURED, [SERVICES]: [] });
 
-        await run("mariadb.mrs.addDbObject", tableNode);
+        await run("mariadb.mrs.addTableToService", tableNode);
 
         expect(errorMessages).toEqual([
             "Please create a REST Service before adding DB Objects."]);
@@ -1472,7 +1474,7 @@ describe("REST objects", () => {
                 [COLUMNS]: ACTOR_COLUMNS,
             });
 
-            await run("mariadb.mrs.addDbObject", tableNode);
+            await run("mariadb.mrs.addTableToService", tableNode);
 
             expect(quickPickCalls).toEqual([]);
             expect((dialog().values as IObjectDialogValues).servicePath)
@@ -1489,7 +1491,7 @@ describe("REST objects", () => {
         });
         quickPickAnswers.push("/myService");
 
-        await run("mariadb.mrs.addDbObject", tableNode);
+        await run("mariadb.mrs.addTableToService", tableNode);
 
         expect(quickPickCalls[0]!.map((item) => { return item.label; }))
             .toEqual(["/other", "/myService"]);
@@ -1503,7 +1505,7 @@ describe("REST objects", () => {
             [SERVICES]: [mrsService({ full_service_path: "/other" }), service],
         });
 
-        await run("mariadb.mrs.addDbObject", tableNode);
+        await run("mariadb.mrs.addTableToService", tableNode);
 
         expect(errorMessages).toEqual(["No REST Service selected."]);
         expect(shown).toEqual([]);
@@ -1527,7 +1529,7 @@ describe("REST objects", () => {
         };
         setInformationMessageAnswer("Yes");
 
-        await run("mariadb.mrs.addDbObject", tableNode);
+        await run("mariadb.mrs.addTableToService", tableNode);
 
         expect(informationMessageCalls[0]).toEqual({
             message: "The database schema sakila has not been added to the "
@@ -1547,7 +1549,7 @@ describe("REST objects", () => {
             [SCHEMAS]: [],
         });
 
-        await run("mariadb.mrs.addDbObject", tableNode);
+        await run("mariadb.mrs.addTableToService", tableNode);
 
         expect(informationMessageCalls).toHaveLength(1);
         expect(api.sent.some((sql) => { return sql.startsWith("CREATE"); }))
@@ -1563,7 +1565,7 @@ describe("REST objects", () => {
         });
         setInformationMessageAnswer("Yes");
 
-        await run("mariadb.mrs.addDbObject", tableNode);
+        await run("mariadb.mrs.addTableToService", tableNode);
 
         expect(shown).toEqual([]);
     });
@@ -2687,7 +2689,7 @@ describe("an MSM project's rows", () => {
         await setup({}, { projectRest });
 
         await run("mariadb.mrs.addSchema", projectSchema);
-        await run("mariadb.mrs.addDbObject", projectTable);
+        await run("mariadb.mrs.addTableToService", projectTable);
 
         expect(shown).toEqual([]);
         expect(errorMessages).toEqual([
@@ -2701,7 +2703,7 @@ describe("an MSM project's rows", () => {
         await setup({}, { projectRest });
         setInformationMessageAnswer("Yes");
 
-        await run("mariadb.mrs.addDbObject", projectTable);
+        await run("mariadb.mrs.addTableToService", projectTable);
 
         expect(state.sql).toBe(`\n${SERVICE}\n\n${SCHEMA}\n`);
         expect(state.saved).toBe(1);

@@ -308,4 +308,22 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
                 name: "recent", replaced: true, changed: true });
             expect(readFileSync(script, "utf8")).toMatch(/SELECT 2 AS two/u);
         }, 60_000);
+
+        it("deletes a view, then a table with its trigger", async () => {
+            const view = await msm.dropSchemaObject(project, "view", "recent",
+                baseHash);
+            next(view);
+            expect(readFileSync(script, "utf8")).not.toMatch(/VIEW `recent`/u);
+
+            const table = await msm.dropSchemaObject(project, "table",
+                "orders", baseHash);
+            next(table);
+            const outline = await lsp.outline(script) as {
+                schemas: Array<{ tables: Array<{ name: string }>;
+                    triggers: Array<{ name: string }> }>;
+            };
+            expect(outline.schemas[0]!.tables.map((t) => { return t.name; }))
+                .toEqual(["customer"]);
+            expect(outline.schemas[0]!.triggers).toEqual([]);
+        }, 60_000);
     });

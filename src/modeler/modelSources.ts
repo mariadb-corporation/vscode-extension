@@ -29,10 +29,12 @@ import {
     callArguments,
     GENERAL_ACTIONS,
 } from "../connections/connectionActivity.js";
+import type { ObjectType } from "../mcp/types.js";
 import { schemaNameOfFolder } from "../msm/msmFields.js";
 import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
 import { counted, errorText } from "../text.js";
 import type { DiagramDrafts } from "./diagramDrafts.js";
+import { editTitle } from "./editTitles.js";
 import {
     assembleSchemaModel,
     DIAGRAM_FORMAT,
@@ -748,6 +750,37 @@ export class ProjectModelSource implements IModelSource {
     }
 
     /**
+     * Drops a schema object from the project, as an edit of the schema in
+     * turn with the viewer's.
+     *
+     * @param kind The object's kind.
+     * @param name Its name.
+     * @param baseHash The snapshot's `source_hash` it was named against.
+     *
+     * @returns msm's notes, for a person.
+     */
+    public async dropSchemaObject(
+        kind: ObjectType,
+        name: string,
+        baseHash: string,
+    ): Promise<string[]> {
+        await this.flush();
+        const object = `the ${kind} ${name}`;
+        const dropped = await this.#enqueuedAction({
+            doing: `Removing ${object} from ${this.#schema}`,
+            done: `Removed ${object} from ${this.#schema}`,
+        }, "msm.drop_schema_object", { kind, name }, (api) => {
+            return api.dropSchemaObject(this.projectPath, kind, name,
+                baseHash);
+        }, (result) => {
+            return counted(result.files.length, "file");
+        });
+        this.#bases = hashesOf(dropped.rows);
+
+        return dropped.notes.map((note) => { return note.message; });
+    }
+
+    /**
      * Makes the project's schema snapshot again, after the diagrams'
      * changes, in turn with the viewer's edits: one made meanwhile would
      * be refused as made against the old snapshot.
@@ -788,10 +821,8 @@ export class ProjectModelSource implements IModelSource {
         edits: IMsmSchemaEdit[],
         baseHash: string,
     ): ReturnType<IMsmApi["editSchema"]> {
-        return this.#enqueuedAction({
-            doing: `Editing the schema of ${this.#schema}`,
-            done: `Edited the schema of ${this.#schema}`,
-        }, "msm.edit_schema", { edits: edits.map(describeEdit).join("; ") },
+        return this.#enqueuedAction(editTitle(edits, this.#schema),
+            "msm.edit_schema",{ edits: edits.map(describeEdit).join("; ") },
         (api) => {
             return api.editSchema(this.projectPath, edits, baseHash);
         }, (edited) => {
