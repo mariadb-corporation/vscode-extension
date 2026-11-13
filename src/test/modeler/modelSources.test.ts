@@ -361,6 +361,21 @@ describe("ProjectModelSource", () => {
             "edits=rename_table customer -> client"));
     });
 
+    it("makes a change queued behind its own edit against the edit's "
+        + "snapshot, not the one its caller read", async () => {
+        await fake.source.read();
+        // Both read sha256:one; the first edit replaces it by sha256:two.
+        await Promise.all([
+            fake.source.edit([{ op: "rename_table", table: "customer",
+                new_name: "client" }], "sha256:one"),
+            fake.source.edit([{ op: "rename_table", table: "client",
+                new_name: "buyer" }], "sha256:one"),
+        ]);
+
+        expect(fake.calls.filter((call) => { return call[0] === "edit"; }))
+            .toEqual([["edit", "sha256:one"], ["edit", "sha256:two"]]);
+    });
+
     it("makes a stale snapshot again after what waits is saved, and only "
         + "a stale one where asked", async () => {
         await fake.source.read();
