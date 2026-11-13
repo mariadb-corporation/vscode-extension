@@ -47,6 +47,8 @@ const OUTLINE = {
 describe("ProjectNavigation", () => {
     let now: number;
     let shown: string[];
+    let opened: string[];
+    let navigation: ProjectNavigation;
 
     const run = async (id: string, node: unknown): Promise<void> => {
         await registeredCommands.get(id)!(node);
@@ -72,14 +74,19 @@ describe("ProjectNavigation", () => {
         resetVscodeMock();
         now = 1000;
         shown = [];
-        new ProjectNavigation({
+        opened = [];
+        navigation = new ProjectNavigation({
             outline: () => { return Promise.resolve(OUTLINE); },
             developmentScript: () => { return Promise.resolve(SCRIPT); },
+            openDiagram: (projectPath, diagram) => {
+                opened.push(`${projectPath} ${diagram}`);
+            },
             showInDiagram: (projectPath, diagram, id) => {
                 shown.push(`${projectPath} ${diagram} ${id}`);
             },
             log: () => { /* not looked at */ },
-        }, new DoubleClick(() => { return now; })).register();
+        }, new DoubleClick(() => { return now; }));
+        navigation.register();
     });
 
     const table = { kind: "object", projectPath: PROJECT, schema: "shop",
@@ -99,6 +106,30 @@ describe("ProjectNavigation", () => {
         now += 100;
         await run(MSM_ROW_CLICK_COMMAND, table);
         expect(editor()).toEqual([SCRIPT, 9, 13]);
+    });
+
+    it("takes two expands of a row without a click command as a "
+        + "double-click", async () => {
+        const schema = { kind: "schema", projectPath: PROJECT,
+            schema: "shop", snapshot: true } as const;
+        // A click expands it: one is no double-click.
+        await navigation.toggled(schema);
+        expect(shownEditors).toEqual([]);
+
+        now += 100;
+        // The second click collapses it again.
+        await navigation.toggled(schema);
+        expect(editor()).toEqual([SCRIPT, 4, 0]);
+    });
+
+    it("opens a diagram row's diagram on a double-click", async () => {
+        const diagram = { kind: "diagram", projectPath: PROJECT,
+            name: "Main", figures: 3 } as const;
+        await navigation.toggled(diagram);
+        now += 100;
+        await navigation.toggled(diagram);
+
+        expect(opened).toEqual([`${PROJECT} Main`]);
     });
 
     it("opens the schema's CREATE DATABASE", async () => {

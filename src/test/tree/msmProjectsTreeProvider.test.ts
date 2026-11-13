@@ -32,7 +32,6 @@ import type { IFolderMemento } from "../../tree/customFolders.js";
 import { draggedObjects } from "../../tree/schemaTree.js";
 import type { IServerStatus } from "../../mcp/serverStarter.js";
 import {
-    MSM_DIAGRAM_CLICK_COMMAND,
     MSM_ROW_CLICK_COMMAND,
     MSM_EXPANDED_ROWS_KEY,
     MSM_PROJECTS_DRAG_MIME,
@@ -339,9 +338,9 @@ describe("the MSM Projects view", () => {
         // Its own context value: a server's menus stay off it.
         expect(svc.contextValue).toBe("mariadbMsmRestService");
         expect(svc.id).toBe(`msmRestService:${project}:/svc`);
-        // A double-click opens the script on the statement it has.
-        expect(svc.command).toEqual({ command: MSM_ROW_CLICK_COMMAND,
-            title: "Open", arguments: [services[0]] });
+        // A click expands it: no click command, its double-click being
+        // the two expands.
+        expect(svc.command).toBeUndefined();
         expect(services[0]).toMatchObject({ file, line: 102 });
 
         const schemas = await fake.tree.getChildren(services[0]);
@@ -362,8 +361,11 @@ describe("the MSM Projects view", () => {
             ["/tidy", "tidy", "mariadbMsmRestObject",
                 TreeItemCollapsibleState.None],
         ]);
-        expect(fake.tree.getTreeItem(objects[1]!).command?.arguments)
-            .toEqual([objects[1]]);
+        // Nothing under it: a double-click opens the script on the
+        // statement it has.
+        expect(fake.tree.getTreeItem(objects[1]!).command).toEqual({
+            command: MSM_ROW_CLICK_COMMAND, title: "Open",
+            arguments: [objects[1]] });
         expect(objects[1]).toMatchObject({ line: 108 });
         expect(await fake.tree.getChildren(objects[0])).toEqual([]);
 
@@ -497,11 +499,11 @@ describe("the MSM Projects view", () => {
             expect(row.description).toBe("3 figures");
             expect(row.contextValue).toBe("mariadbMsmDiagram");
             expect(icon(row)).toMatch(/\/light\/schemaDiagram\.svg$/u);
-            expect(row.command).toEqual({
-                command: MSM_DIAGRAM_CLICK_COMMAND,
-                title: "Open Diagram",
-                arguments: [rows[0]],
-            });
+            // Its figures below it: a click expands it, so it has no
+            // click command; its double-click is the two expands.
+            expect(row.collapsibleState)
+                .toBe(TreeItemCollapsibleState.Collapsed);
+            expect(row.command).toBeUndefined();
             expect(fake.tree.getParent(rows[0])).toBeUndefined();
         });
 

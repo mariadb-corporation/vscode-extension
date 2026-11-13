@@ -19,8 +19,10 @@
  * Going from a row of the MSM Projects view to what it stands for: a
  * schema, schema object or REST item to its statement in the project's
  * SQL (Open Definition), a layer or figure of a diagram to the diagram,
- * scrolled to it and selected (Show in Diagram). Each has a button on its
- * rows, and a double-click on the row does it.
+ * scrolled to it and selected (Show in Diagram), a diagram to its viewer.
+ * Each has a button on its rows, and a double-click on the row does it:
+ * two clicks on a row with a click command, or two expands of one
+ * without, which a click on it expands.
  */
 
 import * as vscode from "vscode";
@@ -49,6 +51,8 @@ export interface IProjectNavigationHost {
     outline(file: string): Promise<unknown>;
     /** A project's development script, if it has one. */
     developmentScript(projectPath: string): Promise<string | undefined>;
+    /** Opens a project's diagram. */
+    openDiagram(projectPath: string, diagram: string): void;
     /** Opens a project's diagram, scrolled to an item, which it selects. */
     showInDiagram(projectPath: string, diagram: string, itemId: string): void;
     log(message: string): void;
@@ -131,8 +135,8 @@ export class ProjectNavigation {
     }
 
     /**
-     * Takes a click on a row: a double-click opens its definition, or its
-     * diagram on it.
+     * Takes a click on a row: a double-click opens its definition, its
+     * diagram on it, or a diagram row's diagram.
      *
      * @param node The row.
      */
@@ -140,10 +144,27 @@ export class ProjectNavigation {
         if (node.kind === "folder" || !this.#clicks.click(rowIdOf(node))) {
             return;
         }
-        if (isDiagramRow(node)) {
+        if (node.kind === "diagram") {
+            this.host.openDiagram(node.projectPath, node.name);
+        } else if (isDiagramRow(node)) {
             this.showInDiagram(node);
         } else {
             await this.openDefinition(node);
+        }
+    }
+
+    /**
+     * Takes an expand or collapse of a row, which a click on a row without
+     * a click command makes: two in a moment are a double-click, the row
+     * left as it was.
+     *
+     * @param node The row.
+     */
+    public async toggled(node: MsmProjectsNode): Promise<void> {
+        try {
+            await this.clicked(node);
+        } catch (error) {
+            reportError(this.host.log, error, "open the row");
         }
     }
 

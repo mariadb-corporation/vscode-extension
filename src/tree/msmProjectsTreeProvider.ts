@@ -269,15 +269,12 @@ export const restObjectRefOf = (node: IMsmRestObjectNode): IRestObjectRef => {
 };
 
 /**
- * The command a click on a project's diagram runs: VS Code has no
- * double-click on tree rows, so the second click within a moment opens it.
- */
-export const MSM_DIAGRAM_CLICK_COMMAND = "mariadb.msm.diagramClicked";
-
-/**
- * Every click on a schema, object, REST or diagram item row: a
- * double-click opens it (`ProjectNavigation`). Kept here, as the tree
- * draws it.
+ * Every click on a row that cannot be expanded (an object, a REST object,
+ * a diagram, a layer or figure with nothing under it): a double-click
+ * opens it (`ProjectNavigation`). A row that can is left without, as
+ * VS Code expands such a row only on its twistie: its double-click is the
+ * two expands it makes (`ProjectNavigation.toggled`). Kept here, as the
+ * tree draws it.
  */
 export const MSM_ROW_CLICK_COMMAND = "mariadb.msm.rowClicked";
 
@@ -666,7 +663,7 @@ export class MsmProjectsTreeProvider
                 const item = new ObjectTreeItem(node, this.host.resolveIcon,
                     "mariadbMsm");
                 item.id = rowIdOf(node);
-                item.command = rowClick(node);
+                item.command = rowClick(item, node);
 
                 return item;
             }
@@ -1440,7 +1437,6 @@ const schemaItem = (
 ): vscode.TreeItem => {
     const item = new SchemaTreeItem(node, resolveIcon, "mariadbMsm");
     item.id = rowIdOf(node);
-    item.command = rowClick(node);
     if (!node.snapshot) {
         item.description = "no snapshot yet";
         item.tooltip = `The schema ${node.schema} has no snapshot yet: `
@@ -1488,11 +1484,12 @@ const diagramItem = (
     resolveIcon: IconResolver,
 ): vscode.TreeItem => {
     const item = new DiagramTreeItem(node, resolveIcon, "mariadbMsm",
-        MSM_DIAGRAM_CLICK_COMMAND);
+        MSM_ROW_CLICK_COMMAND);
     item.id = rowIdOf(node);
-    // Its layers and figures below it; a click still opens it.
+    // Its layers and figures below it: a click expands it.
     if (node.figures !== 0) {
         item.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+        item.command = undefined;
     }
 
     return item;
@@ -1551,19 +1548,28 @@ const diagramRowTreeItem = (
     }
     item.id = rowIdOf(node);
     // A double-click shows it in its diagram, as the button does.
-    item.command = rowClick(node);
+    item.command = rowClick(item, node);
 
     return item;
 };
 
 /**
- * @param node A row a double-click opens: its definition, or its diagram.
+ * @param item A row's item, its collapsible state set.
+ * @param node The row: a double-click opens its definition, or its
+ *             diagram.
  *
- * @returns The command every click on it runs, which tells a double-click.
+ * @returns The command every click on it runs, which tells a double-click;
+ *          none where it can be expanded, which a click then does
+ *          (see {@link MSM_ROW_CLICK_COMMAND}).
  */
-const rowClick = (node: MsmProjectsNode): vscode.Command => {
-    return { command: MSM_ROW_CLICK_COMMAND, title: "Open",
-        arguments: [node] };
+const rowClick = (item: vscode.TreeItem,
+    node: MsmProjectsNode): vscode.Command | undefined => {
+    const collapsible = item.collapsibleState !== undefined
+        && item.collapsibleState !== vscode.TreeItemCollapsibleState.None;
+
+    return collapsible ? undefined
+        : { command: MSM_ROW_CLICK_COMMAND, title: "Open",
+            arguments: [node] };
 };
 
 /**
@@ -1622,7 +1628,7 @@ const restItem = (
     item.id = rowIdOf(node);
     item.contextValue = MSM_REST_CONTEXT[node.kind];
     // A double-click opens its statement, as the button does.
-    item.command = rowClick(node);
+    item.command = rowClick(item, node);
 
     return item;
 };

@@ -223,7 +223,6 @@ import {
     pickFolderColor,
 } from "./tree/folderPrompts.js";
 import {
-    MSM_DIAGRAM_CLICK_COMMAND,
     MSM_DIAGRAM_COMMANDS,
     MSM_SCHEMA_COMMANDS,
     MSM_PROJECTS_VIEW_ID,
@@ -1667,15 +1666,26 @@ export const activate = (context: vscode.ExtensionContext): void => {
     };
     // Open Definition and Show in Diagram on the MSM Projects rows, and
     // a double-click on them.
-    context.subscriptions.push(...new ProjectNavigation({
+    const projectNavigation = new ProjectNavigation({
         outline: (file) => { return lspEdit.outline(file); },
         developmentScript,
+        openDiagram: openProjectDiagram,
         showInDiagram: (projectPath, diagram, itemId) => {
             openProjectDiagram(projectPath, diagram);
             ModelerPanel.reveal(projectDiagrams(projectPath), diagram, itemId);
         },
         log,
-    }).register());
+    });
+    context.subscriptions.push(...projectNavigation.register(),
+        // A row that can be expanded has no click command, or a click
+        // would not expand it: its double-click is the two expands it
+        // makes.
+        msmProjectsView.onDidExpandElement((event) => {
+            void projectNavigation.toggled(event.element);
+        }),
+        msmProjectsView.onDidCollapseElement((event) => {
+            void projectNavigation.toggled(event.element);
+        }));
     // Add Table... and the other kinds' Add on a project's group rows.
     context.subscriptions.push(...new SchemaObjectCommands({
         msmApi,
@@ -1727,8 +1737,6 @@ export const activate = (context: vscode.ExtensionContext): void => {
             : { kind: "connection", connection: target.connection,
                 schema: target.schema, table });
     };
-    /** Two quick clicks on a project's diagram open it. */
-    const projectDiagramClicks = new DoubleClick();
     /**
      * @param target What a viewer showed before a restart.
      *
@@ -1995,13 +2003,6 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         schema: node.schema, table: node.name }
                     : { kind: "connection", connection: node.uri,
                         schema: node.schema, table: node.name });
-            }),
-        vscode.commands.registerCommand(MSM_DIAGRAM_CLICK_COMMAND,
-            (node?: IMsmDiagramNode) => {
-                if (node?.kind === "diagram" && projectDiagramClicks.click(
-                    JSON.stringify([node.projectPath, node.name]))) {
-                    openProjectDiagram(node.projectPath, node.name);
-                }
             }),
     );
     const msmCommands = new MsmCommands({

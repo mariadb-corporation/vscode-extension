@@ -65,8 +65,8 @@ kept outside the repository.
 - **An MSM project's diagrams** open from the MSM Projects view (a
   **Diagrams** folder first under each project, listed with
   `msm.list_schema_diagrams`, a row per diagram with its figure count,
-  opened by its inline button, its menu or a double-click,
-  `MSM_DIAGRAM_CLICK_COMMAND`) and from the Explorer's MariaDB Schema
+  opened by its inline button, its menu or a double-click through
+  `ProjectNavigation`, as the other rows (see object-details.md)) and from the Explorer's MariaDB Schema
   Management submenu on a `*.msm.project` folder: **Open Schema
   Diagram...** (`mariadb.msm.openSchemaDiagram`, also on a project row and
   the palette, where it asks for the folder) quick-picks where the project

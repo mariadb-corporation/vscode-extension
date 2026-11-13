@@ -401,7 +401,6 @@ describe("activate", () => {
             "mariadb.msm.deleteTrigger",
             "mariadb.msm.deleteView",
             "mariadb.msm.deploySchema",
-            "mariadb.msm.diagramClicked",
             "mariadb.msm.editObjectTemplate",
             "mariadb.msm.editProject",
             "mariadb.msm.generateDeploymentScript",

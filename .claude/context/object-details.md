@@ -77,9 +77,18 @@ viewer is [`modeler.md`](modeler.md), its palette
   statement in its file, the name selected; a `$(eye)` button (Show in
   Diagram) on a diagram's layer, figure and group member rows opens the
   diagram, centred on the item (a member's group figure) and selected.
-  A double-click on those rows does the same (`mariadb.msm.rowClicked`
-  through `DoubleClick`, keyed by the row's `rowIdOf`; a single click only selects, which Object
-  Details follows), so no row opens on a single click.
+  A double-click on those rows does the same, and on a diagram row opens
+  the diagram (`ProjectNavigation`, through one `DoubleClick` keyed by the
+  row's `rowIdOf`), so no row opens on a single click. A single click
+  selects, which Object Details follows. VS Code expands a row with a
+  `command` only on its twistie (`expandOnlyOnTwistieClick` in its
+  `treeView.ts`), so only rows that cannot be expanded get
+  `mariadb.msm.rowClicked` (`rowClick`). A click on one that can (a
+  schema, a REST service or schema, a diagram, a layer or a group
+  figure with something under it) expands or collapses it. Its
+  double-click is two toggles, which `onDidExpandElement` /
+  `onDidCollapseElement` hand to `ProjectNavigation.toggled`; the row is
+  left as it was.
   Schema and objects are found in a fresh `mariadb-lsp outline` of the
   development script (`definitions.ts`, `definitionOf`: `range` /
   `selection_range`, `source` into `includes` for an included file; the
