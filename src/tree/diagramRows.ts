@@ -22,6 +22,11 @@
  * the view's provider draws them.
  */
 
+import type {
+    DiagramItem,
+    IDiagramFigureItem,
+    IDiagramLayerItem,
+} from "../details/objectDetails.js";
 import type { ObjectType } from "../mcp/types.js";
 import {
     EVENT_GROUP_FIGURE,
@@ -60,6 +65,8 @@ export interface IDiagramFigureNode extends IDiagramPlace {
     kind: "diagramFigure";
     figureKind: DiagramFigureKind;
     figure: IModelFigure;
+    /** The layer its position is relative to: the one it is filed under. */
+    layer?: IModelLayer;
     /** What a row says: the object's name, a group's, a REST path. */
     label: string;
     /** A group's routines or events. */
@@ -191,9 +198,13 @@ export const diagramRowsOf = (
         if (figureKind === undefined) {
             continue;
         }
+        const filedUnder = diagram.layers.find((entry) => {
+            return entry.id === figure.layer;
+        });
         const row: IDiagramFigureNode = { ...place, kind: "diagramFigure",
             figureKind, figure, label: labelOf(figure, figureKind),
-            members: membersOf(figure, figureKind, place, definition) };
+            members: membersOf(figure, figureKind, place, definition),
+            ...filedUnder === undefined ? {} : { layer: filedUnder } };
         // Filed under its layer, as the viewer keeps it; one naming a
         // layer the diagram has not is on none.
         const layer = figure.layer !== undefined && layerIds.has(figure.layer)
@@ -215,6 +226,71 @@ export const diagramRowsOf = (
         });
 
     return [...layers, ...loose.sort(byKindAndLabel)];
+};
+
+/** The highest a figure or a layer is raised, as the viewer keeps it. */
+const MAX_ELEVATION = 240;
+
+/** @returns A height kept in the range the viewer keeps heights in. */
+const inElevationRange = (elevation: number | undefined): number => {
+    return Math.min(MAX_ELEVATION, Math.max(0, elevation ?? 0));
+};
+
+/**
+ * What Object Details shows of a layer or figure row where its diagram is
+ * not open, read from the diagram as saved: as the viewer's
+ * `EerFigureSet.itemProps` gives it, read only, as nothing here can
+ * change it.
+ *
+ * @param node A layer or figure row.
+ *
+ * @returns The item, or nothing for a group member.
+ */
+export const diagramRowItem = (
+    node: DiagramRowNode,
+): DiagramItem | undefined => {
+    if (node.kind === "diagramLayer") {
+        const { layer } = node;
+        const item: IDiagramLayerItem = {
+            kind: "layer", id: layer.id, name: layer.name,
+            x: layer.left, y: layer.top,
+            z: inElevationRange(layer.elevation),
+            width: layer.width, height: layer.height,
+            tables: node.figures.filter((row) => {
+                return row.figureKind === "table";
+            }).map((row) => { return row.label; })
+                .sort((a, b) => { return a.localeCompare(b); }),
+            color: layer.color,
+            editable: false,
+        };
+
+        return item;
+    }
+    if (node.kind !== "diagramFigure") {
+        return undefined;
+    }
+    const { figure } = node;
+    const item: IDiagramFigureItem = {
+        kind: "figure", id: figure.id,
+        // On the page: its layer's position included.
+        x: figure.left + (node.layer?.left ?? 0),
+        y: figure.top + (node.layer?.top ?? 0),
+        z: inElevationRange(figure.elevation),
+        width: figure.width ?? 0,
+        height: figure.height ?? 0,
+        autoHeight: figure.manualSizing !== true,
+        // A REST object stands unless set otherwise; the rest lie.
+        upright: figure.upright ?? node.figureKind === "rest",
+        color: figure.color ?? "",
+        editable: false,
+        ...node.figureKind === "rest" ? { rest: {
+            service: figure.restService ?? "",
+            schema: figure.restSchema ?? "",
+            object: figure.restObject ?? "",
+        } } : {},
+    };
+
+    return item;
 };
 
 /**

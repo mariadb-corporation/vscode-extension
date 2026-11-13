@@ -30,6 +30,8 @@ import { useEffect, useState } from "preact/hooks";
 import type {
     DetailsHostMessage,
     DiagramItem,
+    IDiagramConnectionItem,
+    IDiagramRestObject,
     IObjectDetailsView,
     ObjectDetailsBody,
 } from "../../../src/details/objectDetails.js";
@@ -47,9 +49,36 @@ import notNullSvg from "../assets/modeler/schemaTableColumnNN.svg?raw";
 import keySvg from "../assets/modeler/schemaTableColumnPK.svg?raw";
 import foreignKeySvg from "../assets/modeler/schemaTableForeignKey.svg?raw";
 import indexSvg from "../assets/modeler/schemaTableIndex.svg?raw";
+// The relationship tools' icons of the diagram's toolbar, one per kind.
+import rel11Svg from "../../../images/light/toolbar-diagram-rel11.svg?raw";
+import rel11IdSvg from "../../../images/light/toolbar-diagram-rel11id.svg?raw";
+import rel1nSvg from "../../../images/light/toolbar-diagram-rel1n.svg?raw";
+import rel1nIdSvg from "../../../images/light/toolbar-diagram-rel1nid.svg?raw";
+// The trees' icon of a REST object.
+import restLight from "../../../images/light/mrsDbObject.svg?raw";
+import restDark from "../../../images/dark/mrsDbObject.svg?raw";
+// The trees' icons of the object types, light and dark, for the header.
+import tableLight from "../../../images/light/schemaTable.svg?raw";
+import tableDark from "../../../images/dark/schemaTable.svg?raw";
+import viewLight from "../../../images/light/schemaView.svg?raw";
+import viewDark from "../../../images/dark/schemaView.svg?raw";
+import procedureLight from "../../../images/light/schemaProcedure.svg?raw";
+import procedureDark from "../../../images/dark/schemaProcedure.svg?raw";
+import functionLight from "../../../images/light/schemaFunction.svg?raw";
+import functionDark from "../../../images/dark/schemaFunction.svg?raw";
+import triggerLight from "../../../images/light/schemaTableTrigger.svg?raw";
+import triggerDark from "../../../images/dark/schemaTableTrigger.svg?raw";
+import eventLight from "../../../images/light/schemaEvent.svg?raw";
+import eventDark from "../../../images/dark/schemaEvent.svg?raw";
+import sequenceLight from "../../../images/light/schemaSequence.svg?raw";
+import sequenceDark from "../../../images/dark/schemaSequence.svg?raw";
 import { primaryKeyColumns } from "../modeler/catalog.js";
 import { post } from "../vscodeApi.js";
-import { DiagramItemFields, ItemHeader } from "./DiagramItemFields.js";
+import {
+    DetailsHeader,
+    DiagramItemFields,
+    ItemHeader,
+} from "./DiagramItemFields.js";
 
 /**
  * @param svg An icon's markup.
@@ -76,6 +105,31 @@ const Icon = ({ src, label }: { src: string; label?: string }):
     return <span className="detailsIcon" role={label ? "img" : undefined}
         aria-label={label} style={{ maskImage: `url("${src}")`,
             WebkitMaskImage: `url("${src}")` }} />;
+};
+
+/** Each object type's icon in the trees, for a light and a dark theme. */
+const TYPE_ICONS: Record<string, { light: string; dark: string }> = {
+    rest: { light: iconSource(restLight), dark: iconSource(restDark) },
+    table: { light: iconSource(tableLight), dark: iconSource(tableDark) },
+    view: { light: iconSource(viewLight), dark: iconSource(viewDark) },
+    procedure: { light: iconSource(procedureLight), dark: iconSource(procedureDark) },
+    function: { light: iconSource(functionLight), dark: iconSource(functionDark) },
+    trigger: { light: iconSource(triggerLight), dark: iconSource(triggerDark) },
+    event: { light: iconSource(eventLight), dark: iconSource(eventDark) },
+    sequence: { light: iconSource(sequenceLight), dark: iconSource(sequenceDark) },
+};
+
+/**
+ * An object type's icon, as the trees show it: in its colours, so not a
+ * mask; the theme's variant shows (`detailsTypeIcon` in the styles).
+ */
+const TypeIcon = ({ type }: { type: string }): JSX.Element | null => {
+    const icon = TYPE_ICONS[type];
+
+    return icon === undefined ? null : <span className="detailsTypeIcon">
+        <img className="detailsTypeIconLight" src={icon.light} alt="" />
+        <img className="detailsTypeIconDark" src={icon.dark} alt="" />
+    </span>;
 };
 
 /** What each object type is called. */
@@ -369,15 +423,64 @@ const Details = ({ details, figure }: {
     const object = details.object;
 
     return <>
-        <header className="detailsHeader">
-            <span className="detailsKind">{TYPE_LABELS[object.type]}</span>
-            <span className="detailsName">{objectName(object)}</span>
-            <span className="detailsWhere">
-                {details.schema} · {details.where}</span>
-        </header>
+        {/* Its schema under the rule; where that is, as its tooltip. */}
+        <DetailsHeader icon={<TypeIcon type={object.type} />}
+            name={objectName(object)} kind={TYPE_LABELS[object.type] ?? ""}
+            under={details.schema}
+            underTitle={`${details.schema} · ${details.where}`} />
         <Body object={object} />
         {figure}
     </>;
+};
+
+/** The relationship tools' icons of the toolbar, by kind. */
+const RELATIONSHIP_ICONS = {
+    oneToOne: iconSource(rel11Svg),
+    oneToOneIdentifying: iconSource(rel11IdSvg),
+    oneToMany: iconSource(rel1nSvg),
+    oneToManyIdentifying: iconSource(rel1nIdSvg),
+};
+
+/**
+ * A relationship line's icon: the toolbar's tool that draws its kind, in
+ * the theme's colour (a mask, as the toolbar draws it). A line whose key
+ * the snapshot lacks takes 1:n's.
+ */
+const RelationshipIcon = ({ item }: { item: IDiagramConnectionItem }):
+    JSX.Element => {
+    const identifying = item.identifying === true;
+    const src = item.many === false
+        ? identifying ? RELATIONSHIP_ICONS.oneToOneIdentifying
+            : RELATIONSHIP_ICONS.oneToOne
+        : identifying ? RELATIONSHIP_ICONS.oneToManyIdentifying
+            : RELATIONSHIP_ICONS.oneToMany;
+
+    return <span className="detailsHeaderIcon"><Icon src={src} /></span>;
+};
+
+/** What a REST object serves, as its header says. */
+const REST_TYPE_LABELS: Record<string, string> = {
+    VIEW: "REST View",
+    PROCEDURE: "REST Procedure",
+    FUNCTION: "REST Function",
+};
+
+/**
+ * A REST object figure's head, as an object's: the trees' REST object
+ * icon, its request path, what it is; under the rule its full path, the
+ * database object it serves as that line's tooltip.
+ */
+const RestHeader = ({ rest }: { rest: IDiagramRestObject }): JSX.Element => {
+    const path = `${rest.service}${rest.schema}${rest.object}`;
+    const served = rest.dbObject === undefined ? undefined
+        : rest.dbSchema === undefined ? rest.dbObject
+            : `${rest.dbSchema}.${rest.dbObject}`;
+
+    return <DetailsHeader icon={<TypeIcon type="rest" />} name={rest.object}
+        kind={REST_TYPE_LABELS[rest.objectType?.toUpperCase() ?? ""]
+            ?? "REST Object"}
+        under={path}
+        underTitle={served === undefined ? path : `${path} · ${served}`} />;
 };
 
 type ShowMessage = Extract<DetailsHostMessage, { type: "show" }>;
@@ -411,11 +514,15 @@ export const ObjectDetails = (): JSX.Element => {
             ? <Details details={shown.details}
                 figure={item?.kind === "figure" ? fields : undefined} />
             : item !== undefined && item.kind !== "figure"
-                ? <><ItemHeader item={item} />{fields}</>
-                : <>
+                ? <><ItemHeader item={item} icon={item.kind === "connection"
+                    ? <RelationshipIcon item={item} /> : undefined} />
+                {fields}</>
+                : item?.rest !== undefined
+                    ? <><RestHeader rest={item.rest} />{fields}</>
+                    : <>
                     <div className="detailsNote">{shown?.message ?? ""}</div>
                     {/* A table not in the snapshot keeps its place and size. */}
                     {item?.kind === "figure" ? fields : null}
-                </>}
+                    </>}
     </div>;
 };

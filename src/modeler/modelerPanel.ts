@@ -514,6 +514,32 @@ export class ModelerPanel {
     }
 
     /**
+     * Selects an item of a diagram in the source's panel, where it shows
+     * that diagram already: its selection then reaches Object Details as
+     * a click on it would, editable. The view stays where it is.
+     *
+     * @param source Where the model comes from.
+     * @param diagram The diagram.
+     * @param id The item: a figure's or a layer's id.
+     *
+     * @returns Whether a panel showed the diagram to select it in.
+     */
+    public static select(
+        source: IModelSource,
+        diagram: string,
+        id: string,
+    ): boolean {
+        const panel = ModelerPanel.#open.get(source.key);
+        if (panel === undefined || !panel.#loaded
+            || panel.#diagram !== diagram) {
+            return false;
+        }
+        panel.#post({ type: "selectItem", diagram, id });
+
+        return true;
+    }
+
+    /**
      * Scrolls the source's panel to an item of a diagram and selects it,
      * once the page has the model; the panel is to show that diagram
      * (`show`) first.

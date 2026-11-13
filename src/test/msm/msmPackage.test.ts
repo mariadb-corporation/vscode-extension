@@ -62,6 +62,7 @@ const manifest = JSON.parse(readFileSync(
         menus: Record<string, IMenuEntry[]>;
         submenus: Array<{ id: string; label: string }>;
         viewsWelcome: Array<{ view: string; contents: string; when?: string }>;
+        views: Record<string, Array<{ id: string; initialSize?: number }>>;
     };
 };
 const { commands, menus, submenus } = manifest.contributes;
@@ -81,6 +82,17 @@ const shownOn = (when: string, folder: string): boolean => {
 
     return !clause.includes("false");
 };
+
+describe("the MSM side bar", () => {
+    it("opens with MSM Projects on 3/5 of its height, Object Details on "
+        + "2/5", () => {
+        // VS Code shares a container's height out by the views' sizes.
+        expect(manifest.contributes.views["mariadb-msm"].map((view) => {
+            return [view.id, view.initialSize];
+        })).toEqual([["mariadb.msmProjects", 60],
+            ["mariadb.msmObjectDetails", 40]]);
+    });
+});
 
 describe("New MSM Project from Schema", () => {
     it("is on a Connections view schema row only, not in the palette", () => {

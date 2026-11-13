@@ -100,8 +100,15 @@ import {
     draggedObjects,
     objectRefOf,
 } from "./tree/schemaTree.js";
-import { diagramRowObject } from "./tree/diagramRows.js";
-import { ProjectNavigation } from "./msm/projectNavigation.js";
+import {
+    diagramRowItem,
+    diagramRowObject,
+    type DiagramRowNode,
+} from "./tree/diagramRows.js";
+import {
+    diagramItemIdOf,
+    ProjectNavigation,
+} from "./msm/projectNavigation.js";
 import {
     COLLAPSED_FOLDERS_KEY,
     FolderColors,
@@ -957,6 +964,33 @@ export const activate = (context: vscode.ExtensionContext): void => {
         },
         connectionLabel,
     });
+    /**
+     * Shows a diagram's layer, figure or group member selected in the MSM
+     * Projects view in Object Details, as a click on it on the diagram
+     * would: where the diagram is open, by selecting it there (its
+     * selection comes back editable); else as the diagram was saved, read
+     * only. A member is a routine or event, not a figure: its object.
+     *
+     * @param node The row.
+     */
+    const showDiagramRow = (node: DiagramRowNode): void => {
+        const place = { projectPath: node.projectPath };
+        const ref = diagramRowObject(node);
+        if (node.kind === "diagramMember") {
+            if (ref !== undefined) {
+                objectDetails.show(place, ref);
+            }
+
+            return;
+        }
+        if (ModelerPanel.select(projectDiagrams(node.projectPath),
+            node.diagram, diagramItemIdOf(node))) {
+            return;
+        }
+        const item = diagramRowItem(node);
+        objectDetails.showSelection(place, ref === undefined ? [] : [ref],
+            item === undefined ? undefined : { item });
+    };
     context.subscriptions.push(objectDetails,
         ...OBJECT_DETAILS_VIEWS.map((id) => {
             return vscode.window.registerWebviewViewProvider(id,
@@ -967,14 +1001,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
             if (node?.kind === "object") {
                 objectDetails.show({ projectPath: node.projectPath },
                     objectRefOf(node));
-            } else if (node?.kind === "diagramFigure"
+            } else if (node?.kind === "diagramLayer"
+                || node?.kind === "diagramFigure"
                 || node?.kind === "diagramMember") {
-                // A figure of a table, view or sequence, or a routine or
-                // event a group lists: its object.
-                const ref = diagramRowObject(node);
-                if (ref !== undefined) {
-                    objectDetails.show({ projectPath: node.projectPath }, ref);
-                }
+                showDiagramRow(node);
             }
         }),
         connectionsView.onDidChangeSelection((event) => {
@@ -1001,16 +1031,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
             const place = target.kind === "project"
                 ? { projectPath: target.projectPath }
                 : { connection: target.connection, schema: target.schema };
-            const [first] = objects;
-            const selected = item === undefined ? undefined : { item, edit };
-            if (first !== undefined) {
-                objectDetails.show(place, first, selected);
-            } else if (selected !== undefined) {
-                objectDetails.showItem(place, selected);
-            } else {
-                // Nothing selected, or several items and no object.
-                objectDetails.clear(place);
-            }
+            objectDetails.showSelection(place, objects,
+                item === undefined ? undefined : { item, edit });
         },
         itemChanged: (target, item) => {
             objectDetails.itemChanged(target.kind === "project"

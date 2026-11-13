@@ -58,8 +58,16 @@ viewer is [`modeler.md`](modeler.md), its palette
   saved document over (`IProjectSourceHost.diagramSaved` ->
   `MsmProjectsTreeProvider.diagramSaved`), so the rows and the diagram's
   figure count follow moves onto layers and placed objects without a
-  read. Selecting a table's, view's or sequence's figure, or a group's
-  routine or event, shows that object in Object Details.
+  read. Selecting a layer or figure row shows it in Object Details as a
+  click on the diagram does (`showDiagramRow` in extension.ts): where its
+  diagram is open in a viewer, by selecting it there
+  (`ModelerPanel.select`, `selectItem`, `Canvas.selectItems`; the view
+  stays put), whose selection comes back editable; else read only, from
+  the diagram as saved (`diagramRowItem`, which mirrors
+  `EerFigureSet.itemProps`: the figure's place with its layer's, sizes as
+  stored, a REST figure's paths but not what it serves), with the
+  object a table's, view's or sequence's figure shows. A group's routine
+  or event shows its object alone.
 - **Going to what a row stands for** (`src/msm/projectNavigation.ts`,
   `MSM_NAVIGATION_COMMANDS`; MSM Projects only, a live schema has no
   source): a `$(go-to-file)` button (and the menu's Open Definition) on
@@ -139,6 +147,10 @@ viewer is [`modeler.md`](modeler.md), its palette
   a project it opens one of its diagrams first if none is open, the
   objects waiting for the model (`ModelerPanel.place`). A live schema's
   needs its diagram open.
+- **First-start layout of the MSM side bar**: `initialSize` MSM Projects
+  60, Object Details 40, so Object Details opens on 2/5 of the height
+  (the weights work as in [connections.md](connections.md)'s first-start
+  layout; a height the user dragged is kept by VS Code over them).
 - **Object Details** follows the last selection of its own side bar,
   kept apart: below MSM Projects a project's object (its tree, or a
   project's diagram), below Connections a live one (its tree, or a live
@@ -146,7 +158,18 @@ viewer is [`modeler.md`](modeler.md), its palette
   and a view is empty until something is selected on its side. Figures
   selected on a diagram post `selection` (a routine group's routines).
   The object is read only and compressed for a side bar, a row
-  a line as the trees above it: a table's comment, columns (the diagram
+  a line as the trees above it. Its header: the type's icon as the trees
+  draw it (`TypeIcon`, the light and dark SVG of `images/` inlined, the
+  body's `vscode-dark` / high-contrast class picking one), the name, then
+  the type ("Table") muted, on one line cut short with "…" (never
+  wrapped, the whole as its tooltip); a rule below it from where the name
+  starts - 20px in, where the column names start and about where the
+  inputs do (`--details-indent`) - to the right edge; under it, right-aligned
+  within the rule's span, the schema (where it is, project or connection, as its
+  tooltip), or a REST object's full path (what it serves as its tooltip).
+  A layer's or line's header is the name, then "Layer" / "Relationship",
+  and the rule, nothing under it. One component draws them all
+  (`DetailsHeader` in `DiagramItemFields.tsx`). Then a table's comment, columns (the diagram
   card's key / NOT NULL / column icons, drawn as masks in the theme's
   colour; name; then, as on the card, the type with AI and the default in
   dimmed italics, cut short with the whole row as a tooltip), indexes and foreign keys; a view's columns;
@@ -162,19 +185,30 @@ viewer is [`modeler.md`](modeler.md), its palette
   the object's details, editable (read only on a live schema's diagram,
   as the diagram is), `DiagramItemFields.tsx`:
   - a card figure: X / Y (on the page, its layer's position included),
-    Z (its own `elevation` above its layer), W / H and Auto (height from
-    content, `manualSizing` off), laid out as a design tool's transform
-    panel (X / W, Y / H, Z / Auto under H's input), and Upright (stands
+    Z (its own `elevation` above its layer), W / H and Auto-Height
+    (height from content, `manualSizing` off), laid out as a design
+    tool's transform panel (X / W, Y / H, Z / Auto-Height under H's
+    input), and Upright under it, pulled up (`itemCheckFollows`) as its
+    row has no input (stands
     on the page or lies on it; H is then how high it stands, see
     [modeler-figures.md](modeler-figures.md));
   - a layer (no schema object): its tables (filed under it) and
     X / Y / Z / W / H, changed as a drag would, so its tables follow;
   - below either, its Color: the editors' `ColorSwatches` over
     `FIGURE_PALETTE`, stored in the diagram (None a figure's kind's
-    color, a new layer's for a layer); a REST object figure has no schema
-    object, so the view shows its fields alone;
-  - a relationship line (no schema object): its source and target
-    tables, kind, middle segment offset and Split.
+    color, a new layer's for a layer), its caption styled as the
+    sections' `h3` titles; a hint only for a colour no swatch shows; a REST object figure has no schema
+    object: its item carries `rest` (the figure's service, schema and
+    object paths, and what Section 180 serves, from `EerFigureSet.itemProps`),
+    which heads its fields as an object is headed (`RestHeader`: the trees'
+    REST object icon, the request path, "REST View" / "REST Procedure" /
+    "REST Function", else "REST Object"; the service and schema paths and
+    the database object below);
+  - a relationship line (no schema object): headed by the toolbar's
+    relationship tool icon of its kind (1:1 / 1:n, identifying or not;
+    `RelationshipIcon`, a mask in the theme's colour; 1:n where the key is
+    not in the snapshot), then its source and target tables, kind, middle
+    segment offset and Split.
   A field commits on Enter or blur; Escape puts it back. The viewer posts
   the item with `selection` and again as `item` after every history change
   (moves, undo); the provider keeps it per side with the panel's editor
@@ -182,7 +216,10 @@ viewer is [`modeler.md`](modeler.md), its palette
   where `EerFigureSet.changeItem` makes it one undoable action. A tree row
   selected drops it; a diagram selection with no object (cleared by a
   click on the canvas, or several items) empties the view, the object
-  with the item (`ObjectDetailsProvider.clear`).
+  with the item (`ObjectDetailsProvider.showSelection` -> `clear`): the
+  viewer posts an empty `selection` for it (`onSelection` in
+  `ModelViewer.tsx`; it used to post an item-only `item`, which dropped
+  the item and kept the object).
 - **A relationship's kind** (1:1 / 1:n, identifying or not:
   `relationshipKindOf`, as msm derives `many`) is changed as a schema
   change (`relationshipKindChange`, sent through

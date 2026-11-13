@@ -166,12 +166,14 @@
       "mariadb-msm": [
         {
           "id": "mariadb.msmProjects",
-          "name": "MSM Projects"
+          "name": "MSM Projects",
+          "initialSize": 60
         },
         {
           "id": "mariadb.msmObjectDetails",
           "name": "Object Details",
-          "type": "webview"
+          "type": "webview",
+          "initialSize": 40
         }
       ],
       "mariadb-panel": [

@@ -294,6 +294,11 @@ export type ModelerHostMessage =
      * it: Show in Diagram on a row of the MSM Projects view.
      */
     | { type: "revealItem"; diagram: string; id: string }
+    /**
+     * Select an item of the diagram shown, the view left where it is: a
+     * row of the MSM Projects view selected, which Object Details follows.
+     */
+    | { type: "selectItem"; diagram: string; id: string }
     /** Object Details changed the selected item. */
     | { type: "changeItem"; id: string; change: DiagramItemChange }
     /** The model could not be read. */

@@ -744,6 +744,22 @@ export class Canvas {
     }
 
     /**
+     * Selects items, as a click would, the view left where it is.
+     *
+     * @param ids The items; those the set has not are left out.
+     *
+     * @returns Whether the set has them all.
+     */
+    public selectItems(ids: readonly string[]): boolean {
+        const known = ids.filter((id) => {
+            return this.#set?.item(id) !== undefined;
+        });
+        this.#select(known, false);
+
+        return known.length === ids.length;
+    }
+
+    /**
      * Centres the view on an item, at the zoom it has, and selects it
      * alone: its outline and handles show.
      *

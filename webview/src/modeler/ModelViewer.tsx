@@ -570,10 +570,10 @@ export const ModelViewer = (): JSX.Element => {
                 if (shown === undefined) {
                     return;
                 }
-                // Nothing selected: Object Details keeps the object, but
-                // no longer edits the item that was.
+                // Nothing selected (a click on the canvas): Object Details
+                // empties, the object with the item.
                 if (ids.length === 0) {
-                    post({ type: "item" });
+                    post({ type: "selection", objects: [] });
 
                     return;
                 }
@@ -772,6 +772,13 @@ export const ModelViewer = (): JSX.Element => {
 
                 case "showDiagram": {
                     setDiagramName(message.name);
+                    break;
+                }
+
+                case "selectItem": {
+                    if (readyRef.current === message.diagram) {
+                        canvasRef.current?.selectItems([message.id]);
+                    }
                     break;
                 }
 

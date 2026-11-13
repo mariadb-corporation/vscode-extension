@@ -40,7 +40,9 @@ body {
     margin-top: 6px;
 }
 
-.objectDetails h3 {
+/* The colour swatches' caption is a section title too. */
+.objectDetails h3,
+.objectDetails .itemColor .field-caption {
     margin: 0 0 1px;
     font-size: 11px;
     font-weight: 600;
@@ -49,11 +51,38 @@ body {
         var(--vscode-foreground));
 }
 
+/*
+ * The head: the icon in a slot as wide as a column's icon and its gap, so
+ * the name starts where the column names (and about where the inputs)
+ * start below; the title on one line, cut short with "…".
+ */
 .detailsHeader {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    column-gap: 6px;
+    --details-indent: 20px;
+}
+
+.detailsTitle {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    column-gap: calc(var(--details-indent) - 16px);
+    align-items: center;
+}
+
+.detailsTitleIcon {
+    display: inline-flex;
+    justify-content: center;
+}
+
+.detailsTitleText {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* A rule under the title, from where the name starts to the right edge. */
+.detailsRule {
+    margin: 3px 0 0 var(--details-indent);
+    border-top: 1px solid var(--vscode-sideBarSectionHeader-border,
+        var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
 }
 
 .detailsKind,
@@ -67,8 +96,41 @@ body {
     font-weight: 600;
 }
 
+/* The object type's icon before its name, the theme's variant of it. */
+.detailsTypeIcon,
+.detailsHeaderIcon {
+    display: inline-flex;
+    align-self: center;
+}
+
+.detailsTypeIcon img,
+.detailsHeaderIcon .detailsIcon {
+    width: 16px;
+    height: 16px;
+}
+
+.detailsTypeIconDark,
+.vscode-dark .detailsTypeIconLight,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .detailsTypeIconLight {
+    display: none;
+}
+
+.vscode-dark .detailsTypeIconDark,
+.vscode-high-contrast:not(.vscode-high-contrast-light) .detailsTypeIconDark {
+    display: inline;
+}
+
+/*
+ * Under the rule, within its span, against the right edge: its schema, or
+ * a REST path.
+ */
 .detailsWhere {
-    flex-basis: 100%;
+    margin-left: var(--details-indent);
+    padding-top: 2px;
+    text-align: right;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     font-size: 0.92em;
 }
 
@@ -253,6 +315,14 @@ body {
     grid-column: 4;
 }
 
+/*
+ * A checkbox under another: its row has no input, so the grid's gap alone
+ * would set it further off than the rows of inputs are.
+ */
+.itemCheckFollows {
+    margin-top: -3px;
+}
+
 /* An end placed by hand: its side, then the button that resets it. */
 .itemDock {
     display: flex;
@@ -283,6 +353,8 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    /* "Auto-Height" would break at its hyphen in a narrow side bar. */
+    white-space: nowrap;
 }
 
 /* A figure's or a layer's colour, under its place and size. */
@@ -296,11 +368,7 @@ body {
     gap: 4px;
 }
 
-.itemColor .field-caption,
 .itemColor .field-hint {
     color: var(--vscode-descriptionForeground);
-}
-
-.itemColor .field-hint {
     font-size: 0.9em;
 }

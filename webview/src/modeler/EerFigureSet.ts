@@ -1031,8 +1031,21 @@ export class EerFigureSet implements IFigureSet {
         const node = this.#figures.get(id);
         if (node !== undefined && isCard(node.kind)) {
             const rect = this.#figureRect(node);
+            const definition = node.kind === "rest"
+                ? this.#restObjectOf(node.figure) : undefined;
 
             return {
+                // A REST object has no schema object to read: its own.
+                ...node.kind === "rest" ? { rest: {
+                    service: node.figure.restService ?? "",
+                    schema: node.figure.restSchema ?? "",
+                    object: node.figure.restObject ?? "",
+                    ...definition === undefined ? {} : {
+                        objectType: definition.objectType,
+                        dbSchema: definition.dbSchema,
+                        dbObject: definition.dbObject,
+                    },
+                } } : {},
                 kind: "figure",
                 id,
                 x: rect.left,

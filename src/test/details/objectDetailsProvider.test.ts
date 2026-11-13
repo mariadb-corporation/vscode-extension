@@ -235,6 +235,20 @@ describe("a diagram item in the Object Details view", () => {
         expect(changes).toEqual([["c1", { split: true }]]);
     });
 
+    it("empties its view when the diagram's selection goes empty, after a "
+        + "table figure was selected", async () => {
+        const { provider, msm } = setUp();
+        // A table figure selected: its object and its place.
+        provider.showSelection(PROJECT, [ORDERS], { item: FIGURE });
+        await settle();
+        expect(msm.posted.at(-1)).toMatchObject({ type: "show",
+            details: { object: { type: "table" } }, item: FIGURE });
+
+        // A click on the canvas: the viewer's empty selection.
+        provider.showSelection(PROJECT, [], undefined);
+        expect(msm.posted.at(-1)).toEqual({ type: "show" });
+    });
+
     it("empties its view, the object with the item, once the diagram's "
         + "selection is cleared", async () => {
         const { provider, live, msm } = setUp();

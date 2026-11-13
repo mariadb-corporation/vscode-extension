@@ -23,6 +23,7 @@ import type {
     ISchemaDefinition,
 } from "../../modeler/modelFormat.js";
 import {
+    diagramRowItem,
     diagramRowObject,
     diagramRowsOf,
     figureKindOf,
@@ -119,6 +120,45 @@ describe("diagramRowsOf", () => {
 
         expect(rest).toMatchObject({ figureKind: "rest",
             label: "/shop/orders" });
+    });
+});
+
+describe("diagramRowItem", () => {
+    it("gives a figure's place on the page, its layer's included, read only",
+        () => {
+            const [layerRow, rest] = diagramRowsOf(PLACE, {
+                layers: [{ ...layer("L1", "Sales", ["f1"]), left: 100,
+                    top: 50, elevation: 300 }],
+                figures: [
+                    figure("f1", { table: "orders", left: 10, top: 20,
+                        width: 200, height: 120, layer: "L1", elevation: 12,
+                        manualSizing: true, color: "#FFAAAA" }),
+                    figure("r1", { type: "RestObjectFigure",
+                        restService: "/svc", restSchema: "/shop",
+                        restObject: "/orders", left: 5, top: 6 }),
+                ],
+            }) as [IDiagramLayerNode, IDiagramFigureNode];
+
+            expect(diagramRowItem(layerRow.figures[0])).toEqual({
+                kind: "figure", id: "f1", x: 110, y: 70, z: 12, width: 200,
+                height: 120, autoHeight: false, upright: false,
+                color: "#FFAAAA", editable: false });
+            // A layer's height kept in the viewer's range; its tables.
+            expect(diagramRowItem(layerRow)).toMatchObject({ kind: "layer",
+                id: "L1", x: 100, y: 50, z: 240, tables: ["orders"],
+                editable: false });
+            // A REST object stands, and says which it is.
+            expect(diagramRowItem(rest)).toMatchObject({ x: 5, y: 6,
+                upright: true, autoHeight: true, rest: { service: "/svc",
+                    schema: "/shop", object: "/orders" } });
+        });
+
+    it("gives nothing for a group's member", () => {
+        const [group] = diagramRowsOf(PLACE, { layers: [], figures: [
+            figure("g1", { type: "EventGroupFigure", events: ["purge"] }),
+        ] }) as IDiagramFigureNode[];
+
+        expect(diagramRowItem(group.members[0])).toBeUndefined();
     });
 });
 

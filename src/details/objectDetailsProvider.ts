@@ -185,6 +185,32 @@ export class ObjectDetailsProvider
     }
 
     /**
+     * Follows a diagram's selection: the first object its figures show,
+     * with the item where one was selected as itself; an item that is no
+     * object (a layer, a line) alone; nothing for an empty selection (a
+     * click on the canvas) or several items and no object, which empties
+     * the view.
+     *
+     * @param place Where the diagram's objects are.
+     * @param objects The objects the selected figures show.
+     * @param selected The one item selected, if one was.
+     *
+     * @returns Nothing.
+     */
+    public showSelection(place: SchemaObjectPlace,
+        objects: readonly ISchemaObjectRef[],
+        selected: ISelectedItem | undefined): void {
+        const [first] = objects;
+        if (first !== undefined) {
+            this.show(place, first, selected);
+        } else if (selected !== undefined) {
+            this.showItem(place, selected);
+        } else {
+            this.clear(place);
+        }
+    }
+
+    /**
      * Shows a diagram item that is no schema object: a layer, or a
      * relationship line.
      *
