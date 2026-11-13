@@ -202,7 +202,8 @@ figure sets, so the canvas knows nothing of tables or layers:
   one's left and right (`resizeFrontTo`). A drag moves across
   (`moveBy(dx, 0)`) and up (`IMoveSession.elevateBy`: a selected layer
   with what lies on it, a selected figure its own Z, both in
-  0..`MAX_LAYER_ELEVATION`). A lying card's side label is a hit target
+  0..`MAX_ELEVATION`, `inElevationRange` in modelFormat.ts, which the
+  MSM Projects rows use too). A lying card's side label is a hit target
   there (`#figureHit`), its UV not taken for a row (`face`). A layer
   shows its slab there (`frontSpan`: its elevation to its face): picked
   within `LAYER_FRONT_REACH_PX` of it (`#layerInFront`, from the probe's

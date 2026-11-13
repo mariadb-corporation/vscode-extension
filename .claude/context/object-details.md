@@ -56,9 +56,11 @@ viewer is [`modeler.md`](modeler.md), its palette
   menus yet). The document is read with `msm.get_schema_diagrams(path,
   name)` once until the project is refreshed; a viewer's save hands the
   saved document over (`IProjectSourceHost.diagramSaved` ->
-  `MsmProjectsTreeProvider.diagramSaved`), so the rows and the diagram's
-  figure count follow moves onto layers and placed objects without a
-  read. Selecting a layer or figure row shows it in Object Details as a
+  `MsmProjectsTreeProvider.diagramSaved`, which also updates the cached
+  listing's figure count), so the rows and the diagram's figure count
+  follow moves onto layers and placed objects without a read. Reading a
+  diagram's document also keeps the snapshot msm sends with it, so
+  expanding a diagram is one `msm.get_schema_diagrams` call. Selecting a layer or figure row shows it in Object Details as a
   click on the diagram does (`showDiagramRow` in extension.ts): where its
   diagram is open in a viewer, by selecting it there
   (`ModelerPanel.select`, `selectItem`, `Canvas.selectItems`; the view
@@ -76,7 +78,7 @@ viewer is [`modeler.md`](modeler.md), its palette
   Diagram) on a diagram's layer, figure and group member rows opens the
   diagram, centred on the item (a member's group figure) and selected.
   A double-click on those rows does the same (`mariadb.msm.rowClicked`
-  through `DoubleClick`; a single click only selects, which Object
+  through `DoubleClick`, keyed by the row's `rowIdOf`; a single click only selects, which Object
   Details follows), so no row opens on a single click.
   Schema and objects are found in a fresh `mariadb-lsp outline` of the
   development script (`definitions.ts`, `definitionOf`: `range` /

@@ -36,6 +36,7 @@ import {
 } from "../../msm/schemaObjects.js";
 import {
     MSM_DIAGRAM_COMMANDS,
+    MSM_ROW_CLICK_COMMAND,
     MSM_SCHEMA_COMMANDS,
 } from "../../tree/msmProjectsTreeProvider.js";
 
@@ -175,7 +176,8 @@ describe("the MariaDB Schema Management menu", () => {
             ...Object.values(MSM_ADD_COMMANDS),
             ...Object.values(MSM_DELETE_COMMANDS),
             ...Object.values(MSM_NAVIGATION_COMMANDS),
-            ...Object.values(MSM_TEMPLATE_COMMANDS), MSM_IMPORT_COMMAND];
+            ...Object.values(MSM_TEMPLATE_COMMANDS), MSM_IMPORT_COMMAND,
+            MSM_ROW_CLICK_COMMAND];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
         }).map((entry) => { return entry.command; }).sort())

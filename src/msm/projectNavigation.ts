@@ -30,6 +30,7 @@ import type { DiagramRowNode } from "../tree/diagramRows.js";
 import { DoubleClick } from "../tree/doubleClick.js";
 import {
     MSM_ROW_CLICK_COMMAND,
+    rowIdOf,
     type MsmProjectsNode,
 } from "../tree/msmProjectsTreeProvider.js";
 import { definitionOf, type IOutlineRange } from "./definitions.js";
@@ -40,8 +41,6 @@ export const MSM_NAVIGATION_COMMANDS = {
     openDefinition: "mariadb.msm.openDefinition",
     /** A layer's or figure's diagram, opened on it, selected. */
     showInDiagram: "mariadb.msm.showInDiagram",
-    /** Every click on those rows: a double-click does one of the two. */
-    rowClicked: MSM_ROW_CLICK_COMMAND,
 } as const;
 
 /** What going to definitions and figures needs from the extension. */
@@ -54,13 +53,6 @@ export interface IProjectNavigationHost {
     showInDiagram(projectPath: string, diagram: string, itemId: string): void;
     log(message: string): void;
 }
-
-/** @returns Whether a row has a definition to open. */
-const hasDefinition = (node: MsmProjectsNode): boolean => {
-    return node.kind === "schema" || node.kind === "object"
-        || node.kind === "restService" || node.kind === "restSchema"
-        || node.kind === "restObject";
-};
 
 /** @returns Whether a row is a diagram's layer, figure or group member. */
 const isDiagramRow = (node: MsmProjectsNode): node is DiagramRowNode => {
@@ -129,7 +121,8 @@ export class ProjectNavigation {
 
                 return Promise.resolve();
             }, "show it in the diagram"),
-            command(MSM_NAVIGATION_COMMANDS.rowClicked, (node) => {
+            // Every click on those rows: a double-click does one of the two.
+            command(MSM_ROW_CLICK_COMMAND, (node) => {
                 return this.clicked(node);
             }, "open the row"),
         ];
@@ -142,12 +135,12 @@ export class ProjectNavigation {
      * @param node The row.
      */
     public async clicked(node: MsmProjectsNode): Promise<void> {
-        if (!this.#clicks.click(JSON.stringify(node))) {
+        if (node.kind === "folder" || !this.#clicks.click(rowIdOf(node))) {
             return;
         }
         if (isDiagramRow(node)) {
             this.showInDiagram(node);
-        } else if (hasDefinition(node)) {
+        } else {
             await this.openDefinition(node);
         }
     }

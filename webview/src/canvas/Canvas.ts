@@ -773,12 +773,7 @@ export class Canvas {
             return false;
         }
         const rect = item.rect();
-        this.#target.x = rect.left + rect.width / 2;
-        // 2D Front looks along the page's depth: across is all it moves.
-        if (!this.#isFront()) {
-            this.#target.z = rect.top + rect.height / 2;
-        }
-        this.#applyView();
+        this.#centerOn(rect.left + rect.width / 2, rect.top + rect.height / 2);
         this.#select([id], false);
 
         return true;
@@ -937,9 +932,21 @@ export class Canvas {
         if (map === undefined) {
             return;
         }
-        this.#target.x = map.centerX + (x - map.width / 2) / map.scale;
+        this.#centerOn(map.centerX + (x - map.width / 2) / map.scale,
+            map.centerY + (y - map.height / 2) / map.scale);
+    }
+
+    /**
+     * Centres the view on a page point, at the zoom it has.
+     *
+     * @param x The point, in page units.
+     * @param y The point.
+     */
+    #centerOn(x: number, y: number): void {
+        this.#target.x = x;
+        // 2D Front looks along the page's depth: across is all it moves.
         if (!this.#isFront()) {
-            this.#target.z = map.centerY + (y - map.height / 2) / map.scale;
+            this.#target.z = y;
         }
         this.#applyView();
         this.#invalidate();

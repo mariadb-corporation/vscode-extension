@@ -22,6 +22,7 @@ import {
     ProjectNavigation,
 } from "../../msm/projectNavigation.js";
 import { DoubleClick } from "../../tree/doubleClick.js";
+import { MSM_ROW_CLICK_COMMAND } from "../../tree/msmProjectsTreeProvider.js";
 import {
     errorMessages,
     registeredCommands,
@@ -53,9 +54,9 @@ describe("ProjectNavigation", () => {
 
     /** Two clicks on a row, a moment apart. */
     const doubleClick = async (node: unknown): Promise<void> => {
-        await run(MSM_NAVIGATION_COMMANDS.rowClicked, node);
+        await run(MSM_ROW_CLICK_COMMAND, node);
         now += 100;
-        await run(MSM_NAVIGATION_COMMANDS.rowClicked, node);
+        await run(MSM_ROW_CLICK_COMMAND, node);
     };
 
     const editor = (index = 0) => {
@@ -92,11 +93,11 @@ describe("ProjectNavigation", () => {
         });
 
     it("opens it on a double-click only", async () => {
-        await run(MSM_NAVIGATION_COMMANDS.rowClicked, table);
+        await run(MSM_ROW_CLICK_COMMAND, table);
         expect(shownEditors).toEqual([]);
 
         now += 100;
-        await run(MSM_NAVIGATION_COMMANDS.rowClicked, table);
+        await run(MSM_ROW_CLICK_COMMAND, table);
         expect(editor()).toEqual([SCRIPT, 9, 13]);
     });
 
@@ -109,7 +110,9 @@ describe("ProjectNavigation", () => {
 
     it("opens a REST row's statement where the row has it", async () => {
         await doubleClick({ kind: "restObject", projectPath: PROJECT,
-            file: SCRIPT, line: 120 });
+            service: { full_service_path: "/shop" },
+            schema: { request_path: "/v1" },
+            object: { request_path: "/orders" }, file: SCRIPT, line: 120 });
 
         expect(editor()).toEqual([SCRIPT, 120, 0]);
     });

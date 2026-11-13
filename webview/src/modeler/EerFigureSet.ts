@@ -26,6 +26,7 @@ import {
     figureColor,
     figureType,
     IMAGE_FIGURE,
+    inElevationRange,
     LAYER_COLOR,
     NOTE_FIGURE,
     EVENT_GROUP_FIGURE,
@@ -94,6 +95,7 @@ import {
     slabUnder,
     Z,
 } from "../canvas/threeHelpers.js";
+import type { IDiagramTheme } from "../canvas/theme.js";
 import { foreignKeyOf, sameName, type ISchemaCatalog } from "./catalog.js";
 import { syncConnections } from "./connectionSync.js";
 import {
@@ -351,9 +353,6 @@ const LAYER_FRONT_REACH_PX = 6;
 /** A layer's name: where it sits, in page units from the layer's corner. */
 const LAYER_LABEL = { left: 6, top: 4, height: 18, fontSize: 12 } as const;
 
-/** How high a layer can be raised, in page units. */
-const MAX_LAYER_ELEVATION = 240;
-
 /** A layer's colour where it has none. */
 const DEFAULT_LAYER_COLOR = new THREE.Color("#e0e0e0");
 
@@ -364,15 +363,6 @@ const DEFAULT_LAYER_COLOR = new THREE.Color("#e0e0e0");
  */
 const ownElevation = (figure: IModelFigure): number => {
     return inElevationRange(figure.elevation ?? 0);
-};
-
-/**
- * @param elevation A height a figure or a layer is raised to.
- *
- * @returns It, kept in the layers' range.
- */
-const inElevationRange = (elevation: number): number => {
-    return Math.min(MAX_LAYER_ELEVATION, Math.max(0, elevation));
 };
 
 /** The texture scales a card is drawn at: device pixels per unit. */
@@ -443,6 +433,27 @@ const uprightGeometry = <T extends THREE.BufferGeometry>(
  */
 const sideLabelWidth = (width: number): number => {
     return Math.max(1, width - 2 * CARD.radius);
+};
+
+/**
+ * @param theme The diagram's theme.
+ *
+ * @returns A shadow on the page, its geometry still to be set: built
+ *          again on a change of theme (`setTheme`).
+ */
+const shadowMesh = (
+    theme: IDiagramTheme,
+): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> => {
+    const shadow = new THREE.Mesh(new THREE.BufferGeometry(),
+        new THREE.MeshBasicMaterial({
+            color: theme.shadow,
+            transparent: true,
+            opacity: theme.dark ? SHADOW_OPACITY.dark : SHADOW_OPACITY.light,
+            depthWrite: false,
+        }));
+    setDrawOrder(shadow, DRAW_ORDER.shadows);
+
+    return shadow;
 };
 
 /**
@@ -1495,15 +1506,7 @@ export class EerFigureSet implements IFigureSet {
         setDrawOrder(label, DRAW_ORDER.base + 0.5);
         // Its shadow on the page, as a card's on what it lies on: built
         // again on a change of theme (`setTheme`).
-        const shadow = new THREE.Mesh(new THREE.BufferGeometry(),
-            new THREE.MeshBasicMaterial({
-                color: theme.shadow,
-                transparent: true,
-                opacity: theme.dark
-                    ? SHADOW_OPACITY.dark : SHADOW_OPACITY.light,
-                depthWrite: false,
-            }));
-        setDrawOrder(shadow, DRAW_ORDER.shadows);
+        const shadow = shadowMesh(theme);
         this.#base.add(slab, plate, border, label, shadow);
 
         const node: ILayerNode = {
@@ -1698,16 +1701,7 @@ export class EerFigureSet implements IFigureSet {
         side.visible = isCard(kind);
         slab.add(side);
 
-        const shadow = new THREE.Mesh(new THREE.BufferGeometry(),
-            new THREE.MeshBasicMaterial({
-                color: host.theme.shadow,
-                transparent: true,
-                // Built again on a change of theme (`setTheme`).
-                opacity: host.theme.dark
-                    ? SHADOW_OPACITY.dark : SHADOW_OPACITY.light,
-                depthWrite: false,
-            }));
-        setDrawOrder(shadow, DRAW_ORDER.shadows);
+        const shadow = shadowMesh(host.theme);
         this.#base.add(shadow);
         // A picture lies on its layer as it is: no card under it, which
         // would show through a transparent one.

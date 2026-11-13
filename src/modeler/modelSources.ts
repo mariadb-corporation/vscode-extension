@@ -34,7 +34,7 @@ import { schemaNameOfFolder } from "../msm/msmFields.js";
 import { ActionGroup, type ActionPutter } from "../restd/actionGroup.js";
 import { counted, errorText } from "../text.js";
 import type { DiagramDrafts } from "./diagramDrafts.js";
-import { editTitle } from "./editTitles.js";
+import { editTitle, nameOf } from "./editTitles.js";
 import {
     assembleSchemaModel,
     DIAGRAM_FORMAT,
@@ -740,16 +740,12 @@ export class ProjectModelSource implements IModelSource {
         baseHash: string,
         words: { doing: string; done: string },
     ): Promise<string[]> {
-        await this.flush();
-        const dropped = await this.#enqueuedAction(words, "msm.drop_rest_object",
-            { ...item }, (api) => {
+        return this.#dropFromProject(words, "msm.drop_rest_object", { ...item },
+            (api) => {
                 return api.dropRestObject(this.projectPath, item, baseHash);
             }, (result) => {
                 return counted(result.removed.length, "statement");
             });
-        this.#bases = hashesOf(dropped.rows);
-
-        return dropped.notes.map((note) => { return note.message; });
     }
 
     /**
@@ -767,9 +763,9 @@ export class ProjectModelSource implements IModelSource {
         name: string,
         baseHash: string,
     ): Promise<string[]> {
-        await this.flush();
         const object = `the ${kind} ${name}`;
-        const dropped = await this.#enqueuedAction({
+
+        return this.#dropFromProject({
             doing: `Removing ${object} from ${this.#schema}`,
             done: `Removed ${object} from ${this.#schema}`,
         }, "msm.drop_schema_object", { kind, name }, (api) => {
@@ -778,6 +774,31 @@ export class ProjectModelSource implements IModelSource {
         }, (result) => {
             return counted(result.files.length, "file");
         });
+    }
+
+    /**
+     * Drops something from the project after the edits waiting, in turn
+     * with the viewer's, and takes the snapshot's hashes msm answers with.
+     *
+     * @param words What the Actions tab says of it.
+     * @param tool The msm tool.
+     * @param args Its arguments, for the Actions tab.
+     * @param call The call.
+     * @param detail What the Actions tab says it did.
+     *
+     * @returns msm's notes, for a person.
+     */
+    async #dropFromProject<T extends { rows: Parameters<typeof hashesOf>[0];
+        notes: Array<{ message: string }> }>(
+        words: { doing: string; done: string },
+        tool: string,
+        args: Record<string, unknown>,
+        call: (api: IMsmApi) => Promise<T>,
+        detail: (value: T) => string,
+    ): Promise<string[]> {
+        await this.flush();
+        const dropped = await this.#enqueuedAction(words, tool, args, call,
+            detail);
         this.#bases = hashesOf(dropped.rows);
 
         return dropped.notes.map((note) => { return note.message; });
@@ -923,13 +944,8 @@ export const isStaleSnapshot = (message: string): boolean => {
 export const describeEdit = (edit: IMsmSchemaEdit): string => {
     // A name, or an object named: `add_table`'s table.
     const names = ["table", "view", "routine", "column", "foreign_key",
-        "index", "name"].map((key) => {
-        const value = edit[key];
-
-        return typeof value === "object" && value !== null
-            ? (value as { name?: unknown }).name
-            : value;
-    }).filter((value): value is string => { return typeof value === "string"; });
+        "index", "name"].map((key) => { return nameOf(edit[key]); })
+        .filter((value) => { return value !== undefined; });
     const renamed = typeof edit.new_name === "string"
         ? [`-> ${edit.new_name}`] : [];
 

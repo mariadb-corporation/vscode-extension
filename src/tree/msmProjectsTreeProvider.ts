@@ -277,7 +277,7 @@ export const MSM_DIAGRAM_CLICK_COMMAND = "mariadb.msm.diagramClicked";
 /**
  * Every click on a schema, object, REST or diagram item row: a
  * double-click opens it (`ProjectNavigation`). Kept here, as the tree
- * draws it, with the same id as `MSM_NAVIGATION_COMMANDS.rowClicked`.
+ * draws it.
  */
 export const MSM_ROW_CLICK_COMMAND = "mariadb.msm.rowClicked";
 
@@ -523,7 +523,19 @@ export class MsmProjectsTreeProvider
     public diagramSaved(projectPath: string, document: IDiagramDocument): void {
         this.#diagrams.set(diagramKey(projectPath, document.name),
             Promise.resolve(document));
-        this.#onDidChangeTreeData.fire(undefined);
+        // The listing keeps the figure count its row shows.
+        void (this.#listings.get(projectPath) ?? Promise.resolve(undefined))
+            .then((listing) => {
+                const listed = listing?.diagrams.find((entry) => {
+                    return entry.name === document.name;
+                });
+                if (listed !== undefined) {
+                    listed.figures = document.figures.length;
+                }
+            }, () => { /* Read again on the next expand. */ })
+            .finally(() => {
+                this.#onDidChangeTreeData.fire(undefined);
+            });
     }
 
     /**
@@ -639,7 +651,7 @@ export class MsmProjectsTreeProvider
             case "diagramLayer":
             case "diagramFigure":
             case "diagramMember": {
-                return diagramRowItem(node, this.host.resolveIcon);
+                return diagramRowTreeItem(node, this.host.resolveIcon);
             }
 
             case "objectGroup": {
@@ -715,10 +727,11 @@ export class MsmProjectsTreeProvider
                 }
 
                 case "diagram": {
-                    const [document, definition] = await Promise.all([
-                        this.#diagram(node.projectPath, node.name),
-                        this.snapshot(node.projectPath),
-                    ]);
+                    // In turn: reading the diagram keeps the snapshot that
+                    // comes with it.
+                    const document = await this.#diagram(node.projectPath,
+                        node.name);
+                    const definition = await this.snapshot(node.projectPath);
 
                     return document === undefined ? [] : diagramRowsOf(
                         { projectPath: node.projectPath, diagram: node.name },
@@ -803,6 +816,10 @@ export class MsmProjectsTreeProvider
             async () => {
                 const rows = await (await this.host.msmApi())
                     .getSchemaDiagrams(projectPath, name);
+                if (!this.#snapshots.has(projectPath)) {
+                    this.#snapshots.set(projectPath,
+                        Promise.resolve(schemaDefinitionOf(rows)));
+                }
                 const row = rows.find((entry) => {
                     return entry.format === DIAGRAM_FORMAT
                         && entry.name === name;
@@ -938,20 +955,10 @@ export class MsmProjectsTreeProvider
     async #diagramsOf(projectPath: string): Promise<IMsmDiagramNode[]> {
         const listing = await this.#listingOf(projectPath);
 
-        return Promise.all((listing?.diagrams ?? []).map(async (diagram) => {
-            // A diagram saved since was listed with its old figures.
-            const saved = await this.#diagrams.get(
-                diagramKey(projectPath, diagram.name))?.catch(() => {
-                return undefined;
-            });
-
-            return {
-                kind: "diagram" as const,
-                projectPath,
-                name: diagram.name,
-                figures: saved?.figures.length ?? diagram.figures,
-            };
-        }));
+        return (listing?.diagrams ?? []).map((diagram) => {
+            return { kind: "diagram" as const, projectPath,
+                name: diagram.name, figures: diagram.figures };
+        });
     }
 
     /**
@@ -1299,7 +1306,7 @@ export class MsmProjectsTreeProvider
  * @returns Its id: the same across refreshes and restarts, so the rows
  *          left expanded are drawn so again.
  */
-const rowIdOf = (node: Exclude<MsmProjectsNode, IMsmFolderNode>): string => {
+export const rowIdOf = (node: Exclude<MsmProjectsNode, IMsmFolderNode>): string => {
     switch (node.kind) {
         case "project": {
             return `msmProject:${node.project.projectPath}`;
@@ -1510,7 +1517,7 @@ const FIGURE_ICONS: Record<IDiagramFigureNode["figureKind"],
  * @returns Its row: a layer with the figures lying on it, a group with
  *          its routines or events.
  */
-const diagramRowItem = (
+const diagramRowTreeItem = (
     node: IDiagramLayerNode | IDiagramFigureNode | IDiagramMemberNode,
     resolveIcon: IconResolver,
 ): vscode.TreeItem => {

@@ -440,11 +440,10 @@ export class SchemaObjectCommands {
         const action = `Delete ${label}`;
         const answer = await vscode.window.showWarningMessage(
             `Delete the ${kind} ${row.name} from the MSM project of `
-            + `${row.schema}?`, { modal: true, detail: kind === "table"
-                ? "Its triggers are deleted with it. Once the project has "
-                    + "a release, the next update script drops it."
-                : "Once the project has a release, the next update script "
-                    + "drops it." }, action);
+            + `${row.schema}?`, { modal: true, detail: (kind === "table"
+                ? "Its triggers are deleted with it. " : "")
+                + "Once the project has a release, the next update script "
+                + "drops it." }, action);
         if (answer !== action) {
             return;
         }

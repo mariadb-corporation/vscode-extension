@@ -48,7 +48,7 @@ const KIND_WORDS: Record<string, string> = {
  *
  * @returns The name, if it has one.
  */
-const nameOf = (value: unknown): string | undefined => {
+export const nameOf = (value: unknown): string | undefined => {
     const name = typeof value === "object" && value !== null
         ? (value as { name?: unknown }).name : value;
 

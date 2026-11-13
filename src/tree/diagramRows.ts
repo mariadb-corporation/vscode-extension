@@ -30,6 +30,8 @@ import type {
 import type { ObjectType } from "../mcp/types.js";
 import {
     EVENT_GROUP_FIGURE,
+    figureType,
+    inElevationRange,
     REST_OBJECT_FIGURE,
     ROUTINE_GROUP_FIGURE,
     SEQUENCE_FIGURE,
@@ -97,8 +99,7 @@ const KIND_ORDER: readonly DiagramFigureKind[] = ["table", "view",
 export const figureKindOf = (
     figure: IModelFigure,
 ): DiagramFigureKind | undefined => {
-    // A figure without a type is a table's, as msm writes it.
-    switch (figure.type ?? TABLE_FIGURE) {
+    switch (figureType(figure)) {
         case TABLE_FIGURE: { return "table"; }
         case VIEW_FIGURE: { return "view"; }
         case SEQUENCE_FIGURE: { return "sequence"; }
@@ -190,7 +191,17 @@ export const diagramRowsOf = (
     diagram: Pick<IModelDiagram, "layers" | "figures">,
     definition?: ISchemaDefinition,
 ): Array<IDiagramLayerNode | IDiagramFigureNode> => {
-    const layerIds = new Set(diagram.layers.map((layer) => { return layer.id; }));
+    const layerById = new Map(diagram.layers.map((layer) => {
+        return [layer.id, layer];
+    }));
+    const listedOn = new Map<string, string>();
+    for (const layer of diagram.layers) {
+        for (const id of layer.figures) {
+            if (!listedOn.has(id)) {
+                listedOn.set(id, layer.id);
+            }
+        }
+    }
     const onLayer = new Map<string, IDiagramFigureNode[]>();
     const loose: IDiagramFigureNode[] = [];
     for (const figure of diagram.figures) {
@@ -198,24 +209,25 @@ export const diagramRowsOf = (
         if (figureKind === undefined) {
             continue;
         }
-        const filedUnder = diagram.layers.find((entry) => {
-            return entry.id === figure.layer;
-        });
+        const filedUnder = figure.layer === undefined
+            ? undefined
+            : layerById.get(figure.layer);
         const row: IDiagramFigureNode = { ...place, kind: "diagramFigure",
             figureKind, figure, label: labelOf(figure, figureKind),
             members: membersOf(figure, figureKind, place, definition),
             ...filedUnder === undefined ? {} : { layer: filedUnder } };
         // Filed under its layer, as the viewer keeps it; one naming a
         // layer the diagram has not is on none.
-        const layer = figure.layer !== undefined && layerIds.has(figure.layer)
-            ? figure.layer
-            : diagram.layers.find((entry) => {
-                return entry.figures.includes(figure.id);
-            })?.id;
+        const layer = filedUnder?.id ?? listedOn.get(figure.id);
         if (layer === undefined) {
             loose.push(row);
         } else {
-            onLayer.set(layer, [...onLayer.get(layer) ?? [], row]);
+            const rows = onLayer.get(layer);
+            if (rows === undefined) {
+                onLayer.set(layer, [row]);
+            } else {
+                rows.push(row);
+            }
         }
     }
     const layers = [...diagram.layers]
@@ -226,14 +238,6 @@ export const diagramRowsOf = (
         });
 
     return [...layers, ...loose.sort(byKindAndLabel)];
-};
-
-/** The highest a figure or a layer is raised, as the viewer keeps it. */
-const MAX_ELEVATION = 240;
-
-/** @returns A height kept in the range the viewer keeps heights in. */
-const inElevationRange = (elevation: number | undefined): number => {
-    return Math.min(MAX_ELEVATION, Math.max(0, elevation ?? 0));
 };
 
 /**
