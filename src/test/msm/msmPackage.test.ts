@@ -27,6 +27,7 @@ import {
     MSM_LIST_COMMANDS,
 } from "../../msm/msmCommands.js";
 import { MRS_ADD_OBJECT_COMMANDS } from "../../mrs/mrsCommands.js";
+import { MSM_NAVIGATION_COMMANDS } from "../../msm/projectNavigation.js";
 import { MSM_FOLDER_COMMANDS } from "../../msm/msmProjectsCommands.js";
 import {
     MSM_ADD_COMMANDS,
@@ -161,6 +162,7 @@ describe("the MariaDB Schema Management menu", () => {
             ...Object.values(MSM_SCHEMA_COMMANDS),
             ...Object.values(MSM_ADD_COMMANDS),
             ...Object.values(MSM_DELETE_COMMANDS),
+            ...Object.values(MSM_NAVIGATION_COMMANDS),
             ...Object.values(MSM_TEMPLATE_COMMANDS), MSM_IMPORT_COMMAND];
         expect(commands.filter((entry) => {
             return entry.command.startsWith("mariadb.msm.");
@@ -307,11 +309,38 @@ describe("the MSM Projects view's menus", () => {
 
     it("makes a project's schema snapshot again from its schema row, and "
         + "renames the schema", () => {
-        expect(onRow("mariadbMsmSchema", true))
-            .toEqual([MSM_SCHEMA_COMMANDS.updateSnapshot]);
+        expect(onRow("mariadbMsmSchema", true)).toEqual([
+            MSM_SCHEMA_COMMANDS.updateSnapshot,
+            MSM_NAVIGATION_COMMANDS.openDefinition]);
         expect(onRow("mariadbMsmSchema", false)).toEqual([
             MSM_SCHEMA_COMMANDS.updateSnapshot, MSM_DIAGRAM_COMMANDS.create,
-            MSM_SCHEMA_COMMANDS.rename, "mariadb.mrs.addSchema"]);
+            MSM_SCHEMA_COMMANDS.rename, "mariadb.mrs.addSchema",
+            MSM_NAVIGATION_COMMANDS.openDefinition]);
+    });
+
+    it("opens a schema's, object's or REST item's statement, and shows a "
+        + "diagram's layer or figure in it, from a button and the menu",
+    () => {
+        for (const row of ["mariadbMsmSchema", "mariadbMsmObject.table",
+            "mariadbMsmObject.event", "mariadbMsmRestService",
+            "mariadbMsmRestSchema", "mariadbMsmRestObject"]) {
+            expect(onRow(row, true), row)
+                .toContain(MSM_NAVIGATION_COMMANDS.openDefinition);
+            expect(onRow(row, false), row)
+                .toContain(MSM_NAVIGATION_COMMANDS.openDefinition);
+        }
+        for (const row of ["mariadbMsmDiagramLayer",
+            "mariadbMsmDiagramFigure.table", "mariadbMsmDiagramFigure.rest",
+            "mariadbMsmDiagramMember.function"]) {
+            expect(onRow(row, true), row)
+                .toEqual([MSM_NAVIGATION_COMMANDS.showInDiagram]);
+            expect(onRow(row, false), row)
+                .toEqual([MSM_NAVIGATION_COMMANDS.showInDiagram]);
+        }
+        expect(onRow("mariadbMsmDiagram", true)).not
+            .toContain(MSM_NAVIGATION_COMMANDS.showInDiagram);
+        expect(onRow("mariadbMsmObjectGroup.table", true)).not
+            .toContain(MSM_NAVIGATION_COMMANDS.openDefinition);
     });
 
     it("adds a REST service from a project's MariaDB REST Service row, its "
@@ -344,15 +373,18 @@ describe("the MSM Projects view's menus", () => {
         // the Connections view's commands (msm removes their statements);
         // a server's other menus stay off them.
         expect(onRow("mariadbMsmRestService", false))
-            .toEqual(["mariadb.mrs.editService", "mariadb.mrs.deleteService"]);
+            .toEqual(["mariadb.mrs.editService", "mariadb.mrs.deleteService",
+                MSM_NAVIGATION_COMMANDS.openDefinition]);
         expect(onRow("mariadbMsmRestSchema", false))
-            .toEqual(["mariadb.mrs.editSchema", "mariadb.mrs.deleteSchema"]);
+            .toEqual(["mariadb.mrs.editSchema", "mariadb.mrs.deleteSchema",
+                MSM_NAVIGATION_COMMANDS.openDefinition]);
         // A REST object goes onto a diagram, as the project's objects do,
         // and is edited with the Connections view's dialog, as its table
         // is with the table editor.
         expect(onRow("mariadbMsmRestObject", false))
             .toEqual(["mariadb.addToDiagram", "mariadb.mrs.editDbObject",
-                "mariadb.mrs.deleteDbObject"]);
+                "mariadb.mrs.deleteDbObject",
+                MSM_NAVIGATION_COMMANDS.openDefinition]);
     });
 
     it("adds an empty diagram from the Diagrams folder's + and its menu, "

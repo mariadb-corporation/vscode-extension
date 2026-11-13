@@ -100,6 +100,8 @@ import {
     draggedObjects,
     objectRefOf,
 } from "./tree/schemaTree.js";
+import { diagramRowObject } from "./tree/diagramRows.js";
+import { ProjectNavigation } from "./msm/projectNavigation.js";
 import {
     COLLAPSED_FOLDERS_KEY,
     FolderColors,
@@ -965,6 +967,14 @@ export const activate = (context: vscode.ExtensionContext): void => {
             if (node?.kind === "object") {
                 objectDetails.show({ projectPath: node.projectPath },
                     objectRefOf(node));
+            } else if (node?.kind === "diagramFigure"
+                || node?.kind === "diagramMember") {
+                // A figure of a table, view or sequence, or a routine or
+                // event a group lists: its object.
+                const ref = diagramRowObject(node);
+                if (ref !== undefined) {
+                    objectDetails.show({ projectPath: node.projectPath }, ref);
+                }
             }
         }),
         connectionsView.onDidChangeSelection((event) => {
@@ -1168,6 +1178,9 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         { modal: true }, keep, "Use the Project's");
 
                     return answer === keep;
+                },
+                diagramSaved: (path, document) => {
+                    msmProjects.diagramSaved(path, document);
                 },
                 log,
             });
@@ -1631,6 +1644,17 @@ export const activate = (context: vscode.ExtensionContext): void => {
             reportError(log, error, "open the table editor");
         });
     };
+    // Open Definition and Show in Diagram on the MSM Projects rows, and
+    // a double-click on them.
+    context.subscriptions.push(...new ProjectNavigation({
+        outline: (file) => { return lspEdit.outline(file); },
+        developmentScript,
+        showInDiagram: (projectPath, diagram, itemId) => {
+            openProjectDiagram(projectPath, diagram);
+            ModelerPanel.reveal(projectDiagrams(projectPath), diagram, itemId);
+        },
+        log,
+    }).register());
     // Add Table... and the other kinds' Add on a project's group rows.
     context.subscriptions.push(...new SchemaObjectCommands({
         msmApi,

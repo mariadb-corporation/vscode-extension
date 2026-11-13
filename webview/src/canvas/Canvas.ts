@@ -744,6 +744,31 @@ export class Canvas {
     }
 
     /**
+     * Centres the view on an item, at the zoom it has, and selects it
+     * alone: its outline and handles show.
+     *
+     * @param id The item.
+     *
+     * @returns Whether the set has it (a diagram still loading has not).
+     */
+    public reveal(id: string): boolean {
+        const item = this.#set?.item(id);
+        if (item === undefined) {
+            return false;
+        }
+        const rect = item.rect();
+        this.#target.x = rect.left + rect.width / 2;
+        // 2D Front looks along the page's depth: across is all it moves.
+        if (!this.#isFront()) {
+            this.#target.z = rect.top + rect.height / 2;
+        }
+        this.#applyView();
+        this.#select([id], false);
+
+        return true;
+    }
+
+    /**
      * Sets the zoom, keeping the centre of the view where it is.
      *
      * @param zoom The zoom level, 1 being life size.

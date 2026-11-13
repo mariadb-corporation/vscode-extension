@@ -289,6 +289,11 @@ export type ModelerHostMessage =
     }
     /** Show another of the model's diagrams: opened again in the tree. */
     | { type: "showDiagram"; name: string }
+    /**
+     * Scroll a diagram to one of its items (a figure or a layer) and select
+     * it: Show in Diagram on a row of the MSM Projects view.
+     */
+    | { type: "revealItem"; diagram: string; id: string }
     /** Object Details changed the selected item. */
     | { type: "changeItem"; id: string; change: DiagramItemChange }
     /** The model could not be read. */

@@ -96,6 +96,8 @@ interface IFake {
     states: SaveState[];
     actions: IActionRow[];
     asked: string[];
+    /** The diagrams the MSM Projects view was told were saved. */
+    saved: string[];
     /** Makes the next save fail. */
     failSave: (error?: Error) => void;
     failRemove: (error?: Error) => void;
@@ -206,6 +208,7 @@ const setUp = (keep = false): IFake => {
     const states: SaveState[] = [];
     const actions: IActionRow[] = [];
     const asked: string[] = [];
+    const saved: string[] = [];
     const source = new ProjectModelSource(PROJECT, {
         msmApi: () => { return Promise.resolve(api); },
         put: (_connection, row) => { actions.push(row); },
@@ -215,12 +218,15 @@ const setUp = (keep = false): IFake => {
 
             return Promise.resolve(keep);
         },
+        diagramSaved: (path, document) => {
+            saved.push(`${path} ${document.name}`);
+        },
         log: () => { /* not looked at */ },
     }, 0);
     source.onSaveState = (state) => { states.push(state); };
 
     return {
-        source, calls, rows, drafts, states, actions, asked, listing,
+        source, calls, rows, drafts, states, actions, asked, saved, listing,
         failSave: (error = new Error("disk full")) => { saveError = error; },
         failRemove: (error = new Error("unknown tool")) => {
             removeError = error;
@@ -274,6 +280,8 @@ describe("ProjectModelSource", () => {
             expect(await fake.drafts.list(PROJECT)).toEqual([]);
             expect(fake.states.map((state) => { return state.state; }))
                 .toEqual(["pending", "saving", "saved"]);
+            // The MSM Projects view draws it as saved.
+            expect(fake.saved).toEqual([`${PROJECT} Main`]);
         });
 
     it("saves the last of quick changes once", async () => {

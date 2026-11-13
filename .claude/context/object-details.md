@@ -30,7 +30,8 @@ viewer is [`modeler.md`](modeler.md), its palette
 | File | Role |
 | --- | --- |
 | `src/tree/schemaTree.ts` | A schema's rows for both trees: row shapes (`ISchemaRow`, `IObjectGroupRow`, `IObjectRow`, ...) a tree's nodes extend with where they are (`uri` or `projectPath`), `objectGroupsOf` / `objectsOf`, the icons and labels, the item classes with a context-value prefix (`mariadb` / `mariadbMsm`: `mariadbObject.table`, `mariadbMsmObject.table`, so the live-only menus stay off MSM rows), `outlineObjects` (the snapshot's objects as `db.list_objects` lists them), `objectUriList` for drags, `ADD_TO_DIAGRAM_COMMAND` |
-| `src/tree/msmProjectsTreeProvider.ts` | A project's schema row, its Diagrams and object folders; the listing and snapshot read once per project until `refresh()`, `snapshot()` for the details view |
+| `src/tree/msmProjectsTreeProvider.ts` | A project's schema row, its Diagrams and object folders; the listing, snapshot and each diagram's document read once per project until `refresh()` (a diagram's also handed over by `diagramSaved`), `snapshot()` for the details view |
+| `src/tree/diagramRows.ts` | Pure: a diagram's rows below it (`diagramRowsOf`: layers with their figures, then figures on none; `figureKindOf`), the object a row shows for Object Details (`diagramRowObject`) |
 | `src/modeler/modelerProtocol.ts` | `ISchemaObjectRef`, the `mariadb-schema-object:` URIs a drag carries (`schemaObjectUri`, `parseSchemaObjectUris`, `isPlaceOf`), and the messages `placeObjects`, `applySchemaChange`, `selection` |
 | `webview/src/modeler/placeObjects.ts` | Pure: the figures and connections placing objects adds (`placementOf`), the objects of selected figures (`objectsOfFigures`) |
 | `src/details/detailEdits.ts` | Pure: a table change of the view (`TableDetailChange`) as edits and their inverse (`tableDetailEdits`) |
@@ -40,6 +41,46 @@ viewer is [`modeler.md`](modeler.md), its palette
 | `webview/src/details/DiagramItemFields.tsx` | The diagram item selected: a figure's or a layer's place and size, a figure's Upright, a figure's or a layer's color, a layer's tables, a line's tables, kind, offset and split |
 
 ## How it behaves
+
+- **A diagram row of MSM Projects expands** into the diagram's structure
+  (`diagramRows.ts`): its layers by name (`layers` codicon, "N figures"),
+  each with the figures filed under it (a figure's `layer`, else the
+  layer's `figures` list), then the figures on no layer; figures sorted
+  by kind (table, view, sequence, routine group, event group, REST
+  object), then by label. A routine or event group lists its routines
+  (procedure or function, as the snapshot has them) or events. A REST
+  object figure is labelled by its REST schema's and its own path, its
+  service as the description. Notes and images show no object and are
+  left out. Context values `mariadbMsmDiagramLayer`,
+  `mariadbMsmDiagramFigure.<kind>`, `mariadbMsmDiagramMember.<type>` (no
+  menus yet). The document is read with `msm.get_schema_diagrams(path,
+  name)` once until the project is refreshed; a viewer's save hands the
+  saved document over (`IProjectSourceHost.diagramSaved` ->
+  `MsmProjectsTreeProvider.diagramSaved`), so the rows and the diagram's
+  figure count follow moves onto layers and placed objects without a
+  read. Selecting a table's, view's or sequence's figure, or a group's
+  routine or event, shows that object in Object Details.
+- **Going to what a row stands for** (`src/msm/projectNavigation.ts`,
+  `MSM_NAVIGATION_COMMANDS`; MSM Projects only, a live schema has no
+  source): a `$(go-to-file)` button (and the menu's Open Definition) on
+  the schema, object and REST service / schema / object rows opens the
+  statement in its file, the name selected; a `$(eye)` button (Show in
+  Diagram) on a diagram's layer, figure and group member rows opens the
+  diagram, centred on the item (a member's group figure) and selected.
+  A double-click on those rows does the same (`mariadb.msm.rowClicked`
+  through `DoubleClick`; a single click only selects, which Object
+  Details follows): the REST rows no longer open on a single click.
+  Schema and objects are found in a fresh `mariadb-lsp outline` of the
+  development script (`definitions.ts`, `definitionOf`: `range` /
+  `selection_range`, `source` into `includes` for an included file; the
+  schema by name, else every schema, as a script may name it through a
+  placeholder; a schema the script does not declare opens the script),
+  not in the snapshot, which may be older. REST rows keep the file and
+  line their row has (`restScript.ts`). Show in Diagram:
+  `ModelerPanel.reveal` (kept until the page has the model) posts
+  `revealItem`; the viewer keeps it until `Canvas.load` has put the view
+  in place (`readyRef`), then `Canvas.reveal(id)` centres the view on the
+  item at its zoom (across only in 2D Front) and selects it.
 
 - **The schema row** reads msm's snapshot (`msm.get_schema_diagrams`, the
   `msm-schema/1` row), which is what the diagrams draw and edit against.

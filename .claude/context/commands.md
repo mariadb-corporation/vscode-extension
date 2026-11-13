@@ -57,6 +57,9 @@ Part of [PROJECT_CONTEXT.md](../PROJECT_CONTEXT.md).
 | `mariadb.msm.importLiveSchema` | New MSM Project from Schema... | A Connections view schema row (not the palette). Lists the schema's objects, opens the wizard on them, runs the import as a task (see [msm.md](msm.md)) |
 | `mariadb.msm.addTable` ... `addSequence` | Add Table... / View... / Procedure... / Function... / Trigger... / Event... / Sequence... | An MSM project's object group row, inline `$(add)` and its menu. A table opens the table editor on a new table; the others are named and added from a template through msm (see [msm.md](msm.md)) |
 | `mariadb.msm.deleteTable` ... `deleteSequence` | Delete Table... / View... / Procedure... / Function... / Trigger... / Event... / Sequence... | An MSM project's object row, its menu. Confirmed, then dropped through `msm.drop_schema_object` (see [msm-schema-objects.md](msm-schema-objects.md)) |
+| `mariadb.msm.openDefinition` | Open Definition | An MSM project's schema, object and REST service / schema / object rows: inline `$(go-to-file)` and the menu. The statement in its file (see [object-details.md](object-details.md)) |
+| `mariadb.msm.showInDiagram` | Show in Diagram | A diagram's layer, figure and group member rows below a project's diagram: inline `$(eye)` and the menu. Opens the diagram on the item, selected |
+| `mariadb.msm.rowClicked` | Open | Every click on those rows; a double-click does one of the two. Not in the palette |
 | `mariadb.msm.editObjectTemplate`, `resetObjectTemplate` | Edit Template... / Reset Template to msm's Default | The object group rows but Tables. The kind's template, the user's copy in the extension's storage |
 | `mariadb.msm.showProjectInformation` | Show MSM Project Information... | MariaDB Schema Management submenu of a `*.msm.project` folder; the palette asks for the folder |
 | `mariadb.msm.prepareRelease` | Prepare MSM Release... | As above |

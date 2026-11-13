@@ -357,6 +357,18 @@ export const ModelViewer = (): JSX.Element => {
     const viewsRef = useRef(new Map<string, IDiagramView>());
     /** The diagram on the canvas, whose view a change is of. */
     const shownRef = useRef<string>();
+    /** The diagram the canvas has finished loading, which can be revealed in. */
+    const readyRef = useRef<string>();
+    /** An item to show once its diagram is loaded (Show in Diagram). */
+    const revealRef = useRef<{ diagram: string; id: string }>();
+    /** Shows the item waiting, where its diagram is loaded. */
+    const revealWaiting = (): void => {
+        const waiting = revealRef.current;
+        if (waiting !== undefined && readyRef.current === waiting.diagram
+            && canvasRef.current?.reveal(waiting.id) === true) {
+            revealRef.current = undefined;
+        }
+    };
     /** Keeps the view once it settles. */
     const viewTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -763,6 +775,16 @@ export const ModelViewer = (): JSX.Element => {
                     break;
                 }
 
+                case "revealItem": {
+                    revealRef.current = { diagram: message.diagram,
+                        id: message.id };
+                    if (shownRef.current !== message.diagram) {
+                        setDiagramName(message.diagram);
+                    }
+                    revealWaiting();
+                    break;
+                }
+
                 case "applySchemaChange": {
                     loadedRef.current?.set.applySchemaChange(message.change);
                     break;
@@ -851,7 +873,13 @@ export const ModelViewer = (): JSX.Element => {
             setIsoPresetId(presetIdOf(view.isoPreset, true));
         }
         loaded.set.show(diagram);
+        // A reveal waits until the load has put the view where it goes.
+        readyRef.current = undefined;
         canvas.load(loaded.set, loaded.pageSettings, view)
+            .then(() => {
+                readyRef.current = diagram.name;
+                revealWaiting();
+            })
             .catch((reason: unknown) => {
                 setError(String(reason));
             });

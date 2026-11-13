@@ -87,7 +87,7 @@ export const OBJECT_TYPE_LABELS: Record<ObjectType, string> = {
 };
 
 /** The icon shown for a group of objects of one type. */
-const GROUP_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
+export const GROUP_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
     table: "schemaTables.svg",
     view: "schemaViews.svg",
     function: "schemaFunctions.svg",
@@ -98,7 +98,7 @@ const GROUP_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
 };
 
 /** The icon shown for a single object. */
-const OBJECT_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
+export const OBJECT_ICONS: Record<ObjectType, string | vscode.ThemeIcon> = {
     table: "schemaTable.svg",
     view: "schemaView.svg",
     function: "schemaFunction.svg",

@@ -257,6 +257,8 @@ export interface IProjectSourceHost {
      * @returns Whether to keep them over the project's diagram.
      */
     keepDraft(diagram: string, when: Date): Promise<boolean>;
+    /** A diagram was saved: the MSM Projects view draws it as saved. */
+    diagramSaved?(projectPath: string, document: IDiagramDocument): void;
     log(message: string): void;
 }
 
@@ -483,6 +485,7 @@ export class ProjectModelSource implements IModelSource {
         }
         const base = diagramHash(pending.document);
         this.#bases.set(name, base);
+        this.host.diagramSaved?.(this.projectPath, pending.document);
         const newer = this.#pending.get(name);
         if (newer === pending) {
             this.#pending.delete(name);

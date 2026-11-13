@@ -1341,6 +1341,23 @@
         "category": "MariaDB"
       },
       {
+        "command": "mariadb.msm.openDefinition",
+        "title": "Open Definition",
+        "category": "MariaDB",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "mariadb.msm.showInDiagram",
+        "title": "Show in Diagram",
+        "category": "MariaDB",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "mariadb.msm.rowClicked",
+        "title": "Open",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.msm.editObjectTemplate",
         "title": "Edit Template...",
         "category": "MariaDB"
@@ -2354,6 +2371,26 @@
           "command": "mariadb.msm.removeProjectFolder",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmFolder.empty",
           "group": "1_folder@2"
+        },
+        {
+          "command": "mariadb.msm.openDefinition",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsm(Schema|Object\\..+|RestService|RestSchema|RestObject)$/",
+          "group": "inline@9"
+        },
+        {
+          "command": "mariadb.msm.openDefinition",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsm(Schema|Object\\..+|RestService|RestSchema|RestObject)$/",
+          "group": "0_open@0"
+        },
+        {
+          "command": "mariadb.msm.showInDiagram",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagram(Layer|Figure\\..+|Member\\..+)$/",
+          "group": "inline@9"
+        },
+        {
+          "command": "mariadb.msm.showInDiagram",
+          "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagram(Layer|Figure\\..+|Member\\..+)$/",
+          "group": "0_open@0"
         }
       ],
       "editor/title": [
@@ -2479,6 +2516,18 @@
         },
         {
           "command": "mariadb.msm.deleteSequence",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.openDefinition",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.showInDiagram",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.msm.rowClicked",
           "when": "false"
         },
         {
