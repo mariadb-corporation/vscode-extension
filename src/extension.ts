@@ -107,6 +107,7 @@ import {
 } from "./tree/diagramRows.js";
 import {
     diagramItemIdOf,
+    isDiagramRow,
     ProjectNavigation,
 } from "./msm/projectNavigation.js";
 import {
@@ -1001,9 +1002,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
             if (node?.kind === "object") {
                 objectDetails.show({ projectPath: node.projectPath },
                     objectRefOf(node));
-            } else if (node?.kind === "diagramLayer"
-                || node?.kind === "diagramFigure"
-                || node?.kind === "diagramMember") {
+            } else if (node !== undefined && isDiagramRow(node)) {
                 showDiagramRow(node);
             }
         }),

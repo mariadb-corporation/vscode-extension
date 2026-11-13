@@ -55,7 +55,9 @@ export interface IProjectNavigationHost {
 }
 
 /** @returns Whether a row is a diagram's layer, figure or group member. */
-const isDiagramRow = (node: MsmProjectsNode): node is DiagramRowNode => {
+export const isDiagramRow = (
+    node: MsmProjectsNode,
+): node is DiagramRowNode => {
     return node.kind === "diagramLayer" || node.kind === "diagramFigure"
         || node.kind === "diagramMember";
 };

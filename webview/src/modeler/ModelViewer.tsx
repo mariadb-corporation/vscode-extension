@@ -364,8 +364,10 @@ export const ModelViewer = (): JSX.Element => {
     /** Shows the item waiting, where its diagram is loaded. */
     const revealWaiting = (): void => {
         const waiting = revealRef.current;
-        if (waiting !== undefined && readyRef.current === waiting.diagram
-            && canvasRef.current?.reveal(waiting.id) === true) {
+        // Once its diagram is loaded it is done with, shown or not (an
+        // item since removed): it would jump there on a later load.
+        if (waiting !== undefined && readyRef.current === waiting.diagram) {
+            canvasRef.current?.reveal(waiting.id);
             revealRef.current = undefined;
         }
     };
@@ -565,15 +567,20 @@ export const ModelViewer = (): JSX.Element => {
             onTool: (next) => { setTool(next); },
             onHint: setHint,
             onSelection: (ids) => {
+                const before = selectedRef.current;
                 selectedRef.current = ids;
                 const shown = loadedRef.current;
                 if (shown === undefined) {
                     return;
                 }
                 // Nothing selected (a click on the canvas): Object Details
-                // empties, the object with the item.
+                // empties, the object with the item. Nothing selected
+                // before either (a theme change, a figure removed): it
+                // keeps what it shows, which may be a tree's object.
                 if (ids.length === 0) {
-                    post({ type: "selection", objects: [] });
+                    if (before.length > 0) {
+                        post({ type: "selection", objects: [] });
+                    }
 
                     return;
                 }

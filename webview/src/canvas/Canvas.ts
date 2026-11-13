@@ -754,7 +754,11 @@ export class Canvas {
         const known = ids.filter((id) => {
             return this.#set?.item(id) !== undefined;
         });
-        this.#select(known, false);
+        // None known (an item since removed): the selection stays, rather
+        // than emptied along with Object Details.
+        if (known.length > 0) {
+            this.#select(known, false);
+        }
 
         return known.length === ids.length;
     }
