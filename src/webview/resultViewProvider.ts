@@ -624,10 +624,13 @@ export class ResultViewProvider
      *
      * @param connection The connection the failure was on; the one on show
      *     where it is not known.
+     * @param atFailure Whether it goes to the newest failure: not for work
+     *     about to start, whose own rows are what to see.
      *
      * @returns Nothing.
      */
-    public async showActions(connection?: string): Promise<void> {
+    public async showActions(connection?: string,
+        atFailure = true): Promise<void> {
         if (connection !== undefined) {
             this.#setActive(connection);
             // The failure may be on any connection open on the URI.
@@ -636,7 +639,7 @@ export class ResultViewProvider
         await this.reveal();
         await this.#sendState();
 
-        const failed = this.#active === undefined ? undefined
+        const failed = this.#active === undefined || !atFailure ? undefined
             : this.#shownActions(this.#active).find((row) => {
                 return row.kind === "error";
             });
