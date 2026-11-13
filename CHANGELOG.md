@@ -6,6 +6,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [26.11.0] - 2026-11-13
+
 ### Added
 
 - **MariaDB Notebooks (preview).** New Notebook, on a connection's context
@@ -58,11 +60,19 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Changed
 
-- **Requires MariaDB Shell 26.11.0** (was 26.10.3), the first release
-  whose background tasks are the shell's own (`mysqlsh.task_manager`). Dumps,
-  loads, copies, exports and imports are followed and cancelled with the
-  MCP server's `task.get` and `task.cancel` (were `util.get_task` and
-  `util.cancel_task`, which the server no longer has).
+- **Requires MariaDB Shell 26.11.1** (was 26.10.3), and installs it when
+  there is none. 26.11.0 is the first release whose background tasks are
+  the shell's own (`mysqlsh.task_manager`): dumps, loads, copies, exports
+  and imports are followed and cancelled with the MCP server's `task.get`
+  and `task.cancel` (were `util.get_task` and `util.cancel_task`, which the
+  server no longer has). 26.11.1 is the first whose bundled plugins have
+  the MSM project list that the MariaDB Schema Management view needs.
+- **Installs mariadb-restd 26.11.0.** Set Up MariaDB REST Daemon, and New
+  Sandbox with the REST Service, install exactly this release of the
+  MariaDB REST Daemon where none at least that new is found (was the
+  newest release, whatever it was).
+- **Copilot skills from ai-plugins v26.10.6** (were v26.10.5): the same
+  85 MariaDB agent skills, in their newer release.
 - The `LICENSE` file follows legal's review: MariaDB plc, for its
   modifications and additions, also grants the additional permission to
   link with separately licensed software, and the third-party list adds
