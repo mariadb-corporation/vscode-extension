@@ -101,14 +101,14 @@
           "icon": "images/activityBar-shell.svg"
         },
         {
-          "id": "mariadb-deployments",
-          "title": "MariaDB Deployments",
-          "icon": "images/activityBar-dba.svg"
-        },
-        {
           "id": "mariadb-msm",
           "title": "MariaDB Schema Management",
           "icon": "images/activityBar-msm.svg"
+        },
+        {
+          "id": "mariadb-deployments",
+          "title": "MariaDB Deployments",
+          "icon": "images/activityBar-dba.svg"
         }
       ],
       "panel": [
