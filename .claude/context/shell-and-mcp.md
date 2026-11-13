@@ -33,7 +33,7 @@ which is what most of GUI mode exists for, is in
 | `sandboxApi.ts` | The `sandbox.*` tools as typed calls (`ISandboxApi`), with their timeouts; see [sandboxes.md](sandboxes.md). |
 | `session.ts` | `McpSession` — starts the server once and hands out the API, and `sandboxApi` beside it on the same connection. |
 | `serverStarter.ts` | `ServerStarter` — the whole way up (locate, install, start) once however many callers ask, and the phase the Connections view follows. |
-| `sdkConnector.ts` | The real connector, on `@modelcontextprotocol/sdk`'s stdio transport. Passes `timeoutMs` as the request's `timeout`. |
+| `sdkConnector.ts` | The real connector, on `@modelcontextprotocol/sdk`'s stdio transport. Passes `timeoutMs` as the request's `timeout`. Starts the server with `serverEnvironment()`: the SDK's default variables (HOME, PATH and the like; given no `env` it passes only those) plus every `MARIADB_*` one, as the shell reads its plugin path (`MARIADB_SHELL_PLUGINS_PATH`, `MARIADB_SHELL_DISABLE_BUILTIN_PLUGINS`) and the REST Daemon proxy settings from the environment only. Nothing else of the extension host's environment; the prefix ignores case on Windows, and values that look like shell functions are skipped as the SDK skips them. The other launches (Copilot's server, the version probe, `mariadb-lsp`) inherit the full environment. |
 
 ## Startup behaviour
 

@@ -18,7 +18,9 @@
 import type { Readable } from "node:stream";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+    getDefaultEnvironment, StdioClientTransport,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
 
 import { version } from "../../package.json";
 import type { McpServerCommand } from "../shell/mcpServer.js";
@@ -36,6 +38,38 @@ const STDERR_LINES_KEPT = 5;
  * the extension's own, read from package.json when the bundle is built.
  */
 const CLIENT_INFO = { name: "mariadb-vscode", version };
+
+/** The prefix of the variables the shell and its plugins read. */
+const SHELL_VARIABLE_PREFIX = "MARIADB_";
+
+/**
+ * The environment the server is started with.
+ *
+ * Given no `env`, the SDK passes on only a handful of variables (HOME, PATH
+ * and the like), which drops the MARIADB_* ones the shell reads its plugin
+ * path and the REST Daemon proxy settings from - and the shell reads those
+ * nowhere else. The rest of the extension host's environment (Electron's,
+ * VS Code's) is none of the server's business, so it stays behind.
+ *
+ * Names are matched without regard to case on Windows, whose environment
+ * is case-insensitive, and values that look like exported shell functions
+ * are skipped, as the SDK skips them.
+ *
+ * @returns The SDK's default variables plus every MARIADB_* one.
+ */
+export const serverEnvironment = (): Record<string, string> => {
+    const env = getDefaultEnvironment();
+    const windows = process.platform === "win32";
+    for (const [name, value] of Object.entries(process.env)) {
+        const key = windows ? name.toUpperCase() : name;
+        if (key.startsWith(SHELL_VARIABLE_PREFIX) && value !== undefined
+            && !value.startsWith("()")) {
+            env[name] = value;
+        }
+    }
+
+    return env;
+};
 
 /**
  * The real connector, backed by the MCP SDK's stdio transport.
@@ -55,6 +89,7 @@ export const createSdkConnector = (): IMcpConnector => {
             const transport = new StdioClientTransport({
                 command: command.command,
                 args: [...command.args],
+                env: serverEnvironment(),
                 stderr: "pipe",
             });
 
