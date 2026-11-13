@@ -2654,8 +2654,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
                         .map((stored) => { return stored.uri; });
                 },
                 // The new sandbox's row shows while it deploys, and both
-                // views that list it are busy.
+                // views that list it are busy. The MariaDB panel comes up
+                // on General Actions, where the deploy's rows (and the
+                // REST Service's steps) report its progress.
                 withProgress: (options, work) => {
+                    void resultView.showActions(GENERAL_ACTIONS, false);
+
                     return sandboxes.deploying(options, () => {
                         const deploy = work();
                         showBusyIn([SANDBOXES_VIEW_ID, DEPLOYMENTS_VIEW_ID],

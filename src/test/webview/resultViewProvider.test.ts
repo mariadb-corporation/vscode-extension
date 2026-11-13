@@ -1750,6 +1750,23 @@ describe("ResultViewProvider", () => {
                 });
             });
 
+        it("brings up General Actions for work about to start, not at an "
+            + "older failure", async () => {
+                const { provider, view } = createWithSessions();
+                await provider.putAction("General Actions", {
+                    id: "sandbox-deploy-1", time: "12:00:00.000",
+                    connection: "General Actions", role: "run",
+                    statement: "", message: "Failed to create Sandbox",
+                    kind: "error",
+                });
+
+                await provider.showActions("General Actions", false);
+
+                expect(view.shown).toBeTruthy();
+                expect(view.webview.posted.at(-1)).toEqual({
+                    type: "showActions" });
+            });
+
         it("keeps General Actions on show once it was picked", async () => {
             const { provider, view } = createWithSessions();
             await provider.appendEvent(anEvent({

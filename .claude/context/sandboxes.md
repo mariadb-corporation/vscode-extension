@@ -61,7 +61,10 @@ MCP plugin's own `context/sandbox.md`.
   under it (`sandboxDeployRow`). It is not also reported as a call. Success
   is no notification any more; a failure shows in the dialog, or as a
   notification once it was closed, and the panel comes up on General
-  Actions (`onFailed`). Closing the dialog does not stop the deploy.
+  Actions (`onFailed`). The panel also comes up on General Actions as the
+  deploy starts (`withProgress`, `showActions(GENERAL_ACTIONS, false)`:
+  not scrolled to an older failure there), so its progress shows.
+  Closing the dialog does not stop the deploy.
 - **Every other `sandbox.*` call is a General Action** when
   `mariadb.actions.logAllCalls` is on: `createLoggingSandboxApi` wraps the
   API in `extension.ts`'s `sandboxApi()`, using the same
