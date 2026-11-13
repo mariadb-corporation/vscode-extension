@@ -17,10 +17,15 @@
 
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it, vi } from "vitest";
+import {
+    getDefaultEnvironment,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MariaDbApi } from "../../mcp/mariaDbApi.js";
-import { createSdkConnector } from "../../mcp/sdkConnector.js";
+import {
+    createSdkConnector, serverEnvironment,
+} from "../../mcp/sdkConnector.js";
 import type { McpServerCommand } from "../../shell/mcpServer.js";
 
 /**
@@ -37,6 +42,10 @@ const command: McpServerCommand = {
     command: process.execPath,
     args: [fakeServer],
 };
+
+afterEach(() => {
+    vi.unstubAllEnvs();
+});
 
 describe("createSdkConnector", () => {
     it("connects and calls a tool", async () => {
@@ -164,6 +173,28 @@ describe("createSdkConnector", () => {
         });
     }, 30_000);
 
+    it("starts the server with the MARIADB_* variables", async () => {
+        vi.stubEnv("MARIADB_SHELL_PLUGINS_PATH", "/plugins");
+        const lines: string[] = [];
+
+        // The child says what it was given and dies, which the failed
+        // start then quotes back.
+        await expect(createSdkConnector().open(
+            {
+                command: process.execPath,
+                args: [
+                    "-e",
+                    "process.stderr.write("
+                    + "process.env.MARIADB_SHELL_PLUGINS_PATH + '\\n');"
+                    + "process.exit(3);",
+                ],
+            },
+            (line) => { lines.push(line); },
+        )).rejects.toThrow();
+
+        expect(lines).toEqual(["/plugins"]);
+    }, 30_000);
+
     it("does not call a close it asked for unexpected", async () => {
         const lines: string[] = [];
         const connection = await createSdkConnector()
@@ -173,4 +204,31 @@ describe("createSdkConnector", () => {
 
         expect(lines.join("\n")).not.toContain("unexpectedly");
     }, 30_000);
+});
+
+describe("serverEnvironment", () => {
+    it("adds the MARIADB_* variables to the SDK's defaults", () => {
+        vi.stubEnv("MARIADB_SHELL_DISABLE_BUILTIN_PLUGINS", "1");
+        vi.stubEnv("MARIADB_RESTD_PROXY_HOST", "proxy.example");
+        vi.stubEnv("ELECTRON_RUN_AS_NODE", "1");
+        vi.stubEnv("mariadb_lowercase", "x");
+        vi.stubEnv("MY_MARIADB_THING", "y");
+
+        const env = serverEnvironment();
+
+        expect(env).toMatchObject(getDefaultEnvironment());
+        expect(env.MARIADB_SHELL_DISABLE_BUILTIN_PLUGINS).toBe("1");
+        expect(env.MARIADB_RESTD_PROXY_HOST).toBe("proxy.example");
+        expect(env).not.toHaveProperty("ELECTRON_RUN_AS_NODE");
+        if (process.platform !== "win32") {
+            expect(env).not.toHaveProperty("mariadb_lowercase");
+        }
+        expect(env).not.toHaveProperty("MY_MARIADB_THING");
+    });
+
+    it("leaves out a MARIADB_* variable that holds a shell function", () => {
+        vi.stubEnv("MARIADB_FUNCTION", "() { echo hi; }");
+
+        expect(serverEnvironment()).not.toHaveProperty("MARIADB_FUNCTION");
+    });
 });
