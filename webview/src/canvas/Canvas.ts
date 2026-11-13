@@ -1002,7 +1002,12 @@ export class Canvas {
         this.#renderer.setScissorTest(true);
         this.#renderer.setViewport(area.left, bottom, area.width, area.height);
         this.#renderer.setScissor(area.left, bottom, area.width, area.height);
-        this.#renderer.render(this.#scene, camera);
+        this.#set?.navigatorRender?.(true);
+        try {
+            this.#renderer.render(this.#scene, camera);
+        } finally {
+            this.#set?.navigatorRender?.(false);
+        }
         this.#renderer.setScissorTest(false);
         const viewport = this.#viewport();
         this.#renderer.setViewport(0, 0, viewport.width, viewport.height);

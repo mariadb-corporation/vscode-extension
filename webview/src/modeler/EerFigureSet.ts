@@ -194,6 +194,13 @@ import {
 const CONNECTION_WIDTH = 1.6;
 
 /**
+ * How wide they are drawn in the Navigator's overview, in CSS pixels: at
+ * its scale the main view's width made a relationship a blot between two
+ * tiny cards.
+ */
+const NAVIGATOR_CONNECTION_WIDTH = 0.5;
+
+/**
  * A non-identifying relationship's dashes, as Workbench draws them: on
  * and off, in page units.
  */
@@ -666,6 +673,8 @@ interface ILayerNode {
     slab: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     border: THREE.LineLoop<THREE.BufferGeometry, THREE.LineBasicMaterial>;
     label: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+    /** Its shadow on the page, while it stands above it. */
+    shadow: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
     labelWidth: number;
     builtName?: string;
     builtSize?: string;
@@ -1484,10 +1493,21 @@ export class EerFigureSet implements IFigureSet {
         // A layer's border and name go over its plate.
         setDrawOrder(border, DRAW_ORDER.base + 0.5);
         setDrawOrder(label, DRAW_ORDER.base + 0.5);
-        this.#base.add(slab, plate, border, label);
+        // Its shadow on the page, as a card's on what it lies on: built
+        // again on a change of theme (`setTheme`).
+        const shadow = new THREE.Mesh(new THREE.BufferGeometry(),
+            new THREE.MeshBasicMaterial({
+                color: theme.shadow,
+                transparent: true,
+                opacity: theme.dark
+                    ? SHADOW_OPACITY.dark : SHADOW_OPACITY.light,
+                depthWrite: false,
+            }));
+        setDrawOrder(shadow, DRAW_ORDER.shadows);
+        this.#base.add(slab, plate, border, label, shadow);
 
         const node: ILayerNode = {
-            layer, plate, slab, border, label, labelWidth: 0,
+            layer, plate, slab, border, label, shadow, labelWidth: 0,
             item: {
                 id: layer.id,
                 plane: "base",
@@ -1546,6 +1566,9 @@ export class EerFigureSet implements IFigureSet {
             node.border.geometry.dispose();
             node.border.geometry = new THREE.BufferGeometry()
                 .setFromPoints(shape.getPoints(6));
+            node.shadow.geometry.dispose();
+            node.shadow.geometry = shadowGeometry(layer.width, layer.height,
+                LAYER_RADIUS);
         }
         if (node.builtName !== layer.name) {
             node.builtName = layer.name;
@@ -1574,6 +1597,11 @@ export class EerFigureSet implements IFigureSet {
             z + Z.plate + this.#stackHeight(layer) - 0.01);
         node.slab.scale.z = liftScale(lift);
         node.border.position.set(center.x, center.y, z + Z.plateBorder);
+        // A raised layer's shadow lies on the page, a hair above the paper,
+        // offset as a card's; where it stands on the page, or the view is
+        // flat, it has none (it would darken its own plate in 2D).
+        node.shadow.visible = this.#elevation(layer) > 0 && lift > 0;
+        node.shadow.position.set(center.x + 1, center.y - 2, Z.shadow);
         node.label.position.set(
             layer.left + LAYER_LABEL.left + node.labelWidth / 2,
             -(layer.top + LAYER_LABEL.top + LAYER_LABEL.height / 2),
@@ -2060,11 +2088,14 @@ export class EerFigureSet implements IFigureSet {
             node.slab.position.set(center.x, center.y, z + Z.slab);
         }
         node.slab.scale.z = scale;
-        // At the figure's Z, not an upright card's foot a slab below it,
-        // which lies under the paper and would hide the shadow in 3D.
-        // On its layer's face, above the layer's slab.
-        const shadowZ = ((node.layer === undefined ? 0
-            : this.#layerTop(node.layer)) + ownElevation(node.figure)) * lift;
+        // On the surface under the figure - its layer's face, above the
+        // layer's slab, else the page - whatever its own Z: one raised
+        // above it casts its shadow down there, where the space between
+        // shows how high it stands. Raised with the figure, the shadow hid
+        // under its slab. Never an upright card's foot either, a slab
+        // lower, which lies under the paper and would hide it in 3D.
+        const shadowZ = (node.layer === undefined ? 0
+            : this.#layerTop(node.layer)) * lift;
         node.shadow.position.set(center.x + 1, center.y - 2,
             shadowZ + Z.shadow);
     }
@@ -2744,6 +2775,15 @@ export class EerFigureSet implements IFigureSet {
             if (now !== node.selected) {
                 node.selected = now;
                 this.#markConnection(node);
+            }
+        }
+    }
+
+    public navigatorRender(drawing: boolean): void {
+        const width = drawing ? NAVIGATOR_CONNECTION_WIDTH : CONNECTION_WIDTH;
+        for (const node of this.#connections) {
+            for (const line of [node.line, node.markers]) {
+                line.material.linewidth = width;
             }
         }
     }
@@ -3935,7 +3975,7 @@ export class EerFigureSet implements IFigureSet {
         const node = this.#layers.get(id);
         if (node !== undefined) {
             for (const object of [node.plate, node.slab, node.border,
-                node.label]) {
+                node.label, node.shadow]) {
                 object.removeFromParent();
                 disposeGroup(object);
             }

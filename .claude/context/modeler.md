@@ -365,14 +365,8 @@ plates, the grid, the paper and the printable area: see
   picture request that failed is not asked again; an `image` reply from
   before a reload reaches the new figure set, so a picture can be fetched
   and decoded twice.
-- **Rendering the viewer without VS Code**: headless Chrome
-  (`--headless=new --enable-unsafe-swiftshader --use-angle=swiftshader
-  --screenshot`) on a page with `dist/webview/modeler.{js,css}` inlined
-  (`file://` refuses module scripts; serve nothing) and a stand-in
-  `acquireVsCodeApi` that answers `ready` with a `load` (and
-  `imageWanted` with an `image`), the CSS variables of a theme on the
-  body. Build the bundle with `vite build --config
-  vite.modeler.config.ts` first.
+- **Rendering the viewer without VS Code**: see
+  [testing-and-debugging.md](testing-and-debugging.md).
 - Not yet tried in a running VS Code: a project's diagrams opened from
   MSM Projects or the Explorer, the saves and drafts, the restore after a
   restart, a rename through `msm.edit_schema`. Nor (the rendering was:
@@ -381,7 +375,9 @@ plates, the grid, the paper and the printable area: see
   the Connections view's Diagrams folder against a live schema with the
   view, the double-click, the pre-selected diagram, the Actions rows on
   the "Diagram" session, the Navigator's zoom list, layer moves with
-  their tables and Option + drag.
+  their tables and Option + drag; the elevation handle, layers in 2D
+  Front, Show in Diagram and a tree row's `selectItem` were checked
+  headless only.
 - A project's diagrams are saved; a live schema's never are (their
   changes last the panel). The history is not shown anywhere yet. Tables
   and columns are renamed; new tables, views, procedures and foreign keys

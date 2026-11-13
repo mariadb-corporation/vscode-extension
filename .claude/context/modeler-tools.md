@@ -217,7 +217,7 @@ show how to make a project.
 
 ## Rendering it without VS Code
 
-The headless recipe in `modeler.md` works for the tools too, when Chrome
+The headless recipe in `testing-and-debugging.md` works for the tools too, when Chrome
 is driven over the DevTools protocol (`--remote-debugging-port`; Node's
 own `WebSocket` sends `Input.dispatchMouseEvent` / `dispatchKeyEvent` /
 `insertText`, `Page.captureScreenshot`). Real input events matter:

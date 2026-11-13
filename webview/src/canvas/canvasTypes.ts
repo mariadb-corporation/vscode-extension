@@ -499,6 +499,14 @@ export interface IFigureSet {
     grabAt?(probe: IProbe): IGrab | undefined;
     /** A frame is about to be drawn: sizes kept in pixels follow the zoom. */
     beforeRender?(): void;
+    /**
+     * The Navigator's overview is about to be drawn (true), from the same
+     * scene, or has been (false): what is drawn in screen pixels, too heavy
+     * at its scale, can be drawn lighter for it and put back.
+     *
+     * @param drawing Whether it is being drawn.
+     */
+    navigatorRender?(drawing: boolean): void;
 }
 
 /** Where an item's menu button goes. */

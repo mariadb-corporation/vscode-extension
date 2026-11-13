@@ -77,7 +77,7 @@ viewer is [`modeler.md`](modeler.md), its palette
   diagram, centred on the item (a member's group figure) and selected.
   A double-click on those rows does the same (`mariadb.msm.rowClicked`
   through `DoubleClick`; a single click only selects, which Object
-  Details follows): the REST rows no longer open on a single click.
+  Details follows), so no row opens on a single click.
   Schema and objects are found in a fresh `mariadb-lsp outline` of the
   development script (`definitions.ts`, `definitionOf`: `range` /
   `selection_range`, `source` into `includes` for an included file; the
@@ -218,8 +218,8 @@ viewer is [`modeler.md`](modeler.md), its palette
   click on the canvas, or several items) empties the view, the object
   with the item (`ObjectDetailsProvider.showSelection` -> `clear`): the
   viewer posts an empty `selection` for it (`onSelection` in
-  `ModelViewer.tsx`; it used to post an item-only `item`, which dropped
-  the item and kept the object).
+  `ModelViewer.tsx`), not an item-only `item`, which would drop the item
+  and keep the object.
 - **A relationship's kind** (1:1 / 1:n, identifying or not:
   `relationshipKindOf`, as msm derives `many`) is changed as a schema
   change (`relationshipKindChange`, sent through

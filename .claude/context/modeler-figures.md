@@ -26,7 +26,11 @@ the same Z it stands where the lying cards' slabs end, not on their faces
 lines and its marks follow. The stored `elevation` is unchanged. Its
 shadow is not lowered with it: shadows lie in the base group, without
 the lifted plane's offset, and a slab lower is under the paper, hidden
-in 3D (`#placeFigure` places it at the figure's Z).
+in 3D. **A shadow lies on the surface under its figure** (`#placeFigure`):
+its layer's face, else the page, whatever the figure's own Z, so a card
+raised above its layer casts it down there, the space between showing
+its height. Raised with the figure, it would hide under the card's own
+slab for any Z above 0.
 msm keeps `upright` and `depth` (mariadb-shell-plugins #114): a missing
 or non-boolean `upright` is the kind's default, an upright figure's
 footprint is `width x depth` (20 where missing), a flat one's `width x

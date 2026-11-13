@@ -290,6 +290,24 @@ runner end anyway. A spawn that fails is reported with its error.
     (`projects / msm_shop.msm.project`); `ui-test/settings.json` turns
     `explorer.compactFolders` off so each folder is a row to right-click.
 
+## Rendering the webviews headless
+
+Without VS Code or ExTester, to see a viewer or Object Details change:
+
+- **Rendering the viewer without VS Code**: headless Chrome
+  (`--headless=new --enable-unsafe-swiftshader --use-angle=swiftshader
+  --screenshot`) on a page with `dist/webview/modeler.{js,css}` inlined
+  (`file://` refuses module scripts; serve nothing) and a stand-in
+  `acquireVsCodeApi` that answers `ready` with a `load` (and
+  `imageWanted` with an `image`), the CSS variables of a theme on the
+  body in VS Code's own forms (`--vscode-widget-shadow: #0000005c`, or
+  the shadow bug of `opaqueColor` hides). Build the bundle with `vite
+  build --config vite.modeler.config.ts` first. A view's `zoom` is life
+  size (about 0.25 shows a whole diagram); clicks and drags go through
+  CDP `Input.dispatchMouseEvent`, `Runtime.evaluate` answers in
+  `result.result.value`. Object Details renders the same way from
+  `dist/webview/details.{js,css}` (`vite.details.config.ts`).
+
 ## Debugging in VS Code
 
 `.vscode/launch.json` is folder scoped, so its `${workspaceFolder}` resolves
