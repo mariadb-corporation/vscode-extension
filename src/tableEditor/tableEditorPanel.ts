@@ -141,7 +141,10 @@ export class TableEditorPanel {
      * @returns Where a new editor goes: beside the table editors open,
      *          else in the group below the active one, made only where the
      *          active one is not split top and bottom already (or the
-     *          editor area is empty), so splits do not nest.
+     *          editor area is empty), so splits do not nest. In a host
+     *          without VS Code's editor layout commands (Eclipse Theia has
+     *          neither `vscode.getEditorLayout` nor
+     *          `workbench.action.newGroupBelow`): beside the active one.
      */
     static async #column(): Promise<vscode.ViewColumn> {
         for (const editor of TableEditorPanel.#open.values()) {
@@ -153,18 +156,22 @@ export class TableEditorPanel {
         if (active.tabs.length === 0) {
             return vscode.ViewColumn.Active;
         }
-        const layout = await vscode.commands.executeCommand<
-            IEditorLayout | undefined>("vscode.getEditorLayout");
-        const below = layout === undefined
-            ? "split" : belowActive(layout, active.viewColumn);
-        if (below === "split") {
-            await vscode.commands.executeCommand(
-                "workbench.action.newGroupBelow");
+        try {
+            const layout = await vscode.commands.executeCommand<
+                IEditorLayout | undefined>("vscode.getEditorLayout");
+            const below = layout === undefined
+                ? "split" : belowActive(layout, active.viewColumn);
+            if (below === "split") {
+                await vscode.commands.executeCommand(
+                    "workbench.action.newGroupBelow");
 
-            return vscode.ViewColumn.Active;
+                return vscode.ViewColumn.Active;
+            }
+
+            return below === "active" ? vscode.ViewColumn.Active : below.column;
+        } catch {
+            return vscode.ViewColumn.Beside;
         }
-
-        return below === "active" ? vscode.ViewColumn.Active : below.column;
     }
 
     /**
