@@ -6,6 +6,21 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [26.11.1] - 2026-11-14
+
+### Changed
+
+- **A new description.** The Marketplace listing and the README now
+  describe the extension as "MariaDB Shell UI and MariaDB AI Plugin
+  Copilot integration."
+- **MariaDB Shell 26.11.2 is required.** The extension now needs MariaDB
+  Shell 26.11.2 or newer (up from 26.11.1), and installs 26.11.2 where no
+  shell that new is found.
+- **Copilot skills from ai-plugins v26.11.0.** The MariaDB agent skills
+  contributed to Copilot now come from ai-plugins v26.11.0 (up from
+  v26.10.6): the same 85 skills, none added or removed, updated to what
+  MariaDB Shell 26.11.2 offers.
+
 ## [26.11.0] - 2026-11-13
 
 ### Added
