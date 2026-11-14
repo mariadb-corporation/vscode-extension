@@ -1,7 +1,7 @@
 {
   "name": "mariadb-shell",
   "displayName": "MariaDB Shell",
-  "description": "The power of MariaDB Shell inside your favorite editor.",
+  "description": "MariaDB Shell UI and MariaDB AI Plugin Copilot integration.",
   "publisher": "MariaDB",
   "repository": {
     "type": "git",

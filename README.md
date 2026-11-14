@@ -1,6 +1,6 @@
 # MariaDB Shell for VS Code
 
-The power of MariaDB Shell inside your favorite editor.
+MariaDB Shell UI and MariaDB AI Plugin Copilot integration.
 
 The extension drives the MariaDB Shell backend through its
 [MCP plugin](https://github.com/mariadb-corporation/mariadb-shell-plugins/tree/main/mcp_plugin),
