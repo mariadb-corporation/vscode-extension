@@ -6,6 +6,17 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [26.11.2] - 2026-11-14
+
+### Fixed
+
+- **The table editor opens in MariaDB Shell Workbench.** Opening a table
+  failed there with "Command with id 'vscode.getEditorLayout' is not
+  registered". Where an editor host lacks VS Code's editor layout
+  commands, the table editor now opens beside the active editor. Still
+  requires MariaDB Shell 26.11.2, with the Copilot skills of ai-plugins
+  v26.11.0 and mariadb-restd 26.11.0, as 26.11.1 did.
+
 ## [26.11.1] - 2026-11-14
 
 ### Changed
