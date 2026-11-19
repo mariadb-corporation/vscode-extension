@@ -24,7 +24,8 @@ export or import, `dba` for a cloud deployment or deletion (kinds
 | File | Purpose |
 | --- | --- |
 | `src/mcp/utilApi.ts` | `IUtilApi` / `UtilApi`: the nine `util.*` tools that start a task, typed, and `util.inspect_dump` (`inspectDump(url, schema?)` → `IDumpInfo`), which reads a dump's metadata at once, without a task. Start calls get a 2 min timeout (they check the connection first). `loadDump` takes `extraction_budget_mb` out of the options and sends it as the tool's own argument (zip only). |
-| `src/util/dumpSelection.ts` | Zip dumps and the Load dialog's Objects tab, pure and shared with the webview: `withZipSuffix` (`.mariadb.dump.zip` on or off the path), `dumpProblem` (where a dump may be loaded), the boxes' keys (`schemaKey`, `groupKey`, `objectKey`, `USERS_KEY`, `userKey`), `initialExcluded`, `loadFilters` (unticked boxes → `excludeSchemas`/`excludeTables` (views too)/`excludeRoutines`/`excludeEvents`, `loadUsers` + `excludeUsers`, and `schema` for Load Table Dump), `schemasToComplete` / `withFullSchema` (names cut at 100), `dumpSummary`. |
+| `src/util/dumpSelection.ts` | Zip dumps and the Load dialog's Objects tab, pure and shared with the webview: `withZipSuffix` (`.mariadb.dump.zip` on or off the path), `dumpProblem` (where a dump may be loaded), the boxes' keys (`schemaKey`, `groupKey`, `objectKey`, `USERS_KEY`, `userKey`), `initialExcluded`, `partlyTicked` (the rows to show partly ticked, from the unticked keys alone), `loadFilters` (unticked boxes → `excludeSchemas`/`excludeTables` (views too)/`excludeRoutines`/`excludeEvents`, `loadUsers` + `excludeUsers`, and `schema` for Load Table Dump; names via `filterName`, quoted only where needed), `schemasToComplete` / `withFullSchema` (names cut at 100), `dumpSummary`. `ZIP_SUFFIX` / `isZipDump` live in `utilApi.ts`, the tools' own rule. |
+| `src/util/dumpInspection.ts` | `DumpInspection`: a load dialog's dump, which `UtilCommands` gives the panel (`IUtilDialogHost.inspection`) - the reads (only the newest counts; a new dump's message carries the boxes to start with), a schema's every name read once per dump and merged into the dump as it is then, and `loadOptions` (the checks, the schemas to complete read in parallel, `loadFilters`). The panel only forwards the dialog's messages to it. |
 | `src/mcp/taskApi.ts` | `ITaskApi` / `TaskApi` (`McpSession.taskApi`): `task.get`, `task.list` and `task.cancel`, and the task state of either type (`ITaskState`, `TaskKind`, `isFinished`). `getTask` asks the server to wait `WAIT_MS` (2 s) and gives the call 30 s more than that. `listTasks(taskType?)` leaves `task_type` out for all; nothing calls it yet. Generic, for the dba UI to come too. |
 | `src/util/utilFields.ts` | Per operation: the dialog's title, path or target, and the utility's options with the shell's own defaults. `buildUtilOptions` sends only what differs from a default, so the shell stays the one deciding defaults. Pure, shared with the webview. |
 | `src/util/utilProtocol.ts`, `utilDialogPanel.ts` | The dialog's messages and panel. Browse opens the folder or file picker. Start checks the values again, calls the host's `start` and closes once the task runs; a failed start stays in the dialog with the reason. One dialog at a time; a new one replaces it. |
@@ -101,9 +102,9 @@ The server side is the MCP plugin's `util.md` (zip dumps, `util.inspect_dump`).
   open dialog for files and folders on macOS; elsewhere VS Code's open
   dialog takes either, so a quick pick (ZIP File... / Dump Folder...) asks
   first. Nothing opens when nothing is picked.
-- **The dialog reads the dump** (`spec.inspects`): the panel calls
-  `util.inspect_dump` on open, after Browse and after a typed path's
-  `change`, and posts `inspected`; only the newest read's answer is kept.
+- **The dialog reads the dump** (`spec.inspects`; `DumpInspection`): on
+  open, after Browse and after a typed path's `change`, `util.inspect_dump`
+  is called and `inspected` posted; only the newest read's answer is kept.
   Load stays disabled until the path's dump is read and `dumpProblem` has
   nothing against it: a dump not complete; a table dump from a connection
   (it says to use Load Table Dump); into a schema, anything but a table
@@ -111,16 +112,21 @@ The server side is the MCP plugin's `util.md` (zip dumps, `util.inspect_dump`).
   else - confirmed by the folder load UI test, a schema dump loaded under
   another name).
 - **The Objects tab keeps what is UNticked** (`excluded`), sent with
-  `start`; the panel turns it into exclude filters (`loadFilters`), so names
+  `start`; `DumpInspection.loadOptions` turns it into exclude filters (`loadFilters`), so names
   the inspection did not list (100 per kind) still load. Defaults: user
   accounts unticked (the shell's `loadUsers` default); loading one schema's
   dump into a schema, its functions, procedures and events unticked too. A
-  whole kind unticked where its names were cut short: the panel inspects
-  that schema with `schema=` first for every name (`schemasToComplete`).
+  whole kind unticked where its names were cut short: that schema is read
+  with `schema=` first for every name (`schemasToComplete`), once per dump.
   Opening a cut-short list in the tree does the same, to show them. The
   shell's filters name the dump's schema, also under `schema`.
-- `extraction_budget_mb` (Advanced) is dropped for a folder, which the tool
-  refuses; the dump's `format` decides, not the file name.
+- `extraction_budget_mb` (Advanced) is moved to the tool's own argument by
+  `UtilApi.loadDump`, and dropped there for a folder, which the tool
+  refuses; `isZipDump(url)` decides, as it does for the tools.
+- The Dump to Self-Contained ZIP File box starts as the path says
+  (`initialUtilValues`), and the choice kept is the path's (`isZipDump`).
+  `IStart.writesDump` / `revealOnStart` say what a dump and a load do in
+  `#open`, rather than sets of operations.
 - A zip partly loaded into another server fails with the shell's progress
   file mismatch: Start over (`resetProgress`) is the way out; its hint says
   so.
@@ -132,10 +138,11 @@ The server side is the MCP plugin's `util.md` (zip dumps, `util.inspect_dump`).
   Finder does) loaded with a table unticked, a table dump refused from the
   connection and loaded into a new schema, a folder with no dump in it
   refused. The asset is copied to the run's files first: a zip is
-  extracted next to itself. The failed-task test loads the uitest dump
-  back under its own name with Start over: without it the load resumes
-  from the progress file the load into uitest_copy left in the folder,
-  and a resumed load does not check for objects that exist.
+  extracted next to itself. The failed-task test dumps uitest afresh and
+  loads it back under its own name: the first dump's folder holds the
+  progress of the load into uitest_copy, and a load that resumes does not
+  check for objects that exist. A box's input is named by its key, so
+  `setChecked` finds it (`byName` quotes any name).
 
 ## A task that does not start
 

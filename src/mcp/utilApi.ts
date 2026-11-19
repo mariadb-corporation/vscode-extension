@@ -32,6 +32,19 @@ export type UtilOptions = Record<string, unknown>;
 /** How long a start call may take: it opens a session first. */
 export const START_TIMEOUT_MS = 2 * 60 * 1000;
 
+/** What a dump written to one file is named with. */
+export const ZIP_SUFFIX = ".mariadb.dump.zip";
+
+/**
+ * @param path A dump's path.
+ *
+ * @returns Whether it names a dump in one file: the tools tell a zip by
+ *          this suffix alone.
+ */
+export const isZipDump = (path: string): boolean => {
+    return path.trim().toLowerCase().endsWith(ZIP_SUFFIX);
+};
+
 /** The dump utility that made a dump. */
 export type DumpKind = "dumpInstance" | "dumpSchemas" | "dumpTables";
 
@@ -158,7 +171,8 @@ export class UtilApi implements IUtilApi {
 
     /**
      * `options` may hold `extraction_budget_mb`, which the dialog takes as
-     * an option and the tool as an argument of its own (for a zip only).
+     * an option and the tool as an argument of its own - for a zip only: it
+     * is dropped for a folder, which the tool refuses it for.
      */
     public async loadDump(connectionId: string, url: string,
         options?: UtilOptions): Promise<ITaskStarted> {
@@ -166,7 +180,8 @@ export class UtilApi implements IUtilApi {
 
         return await this.#start("util.load_dump", {
             connection_id: connectionId, url,
-            ...(budget === undefined ? {} : { extraction_budget_mb: budget }),
+            ...(budget === undefined || !isZipDump(url)
+                ? {} : { extraction_budget_mb: budget }),
         }, options === undefined ? undefined : rest);
     }
 

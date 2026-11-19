@@ -38,6 +38,7 @@ import {
 
 import {
     answerFileDialog,
+    buttonEnabled,
     childLabels,
     clickLabelled,
     clickButton,
@@ -129,21 +130,44 @@ const sql = (statement: string, port = SANDBOX_PORT): string => {
 let connections: CustomTreeSection;
 
 /**
- * Refreshes the Connections view until a table shows up: one made outside
- * the extension is listed once the tree reads its schema again.
+ * Refreshes the Connections view until a row shows up: one made outside
+ * the extension is listed once the tree reads it again.
  *
- * @param table The table, in `uitest`.
+ * @param path The labels on the way to the row's parent.
+ * @param label The row.
  *
  * @returns Nothing.
  */
-const waitForTable = async (table: string): Promise<void> => {
+const waitForChild = async (path: string[], label: string): Promise<void> => {
     await waitFor(async () => {
         connections = await openSection("Connections");
         await (await connections.getAction("Refresh Connections"))?.click();
 
-        return (await childLabels(connections,
-            [...CONNECTION, ...SCHEMA, "Tables"])).includes(table);
-    }, `the table ${table} in the tree`, SERVER_TIMEOUT);
+        return (await childLabels(connections, path)).includes(label);
+    }, `${label} in the tree`, SERVER_TIMEOUT);
+};
+
+/**
+ * @param table A table of `uitest`, made outside the extension.
+ *
+ * @returns Once the tree lists it.
+ */
+const waitForTable = async (table: string): Promise<void> => {
+    await waitForChild([...CONNECTION, ...SCHEMA, "Tables"], table);
+};
+
+/**
+ * Opens Dump Schema to Disk on `uitest`.
+ *
+ * @returns The dialog's title.
+ */
+const openDumpSchema = async (): Promise<string> => {
+    const title = "Dump uitest to Disk";
+    connections = await openSection("Connections");
+    await openDialog(connections, [...CONNECTION, ...SCHEMA],
+        [SUBMENU, "Dump Schema to Disk..."], title);
+
+    return title;
 };
 
 /**
@@ -261,19 +285,6 @@ const waitInspected = async (view: WebView): Promise<string> => {
 };
 
 /**
- * @param view A load's dialog.
- * @param key A box of its Objects tab (`dumpSelection.ts`).
- *
- * @returns Nothing.
- */
-const untick = async (view: WebView, key: string): Promise<void> => {
-    const box = await view.findWebElement(By.css(`input[data-key='${key}']`));
-    if (await box.isSelected()) {
-        await box.click();
-    }
-};
-
-/**
  * Makes a schema outside the extension, and waits for the tree to list it.
  *
  * @param name The schema.
@@ -282,12 +293,7 @@ const untick = async (view: WebView, key: string): Promise<void> => {
  */
 const createSchema = async (name: string): Promise<void> => {
     sql(`CREATE DATABASE ${name}`);
-    await waitFor(async () => {
-        connections = await openSection("Connections");
-        await (await connections.getAction("Refresh Connections"))?.click();
-
-        return (await childLabels(connections, CONNECTION)).includes(name);
-    }, `the schema ${name} in the tree`, SERVER_TIMEOUT);
+    await waitForChild(CONNECTION, name);
 };
 
 describe("Dump and Load", () => {
@@ -297,9 +303,7 @@ describe("Dump and Load", () => {
     });
 
     it("dumps a schema to disk from its Dump and Load submenu", async () => {
-        const title = "Dump uitest to Disk";
-        await openDialog(connections, [...CONNECTION, ...SCHEMA],
-            [SUBMENU, "Dump Schema to Disk..."], title);
+        const title = await openDumpSchema();
         await inDialog(title, async (view) => {
             await setField(view, "path", DUMP);
             await screenshot("06-dump-dialog");
@@ -363,10 +367,7 @@ describe("Dump and Load", () => {
         });
 
     it("dumps a schema to one ZIP file", async () => {
-        const title = "Dump uitest to Disk";
-        connections = await openSection("Connections");
-        await openDialog(connections, [...CONNECTION, ...SCHEMA],
-            [SUBMENU, "Dump Schema to Disk..."], title);
+        const title = await openDumpSchema();
         await inDialog(title, async (view) => {
             await setChecked(view, "zip", true);
             // Ticking it names the path a zip.
@@ -383,10 +384,7 @@ describe("Dump and Load", () => {
     });
 
     it("keeps the dialog open when the dump zip exists", async () => {
-        const title = "Dump uitest to Disk";
-        connections = await openSection("Connections");
-        await openDialog(connections, [...CONNECTION, ...SCHEMA],
-            [SUBMENU, "Dump Schema to Disk..."], title);
+        const title = await openDumpSchema();
         await inDialog(title, async (view) => {
             // The last dump went to a zip, so this one starts as one.
             assert.equal(await (await view.findWebElement(By.css(
@@ -411,7 +409,8 @@ describe("Dump and Load", () => {
                     /Schema dump in a ZIP file/u);
                 await screenshot("06-load-objects");
                 await clickLabelled(view, "Open Tables");
-                await untick(view, '["tables","nation","guests"]');
+                // A box's name is its key (`dumpSelection.ts`).
+                await setChecked(view, '["tables","nation","guests"]', false);
                 await submitDialog(view, "Load", SERVER_TIMEOUT * 2);
             });
             await waitForAction(/Load a Dump into/u);
@@ -446,9 +445,7 @@ describe("Dump and Load", () => {
         await inDialog(loadTitle, async (view) => {
             assert.match(await waitInspected(view),
                 /Load Table Dump from Disk/u);
-            const load = await view.findWebElement(
-                By.xpath("//button[normalize-space()='Load']"));
-            assert.equal(await load.isEnabled(), false);
+            assert.equal(await buttonEnabled(view, "Load"), false);
             await clickButton(view, "Cancel");
         });
         await waitDialogClosed(loadTitle);
@@ -558,22 +555,26 @@ describe("Dump and Load", () => {
         await openLoad(CONNECTION, "Load Dump from Disk...", notADump);
         await inDialog(title, async (view) => {
             assert.match(await waitInspected(view), /Not a dump/u);
-            const load = await view.findWebElement(
-                By.xpath("//button[normalize-space()='Load']"));
-            assert.equal(await load.isEnabled(), false);
+            assert.equal(await buttonEnabled(view, "Load"), false);
             await clickButton(view, "Cancel");
         });
         await waitDialogClosed(title);
 
-        // A dump of uitest loaded back under its own name: its tables are
-        // there already, so the task fails. Started over: the folder keeps
-        // the progress of the load into uitest_copy, and a load that resumes
-        // does not check for objects that exist.
-        await openLoad(CONNECTION, "Load Dump from Disk...", DUMP);
+        // A fresh dump of uitest loaded back under its own name: its tables
+        // are there already, so the task fails. Fresh, as a dump that was
+        // loaded before resumes from its progress file, which does not
+        // check for objects that exist.
+        const fresh = join(FILES, "uitest-dump-again");
+        const dumpTitle = await openDumpSchema();
+        await inDialog(dumpTitle, async (view) => {
+            await setChecked(view, "zip", false);
+            await setField(view, "path", fresh);
+            await submitDialog(view, "Dump", SERVER_TIMEOUT * 2);
+        });
+        await waitCompleted(dumpTitle);
+        await openLoad(CONNECTION, "Load Dump from Disk...", fresh);
         await inDialog(title, async (view) => {
             await waitInspected(view);
-            await selectTab(view, "Advanced");
-            await setChecked(view, "resetProgress", true);
             await submitDialog(view, "Load", SERVER_TIMEOUT * 2);
         });
 
@@ -605,10 +606,7 @@ describe("Dump and Load", () => {
 
     it("keeps the dialog open when the dump folder is not empty",
         async () => {
-            const title = "Dump uitest to Disk";
-            connections = await openSection("Connections");
-            await openDialog(connections, [...CONNECTION, ...SCHEMA],
-                [SUBMENU, "Dump Schema to Disk..."], title);
+            const title = await openDumpSchema();
             await inDialog(title, async (view) => {
                 await setField(view, "path", DUMP);
                 await clickButton(view, "Dump");

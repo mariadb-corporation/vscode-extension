@@ -15,13 +15,11 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 
-import type { IDumpInfo } from "../../src/mcp/utilApi.js";
 import {
     dumpProblem,
     dumpSummary,
-    initialExcluded,
     selectionProblem,
     withZipSuffix,
 } from "../../src/util/dumpSelection.js";
@@ -33,6 +31,7 @@ import {
     type UtilValues,
 } from "../../src/util/utilFields.js";
 import type {
+    IDumpRead,
     IUtilTarget,
     UtilHostMessage,
     UtilWebviewMessage,
@@ -54,13 +53,6 @@ const LOAD_TABS = ["Objects", "Basic", "Advanced"] as const;
 
 type Tab = (typeof LOAD_TABS)[number];
 
-/** A load's dump: what it holds, or why it could not be read. */
-interface IDump {
-    path: string;
-    info?: IDumpInfo;
-    error?: string;
-}
-
 export const UtilDialog = (): preact.JSX.Element => {
     const [spec, setSpec] = useState<IUtilOperationSpec | undefined>();
     const [values, setValues] = useState<UtilValues>({});
@@ -69,12 +61,8 @@ export const UtilDialog = (): preact.JSX.Element => {
     const [problem, setProblem] = useState<IUtilProblem | undefined>();
     const [startError, setStartError] = useState<string | undefined>();
     const [busy, setBusy] = useState(false);
-    const [dump, setDump] = useState<IDump | undefined>();
+    const [dump, setDump] = useState<IDumpRead | undefined>();
     const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set());
-    // For the message listener, which is set up once: the schema Load
-    // Table Dump goes into, and the dump the boxes are for.
-    const intoSchema = useRef<string | undefined>();
-    const boxesFor = useRef<string | undefined>();
 
     useEffect(() => {
         const onMessage = (event: MessageEvent<UtilHostMessage>): void => {
@@ -87,18 +75,14 @@ export const UtilDialog = (): preact.JSX.Element => {
                     setProblem(undefined);
                     setStartError(undefined);
                     setTab(message.spec.inspects === true ? "Objects" : "Basic");
-                    intoSchema.current = message.spec.intoSchema;
                     break;
                 }
 
                 case "inspected": {
-                    // Another dump starts from the defaults; the same one,
-                    // read again with every name, keeps the boxes.
-                    if (message.info !== undefined
-                        && message.info.url !== boxesFor.current) {
-                        boxesFor.current = message.info.url;
-                        setExcluded(new Set(initialExcluded(message.info,
-                            intoSchema.current)));
+                    // A dump read anew comes with the boxes to start with;
+                    // the same one read again keeps them.
+                    if (message.excluded !== undefined) {
+                        setExcluded(new Set(message.excluded));
                     }
                     setDump({ path: message.path, info: message.info,
                         error: message.error });
@@ -156,16 +140,15 @@ export const UtilDialog = (): preact.JSX.Element => {
     };
 
     const inspects = spec.inspects === true;
+    const path = String(values.path ?? "").trim();
     const zip = values.zip === true && spec.path?.zip !== undefined;
-    const pathLabel = zip ? spec.path!.zip!.label : spec.path?.label ?? "";
-    const pathHint = zip ? spec.path!.zip!.hint : spec.path?.hint ?? "";
-    // What keeps the dump from being loaded here, said above its objects.
-    const loadProblem = !inspects || dump === undefined ? undefined
-        : dump.error ?? (dump.info === undefined ? undefined
-            : dumpProblem(dump.info, spec.intoSchema));
+    // The path's label and hint, a zip's while the box is ticked.
+    const pathSpec = zip ? spec.path?.zip : spec.path;
+    // What keeps a load's dump from being loaded here, said in its place.
+    const loadProblem = dump?.info === undefined ? dump?.error
+        : dumpProblem(dump.info, spec.intoSchema);
     const canLoad = !inspects || (dump?.info !== undefined
-        && loadProblem === undefined
-        && dump.path === String(values.path ?? "").trim());
+        && loadProblem === undefined && dump.path === path);
 
     const hintOf = (field: string, hint: string): string => {
         return problem?.field === field ? problem.message : hint;
@@ -204,7 +187,6 @@ export const UtilDialog = (): preact.JSX.Element => {
 
     /** A path typed: read the dump there, if it is another. */
     const inspectTyped = (): void => {
-        const path = String(values.path ?? "").trim();
         if (inspects && path !== dump?.path) {
             setDump({ path });
             post<UtilWebviewMessage>({ type: "inspect", path });
@@ -216,13 +198,13 @@ export const UtilDialog = (): preact.JSX.Element => {
             && dump.error === undefined)) {
             return (
                 <p class="message">
-                    {String(values.path ?? "").trim() === ""
+                    {path === ""
                         ? "Choose the dump to load."
                         : "Reading what the dump holds..."}
                 </p>
             );
         }
-        if (dump.info === undefined || loadProblem !== undefined) {
+        if (loadProblem !== undefined || dump.info === undefined) {
             return <p class="message error dump-problem">{loadProblem}</p>;
         }
 
@@ -352,8 +334,8 @@ export const UtilDialog = (): preact.JSX.Element => {
             <section class="grid util-where">
                 {spec.path === undefined ? null : (
                     <Field
-                        caption={pathLabel}
-                        hint={hintOf("path", pathHint)}
+                        caption={pathSpec?.label ?? ""}
+                        hint={hintOf("path", pathSpec?.hint ?? "")}
                     >
                         <div class="row path-row">
                             <input

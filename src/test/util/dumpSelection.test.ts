@@ -22,11 +22,11 @@ import {
     dumpProblem,
     dumpSummary,
     groupKey,
+    filterName,
     initialExcluded,
-    isIncluded,
     loadFilters,
     objectKey,
-    quoteName,
+    partlyTicked,
     schemaKey,
     schemasToComplete,
     selectionProblem,
@@ -114,12 +114,12 @@ describe("the boxes", () => {
                 groupKey("crm", "events")]);
         });
 
-    it("leave out what is under a box unticked", () => {
-        const excluded = new Set([schemaKey("crm")]);
-        expect(isIncluded(excluded, schemaKey("shop"),
-            groupKey("shop", "tables"))).toBe(true);
-        expect(isIncluded(excluded, schemaKey("crm"),
-            objectKey("crm", "tables", "leads"))).toBe(false);
+    it("show partly ticked above what is unticked", () => {
+        expect(partlyTicked([schemaKey("crm"),
+            objectKey("shop", "tables", "orders"),
+            groupKey("crm", "events"), userKey("'ro'@'%'")]))
+            .toEqual(new Set([schemaKey("shop"), groupKey("shop", "tables"),
+                schemaKey("crm"), USERS_KEY]));
     });
 });
 
@@ -184,10 +184,10 @@ describe("selectionProblem", () => {
     });
 });
 
-describe("quoteName and dumpSummary", () => {
+describe("filterName and dumpSummary", () => {
     it("quote what needs it", () => {
-        expect(quoteName("orders")).toBe("orders");
-        expect(quoteName("a`b")).toBe("`a``b`");
+        expect(filterName("orders")).toBe("orders");
+        expect(filterName("a`b")).toBe("`a``b`");
     });
 
     it("say what the dump is and how big", () => {

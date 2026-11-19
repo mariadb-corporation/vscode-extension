@@ -26,7 +26,7 @@
  * the shell stays the one deciding what a default is.
  */
 
-import type { UtilOptions } from "../mcp/utilApi.js";
+import { isZipDump, type UtilOptions } from "../mcp/utilApi.js";
 
 export type UtilOperation =
     | "dumpInstance" | "dumpSchemas" | "dumpTables" | "exportTable"
@@ -124,9 +124,15 @@ const threads = (initial: string): IUtilOptionSpec => {
 const dryRun = opt("dryRun", "Dry run", "bool", false,
     "Check everything and report what would be done, without doing it.");
 
+/** Dump to Self-Contained ZIP File, which only the dialog reads. */
+const zipOption = opt("zip", "Dump to Self-Contained ZIP File", "bool", false,
+    "Write the dump as one .mariadb.dump.zip file instead of a folder.",
+    { local: true });
+
 /** The options of every dump, and of the dump half of a copy. */
 const dumpCommon = (forCopy: boolean): IUtilOptionSpec[] => {
     return [
+        ...(forCopy ? [] : [zipOption]),
         threads("4"),
         opt("consistent", "Consistent snapshot", "bool", true,
             "Read all data at one point in time, with a brief global lock."),
@@ -200,29 +206,23 @@ const renameSchema = (hint: string): IUtilOptionSpec => {
     return opt("schema", "Into schema", "text", "", hint);
 };
 
-/** Dump to Self-Contained ZIP File, which only the dialog reads. */
-const zipOption = opt("zip", "Dump to Self-Contained ZIP File", "bool", false,
-    "Write the dump as one .mariadb.dump.zip file instead of a folder.",
-    { local: true });
 
 /** The options of a load, Load Dump's and Load Table Dump's. */
-const loadOptions = (): IUtilOptionSpec[] => {
-    return [
-        ...loadCommon(false),
-        opt("loadData", "Rows", "bool", true,
-            "Load the rows.", { advanced: true }),
-        opt("loadDdl", "Definitions", "bool", true,
-            "Run the CREATE statements.", { advanced: true }),
-        opt("resetProgress", "Start over", "bool", false,
-            "Forget what an earlier attempt loaded, and load everything "
-            + "again. Needed to load a zip that was partly loaded into "
-            + "another server.", { advanced: true }),
-        opt("extraction_budget_mb", "Extraction budget (MB)", "number", "",
-            "For a zip: how much data not loaded yet may be extracted at "
-            + "once. Empty for the default.", { advanced: true }),
-        dryRun,
-    ];
-};
+const loadOptions: IUtilOptionSpec[] = [
+    ...loadCommon(false),
+    opt("loadData", "Rows", "bool", true,
+        "Load the rows.", { advanced: true }),
+    opt("loadDdl", "Definitions", "bool", true,
+        "Run the CREATE statements.", { advanced: true }),
+    opt("resetProgress", "Start over", "bool", false,
+        "Forget what an earlier attempt loaded, and load everything "
+        + "again. Needed to load a zip that was partly loaded into "
+        + "another server.", { advanced: true }),
+    opt("extraction_budget_mb", "Extraction budget (MB)", "number", "",
+        "For a zip: how much data not loaded yet may be extracted at "
+        + "once. Empty for the default.", { advanced: true }),
+    dryRun,
+];
 
 /** Where a load reads from: a dump's folder or its zip. */
 const dumpSource: IUtilPathSpec = {
@@ -267,7 +267,6 @@ export const utilOperationSpec = (
                     + "Load Dump from Disk.",
                 path: dumpFolder,
                 options: [
-                    zipOption,
                     ...dumpCommon(false),
                     opt("users", "User accounts", "bool", true,
                         "Include the user accounts and their grants."),
@@ -285,7 +284,7 @@ export const utilOperationSpec = (
                 description: "Dumps the schemas to a folder or one ZIP file. "
                     + "Load it with Load Dump from Disk.",
                 path: dumpFolder,
-                options: [zipOption, ...dumpCommon(false), ...objectTypes,
+                options: [...dumpCommon(false), ...objectTypes,
                     ...tableFilters, dryRun],
             };
         }
@@ -299,7 +298,6 @@ export const utilOperationSpec = (
                     + "from Disk.",
                 path: dumpFolder,
                 options: [
-                    zipOption,
                     ...dumpCommon(false),
                     opt("triggers", "Triggers", "bool", true,
                         "Include the tables' triggers.", { advanced: true }),
@@ -348,7 +346,7 @@ export const utilOperationSpec = (
                 options: [
                     renameSchema("Load a dump of one schema into this schema "
                         + "instead. Empty keeps the dumped name."),
-                    ...loadOptions(),
+                    ...loadOptions,
                 ],
             };
         }
@@ -362,7 +360,7 @@ export const utilOperationSpec = (
                     + `${schemas}, from its folder or its ZIP file. Untick on `
                     + "the Objects tab what not to load.",
                 path: dumpSource,
-                options: loadOptions(),
+                options: loadOptions,
             };
         }
 
@@ -484,6 +482,10 @@ export const initialUtilValues = (
     }
     for (const option of spec.options) {
         values[option.name] = option.initial;
+    }
+    // Dump to Self-Contained ZIP File shows what the path says.
+    if (spec.path?.zip !== undefined && "zip" in values) {
+        values.zip = isZipDump(path);
     }
 
     return values;

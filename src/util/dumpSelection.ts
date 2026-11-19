@@ -28,23 +28,16 @@
  * kind) are then loaded, as they are in the shell.
  */
 
-import type {
-    IDumpInfo,
-    IDumpSchemaInfo,
-    UtilOptions,
+import {
+    isZipDump,
+    ZIP_SUFFIX,
+    type IDumpInfo,
+    type IDumpSchemaInfo,
+    type UtilOptions,
 } from "../mcp/utilApi.js";
+import { counted, formatBytes } from "../text.js";
 
-/** What a dump written to one file is named with. */
-export const ZIP_SUFFIX = ".mariadb.dump.zip";
-
-/**
- * @param path A path.
- *
- * @returns Whether it names a dump in one file.
- */
-export const isZipDump = (path: string): boolean => {
-    return path.trim().toLowerCase().endsWith(ZIP_SUFFIX);
-};
+export { isZipDump, ZIP_SUFFIX };
 
 /**
  * Turns a dump's path into a zip's or back, as Dump to Self-Contained ZIP
@@ -68,14 +61,14 @@ export const withZipSuffix = (path: string, zip: boolean): string => {
 };
 
 /**
- * A name for a filter option, `schema.table`: quoted where the shell would
- * not read it otherwise.
+ * A name for a filter option, `schema.table`: quoted only where the shell
+ * would not read it otherwise.
  *
  * @param name A schema's or an object's name.
  *
  * @returns It, in backticks where it needs them.
  */
-export const quoteName = (name: string): string => {
+export const filterName = (name: string): string => {
     return /^[A-Za-z_][A-Za-z0-9_$]*$/u.test(name)
         ? name : `\`${name.replaceAll("`", "``")}\``;
 };
@@ -87,14 +80,18 @@ export type DumpGroup =
 export const DUMP_GROUPS: ReadonlyArray<{
     group: DumpGroup;
     label: string;
+    /** One of them, for the counts. */
+    noun: string;
     count: "table_count" | "view_count" | "function_count"
         | "procedure_count" | "event_count";
 }> = [
-    { group: "tables", label: "Tables", count: "table_count" },
-    { group: "views", label: "Views", count: "view_count" },
-    { group: "functions", label: "Functions", count: "function_count" },
-    { group: "procedures", label: "Procedures", count: "procedure_count" },
-    { group: "events", label: "Events", count: "event_count" },
+    { group: "tables", label: "Tables", noun: "table", count: "table_count" },
+    { group: "views", label: "Views", noun: "view", count: "view_count" },
+    { group: "functions", label: "Functions", noun: "function",
+        count: "function_count" },
+    { group: "procedures", label: "Procedures", noun: "procedure",
+        count: "procedure_count" },
+    { group: "events", label: "Events", noun: "event", count: "event_count" },
 ];
 
 // --- the boxes, by key ---------------------------------------------------------
@@ -124,16 +121,29 @@ export const userKey = (account: string): string => {
 };
 
 /**
- * @param excluded The boxes unticked.
- * @param keys A box and the boxes above it.
+ * The boxes with an unticked box somewhere under them, which show partly
+ * ticked: worked out once from the few unticked boxes, rather than each
+ * row looking through all of its own.
  *
- * @returns Whether it is loaded: neither it nor a box above it unticked.
+ * @param excluded The boxes unticked.
+ *
+ * @returns The keys of the schemas, kinds and the users' box above them.
  */
-export const isIncluded = (
-    excluded: ReadonlySet<string>,
-    ...keys: string[]
-): boolean => {
-    return keys.every((key) => { return !excluded.has(key); });
+export const partlyTicked = (excluded: Iterable<string>): Set<string> => {
+    const partly = new Set<string>();
+    for (const key of excluded) {
+        const [kind, schema] = JSON.parse(key) as string[];
+        if (kind === "user") {
+            partly.add(USERS_KEY);
+        } else if (kind === "group") {
+            partly.add(schemaKey(schema));
+        } else if (kind !== "schema" && kind !== "users") {
+            partly.add(schemaKey(schema));
+            partly.add(groupKey(schema, kind as DumpGroup));
+        }
+    }
+
+    return partly;
 };
 
 // --- where a dump may go -------------------------------------------------------
@@ -345,7 +355,7 @@ export const loadFilters = (
                     // The filters name the dump's schema, also where it
                     // goes into another.
                     add(EXCLUDE_OPTION[group],
-                        `${quoteName(schema.name)}.${quoteName(name)}`);
+                        `${filterName(schema.name)}.${filterName(name)}`);
                 }
             }
         }
@@ -377,38 +387,10 @@ export const loadFilters = (
 
 // --- what the dialog says of a dump ------------------------------------------
 
-/**
- * @param bytes A size.
- *
- * @returns It for a person: `1.4 MB`.
- */
-export const sizeText = (bytes: number): string => {
-    const units = ["bytes", "KB", "MB", "GB", "TB"];
-    let value = bytes;
-    let unit = 0;
-    while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024;
-        unit += 1;
-    }
-
-    return unit === 0 ? `${String(bytes)} bytes`
-        : `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
-};
-
 const KIND_LABELS: Record<string, string> = {
     dumpInstance: "Instance dump",
     dumpSchemas: "Schema dump",
     dumpTables: "Table dump",
-};
-
-/**
- * @param count How many.
- * @param noun What, singular.
- *
- * @returns `1 table`, `9 tables`.
- */
-export const countText = (count: number, noun: string): string => {
-    return `${count.toLocaleString("en-US")} ${noun}${count === 1 ? "" : "s"}`;
 };
 
 /**
@@ -435,15 +417,15 @@ export const dumpSummary = (info: IDumpInfo): string[] => {
     const rows = info.rows ?? info.estimated_rows ?? undefined;
     const data = info.data_bytes ?? info.estimated_data_bytes ?? undefined;
     const size = [
-        countText(info.schema_count, "schema"),
-        countText(tables, "table"),
+        counted(info.schema_count, "schema"),
+        counted(tables, "table"),
         ...(rows === undefined || rows === null ? []
-            : [`${info.complete ? "" : "about "}${countText(rows, "row")}`]),
+            : [`${info.complete ? "" : "about "}${counted(rows, "row")}`]),
         ...(data === undefined || data === null ? []
-            : [`${sizeText(data)} of data`]),
-        `${sizeText(info.size_bytes)} on disk`,
+            : [`${formatBytes(data)} of data`]),
+        `${formatBytes(info.size_bytes)} on disk`,
         ...(info.disk_needed_bytes === undefined ? []
-            : [`needs ${sizeText(info.disk_needed_bytes)} free to load`]),
+            : [`needs ${formatBytes(info.disk_needed_bytes)} free to load`]),
     ].join(" · ");
 
     return [what, size];

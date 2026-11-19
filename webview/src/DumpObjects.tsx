@@ -15,22 +15,21 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { useState } from "preact/hooks";
+import { useMemo, useState } from "preact/hooks";
 
 import type { IDumpInfo, IDumpSchemaInfo } from "../../src/mcp/utilApi.js";
 import {
-    countText,
     DUMP_GROUPS,
     groupKey,
     isCapped,
     objectKey,
     offersUsers,
+    partlyTicked,
     schemaKey,
-    sizeText,
     userKey,
     USERS_KEY,
-    type DumpGroup,
 } from "../../src/util/dumpSelection.js";
+import { counted, formatBytes } from "../../src/text.js";
 
 /**
  * The Load dialog's Objects tab: what the dump holds, as a tree of boxes -
@@ -52,10 +51,132 @@ interface IProps {
     onComplete(schema: string): void;
 }
 
-/** The singular of each kind, for the counts. */
-const NOUNS: Record<DumpGroup, string> = {
-    tables: "table", views: "view", functions: "function",
-    procedures: "procedure", events: "event",
+/** What every row shares: the boxes' state, and opening rows. */
+interface ITree {
+    excluded: ReadonlySet<string>;
+    partly: ReadonlySet<string>;
+    open: ReadonlySet<string>;
+    disabled: boolean;
+    toggle(key: string): void;
+    toggleOpen(key: string, onOpen?: () => void): void;
+}
+
+/**
+ * One row: the disclosure where it has rows under it, its box and its
+ * caption, and the rows under it while it is open.
+ */
+const Row = (props: {
+    tree: ITree;
+    /** The box's key (`dumpSelection.ts`), also its input's name. */
+    boxKey: string;
+    /** Whether every box above it is ticked. */
+    above: boolean;
+    label: string;
+    /** Its counts and sizes. */
+    extra?: string;
+    /** Whether it has rows under it to open. */
+    expandable?: boolean;
+    /** Called as it is opened. */
+    onOpen?(): void;
+    children?: preact.ComponentChildren;
+}): preact.JSX.Element => {
+    const { tree, boxKey, label } = props;
+    const checked = props.above && !tree.excluded.has(boxKey);
+    const expanded = props.expandable === true && tree.open.has(boxKey);
+
+    return (
+        <li class="dump-object" role="treeitem"
+            aria-expanded={props.expandable === true ? expanded : undefined}>
+            <div class="dump-object-row">
+                {props.expandable === true ? (
+                    <button
+                        type="button"
+                        class={`dump-twisty codicon ${expanded
+                            ? "codicon-chevron-down" : "codicon-chevron-right"}`}
+                        aria-label={expanded ? `Close ${label}` : `Open ${label}`}
+                        onClick={() => { tree.toggleOpen(boxKey, props.onOpen); }}
+                    />
+                ) : (
+                    <span class="dump-twisty" />
+                )}
+                <label class="checkbox">
+                    <input
+                        type="checkbox"
+                        name={boxKey}
+                        checked={checked}
+                        indeterminate={checked && tree.partly.has(boxKey)}
+                        disabled={tree.disabled || !props.above}
+                        onChange={() => { tree.toggle(boxKey); }}
+                    />
+                    <span>{label}</span>
+                </label>
+                {props.extra === undefined ? null : (
+                    <span class="dump-object-extra">{props.extra}</span>
+                )}
+            </div>
+            {expanded ? <ul role="group">{props.children}</ul> : null}
+        </li>
+    );
+};
+
+/** The "...and N more" under a list cut short. */
+const More = (props: { count: number; shown: number }) => {
+    return props.count > props.shown ? (
+        <li class="dump-object dump-more">
+            {`...and ${String(props.count - props.shown)} more, read when opened`}
+        </li>
+    ) : null;
+};
+
+/** A schema's kinds of objects, each with its objects under it. */
+const Groups = (props: {
+    tree: ITree;
+    schema: IDumpSchemaInfo;
+    above: boolean;
+    onComplete(schema: string): void;
+}): preact.JSX.Element => {
+    const { tree, schema } = props;
+
+    return (
+        <>
+            {DUMP_GROUPS.filter(({ count }) => {
+                return schema[count] > 0;
+            }).map(({ group, label, noun, count }) => {
+                const key = groupKey(schema.name, group);
+                const groupAbove = props.above && !tree.excluded.has(key);
+
+                return (
+                    <Row key={key} tree={tree} boxKey={key} above={props.above}
+                        label={label} extra={counted(schema[count], noun)}
+                        expandable
+                        onOpen={isCapped(schema, group)
+                            ? () => { props.onComplete(schema.name); }
+                            : undefined}>
+                        {schema[group].map((name) => {
+                            const objectBox = objectKey(schema.name, group, name);
+
+                            return (
+                                <Row key={objectBox} tree={tree} boxKey={objectBox}
+                                    above={groupAbove} label={name} />
+                            );
+                        })}
+                        <More count={schema[count]} shown={schema[group].length} />
+                    </Row>
+                );
+            })}
+        </>
+    );
+};
+
+/** A schema's counts and sizes, beside its name. */
+const schemaExtra = (schema: IDumpSchemaInfo): string => {
+    return [
+        counted(schema.table_count, "table"),
+        ...(schema.view_count > 0 ? [counted(schema.view_count, "view")] : []),
+        ...(schema.rows === undefined ? [] : [counted(schema.rows, "row")]),
+        ...(schema.data_bytes === undefined ? []
+            : [formatBytes(schema.data_bytes)]),
+    ].join(", ");
 };
 
 export const DumpObjects = (props: IProps): preact.JSX.Element => {
@@ -65,144 +186,35 @@ export const DumpObjects = (props: IProps): preact.JSX.Element => {
         return new Set(info.schemas.length === 1
             ? [schemaKey(info.schemas[0].name)] : []);
     });
+    const partly = useMemo(() => { return partlyTicked(excluded); },
+        [excluded]);
 
-    const toggleOpen = (key: string, onOpen?: () => void): void => {
-        const next = new Set(open);
-        if (next.has(key)) {
-            next.delete(key);
-        } else {
-            next.add(key);
-            onOpen?.();
-        }
-        setOpen(next);
-    };
-
-    const toggle = (key: string): void => {
-        const next = new Set(excluded);
-        if (next.has(key)) {
-            next.delete(key);
-        } else {
-            next.add(key);
-        }
-        props.onChange(next);
-    };
-
-    /**
-     * One row: the disclosure, the box and the caption.
-     *
-     * @param key The box's key.
-     * @param above Whether every box above it is ticked.
-     * @param label What it is.
-     * @param extra Its counts and sizes.
-     * @param children The keys under it, for its partly ticked state, and
-     *                 what to draw under it when open.
-     */
-    const row = (key: string, above: boolean, label: string,
-        extra?: string, children?: {
-            keys: string[];
-            draw(): preact.JSX.Element;
-            onOpen?(): void;
-        }): preact.JSX.Element => {
-        const own = !excluded.has(key);
-        const checked = above && own;
-        const partly = checked && children !== undefined
-            && children.keys.some((child) => { return excluded.has(child); });
-        const expanded = children !== undefined && open.has(key);
-
-        return (
-            <li key={key} class="dump-object" role="treeitem"
-                aria-expanded={children === undefined ? undefined : expanded}>
-                <div class="dump-object-row">
-                    {children === undefined ? (
-                        <span class="dump-twisty" />
-                    ) : (
-                        <button
-                            type="button"
-                            class={`dump-twisty codicon ${expanded
-                                ? "codicon-chevron-down"
-                                : "codicon-chevron-right"}`}
-                            aria-label={expanded ? `Close ${label}`
-                                : `Open ${label}`}
-                            onClick={() => {
-                                toggleOpen(key, children.onOpen);
-                            }}
-                        />
-                    )}
-                    <label class="checkbox">
-                        <input
-                            type="checkbox"
-                            data-key={key}
-                            checked={checked}
-                            indeterminate={partly}
-                            disabled={props.disabled || !above}
-                            onChange={() => { toggle(key); }}
-                        />
-                        <span>{label}</span>
-                    </label>
-                    {extra === undefined ? null : (
-                        <span class="dump-object-extra">{extra}</span>
-                    )}
-                </div>
-                {expanded ? children.draw() : null}
-            </li>
-        );
-    };
-
-    /** The "...and N more" under a list cut short. */
-    const more = (count: number, shown: number): preact.JSX.Element | null => {
-        return count > shown ? (
-            <li class="dump-object dump-more">
-                {`...and ${String(count - shown)} more, read when opened`}
-            </li>
-        ) : null;
-    };
-
-    const groupRows = (schema: IDumpSchemaInfo,
-        above: boolean): preact.JSX.Element[] => {
-        return DUMP_GROUPS.filter(({ count }) => {
-            return schema[count] > 0;
-        }).map(({ group, label, count }) => {
-            const key = groupKey(schema.name, group);
-            const names = schema[group];
-            const groupAbove = above && !excluded.has(key);
-
-            return row(key, above, label, countText(schema[count],
-                NOUNS[group]), {
-                keys: names.map((name) => {
-                    return objectKey(schema.name, group, name);
-                }),
-                onOpen: isCapped(schema, group)
-                    ? () => { props.onComplete(schema.name); } : undefined,
-                draw: () => {
-                    return (
-                        <ul role="group">
-                            {names.map((name) => {
-                                return row(objectKey(schema.name, group, name),
-                                    groupAbove, name);
-                            })}
-                            {more(schema[count], names.length)}
-                        </ul>
-                    );
-                },
-            });
-        });
-    };
-
-    const schemaExtra = (schema: IDumpSchemaInfo): string => {
-        return [
-            countText(schema.table_count, "table"),
-            ...(schema.view_count > 0
-                ? [countText(schema.view_count, "view")] : []),
-            ...(schema.rows === undefined ? []
-                : [countText(schema.rows, "row")]),
-            ...(schema.data_bytes === undefined ? []
-                : [sizeText(schema.data_bytes)]),
-        ].join(", ");
+    const tree: ITree = {
+        excluded, partly, open, disabled: props.disabled,
+        toggle: (key) => {
+            const next = new Set(excluded);
+            if (!next.delete(key)) {
+                next.add(key);
+            }
+            props.onChange(next);
+        },
+        toggleOpen: (key, onOpen) => {
+            const next = new Set(open);
+            if (!next.delete(key)) {
+                next.add(key);
+                onOpen?.();
+            }
+            setOpen(next);
+        },
     };
 
     // Into a schema: the one schema's objects, without a row for it.
     const single = props.intoSchema !== undefined
         && info.schemas.length === 1 ? info.schemas[0] : undefined;
+    // Reading any schema in full lists every account too.
+    const completeUsers = info.user_count > info.users.length
+        && info.schemas.length > 0
+        ? () => { props.onComplete(info.schemas[0].name); } : undefined;
 
     return (
         <section class="dump-objects">
@@ -212,50 +224,39 @@ export const DumpObjects = (props: IProps): preact.JSX.Element => {
                 </p>
             )}
             <ul class="dump-tree" role="tree">
-                {single !== undefined
-                    ? groupRows(single, !excluded.has(schemaKey(single.name)))
-                    : info.schemas.map((schema) => {
-                        const key = schemaKey(schema.name);
+                {single !== undefined ? (
+                    <Groups tree={tree} schema={single}
+                        above={!excluded.has(schemaKey(single.name))}
+                        onComplete={props.onComplete} />
+                ) : info.schemas.map((schema) => {
+                    const key = schemaKey(schema.name);
 
-                        return row(key, true, schema.name, schemaExtra(schema), {
-                            keys: DUMP_GROUPS.flatMap(({ group }) => {
-                                return [groupKey(schema.name, group),
-                                    ...schema[group].map((name) => {
-                                        return objectKey(schema.name, group,
-                                            name);
-                                    })];
-                            }),
-                            draw: () => {
-                                return (
-                                    <ul role="group">
-                                        {groupRows(schema, !excluded.has(key))}
-                                    </ul>
-                                );
-                            },
-                        });
-                    })}
-                {offersUsers(info, props.intoSchema) ? row(USERS_KEY, true,
-                    "User accounts", countText(info.user_count, "account"), {
-                        keys: info.users.map(userKey),
-                        // Inspecting any schema lists every account.
-                        onOpen: info.user_count > info.users.length
-                            && info.schemas.length > 0
-                            ? () => { props.onComplete(info.schemas[0].name); }
-                            : undefined,
-                        draw: () => {
-                            const above = !excluded.has(USERS_KEY);
-
+                    return (
+                        <Row key={key} tree={tree} boxKey={key} above
+                            label={schema.name} extra={schemaExtra(schema)}
+                            expandable>
+                            <Groups tree={tree} schema={schema}
+                                above={!excluded.has(key)}
+                                onComplete={props.onComplete} />
+                        </Row>
+                    );
+                })}
+                {offersUsers(info, props.intoSchema) ? (
+                    <Row tree={tree} boxKey={USERS_KEY} above
+                        label="User accounts"
+                        extra={counted(info.user_count, "account")}
+                        expandable onOpen={completeUsers}>
+                        {info.users.map((account) => {
                             return (
-                                <ul role="group">
-                                    {info.users.map((account) => {
-                                        return row(userKey(account), above,
-                                            account);
-                                    })}
-                                    {more(info.user_count, info.users.length)}
-                                </ul>
+                                <Row key={account} tree={tree}
+                                    boxKey={userKey(account)}
+                                    above={!excluded.has(USERS_KEY)}
+                                    label={account} />
                             );
-                        },
-                    }) : null}
+                        })}
+                        <More count={info.user_count} shown={info.users.length} />
+                    </Row>
+                ) : null}
             </ul>
         </section>
     );

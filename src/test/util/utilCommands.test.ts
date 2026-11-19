@@ -292,9 +292,10 @@ describe("the dump and load commands", () => {
             schema: "copy_of_shop", extraction_budget_mb: "512" },
         excluded: [USERS_KEY] });
 
-        // No extraction budget for a folder: the tool refuses it.
+        // UtilApi drops the budget for a folder (see its test).
         expect(recorded.started[0]).toEqual({ name: "loadDump",
-            args: [`id-of-${URI}`, "/dump", { schema: "copy_of_shop" }] });
+            args: [`id-of-${URI}`, "/dump", { schema: "copy_of_shop",
+                extraction_budget_mb: 512 }] });
         expect(recorded.refreshed).toEqual([URI]);
     });
 
@@ -306,8 +307,10 @@ describe("the dump and load commands", () => {
             await loaded();
 
             expect(recorded.inspected).toEqual(["/dumps/shop.mariadb.dump.zip"]);
+            // with the boxes to start with: the users unticked
             expect(posted()).toContainEqual({ type: "inspected",
-                path: "/dumps/shop.mariadb.dump.zip", info: dumpInfo() });
+                path: "/dumps/shop.mariadb.dump.zip", info: dumpInfo(),
+                excluded: [USERS_KEY] });
 
             await receive({ type: "start", values: { ...(await loaded()).values,
                 extraction_budget_mb: "512" },

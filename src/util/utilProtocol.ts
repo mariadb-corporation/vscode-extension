@@ -53,17 +53,26 @@ export interface IUtilStartErrorMessage {
     field?: string;
 }
 
-/**
- * What a load's dump holds, read with `util.inspect_dump`, or why it could
- * not be read. Sent again, with every name of a schema, after
- * `inspectSchema`.
- */
-export interface IUtilInspectedMessage {
-    type: "inspected";
+/** A load's dump as read: what it holds, or why it could not be read. */
+export interface IDumpRead {
     /** The path it was read from. */
     path: string;
     info?: IDumpInfo;
     error?: string;
+}
+
+/**
+ * A load's dump, read with `util.inspect_dump`. Sent again, with every
+ * name of a schema, after `inspectSchema`.
+ */
+export interface IUtilInspectedMessage extends IDumpRead {
+    type: "inspected";
+    /**
+     * The boxes unticked to start with (`dumpSelection.ts`), for a dump
+     * read anew; left out where the same dump was read again, which keeps
+     * the boxes as they are.
+     */
+    excluded?: string[];
 }
 
 export type UtilHostMessage =

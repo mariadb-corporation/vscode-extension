@@ -53,13 +53,18 @@ describe("UtilApi", () => {
 
     it("gives load_dump its extraction budget as an argument of its own",
         async () => {
-            const { caller: c, calls } = createFakeToolCaller([STARTED]);
+            const { caller: c, calls } = createFakeToolCaller([STARTED, STARTED]);
             await new UtilApi(c).loadDump("c1", "/d.mariadb.dump.zip",
                 { extraction_budget_mb: 512, threads: 2 });
 
             expect(calls[0].args).toEqual({ connection_id: "c1",
                 url: "/d.mariadb.dump.zip", extraction_budget_mb: 512,
                 options: { threads: 2 } });
+
+            // a folder: the tool refuses it, so it is not sent
+            await new UtilApi(c).loadDump("c1", "/d",
+                { extraction_budget_mb: 512 });
+            expect(calls[1].args).toEqual({ connection_id: "c1", url: "/d" });
         });
 
     it("inspects a dump, all of it or one schema", async () => {

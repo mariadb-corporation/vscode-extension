@@ -24,6 +24,7 @@ import { UtilDialog } from "../src/UtilDialog.js";
 import type { IDumpInfo } from "../../src/mcp/utilApi.js";
 import {
     groupKey,
+    initialExcluded,
     objectKey,
     schemaKey,
     USERS_KEY,
@@ -72,11 +73,13 @@ const dump = (over: Partial<IDumpInfo> = {}): IDumpInfo => {
 const openLoad = async (operation: UtilOperation = "loadDump",
     info: IDumpInfo = dump()): Promise<void> => {
     await open(operation, "/dumps/x.mariadb.dump.zip");
-    await send({ type: "inspected", path: "/dumps/x.mariadb.dump.zip", info });
+    await send({ type: "inspected", path: "/dumps/x.mariadb.dump.zip", info,
+        excluded: initialExcluded(info, operation === "loadTableDump"
+            ? "shop" : undefined) });
 };
 
 const box = (key: string): HTMLInputElement => {
-    return host.querySelector(`input[data-key='${key.replaceAll("'",
+    return host.querySelector(`input[name='${key.replaceAll("'",
         "\\'")}']`)!;
 };
 
@@ -277,7 +280,7 @@ describe("UtilDialog", () => {
         expect(host.textContent).toContain("Reading what the dump holds");
 
         await send({ type: "inspected", path: "/dumps/x.mariadb.dump.zip",
-            info: dump() });
+            info: dump(), excluded: [USERS_KEY] });
         expect(host.textContent).toContain("Schema dump in a ZIP file, from "
             + "db1 (11.8.2) by root");
         expect(button("Load").disabled).toBe(false);

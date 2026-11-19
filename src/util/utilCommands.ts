@@ -30,19 +30,19 @@ import type {
 import type { ITaskStarted } from "../mcp/taskApi.js";
 import type { IUtilApi, UtilOptions } from "../mcp/utilApi.js";
 import { errorText } from "../text.js";
-import { isZipDump, quoteName, withZipSuffix } from "./dumpSelection.js";
+import { filterName, isZipDump, withZipSuffix } from "./dumpSelection.js";
 import {
     canResume,
     type IResumeLoad,
     type ITrackedTask,
     type TaskMonitor,
 } from "./taskMonitor.js";
+import { DumpInspection } from "./dumpInspection.js";
 import { pickDump, UtilDialogPanel } from "./utilDialogPanel.js";
 import {
     utilOperationSpec,
     type IUtilProblem,
     type UtilOperation,
-    type UtilValues,
 } from "./utilFields.js";
 
 /**
@@ -81,7 +81,7 @@ export interface IUtilCommandsHost {
      */
     zipDumps?: { get(): boolean; set(zip: boolean): void };
     /** Picks a dump to load; {@link pickDump} where not given. */
-    pickDump?(title: string, current?: string): Promise<string | undefined>;
+    pickDump?(title: string): Promise<string | undefined>;
     /**
      * Puts up a task that did not start, as a row of its connection's
      * Actions (see `TaskActionLog.startFailed`).
@@ -141,8 +141,13 @@ interface IStart {
     schemas?: string[];
     tables?: string[];
     initialPath?: string;
-    /** Values the dialog starts with in place of the defaults. */
-    initialValues?: UtilValues;
+    /**
+     * A dump: where it goes is checked before it starts, and whether it went
+     * to one ZIP file is kept for the next dump dialog.
+     */
+    writesDump?: boolean;
+    /** The panel comes up on the task's row as it starts. */
+    revealOnStart?: boolean;
     /** Whether the server's contents change, so the tree is read again. */
     changes: boolean;
     /** How to start it again, for a load. */
@@ -343,7 +348,7 @@ export class UtilCommands {
                         `${schema}.${node.name}.tsv`),
                     run: (api, id, options, paths) => {
                         return api.exportTable(id,
-                            `${quoteName(schema)}.${quoteName(node.name)}`,
+                            `${filterName(schema)}.${filterName(node.name)}`,
                             paths[0], options);
                     },
                 });
@@ -394,20 +399,22 @@ export class UtilCommands {
     }
 
     /**
-     * Where a new dump goes, and whether to one file, as the last dump
-     * started did.
+     * What a dump starts with: where it goes - to one file where the last
+     * dump started went to one, which the dialog's box then shows - and
+     * what every dump does.
      *
      * @param name The folder's name.
      *
-     * @returns The dialog's path and its Dump to Self-Contained ZIP File.
+     * @returns Those fields of the dump's start.
      */
-    #dumpTo(name: string): Pick<IStart, "initialPath" | "initialValues"> {
-        const zip = this.host.zipDumps?.get() === true;
-
+    #dumpTo(name: string): Pick<IStart,
+        "initialPath" | "writesDump" | "revealOnStart"> {
         return {
             initialPath: withZipSuffix(
-                path.join(this.host.defaultFolder(), name), zip),
-            initialValues: { zip },
+                path.join(this.host.defaultFolder(), name),
+                this.host.zipDumps?.get() === true),
+            writesDump: true,
+            revealOnStart: true,
         };
     }
 
@@ -426,7 +433,7 @@ export class UtilCommands {
         }
 
         this.#open({
-            ...load, changes: true, initialPath: picked,
+            ...load, changes: true, initialPath: picked, revealOnStart: true,
             run: (api, id, options, paths) => {
                 return api.loadDump(id, paths[0], options);
             },
@@ -458,22 +465,21 @@ export class UtilCommands {
 
             UtilDialogPanel.show(this.host.extensionUri, spec, {
                 initialPath: start.initialPath,
-                initialValues: start.initialValues,
                 targets,
                 ...(spec.inspects === true
-                    ? { inspect: async (url: string, schema?: string) => {
+                    ? { inspection: new DumpInspection(async (url, schema) => {
                         return await (await this.host.utilApi())
                             .inspectDump(url, schema);
-                    } }
+                    }, spec.intoSchema, this.host.log) }
                     : {}),
                 log: this.host.log,
-                ...(DUMPS.has(start.operation)
+                ...(start.writesDump === true
                     ? { check: async (paths: string[]) => {
                         return await (this.host.checkDumpFolder
                             ?? dumpPathProblem)(paths[0]);
                     } }
                     : {}),
-                start: async (options, paths, target, values) => {
+                start: async (options, paths, target) => {
                     const call = utilCall(start.operation, start,
                         target === undefined ? paths
                             : [connectionLabel(target)], options);
@@ -493,8 +499,8 @@ export class UtilCommands {
                         throw error;
                     }
                     this.host.log(`Started ${spec.title}.`);
-                    if (DUMPS.has(start.operation)) {
-                        this.host.zipDumps?.set(values?.zip === true);
+                    if (start.writesDump === true) {
+                        this.host.zipDumps?.set(isZipDump(paths[0]));
                     }
 
                     // Followed from here on, not awaited: the dialog closes
@@ -512,9 +518,7 @@ export class UtilCommands {
                             }
                         },
                     });
-                    // A dump or load shows its row as it starts.
-                    if (DUMPS.has(start.operation)
-                        || LOADS.has(start.operation)) {
+                    if (start.revealOnStart === true) {
                         this.host.showActions?.(start.uri, false);
                     }
                 },
@@ -573,16 +577,6 @@ export const utilCall = (
 
     return `${TOOLS[operation]}(${args.join(", ")})`;
 };
-
-/** The operations that write a dump: a folder or one zip. */
-const DUMPS: ReadonlySet<UtilOperation> = new Set<UtilOperation>([
-    "dumpInstance", "dumpSchemas", "dumpTables",
-]);
-
-/** The operations that load a dump. */
-const LOADS: ReadonlySet<UtilOperation> = new Set<UtilOperation>([
-    "loadDump", "loadTableDump",
-]);
 
 /**
  * Says what the shell would refuse about where a dump goes, before the dump
