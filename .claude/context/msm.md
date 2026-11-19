@@ -351,7 +351,7 @@ first four with input boxes one after another; Deploy is new.
   the same name doing nothing; `09-msm` has Rename Schema refused on its
   released project before a name is asked.
 - UI: `ui-test/tests/10-msm-projects.test.ts`, in suite `msm` before
-  `09-msm`, whose create lists its project, see testing-and-debugging.md.
+  `09-msm`, whose create lists its project, see ui-tests.md.
 - UI: `ui-test/tests/09-msm.test.ts`, suite `msm` (`npm run ui-test:msm`):
   create, the duplicate refused, the information, a release, a second one
   refused, the deployment script, the deploy onto the suite's sandbox (its
