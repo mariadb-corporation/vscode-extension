@@ -46,7 +46,7 @@ import {
     TASKS_VIEW_ID,
     TasksTreeProvider,
 } from "./util/tasksTreeProvider.js";
-import { UtilCommands } from "./util/utilCommands.js";
+import { UtilCommands, ZIP_DUMPS_KEY } from "./util/utilCommands.js";
 import {
     changedOnlineAlter, type IMsmApi, type IMsmRestItem, isUnknownTool,
     msmToolArgs,
@@ -1157,7 +1157,18 @@ export const activate = (context: vscode.ExtensionContext): void => {
         startFailed: (connection, title, call, error) => {
             taskActions.startFailed(connection, title, call, error);
         },
-        showActions: (uri) => { void resultView.showActions(uri); },
+        showActions: (uri, atFailure) => {
+            void resultView.showActions(uri, atFailure);
+        },
+        zipDumps: {
+            get: () => {
+                return context.workspaceState.get<boolean>(ZIP_DUMPS_KEY,
+                    false);
+            },
+            set: (zip) => {
+                void context.workspaceState.update(ZIP_DUMPS_KEY, zip);
+            },
+        },
         log,
     });
     context.subscriptions.push(taskOutput, taskMonitor, tasksTree, tasksView,

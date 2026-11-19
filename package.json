@@ -1135,6 +1135,11 @@
         "category": "MariaDB"
       },
       {
+        "command": "mariadb.loadTableDump",
+        "title": "Load Table Dump from Disk...",
+        "category": "MariaDB"
+      },
+      {
         "command": "mariadb.copyInstance",
         "title": "Copy Instance to Another Server...",
         "category": "MariaDB"
@@ -3077,6 +3082,10 @@
           "when": "false"
         },
         {
+          "command": "mariadb.loadTableDump",
+          "when": "false"
+        },
+        {
           "command": "mariadb.copyInstance",
           "when": "false"
         },
@@ -3141,6 +3150,11 @@
           "command": "mariadb.dumpSchemas",
           "when": "view == mariadb.connections && viewItem == mariadbSchema",
           "group": "1_dump@1"
+        },
+        {
+          "command": "mariadb.loadTableDump",
+          "when": "view == mariadb.connections && viewItem == mariadbSchema",
+          "group": "2_load@1"
         },
         {
           "command": "mariadb.copySchemas",

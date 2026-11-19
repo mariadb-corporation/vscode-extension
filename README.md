@@ -77,8 +77,11 @@ which exposes the backend functions over the Model Context Protocol.
   connecting with the button on the row.
 - **Dump and Load**, on the context menu of a connection, a schema or a
   table:
-  - dump the whole server, schemas or tables to a folder, and load such a
-    dump back;
+  - dump the whole server, schemas or tables to a folder or to one
+    self-contained `.mariadb.dump.zip` file, and load such a dump back -
+    picking on its Objects tab which schemas, tables, views, routines,
+    events and user accounts to load, and loading a table dump into the
+    schema it is opened on;
   - export a table to a file, and import files into a table;
   - copy the server, schemas or tables to another connection.
 
