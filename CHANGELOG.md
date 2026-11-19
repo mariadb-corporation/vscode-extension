@@ -6,6 +6,34 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Added
+
+- **Dumps to one ZIP file.** The Dump dialogs have a new option, Dump to
+  Self-Contained ZIP File, which writes the dump as one
+  `.mariadb.dump.zip` file instead of a folder. The dialogs remember the
+  choice for the next dump. A zip that exists already keeps the dialog
+  open with the reason.
+- **Load Dump shows what a dump holds.** Load Dump from Disk asks for the
+  dump first, a `.mariadb.dump.zip` or a folder, and its dialog then lists
+  what the dump holds on a new Objects tab: its schemas with their tables,
+  views, functions, procedures and events, and its user accounts. Untick
+  what not to load; Load stays disabled while nothing is ticked, or a
+  schema is ticked with everything under it unticked. Above the tabs, the dialog says what kind of dump it
+  is, where and when it was made, how big it is and, for a zip, how much
+  free space the load needs. A zip is extracted as it is loaded, and the
+  data of tables left out is never extracted.
+- **Load Table Dump from Disk**, on a schema's Dump and Load submenu,
+  loads a table dump, or the dump of one schema, into that schema - also a
+  one-schema dump that does not say which utility made it. Load
+  Dump from Disk on a connection says to use it for a table dump.
+- **The Actions tab comes up as a dump or load starts**, at the task's
+  row, which follows its stages - extracting and packing a zip included.
+
+### Changed
+
+- The Load dialog's typed include and exclude lists are replaced by the
+  Objects tab, and its User accounts box by the tree's.
+
 ## [26.11.2] - 2026-11-14
 
 ### Fixed

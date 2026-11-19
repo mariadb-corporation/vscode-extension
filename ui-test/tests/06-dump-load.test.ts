@@ -18,32 +18,41 @@
 import * as assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+    copyFileSync,
     existsSync,
     mkdirSync,
     readdirSync,
     readFileSync,
     writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
     By,
     CustomTreeSection,
     EditorView,
     TextEditor,
+    WebView,
     Workbench,
 } from "vscode-extension-tester";
 
 import {
+    answerFileDialog,
+    buttonEnabled,
     childLabels,
+    clickLabelled,
     clickButton,
     clearNotifications,
     CONNECTION,
     DEPLOY_TIMEOUT,
     dialogText,
+    fieldValue,
     inDialog,
     inSandboxDialog,
     inlineAction,
+    inputUp,
+    menuAction,
+    pickQuick,
     FILES,
     hasTreeItem,
     menuConfirm,
@@ -83,6 +92,13 @@ const SUBMENU = "Dump and Load";
 const SECOND_CONNECTION = ["Sandboxes", `root@127.0.0.1:${String(SECOND_PORT)}`];
 const SCHEMA = ["uitest"];
 const DUMP = join(FILES, "uitest-dump");
+/** A dump of uitest in one file, and of its country table. */
+const ZIP_DUMP = join(FILES, "uitest.mariadb.dump.zip");
+const TABLE_ZIP = join(FILES, "country.mariadb.dump.zip");
+/** The nation schema's dump the repository keeps, zipped as Finder does. */
+const NATIONS_ZIP = join(FILES, "nations.mariadb.dump.zip");
+const NATIONS_ASSET = resolve(__dirname, "../../../ui-test/assets",
+    "nations.mariadb.dump.zip");
 const EXPORT = join(FILES, "country.tsv");
 
 /** The connection's label in dialog titles, as the extension names it. */
@@ -114,21 +130,44 @@ const sql = (statement: string, port = SANDBOX_PORT): string => {
 let connections: CustomTreeSection;
 
 /**
- * Refreshes the Connections view until a table shows up: one made outside
- * the extension is listed once the tree reads its schema again.
+ * Refreshes the Connections view until a row shows up: one made outside
+ * the extension is listed once the tree reads it again.
  *
- * @param table The table, in `uitest`.
+ * @param path The labels on the way to the row's parent.
+ * @param label The row.
  *
  * @returns Nothing.
  */
-const waitForTable = async (table: string): Promise<void> => {
+const waitForChild = async (path: string[], label: string): Promise<void> => {
     await waitFor(async () => {
         connections = await openSection("Connections");
         await (await connections.getAction("Refresh Connections"))?.click();
 
-        return (await childLabels(connections,
-            [...CONNECTION, ...SCHEMA, "Tables"])).includes(table);
-    }, `the table ${table} in the tree`, SERVER_TIMEOUT);
+        return (await childLabels(connections, path)).includes(label);
+    }, `${label} in the tree`, SERVER_TIMEOUT);
+};
+
+/**
+ * @param table A table of `uitest`, made outside the extension.
+ *
+ * @returns Once the tree lists it.
+ */
+const waitForTable = async (table: string): Promise<void> => {
+    await waitForChild([...CONNECTION, ...SCHEMA, "Tables"], table);
+};
+
+/**
+ * Opens Dump Schema to Disk on `uitest`.
+ *
+ * @returns The dialog's title.
+ */
+const openDumpSchema = async (): Promise<string> => {
+    const title = "Dump uitest to Disk";
+    connections = await openSection("Connections");
+    await openDialog(connections, [...CONNECTION, ...SCHEMA],
+        [SUBMENU, "Dump Schema to Disk..."], title);
+
+    return title;
 };
 
 /**
@@ -202,6 +241,61 @@ const taskState = async (title: string): Promise<string> => {
     return await row.getDescription() ?? "";
 };
 
+/**
+ * Opens a load's dialog from a row's Dump and Load submenu. The entry asks
+ * for the dump first: VS Code's simple file dialog in these runs, after a
+ * quick pick of a zip or a folder where one picker cannot take both (all
+ * but macOS).
+ *
+ * @param path The labels on the way to the row.
+ * @param entry The submenu's entry.
+ * @param dump The dump's zip or folder.
+ *
+ * @returns Nothing.
+ */
+const openLoad = async (
+    path: string[],
+    entry: string,
+    dump: string,
+): Promise<void> => {
+    connections = await openSection("Connections");
+    await menuAction(connections, path, [SUBMENU, entry], inputUp,
+        "the dump picker");
+    if (process.platform !== "darwin") {
+        await pickQuick(dump.endsWith(".zip") ? "ZIP File..." : "Dump Folder...");
+    }
+    await answerFileDialog(dump);
+};
+
+/**
+ * Waits for a load's dialog to have read its dump.
+ *
+ * @param view The dialog.
+ *
+ * @returns Its text then.
+ */
+const waitInspected = async (view: WebView): Promise<string> => {
+    return await waitFor(async () => {
+        const text = await dialogText(view);
+
+        return /dump in a (ZIP file|folder)|This is a dump|Not a dump|Cannot read/u
+            .test(text)
+            ? text : undefined;
+    }, "the dialog to read the dump");
+};
+
+/**
+ * Makes a schema outside the extension, and waits for the tree to list it.
+ *
+ * @param name The schema.
+ *
+ * @returns Nothing.
+ */
+const createSchema = async (name: string): Promise<void> => {
+    sql(`CREATE DATABASE ${name}`);
+    await waitForChild(CONNECTION, name);
+};
+
 describe("Dump and Load", () => {
     before(async () => {
         connections = await openSection("Connections");
@@ -209,9 +303,7 @@ describe("Dump and Load", () => {
     });
 
     it("dumps a schema to disk from its Dump and Load submenu", async () => {
-        const title = "Dump uitest to Disk";
-        await openDialog(connections, [...CONNECTION, ...SCHEMA],
-            [SUBMENU, "Dump Schema to Disk..."], title);
+        const title = await openDumpSchema();
         await inDialog(title, async (view) => {
             await setField(view, "path", DUMP);
             await screenshot("06-dump-dialog");
@@ -251,14 +343,17 @@ describe("Dump and Load", () => {
     it("loads the dump into another schema from the connection's submenu",
         async () => {
             const title = `Load a Dump into ${CONNECTION_LABEL}`;
-            connections = await openSection("Connections");
-            await openDialog(connections, CONNECTION,
-                [SUBMENU, "Load Dump from Disk..."], title);
+            await openLoad(CONNECTION, "Load Dump from Disk...", DUMP);
             await inDialog(title, async (view) => {
-                await setField(view, "path", DUMP);
+                // What the folder holds, read before anything is loaded.
+                assert.match(await waitInspected(view),
+                    /Schema dump in a folder/u);
+                await selectTab(view, "Basic");
                 await setField(view, "schema", "uitest_copy");
                 await submitDialog(view, "Load", SERVER_TIMEOUT * 2);
             });
+            // The Actions tab comes up at the load's row as it starts.
+            await waitForAction(/Load a Dump into/u);
             await waitCompleted(title);
 
             assert.equal(sql("SELECT name FROM uitest_copy.country "
@@ -270,6 +365,104 @@ describe("Dump and Load", () => {
                     .includes("uitest_copy");
             }, "uitest_copy in the tree", SERVER_TIMEOUT);
         });
+
+    it("dumps a schema to one ZIP file", async () => {
+        const title = await openDumpSchema();
+        await inDialog(title, async (view) => {
+            await setChecked(view, "zip", true);
+            // Ticking it names the path a zip.
+            assert.match(await fieldValue(view, "path"),
+                /\.mariadb\.dump\.zip$/u);
+            await setField(view, "path", ZIP_DUMP);
+            await submitDialog(view, "Dump", SERVER_TIMEOUT * 2);
+        });
+        await waitCompleted(title);
+
+        assert.ok(existsSync(ZIP_DUMP), ZIP_DUMP);
+        // The folder it was packed from is gone.
+        assert.ok(!existsSync(ZIP_DUMP.replace(/\.zip$/u, ".tmp")));
+    });
+
+    it("keeps the dialog open when the dump zip exists", async () => {
+        const title = await openDumpSchema();
+        await inDialog(title, async (view) => {
+            // The last dump went to a zip, so this one starts as one.
+            assert.equal(await (await view.findWebElement(By.css(
+                "[name='zip']"))).isSelected(), true);
+            await setField(view, "path", ZIP_DUMP);
+            await clickButton(view, "Dump");
+            await waitFor(async () => {
+                return (await dialogText(view)).includes("exists already");
+            }, "the dialog to say the zip exists");
+            await clickButton(view, "Cancel");
+        });
+        await waitDialogClosed(title);
+    });
+
+    it("loads a zipped schema dump, leaving out an unticked table",
+        async () => {
+            copyFileSync(NATIONS_ASSET, NATIONS_ZIP);
+            const title = `Load a Dump into ${CONNECTION_LABEL}`;
+            await openLoad(CONNECTION, "Load Dump from Disk...", NATIONS_ZIP);
+            await inDialog(title, async (view) => {
+                assert.match(await waitInspected(view),
+                    /Schema dump in a ZIP file/u);
+                await screenshot("06-load-objects");
+                await clickLabelled(view, "Open Tables");
+                // A box's name is its key (`dumpSelection.ts`).
+                await setChecked(view, '["tables","nation","guests"]', false);
+                await submitDialog(view, "Load", SERVER_TIMEOUT * 2);
+            });
+            await waitForAction(/Load a Dump into/u);
+            await waitCompleted(title);
+
+            const tables = sql("SELECT table_name FROM information_schema"
+                + ".tables WHERE table_schema = 'nation' ORDER BY 1")
+                .split("\n");
+            assert.ok(tables.includes("countries"), tables.join(", "));
+            assert.ok(!tables.includes("guests"), tables.join(", "));
+            // A load that completed leaves no extracted folder behind.
+            assert.ok(!existsSync(NATIONS_ZIP.replace(/\.zip$/u,
+                ".extracted")));
+        });
+
+    it("loads a table dump only into a schema", async () => {
+        const dumpTitle = "Dump country to Disk";
+        connections = await openSection("Connections");
+        await openDialog(connections,
+            [...CONNECTION, ...SCHEMA, "Tables", "country"],
+            [SUBMENU, "Dump Table to Disk..."], dumpTitle);
+        await inDialog(dumpTitle, async (view) => {
+            await setChecked(view, "zip", true);
+            await setField(view, "path", TABLE_ZIP);
+            await submitDialog(view, "Dump", SERVER_TIMEOUT * 2);
+        });
+        await waitCompleted(dumpTitle);
+
+        // Not from the connection: a table dump goes into a schema.
+        const loadTitle = `Load a Dump into ${CONNECTION_LABEL}`;
+        await openLoad(CONNECTION, "Load Dump from Disk...", TABLE_ZIP);
+        await inDialog(loadTitle, async (view) => {
+            assert.match(await waitInspected(view),
+                /Load Table Dump from Disk/u);
+            assert.equal(await buttonEnabled(view, "Load"), false);
+            await clickButton(view, "Cancel");
+        });
+        await waitDialogClosed(loadTitle);
+
+        await createSchema("uitest_tables");
+        const title = "Load a Table Dump into uitest_tables";
+        await openLoad([...CONNECTION, "uitest_tables"],
+            "Load Table Dump from Disk...", TABLE_ZIP);
+        await inDialog(title, async (view) => {
+            assert.match(await waitInspected(view), /Table dump in a ZIP/u);
+            await submitDialog(view, "Load", SERVER_TIMEOUT * 2);
+        });
+        await waitCompleted(title);
+
+        assert.equal(sql("SELECT name FROM uitest_tables.country "
+            + "ORDER BY id"), "Austria\nGermany");
+    });
 
     it("exports a table to a file", async () => {
         const title = "Export uitest.country to a File";
@@ -353,15 +546,35 @@ describe("Dump and Load", () => {
 
     it("opens a failed task's log from its notification, and shows the "
         + "error under its row", async () => {
+        const title = `Load a Dump into ${CONNECTION_LABEL}`;
+
+        // A folder that holds no dump is refused before anything starts.
         const notADump = join(FILES, "not-a-dump");
         mkdirSync(notADump, { recursive: true });
         writeFileSync(join(notADump, "readme.txt"), "no dump here");
-        const title = `Load a Dump into ${CONNECTION_LABEL}`;
-        connections = await openSection("Connections");
-        await openDialog(connections, CONNECTION,
-            [SUBMENU, "Load Dump from Disk..."], title);
+        await openLoad(CONNECTION, "Load Dump from Disk...", notADump);
         await inDialog(title, async (view) => {
-            await setField(view, "path", notADump);
+            assert.match(await waitInspected(view), /Not a dump/u);
+            assert.equal(await buttonEnabled(view, "Load"), false);
+            await clickButton(view, "Cancel");
+        });
+        await waitDialogClosed(title);
+
+        // A fresh dump of uitest loaded back under its own name: its tables
+        // are there already, so the task fails. Fresh, as a dump that was
+        // loaded before resumes from its progress file, which does not
+        // check for objects that exist.
+        const fresh = join(FILES, "uitest-dump-again");
+        const dumpTitle = await openDumpSchema();
+        await inDialog(dumpTitle, async (view) => {
+            await setChecked(view, "zip", false);
+            await setField(view, "path", fresh);
+            await submitDialog(view, "Dump", SERVER_TIMEOUT * 2);
+        });
+        await waitCompleted(dumpTitle);
+        await openLoad(CONNECTION, "Load Dump from Disk...", fresh);
+        await inDialog(title, async (view) => {
+            await waitInspected(view);
             await submitDialog(view, "Load", SERVER_TIMEOUT * 2);
         });
 
@@ -393,10 +606,7 @@ describe("Dump and Load", () => {
 
     it("keeps the dialog open when the dump folder is not empty",
         async () => {
-            const title = "Dump uitest to Disk";
-            connections = await openSection("Connections");
-            await openDialog(connections, [...CONNECTION, ...SCHEMA],
-                [SUBMENU, "Dump Schema to Disk..."], title);
+            const title = await openDumpSchema();
             await inDialog(title, async (view) => {
                 await setField(view, "path", DUMP);
                 await clickButton(view, "Dump");

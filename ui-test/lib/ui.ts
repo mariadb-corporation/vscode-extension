@@ -1104,7 +1104,8 @@ export const typeInto = async (field: WebElement, text: string): Promise<void> =
 };
 
 const byName = (name: string): By => {
-    return By.css(`[name="${name}"]`);
+    // A JSON string is a CSS string too, whatever quotes the name holds.
+    return By.css(`[name=${JSON.stringify(name)}]`);
 };
 
 /**
@@ -1192,6 +1193,20 @@ export const clickButton = async (view: WebView, text: string): Promise<void> =>
     const button = await view.findWebElement(
         By.xpath(`//button[normalize-space()='${text}']`));
     await button.click();
+};
+
+/**
+ * @param view The dialog.
+ * @param text A button's text.
+ *
+ * @returns Whether the button can be pressed.
+ */
+export const buttonEnabled = async (
+    view: WebView,
+    text: string,
+): Promise<boolean> => {
+    return await (await view.findWebElement(
+        By.xpath(`//button[normalize-space()='${text}']`))).isEnabled();
 };
 
 /**

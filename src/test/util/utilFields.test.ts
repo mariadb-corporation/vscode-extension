@@ -27,7 +27,7 @@ import {
 
 const OPERATIONS: UtilOperation[] = [
     "dumpInstance", "dumpSchemas", "dumpTables", "exportTable", "loadDump",
-    "importTable", "copyInstance", "copySchemas", "copyTables",
+    "loadTableDump", "importTable", "copyInstance", "copySchemas", "copyTables",
 ];
 
 const subject = {
@@ -75,7 +75,44 @@ describe("utilOperationSpec", () => {
     });
 });
 
+describe("dumps and loads", () => {
+    it("offer every dump to one ZIP file", () => {
+        for (const operation of ["dumpInstance", "dumpSchemas",
+            "dumpTables"] as const) {
+            const spec = utilOperationSpec(operation, subject);
+            expect(spec.options[0]).toMatchObject({ name: "zip",
+                local: true, initial: false });
+            expect(spec.path?.zip?.label).toBe("Output File");
+        }
+    });
+
+    it("read the dump a load is opened on, a table dump into a schema",
+        () => {
+            const load = utilOperationSpec("loadDump", subject);
+            expect(load).toMatchObject({ inspects: true,
+                path: { browse: "dump" } });
+            expect(load.intoSchema).toBeUndefined();
+            // the Objects tab picks what to load, not typed lists
+            const names = load.options.map((option) => { return option.name; });
+            expect(names).not.toContain("includeTables");
+            expect(names).not.toContain("loadUsers");
+
+            const table = utilOperationSpec("loadTableDump", subject);
+            expect(table).toMatchObject({ inspects: true, intoSchema: "shop",
+                title: "Load a Table Dump into shop" });
+            expect(table.options.map((option) => { return option.name; }))
+                .not.toContain("schema");
+        });
+});
+
 describe("buildUtilOptions", () => {
+    it("never sends the dialog's own options", () => {
+        const spec = utilOperationSpec("dumpSchemas", subject);
+        const built = buildUtilOptions(spec, {
+            ...initialUtilValues(spec, "/d.mariadb.dump.zip"), zip: true });
+        expect(built).toEqual({ options: {}, paths: ["/d.mariadb.dump.zip"] });
+    });
+
     it("sends no option left at its default", () => {
         for (const operation of OPERATIONS) {
             const spec = utilOperationSpec(operation, subject);

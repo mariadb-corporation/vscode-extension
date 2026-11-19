@@ -21,6 +21,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { posted } from "./setup.js";
 import { UtilDialog } from "../src/UtilDialog.js";
+import type { IDumpInfo } from "../../src/mcp/utilApi.js";
+import {
+    groupKey,
+    initialExcluded,
+    objectKey,
+    schemaKey,
+    USERS_KEY,
+} from "../../src/util/dumpSelection.js";
 import {
     initialUtilValues,
     utilOperationSpec,
@@ -36,6 +44,57 @@ let host: HTMLDivElement;
 const send = async (message: UtilHostMessage): Promise<void> => {
     await act(async () => {
         window.dispatchEvent(new MessageEvent("message", { data: message }));
+        await Promise.resolve();
+    });
+};
+
+const dump = (over: Partial<IDumpInfo> = {}): IDumpInfo => {
+    const schema = (name: string, tables: string[], count = tables.length) => {
+        return {
+            name, tables, table_count: count, views: [], view_count: 0,
+            functions: [], function_count: 0, procedures: [],
+            procedure_count: 0, events: [], event_count: 0,
+        };
+    };
+
+    return {
+        url: "/dumps/x.mariadb.dump.zip", format: "zip", kind: "dumpSchemas",
+        complete: true,
+        source: { server: "db1", server_version: "11.8.2", user: "root" },
+        begin: "2026-11-10 14:05:00", end: null, options: {},
+        includes_users: false, users: [], user_count: 0, schema_count: 2,
+        schemas: [schema("shop", ["orders", "items"], 150),
+            schema("crm", ["leads"])],
+        data_file_bytes: 1, size_bytes: 2048, ...over,
+    };
+};
+
+/** A load's dialog, its dump read. */
+const openLoad = async (operation: UtilOperation = "loadDump",
+    info: IDumpInfo = dump()): Promise<void> => {
+    await open(operation, "/dumps/x.mariadb.dump.zip");
+    await send({ type: "inspected", path: "/dumps/x.mariadb.dump.zip", info,
+        excluded: initialExcluded(info, operation === "loadTableDump"
+            ? "shop" : undefined) });
+};
+
+const box = (key: string): HTMLInputElement => {
+    return host.querySelector(`input[name='${key.replaceAll("'",
+        "\\'")}']`)!;
+};
+
+/** Opens or closes a row of the Objects tab. */
+const disclose = async (label: string): Promise<void> => {
+    await act(async () => {
+        host.querySelector<HTMLButtonElement>(
+            `button[aria-label='${label}']`)!.click();
+        await Promise.resolve();
+    });
+};
+
+const toggleBox = async (key: string): Promise<void> => {
+    await act(async () => {
+        box(key).click();
         await Promise.resolve();
     });
 };
@@ -141,7 +200,7 @@ describe("UtilDialog", () => {
     });
 
     it("brings a problem on the other tab into view", async () => {
-        await open("loadDump", "/dump");
+        await openLoad();
         await click("Advanced");
         // a number on the Basic tab is wrong
         await click("Basic");
@@ -196,6 +255,98 @@ describe("UtilDialog", () => {
             expect(host.querySelector("[role='progressbar']")).toBeNull();
             expect(host.querySelector(".message.error")?.textContent)
                 .toBe("Access denied");
+        });
+
+    it("names the path a zip while Dump to Self-Contained ZIP File is ticked",
+        async () => {
+            await open("dumpSchemas");
+            expect(host.textContent).toContain("Output Folder");
+
+            await change("zip", true);
+            expect(input("path").value).toBe("/home/me/dump.mariadb.dump.zip");
+            expect(host.textContent).toContain("Output File");
+            await click("Browse...");
+            expect(posted.at(-1)).toEqual({ type: "browse",
+                current: "/home/me/dump.mariadb.dump.zip", zip: true });
+
+            await change("zip", false);
+            expect(input("path").value).toBe("/home/me/dump");
+        });
+
+    it("lists what the dump holds, and sends what is unticked", async () => {
+        await open("loadDump", "/dumps/x.mariadb.dump.zip");
+        // nothing to load before the dump is read
+        expect(button("Load").disabled).toBe(true);
+        expect(host.textContent).toContain("Reading what the dump holds");
+
+        await send({ type: "inspected", path: "/dumps/x.mariadb.dump.zip",
+            info: dump(), excluded: [USERS_KEY] });
+        expect(host.textContent).toContain("Schema dump in a ZIP file, from "
+            + "db1 (11.8.2) by root");
+        expect(button("Load").disabled).toBe(false);
+
+        await toggleBox(schemaKey("crm"));
+        await click("Load");
+
+        expect(posted.at(-1)).toMatchObject({ type: "start",
+            excluded: [USERS_KEY, schemaKey("crm")] });
+    });
+
+    it("reads every name of a list cut short when it is opened", async () => {
+        await openLoad();
+        await disclose("Open shop");
+        await disclose("Open Tables");
+
+        expect(posted.at(-1)).toEqual({ type: "inspectSchema",
+            schema: "shop" });
+        expect(host.textContent).toContain("...and 148 more");
+        await toggleBox(objectKey("shop", "tables", "items"));
+        // the group above it shows partly ticked
+        expect(box(groupKey("shop", "tables")).indeterminate).toBe(true);
+    });
+
+    it("says why a dump cannot be loaded here, and does not load it",
+        async () => {
+            await openLoad("loadDump", dump({ kind: "dumpTables",
+                schema_count: 1 }));
+
+            expect(host.querySelector(".dump-problem")?.textContent)
+                .toContain("Load Table Dump from Disk");
+            expect(button("Load").disabled).toBe(true);
+        });
+
+    it("loads one schema's objects into another, routines unticked",
+        async () => {
+            await openLoad("loadTableDump", dump({ schema_count: 1,
+                schemas: [{ ...dump().schemas[1], functions: ["f"],
+                    function_count: 1 }] }));
+
+            expect(host.textContent).toContain("From crm, into shop:");
+            expect(box(groupKey("crm", "tables")).checked).toBe(true);
+            expect(box(groupKey("crm", "functions")).checked).toBe(false);
+        });
+
+    it("disables Load when nothing is ticked", async () => {
+        await openLoad();
+        await toggleBox(schemaKey("shop"));
+        await toggleBox(schemaKey("crm"));
+
+        expect(button("Load").disabled).toBe(true);
+        expect(host.textContent).toContain("Nothing is ticked");
+    });
+
+    it("disables Load when everything under a schema is unticked",
+        async () => {
+            await openLoad();
+            await disclose("Open crm");
+            await toggleBox(groupKey("crm", "tables"));
+
+            expect(button("Load").disabled).toBe(true);
+            expect(host.querySelector(".dump-tick-problem")?.textContent)
+                .toContain("Everything under crm is unticked");
+
+            await toggleBox(schemaKey("crm"));
+            expect(button("Load").disabled).toBe(false);
         });
 
     it("closes with Cancel", async () => {

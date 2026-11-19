@@ -15,6 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import { formatBytes } from "../../text.js";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,7 +31,6 @@ import type { MrsNode } from "../../tree/mrsModel.js";
 import {
     accessSuffix,
     developersOf,
-    formatBytes,
     MRS_ROOT_LABEL,
     MrsTreeItem,
 } from "../../tree/mrsTreeItems.js";

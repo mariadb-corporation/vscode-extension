@@ -15,7 +15,7 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import * as path from "node:path";
 
 import * as vscode from "vscode";
@@ -30,18 +30,26 @@ import type {
 import type { ITaskStarted } from "../mcp/taskApi.js";
 import type { IUtilApi, UtilOptions } from "../mcp/utilApi.js";
 import { errorText } from "../text.js";
+import { filterName, isZipDump, withZipSuffix } from "./dumpSelection.js";
 import {
     canResume,
     type IResumeLoad,
     type ITrackedTask,
     type TaskMonitor,
 } from "./taskMonitor.js";
-import { UtilDialogPanel } from "./utilDialogPanel.js";
+import { DumpInspection } from "./dumpInspection.js";
+import { pickDump, UtilDialogPanel } from "./utilDialogPanel.js";
 import {
     utilOperationSpec,
     type IUtilProblem,
     type UtilOperation,
 } from "./utilFields.js";
+
+/**
+ * The `workspaceState` key of whether the last dump went to one ZIP file
+ * (`IUtilCommandsHost.zipDumps`).
+ */
+export const ZIP_DUMPS_KEY = "mariadb.zipDumps";
 
 /** What the dump, load, copy, export and import commands need. */
 export interface IUtilCommandsHost {
@@ -61,17 +69,30 @@ export interface IUtilCommandsHost {
     refresh(uri: string): void;
     /** Where a new dump goes, unless the user picks another place. */
     defaultFolder(): string;
-    /** Checks a dump folder; {@link dumpFolderProblem} where not given. */
+    /**
+     * Checks where a dump goes, a folder or a zip; {@link dumpPathProblem}
+     * where not given.
+     */
     checkDumpFolder?(folder: string | undefined):
         Promise<IUtilProblem | undefined>;
+    /**
+     * Whether the last dump started went to one ZIP file, which the next
+     * dump dialog starts with; kept per workspace.
+     */
+    zipDumps?: { get(): boolean; set(zip: boolean): void };
+    /** Picks a dump to load; {@link pickDump} where not given. */
+    pickDump?(title: string): Promise<string | undefined>;
     /**
      * Puts up a task that did not start, as a row of its connection's
      * Actions (see `TaskActionLog.startFailed`).
      */
     startFailed?(connection: string, title: string, call: string,
         error: string): void;
-    /** Brings up the panel on a connection's Actions, at what failed. */
-    showActions?(uri: string): void;
+    /**
+     * Brings up the panel on a connection's Actions: at what failed, or,
+     * with `atFailure` false, as a dump or load starts, at its row.
+     */
+    showActions?(uri: string, atFailure?: boolean): void;
     log(message: string): void;
 }
 
@@ -120,6 +141,13 @@ interface IStart {
     schemas?: string[];
     tables?: string[];
     initialPath?: string;
+    /**
+     * A dump: where it goes is checked before it starts, and whether it went
+     * to one ZIP file is kept for the next dump dialog.
+     */
+    writesDump?: boolean;
+    /** The panel comes up on the task's row as it starts. */
+    revealOnStart?: boolean;
     /** Whether the server's contents change, so the tree is read again. */
     changes: boolean;
     /** How to start it again, for a load. */
@@ -138,6 +166,9 @@ export class UtilCommands {
             },
             "mariadb.loadDump": (node?: IConnectionNode) => {
                 return this.#connectionCommand(node, "loadDump");
+            },
+            "mariadb.loadTableDump": (node?: ISchemaNode) => {
+                return this.#schemaCommand(node, undefined, "loadTableDump");
             },
             "mariadb.copyInstance": (node?: IConnectionNode) => {
                 return this.#connectionCommand(node, "copyInstance");
@@ -208,8 +239,7 @@ export class UtilCommands {
             case "dumpInstance": {
                 this.#open({
                     operation, uri: node.uri, changes: false,
-                    initialPath: path.join(this.host.defaultFolder(),
-                        dumpFolderName(name.replace(/^.*@/u, ""))),
+                    ...this.#dumpTo(dumpFolderName(name.replace(/^.*@/u, ""))),
                     run: (api, id, options, paths) => {
                         return api.dumpInstance(id, paths[0], options);
                     },
@@ -218,19 +248,7 @@ export class UtilCommands {
             }
 
             case "loadDump": {
-                this.#open({
-                    operation, uri: node.uri, changes: true,
-                    run: (api, id, options, paths) => {
-                        return api.loadDump(id, paths[0], options);
-                    },
-                    resume: (options, paths) => {
-                        // Starting over would load everything again.
-                        const { resetProgress: _reset, ...kept } = options;
-
-                        return { operation: "loadDump", uri: node.uri,
-                            url: paths[0], options: kept };
-                    },
-                });
+                void this.#openLoad({ operation, uri: node.uri });
                 break;
             }
 
@@ -255,12 +273,18 @@ export class UtilCommands {
             .filter((candidate) => { return candidate.uri === node.uri; })
             .map((candidate) => { return candidate.schema; });
 
+        if (operation === "loadTableDump") {
+            void this.#openLoad({ operation, uri: node.uri,
+                schemas: [node.schema] });
+
+            return;
+        }
+
         if (operation === "dumpSchemas") {
             this.#open({
                 operation, uri: node.uri, schemas, changes: false,
-                initialPath: path.join(this.host.defaultFolder(),
-                    dumpFolderName(schemas.length === 1 ? schemas[0]
-                        : "schemas")),
+                ...this.#dumpTo(dumpFolderName(schemas.length === 1
+                    ? schemas[0] : "schemas")),
                 run: (api, id, options, paths) => {
                     return api.dumpSchemas(id, schemas, paths[0], options);
                 },
@@ -296,9 +320,8 @@ export class UtilCommands {
             case "dumpTables": {
                 this.#open({
                     ...subject, operation, changes: false,
-                    initialPath: path.join(this.host.defaultFolder(),
-                        dumpFolderName(tables.length === 1
-                            ? `${schema}.${tables[0]}` : schema)),
+                    ...this.#dumpTo(dumpFolderName(tables.length === 1
+                        ? `${schema}.${tables[0]}` : schema)),
                     run: (api, id, options, paths) => {
                         return api.dumpTables(id, schema, tables, paths[0],
                             options);
@@ -325,8 +348,8 @@ export class UtilCommands {
                         `${schema}.${node.name}.tsv`),
                     run: (api, id, options, paths) => {
                         return api.exportTable(id,
-                            `${quote(schema)}.${quote(node.name)}`, paths[0],
-                            options);
+                            `${filterName(schema)}.${filterName(node.name)}`,
+                            paths[0], options);
                     },
                 });
                 break;
@@ -356,6 +379,7 @@ export class UtilCommands {
                 resume.url, resume.options);
             this.host.log(`Resumed ${tracked.state.title}.`);
             this.host.monitor.remove(tracked.state.task_id);
+            this.host.showActions?.(resume.uri, false);
 
             void this.host.monitor.follow(started, {
                 title: tracked.state.title,
@@ -372,6 +396,55 @@ export class UtilCommands {
             void vscode.window.showErrorMessage(
                 `Could not resume ${tracked.state.title}: ${errorText(error)}`);
         }
+    }
+
+    /**
+     * What a dump starts with: where it goes - to one file where the last
+     * dump started went to one, which the dialog's box then shows - and
+     * what every dump does.
+     *
+     * @param name The folder's name.
+     *
+     * @returns Those fields of the dump's start.
+     */
+    #dumpTo(name: string): Pick<IStart,
+        "initialPath" | "writesDump" | "revealOnStart"> {
+        return {
+            initialPath: withZipSuffix(
+                path.join(this.host.defaultFolder(), name),
+                this.host.zipDumps?.get() === true),
+            writesDump: true,
+            revealOnStart: true,
+        };
+    }
+
+    /**
+     * Picks the dump, then opens the Load dialog on it, which reads what it
+     * holds. Nothing opens where no dump is picked.
+     */
+    async #openLoad(load: { operation: "loadDump" | "loadTableDump";
+        uri: string; schemas?: string[] }): Promise<void> {
+        const title = load.operation === "loadDump"
+            ? "Load a Dump from Disk"
+            : `Load a Table Dump into ${load.schemas?.[0] ?? ""}`;
+        const picked = await (this.host.pickDump ?? pickDump)(title);
+        if (picked === undefined) {
+            return;
+        }
+
+        this.#open({
+            ...load, changes: true, initialPath: picked, revealOnStart: true,
+            run: (api, id, options, paths) => {
+                return api.loadDump(id, paths[0], options);
+            },
+            resume: (options, paths) => {
+                // Starting over would load everything again.
+                const { resetProgress: _reset, ...kept } = options;
+
+                return { operation: "loadDump", uri: load.uri,
+                    url: paths[0], options: kept };
+            },
+        });
     }
 
     /** Opens the dialog for an operation, which then starts and follows it. */
@@ -393,11 +466,17 @@ export class UtilCommands {
             UtilDialogPanel.show(this.host.extensionUri, spec, {
                 initialPath: start.initialPath,
                 targets,
+                ...(spec.inspects === true
+                    ? { inspection: new DumpInspection(async (url, schema) => {
+                        return await (await this.host.utilApi())
+                            .inspectDump(url, schema);
+                    }, spec.intoSchema, this.host.log) }
+                    : {}),
                 log: this.host.log,
-                ...(DUMPS.has(start.operation)
+                ...(start.writesDump === true
                     ? { check: async (paths: string[]) => {
                         return await (this.host.checkDumpFolder
-                            ?? dumpFolderProblem)(paths[0]);
+                            ?? dumpPathProblem)(paths[0]);
                     } }
                     : {}),
                 start: async (options, paths, target) => {
@@ -420,6 +499,9 @@ export class UtilCommands {
                         throw error;
                     }
                     this.host.log(`Started ${spec.title}.`);
+                    if (start.writesDump === true) {
+                        this.host.zipDumps?.set(isZipDump(paths[0]));
+                    }
 
                     // Followed from here on, not awaited: the dialog closes
                     // as soon as the work runs.
@@ -436,6 +518,9 @@ export class UtilCommands {
                             }
                         },
                     });
+                    if (start.revealOnStart === true) {
+                        this.host.showActions?.(start.uri, false);
+                    }
                 },
                 onFailed: () => {
                     this.host.showActions?.(start.uri);
@@ -452,6 +537,7 @@ const TOOLS: Record<UtilOperation, string> = {
     dumpTables: "util.dump_tables",
     exportTable: "util.export_table",
     loadDump: "util.load_dump",
+    loadTableDump: "util.load_dump",
     importTable: "util.import_table",
     copyInstance: "util.copy_instance",
     copySchemas: "util.copy_schemas",
@@ -477,7 +563,8 @@ export const utilCall = (
     options: UtilOptions,
 ): string => {
     const subject = operation === "dumpInstance" || operation === "loadDump"
-        || operation === "importTable" || operation === "copyInstance"
+        || operation === "loadTableDump" || operation === "importTable"
+        || operation === "copyInstance"
         ? []
         : operation === "exportTable"
             ? [`${names.schemas?.[0] ?? ""}.${names.tables?.[0] ?? ""}`]
@@ -492,28 +579,38 @@ export const utilCall = (
     return `${TOOLS[operation]}(${args.join(", ")})`;
 };
 
-/** The operations that write a dump folder. */
-const DUMPS: ReadonlySet<UtilOperation> = new Set<UtilOperation>([
-    "dumpInstance", "dumpSchemas", "dumpTables",
-]);
-
 /**
- * Says what the shell would refuse about a dump folder, before the dump is
- * started: one that holds something already, or a file in its place. The
- * server runs on this machine, so the extension sees the same folder.
+ * Says what the shell would refuse about where a dump goes, before the dump
+ * is started: a folder that holds something already, a file in its place,
+ * or a `.mariadb.dump.zip` that exists. The server runs on this machine, so
+ * the extension sees the same files.
  *
- * @param folder The folder the dump is to go to.
+ * @param target The folder or zip the dump is to go to.
  *
- * @returns The problem, or undefined where the folder is new or empty.
+ * @returns The problem, or undefined where the dump can go there.
  */
-export const dumpFolderProblem = async (
-    folder: string | undefined,
+export const dumpPathProblem = async (
+    target: string | undefined,
 ): Promise<IUtilProblem | undefined> => {
-    if (folder === undefined) {
+    if (target === undefined) {
         return undefined;
     }
+    if (isZipDump(target)) {
+        try {
+            await stat(target);
+
+            return {
+                field: "path",
+                message: "This file exists already. Pick a new name: a dump "
+                    + "never writes over another.",
+            };
+        } catch {
+            // ENOENT: the dump makes it. Anything else, the shell reports.
+            return undefined;
+        }
+    }
     try {
-        const entries = await readdir(folder);
+        const entries = await readdir(target);
         if (entries.length > 0) {
             return {
                 field: "path",
@@ -530,11 +627,4 @@ export const dumpFolderProblem = async (
     }
 
     return undefined;
-};
-
-/** A name for util.export_table's `schema.table`, quoted where it must be. */
-
-const quote = (name: string): string => {
-    return /^[A-Za-z_][A-Za-z0-9_$]*$/u.test(name)
-        ? name : `\`${name.replaceAll("`", "``")}\``;
 };

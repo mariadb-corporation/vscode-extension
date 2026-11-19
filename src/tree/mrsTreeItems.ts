@@ -23,6 +23,7 @@ import {
     type IMrsSchema,
     type IMrsService,
 } from "../mrs/mrsTypes.js";
+import { formatBytes } from "../text.js";
 import { mrsHasChildren, type MrsNode } from "./mrsModel.js";
 import type { IconResolver } from "./treeItems.js";
 
@@ -35,25 +36,6 @@ import type { IconResolver } from "./treeItems.js";
 
 /** The caption of a REST Service root. */
 export const MRS_ROOT_LABEL = "MariaDB REST Service";
-
-/**
- * @param bytes A size.
- *
- * @returns It for a person: `1.4 KB`.
- */
-export const formatBytes = (bytes: number): string => {
-    const units = ["bytes", "KB", "MB", "GB"];
-    let value = bytes;
-    let unit = 0;
-    while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024;
-        unit += 1;
-    }
-
-    return unit === 0
-        ? `${bytes} bytes`
-        : `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
-};
 
 /**
  * @param enabled Whether the row's object is served.

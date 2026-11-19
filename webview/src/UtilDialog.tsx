@@ -18,6 +18,12 @@
 import { useEffect, useState } from "preact/hooks";
 
 import {
+    dumpProblem,
+    dumpSummary,
+    selectionProblem,
+    withZipSuffix,
+} from "../../src/util/dumpSelection.js";
+import {
     buildUtilOptions,
     type IUtilOperationSpec,
     type IUtilOptionSpec,
@@ -25,22 +31,27 @@ import {
     type UtilValues,
 } from "../../src/util/utilFields.js";
 import type {
+    IDumpRead,
     IUtilTarget,
     UtilHostMessage,
     UtilWebviewMessage,
 } from "../../src/util/utilProtocol.js";
 import { Field, TabBody, TabStrip } from "./dialogParts.js";
+import { DumpObjects } from "./DumpObjects.js";
 import { post } from "./vscodeApi.js";
 
 /**
  * The dialog that sets up a dump, load, copy, export or import. What it
  * asks for comes from the extension, as the operation's spec; it draws the
- * path or the target on top, and the utility's options on two tabs.
+ * path or the target on top, and the utility's options on two tabs. A load
+ * reads what its dump holds and lists it on an Objects tab first, to untick
+ * what not to load.
  */
 
 const TABS = ["Basic", "Advanced"] as const;
+const LOAD_TABS = ["Objects", "Basic", "Advanced"] as const;
 
-type Tab = (typeof TABS)[number];
+type Tab = (typeof LOAD_TABS)[number];
 
 export const UtilDialog = (): preact.JSX.Element => {
     const [spec, setSpec] = useState<IUtilOperationSpec | undefined>();
@@ -50,6 +61,8 @@ export const UtilDialog = (): preact.JSX.Element => {
     const [problem, setProblem] = useState<IUtilProblem | undefined>();
     const [startError, setStartError] = useState<string | undefined>();
     const [busy, setBusy] = useState(false);
+    const [dump, setDump] = useState<IDumpRead | undefined>();
+    const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set());
 
     useEffect(() => {
         const onMessage = (event: MessageEvent<UtilHostMessage>): void => {
@@ -61,12 +74,31 @@ export const UtilDialog = (): preact.JSX.Element => {
                     setTargets(message.targets);
                     setProblem(undefined);
                     setStartError(undefined);
+                    setTab(message.spec.inspects === true ? "Objects" : "Basic");
+                    break;
+                }
+
+                case "inspected": {
+                    // A dump read anew comes with the boxes to start with;
+                    // the same one read again keeps them.
+                    if (message.excluded !== undefined) {
+                        setExcluded(new Set(message.excluded));
+                    }
+                    setDump({ path: message.path, info: message.info,
+                        error: message.error });
+                    setStartError(undefined);
                     break;
                 }
 
                 case "browsed": {
                     setValues((current) => {
                         return { ...current, path: message.path };
+                    });
+                    // A load's dump picked anew is read: not the last one.
+                    setDump((current) => {
+                        return current === undefined
+                            || current.path === message.path
+                            ? current : { path: message.path };
                     });
                     setProblem(undefined);
                     break;
@@ -103,10 +135,30 @@ export const UtilDialog = (): preact.JSX.Element => {
     }
 
     const update = (name: string, value: boolean | string): void => {
-        setValues((current) => { return { ...current, [name]: value }; });
+        setValues((current) => {
+            // Dump to Self-Contained ZIP File names the path a zip, or not.
+            return name === "zip" ? { ...current, zip: value,
+                path: withZipSuffix(String(current.path ?? ""), value === true) }
+                : { ...current, [name]: value };
+        });
         setProblem(undefined);
         setStartError(undefined);
     };
+
+    const inspects = spec.inspects === true;
+    const path = String(values.path ?? "").trim();
+    const zip = values.zip === true && spec.path?.zip !== undefined;
+    // The path's label and hint, a zip's while the box is ticked.
+    const pathSpec = zip ? spec.path?.zip : spec.path;
+    // What keeps a load's dump from being loaded here, said in its place.
+    const loadProblem = dump?.info === undefined ? dump?.error
+        : dumpProblem(dump.info, spec.intoSchema);
+    // What keeps Load disabled in what is ticked, said under the tree.
+    const tickProblem = dump?.info === undefined ? undefined
+        : selectionProblem(dump.info, excluded, spec.intoSchema);
+    const canLoad = !inspects || (dump?.info !== undefined
+        && loadProblem === undefined && tickProblem === undefined
+        && dump.path === path);
 
     const hintOf = (field: string, hint: string): string => {
         return problem?.field === field ? problem.message : hint;
@@ -129,7 +181,55 @@ export const UtilDialog = (): preact.JSX.Element => {
         }
 
         setStartError(undefined);
-        post<UtilWebviewMessage>({ type: "start", values });
+        post<UtilWebviewMessage>({ type: "start", values,
+            ...(inspects ? { excluded: [...excluded] } : {}) });
+    };
+
+    /** A path typed: read the dump there, if it is another. */
+    const inspectTyped = (): void => {
+        if (inspects && path !== dump?.path) {
+            setDump({ path });
+            post<UtilWebviewMessage>({ type: "inspect", path });
+        }
+    };
+
+    const objects = (): preact.JSX.Element => {
+        if (dump === undefined || (dump.info === undefined
+            && dump.error === undefined)) {
+            return (
+                <p class="message">
+                    {path === ""
+                        ? "Choose the dump to load."
+                        : "Reading what the dump holds..."}
+                </p>
+            );
+        }
+        if (loadProblem !== undefined || dump.info === undefined) {
+            return <p class="message error dump-problem">{loadProblem}</p>;
+        }
+
+        return (
+            <>
+                <DumpObjects
+                    // Another dump starts with its rows closed again.
+                    key={dump.info.url}
+                    info={dump.info}
+                    intoSchema={spec.intoSchema}
+                    excluded={excluded}
+                    disabled={busy}
+                    onChange={(next) => {
+                        setExcluded(next);
+                        setStartError(undefined);
+                    }}
+                    onComplete={(schema) => {
+                        post<UtilWebviewMessage>({ type: "inspectSchema", schema });
+                    }}
+                />
+                {tickProblem === undefined ? null : (
+                    <p class="message dump-tick-problem">{tickProblem}</p>
+                )}
+            </>
+        );
     };
 
     const input = (option: IUtilOptionSpec): preact.JSX.Element => {
@@ -227,6 +327,7 @@ export const UtilDialog = (): preact.JSX.Element => {
     const hasAdvanced = spec.options.some((option) => {
         return option.advanced === true;
     });
+    const tabs = inspects ? LOAD_TABS : TABS;
 
     return (
         <div class="editor">
@@ -238,8 +339,8 @@ export const UtilDialog = (): preact.JSX.Element => {
             <section class="grid util-where">
                 {spec.path === undefined ? null : (
                     <Field
-                        caption={spec.path.label}
-                        hint={hintOf("path", spec.path.hint)}
+                        caption={pathSpec?.label ?? ""}
+                        hint={hintOf("path", pathSpec?.hint ?? "")}
                     >
                         <div class="row path-row">
                             <input
@@ -254,6 +355,7 @@ export const UtilDialog = (): preact.JSX.Element => {
                                     update("path",
                                         (event.target as HTMLInputElement).value);
                                 }}
+                                onChange={inspectTyped}
                             />
                             <button
                                 type="button"
@@ -265,6 +367,7 @@ export const UtilDialog = (): preact.JSX.Element => {
                                     post<UtilWebviewMessage>({
                                         type: "browse",
                                         current: String(values.path ?? ""),
+                                        ...(zip ? { zip } : {}),
                                     });
                                 }}
                             >
@@ -304,16 +407,25 @@ export const UtilDialog = (): preact.JSX.Element => {
                 )}
             </section>
 
-            {hasAdvanced ? (
+            {inspects && dump?.info !== undefined ? (
+                <section class="dump-summary">
+                    {dumpSummary(dump.info).map((line) => {
+                        return <p key={line}>{line}</p>;
+                    })}
+                </section>
+            ) : null}
+
+            {hasAdvanced || inspects ? (
                 <TabStrip
-                    tabs={TABS}
+                    tabs={tabs}
                     current={tab}
                     onSelect={(name) => { setTab(name); }}
                 />
             ) : null}
 
             <TabBody>
-                {options(hasAdvanced && tab === "Advanced")}
+                {inspects && tab === "Objects" ? objects()
+                    : options(hasAdvanced && tab === "Advanced")}
             </TabBody>
 
             {busy ? (
@@ -346,7 +458,7 @@ export const UtilDialog = (): preact.JSX.Element => {
                 <button
                     type="button"
                     class="primary"
-                    disabled={busy}
+                    disabled={busy || !canLoad}
                     onClick={start}
                 >
                     {spec.action}

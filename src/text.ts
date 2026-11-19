@@ -48,3 +48,22 @@ export const counted = (count: number, singular: string): string => {
 export const stripAnsi = (text: string): string => {
     return text.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/gu, "");
 };
+
+/**
+ * @param bytes A size.
+ *
+ * @returns It for a person: `1.4 KB`.
+ */
+export const formatBytes = (bytes: number): string => {
+    const units = ["bytes", "KB", "MB", "GB"];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+
+    return unit === 0
+        ? `${bytes} bytes`
+        : `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+};

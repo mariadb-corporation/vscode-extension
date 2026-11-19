@@ -382,6 +382,7 @@ describe("activate", () => {
             "mariadb.formatSql",
             "mariadb.importTable",
             "mariadb.loadDump",
+            "mariadb.loadTableDump",
             "mariadb.lsp.restart",
             "mariadb.msm.addEvent",
             "mariadb.msm.addFunction",
