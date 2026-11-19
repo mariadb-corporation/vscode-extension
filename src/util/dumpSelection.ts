@@ -186,9 +186,10 @@ export const dumpProblem = (
             : undefined;
     }
 
-    // The shell's schema option takes a dump of one schema only.
+    // The shell's schema option takes a dump of one schema only - also
+    // one whose @.json does not name the utility that made it.
     if (info.kind === "dumpTables"
-        || (info.kind === "dumpSchemas" && info.schema_count === 1)) {
+        || (info.kind !== "dumpInstance" && info.schema_count === 1)) {
         return undefined;
     }
 
@@ -288,11 +289,34 @@ export const withFullSchema = (info: IDumpInfo, full: IDumpInfo): IDumpInfo => {
 };
 
 /**
+ * @param schema A schema of the dump, its box ticked.
+ * @param out The boxes unticked.
+ *
+ * @returns Whether anything under it is still ticked; a schema without
+ *          objects has nothing to untick, and is loaded as it is.
+ */
+const hasTickedObjects = (schema: IDumpSchemaInfo,
+    out: ReadonlySet<string>): boolean => {
+    const groups = DUMP_GROUPS.filter(({ count }) => { return schema[count] > 0; });
+
+    return groups.length === 0 || groups.some(({ group }) => {
+        return !out.has(groupKey(schema.name, group))
+            // Names the dump did not list are loaded.
+            && (isCapped(schema, group) || schema[group].some((name) => {
+                return !out.has(objectKey(schema.name, group, name));
+            }));
+    });
+};
+
+/**
+ * What keeps Load disabled: nothing ticked at all, or a schema ticked with
+ * everything under it unticked.
+ *
  * @param info The dump.
  * @param excluded The boxes unticked.
  * @param intoSchema The schema it is loaded into, if any.
  *
- * @returns Why nothing would be loaded, or undefined.
+ * @returns Why, or undefined where something is to be loaded.
  */
 export const selectionProblem = (
     info: IDumpInfo,
@@ -300,12 +324,20 @@ export const selectionProblem = (
     intoSchema?: string,
 ): string | undefined => {
     const out = new Set(excluded);
-    const anySchema = info.schemas.some((schema) => {
+    const ticked = info.schemas.filter((schema) => {
         return !out.has(schemaKey(schema.name));
     });
+    const empty = ticked.find((schema) => {
+        return !hasTickedObjects(schema, out);
+    });
+    // Into a schema there is no schema row to untick instead.
+    if (empty !== undefined && intoSchema === undefined) {
+        return `Everything under ${empty.name} is unticked: tick what to `
+            + `load from it, or untick ${empty.name} itself.`;
+    }
     const users = offersUsers(info, intoSchema) && !out.has(USERS_KEY);
 
-    return anySchema || users ? undefined
+    return (ticked.length > 0 && empty === undefined) || users ? undefined
         : "Nothing is ticked: tick what to load.";
 };
 

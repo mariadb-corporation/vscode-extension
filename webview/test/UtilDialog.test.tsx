@@ -326,16 +326,28 @@ describe("UtilDialog", () => {
             expect(box(groupKey("crm", "functions")).checked).toBe(false);
         });
 
-    it("says when nothing is ticked", async () => {
+    it("disables Load when nothing is ticked", async () => {
         await openLoad();
         await toggleBox(schemaKey("shop"));
         await toggleBox(schemaKey("crm"));
-        await click("Load");
 
-        expect(posted.some((message) => { return message.type === "start"; }))
-            .toBe(false);
+        expect(button("Load").disabled).toBe(true);
         expect(host.textContent).toContain("Nothing is ticked");
     });
+
+    it("disables Load when everything under a schema is unticked",
+        async () => {
+            await openLoad();
+            await disclose("Open crm");
+            await toggleBox(groupKey("crm", "tables"));
+
+            expect(button("Load").disabled).toBe(true);
+            expect(host.querySelector(".dump-tick-problem")?.textContent)
+                .toContain("Everything under crm is unticked");
+
+            await toggleBox(schemaKey("crm"));
+            expect(button("Load").disabled).toBe(false);
+        });
 
     it("closes with Cancel", async () => {
         await open("exportTable", "/out.tsv");

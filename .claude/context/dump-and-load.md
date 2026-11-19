@@ -108,9 +108,14 @@ The server side is the MCP plugin's `util.md` (zip dumps, `util.inspect_dump`).
   Load stays disabled until the path's dump is read and `dumpProblem` has
   nothing against it: a dump not complete; a table dump from a connection
   (it says to use Load Table Dump); into a schema, anything but a table
-  dump or a dump of ONE schema (the shell's `schema` option takes nothing
+  dump or a dump of ONE schema (an instance dump never; a dump whose
+  `@.json` names no utility is taken when it holds one schema) (the shell's `schema` option takes nothing
   else - confirmed by the folder load UI test, a schema dump loaded under
   another name).
+- **Load is disabled for what is ticked** (`selectionProblem`, said under
+  the tree): nothing ticked, or a schema ticked with everything under it
+  unticked (untick the schema itself to leave it out). A schema without
+  objects, and names a list cut short did not show, count as ticked.
 - **The Objects tab keeps what is UNticked** (`excluded`), sent with
   `start`; `DumpInspection.loadOptions` turns it into exclude filters (`loadFilters`), so names
   the inspection did not list (100 per kind) still load. Defaults: user

@@ -24,7 +24,8 @@ import { groupKey, USERS_KEY } from "../../util/dumpSelection.js";
 const schema = (name: string, tables: string[],
     count = tables.length): IDumpSchemaInfo => {
     return {
-        name, tables, table_count: count, views: [], view_count: 0,
+        // A view too: unticking all of the tables leaves it to load.
+        name, tables, table_count: count, views: ["v"], view_count: 1,
         functions: [], function_count: 0, procedures: [], procedure_count: 0,
         events: [], event_count: 0,
     };

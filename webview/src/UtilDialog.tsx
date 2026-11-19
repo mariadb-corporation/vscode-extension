@@ -153,24 +153,18 @@ export const UtilDialog = (): preact.JSX.Element => {
     // What keeps a load's dump from being loaded here, said in its place.
     const loadProblem = dump?.info === undefined ? dump?.error
         : dumpProblem(dump.info, spec.intoSchema);
+    // What keeps Load disabled in what is ticked, said under the tree.
+    const tickProblem = dump?.info === undefined ? undefined
+        : selectionProblem(dump.info, excluded, spec.intoSchema);
     const canLoad = !inspects || (dump?.info !== undefined
-        && loadProblem === undefined && dump.path === path);
+        && loadProblem === undefined && tickProblem === undefined
+        && dump.path === path);
 
     const hintOf = (field: string, hint: string): string => {
         return problem?.field === field ? problem.message : hint;
     };
 
     const start = (): void => {
-        if (inspects && dump?.info !== undefined) {
-            const nothing = selectionProblem(dump.info, excluded,
-                spec.intoSchema);
-            if (nothing !== undefined) {
-                setTab("Objects");
-                setStartError(nothing);
-
-                return;
-            }
-        }
         const built = buildUtilOptions(spec, values);
         if ("problem" in built) {
             setProblem(built.problem);
@@ -215,21 +209,26 @@ export const UtilDialog = (): preact.JSX.Element => {
         }
 
         return (
-            <DumpObjects
-                // Another dump starts with its rows closed again.
-                key={dump.info.url}
-                info={dump.info}
-                intoSchema={spec.intoSchema}
-                excluded={excluded}
-                disabled={busy}
-                onChange={(next) => {
-                    setExcluded(next);
-                    setStartError(undefined);
-                }}
-                onComplete={(schema) => {
-                    post<UtilWebviewMessage>({ type: "inspectSchema", schema });
-                }}
-            />
+            <>
+                <DumpObjects
+                    // Another dump starts with its rows closed again.
+                    key={dump.info.url}
+                    info={dump.info}
+                    intoSchema={spec.intoSchema}
+                    excluded={excluded}
+                    disabled={busy}
+                    onChange={(next) => {
+                        setExcluded(next);
+                        setStartError(undefined);
+                    }}
+                    onComplete={(schema) => {
+                        post<UtilWebviewMessage>({ type: "inspectSchema", schema });
+                    }}
+                />
+                {tickProblem === undefined ? null : (
+                    <p class="message dump-tick-problem">{tickProblem}</p>
+                )}
+            </>
         );
     };
 

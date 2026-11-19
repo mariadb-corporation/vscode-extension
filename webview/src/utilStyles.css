@@ -95,3 +95,9 @@ span.dump-twisty {
 .dump-problem {
     white-space: normal;
 }
+
+/* Why Load is disabled for what is ticked, under the tree. */
+.dump-tick-problem {
+    margin-top: 8px;
+    color: var(--vscode-editorWarning-foreground);
+}

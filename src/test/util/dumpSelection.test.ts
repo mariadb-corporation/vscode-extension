@@ -98,6 +98,13 @@ describe("dumpProblem", () => {
         expect(dumpProblem(info())).toBeUndefined();
     });
 
+    it("loads a dump of one schema that does not name its utility", () => {
+        expect(dumpProblem(info({ kind: null, schema_count: 1,
+            schemas: [schemaInfo("crm")] }), "sales")).toBeUndefined();
+        expect(dumpProblem(info({ kind: null }), "sales"))
+            .toContain("dump of 2 schemas");
+    });
+
     it("refuses a dump that is not complete", () => {
         expect(dumpProblem(info({ complete: false }))).toContain("not complete");
     });
@@ -175,6 +182,43 @@ describe("names cut short", () => {
 });
 
 describe("selectionProblem", () => {
+    it("says when a ticked schema has nothing ticked under it", () => {
+        const groups = ["tables", "views", "functions", "procedures",
+            "events"] as const;
+        const shopEmpty = groups.map((group) => {
+            return groupKey("shop", group);
+        });
+        expect(selectionProblem(info(), shopEmpty))
+            .toContain("Everything under shop is unticked");
+        // its objects unticked one by one come to the same
+        expect(selectionProblem(info(), [
+            ...shopEmpty.filter((key) => { return key !== groupKey("shop",
+                "tables"); }),
+            objectKey("shop", "tables", "orders"),
+            objectKey("shop", "tables", "order lines")]))
+            .toContain("Everything under shop is unticked");
+        // unticking the schema itself leaves it out instead
+        expect(selectionProblem(info(), [schemaKey("shop"), ...shopEmpty]))
+            .toBeUndefined();
+    });
+
+    it("loads names a list cut short, and a schema without objects", () => {
+        const capped = info({ schemas: [schemaInfo("shop", {
+            tables: ["a"], table_count: 150 })] });
+        expect(selectionProblem(capped, [objectKey("shop", "tables", "a")]))
+            .toBeUndefined();
+        expect(selectionProblem(info({ schemas: [schemaInfo("empty")] }), []))
+            .toBeUndefined();
+    });
+
+    it("says nothing is ticked loading into a schema", () => {
+        const one = info({ kind: "dumpTables", schema_count: 1,
+            schemas: [schemaInfo("crm", { tables: ["leads"],
+                table_count: 1 })] });
+        expect(selectionProblem(one, [groupKey("crm", "tables")], "sales"))
+            .toContain("Nothing is ticked");
+    });
+
     it("says when nothing is ticked", () => {
         expect(selectionProblem(info(), [USERS_KEY, schemaKey("shop"),
             schemaKey("crm")])).toContain("Nothing is ticked");
