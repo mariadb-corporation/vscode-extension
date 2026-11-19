@@ -94,6 +94,12 @@ export const UtilDialog = (): preact.JSX.Element => {
                     setValues((current) => {
                         return { ...current, path: message.path };
                     });
+                    // A load's dump picked anew is read: not the last one.
+                    setDump((current) => {
+                        return current === undefined
+                            || current.path === message.path
+                            ? current : { path: message.path };
+                    });
                     setProblem(undefined);
                     break;
                 }

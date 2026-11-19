@@ -529,6 +529,12 @@ describe("the dump and load commands", () => {
             path: "/picked/shop.mariadb.dump.zip" });
         expect(fileDialogs.saveCalls[0]).toMatchObject({
             filters: { "MariaDB Dump": ["zip"] } });
+
+        // a plain .zip the save dialog added is replaced, not kept
+        fileDialogs.saveAnswer = Uri.file("/picked/shop.zip") as never;
+        await receive({ type: "browse", current: "", zip: true });
+        expect(posted().at(-1)).toEqual({ type: "browsed",
+            path: "/picked/shop.mariadb.dump.zip" });
     });
 
     it("keeps the dialog open with the reason when the work does not start",

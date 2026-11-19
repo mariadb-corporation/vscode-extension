@@ -68,7 +68,6 @@ export class DumpInspection {
      */
     public async read(path: string): Promise<IUtilInspectedMessage | undefined> {
         const read = ++this.#reads;
-        this.#schemas.clear();
 
         let dump: IDumpRead = { path };
         if (path !== "") {
@@ -82,6 +81,9 @@ export class DumpInspection {
             return undefined;
         }
         this.#read = dump;
+        // Cleared with the dump it was for: a schema read of the dump
+        // before, started while this one was read, must not count for it.
+        this.#schemas.clear();
 
         return {
             type: "inspected", ...dump,
@@ -132,7 +134,7 @@ export class DumpInspection {
         if (this.#read?.path !== path) {
             await this.read(path);
         }
-        const info = this.#read?.info;
+        const info = this.#read?.path === path ? this.#read.info : undefined;
         if (info === undefined) {
             return { problem: { field: "path",
                 message: this.#read?.error ?? "This is not a dump." } };
@@ -148,9 +150,14 @@ export class DumpInspection {
             return this.#complete(schema);
         }));
 
-        return {
-            options: loadFilters(this.#read!.info!, excluded, this.intoSchema),
-        };
+        // Another dump may have been read meanwhile.
+        const full = this.#read?.path === path ? this.#read.info : undefined;
+        if (full === undefined) {
+            return { problem: { field: "path",
+                message: "Another dump was read meanwhile: start again." } };
+        }
+
+        return { options: loadFilters(full, excluded, this.intoSchema) };
     }
 
     /**

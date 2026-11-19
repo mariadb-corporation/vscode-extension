@@ -251,8 +251,12 @@ export class UtilDialogPanel
                 ...(start === undefined ? {} : { defaultUri: start }),
             });
 
+            // The save dialog's filter may add a plain `.zip` to a name
+            // typed without one: the dump's suffix replaces it.
             return picked === undefined ? undefined
-                : zip ? withZipSuffix(picked.fsPath, true) : picked.fsPath;
+                : zip ? withZipSuffix(picked.fsPath.replace(
+                    /(?<!\.mariadb\.dump)\.zip$/iu, ""), true)
+                    : picked.fsPath;
         }
 
         const picked = await vscode.window.showOpenDialog({

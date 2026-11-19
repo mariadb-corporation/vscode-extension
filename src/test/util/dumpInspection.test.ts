@@ -121,4 +121,26 @@ describe("DumpInspection", () => {
         expect(await options).toEqual({ options: {
             excludeTables: ["a.a1", "a.a2", "b.b1", "b.b2"] } });
     });
+
+    it("does not count a schema read of the dump before for a new one",
+        async () => {
+            const { calls, inspection, release } = setUp();
+            const first = inspection.read("/d");
+            await release();
+            await first;
+
+            // a schema of /d read while /e is being read
+            const next = inspection.read("/e");
+            const stale = inspection.readSchema("a");
+            await release();
+            await Promise.all([next, stale]);
+
+            const options = inspection.loadOptions("/e",
+                [USERS_KEY, groupKey("a", "tables")]);
+            await release();
+            await options;
+
+            // /e's schema is read for /e's options
+            expect(calls).toEqual(["/d", "/e", "/d a", "/e a"]);
+        });
 });

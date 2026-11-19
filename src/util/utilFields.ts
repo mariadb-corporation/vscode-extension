@@ -206,7 +206,6 @@ const renameSchema = (hint: string): IUtilOptionSpec => {
     return opt("schema", "Into schema", "text", "", hint);
 };
 
-
 /** The options of a load, Load Dump's and Load Table Dump's. */
 const loadOptions: IUtilOptionSpec[] = [
     ...loadCommon(false),

@@ -563,7 +563,8 @@ export const utilCall = (
     options: UtilOptions,
 ): string => {
     const subject = operation === "dumpInstance" || operation === "loadDump"
-        || operation === "loadTableDump" || operation === "importTable" || operation === "copyInstance"
+        || operation === "loadTableDump" || operation === "importTable"
+        || operation === "copyInstance"
         ? []
         : operation === "exportTable"
             ? [`${names.schemas?.[0] ?? ""}.${names.tables?.[0] ?? ""}`]
