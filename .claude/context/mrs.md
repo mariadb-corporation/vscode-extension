@@ -265,7 +265,7 @@ path to `/openApiUi`.
 - Unit tests under `src/test/mrs/`, `src/test/tree/mrs*.test.ts`,
   `webview/test/MrsDialog.test.tsx`, `DataMappingEditor.test.tsx`.
 - UI tests: `ui-test/tests/02-mrs.test.ts` (ExTester, see
-  testing-and-debugging). It runs against a sandbox that `01-sandbox`
+  ui-tests.md). It runs against a sandbox that `01-sandbox`
   deploys and `99-cleanup` drops. It hovers before clicking a flag,
   since flags that are off are not displayed otherwise.
 - **Opt-in end-to-end**: `src/test/mrs/mrsShell.e2e.test.ts` deploys a

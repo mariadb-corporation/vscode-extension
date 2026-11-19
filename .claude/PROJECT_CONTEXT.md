@@ -47,7 +47,7 @@ extension grows.
 | `webview/src/modeler/` | The EER diagram as a figure set of the canvas (table, view, routine group, REST object, note and image figures, layers, connections), and the model viewer. |
 | `src/test/` | The extension-side test suite, mirroring the source layout; `grammar/` tokenizes with VS Code's own TextMate engine (word coverage, token classes, corpus snapshots). |
 | `webview/test/` | The frontend test suite, run under jsdom. |
-| `ui-test/` | The ExTester UI tests: the runner and its suites (`core`, `mrs`, `dump-load`, `lsp`, `restd`, `msm`, each with a sandbox of its own, and `msm-diagrams` without one), the helpers and the DevTools-protocol drags (`lib/cdp.ts`), the test files (see [`context/testing-and-debugging.md`](context/testing-and-debugging.md)). |
+| `ui-test/` | The ExTester UI tests: the runner and its suites (`core`, `mrs`, `dump-load`, `lsp`, `restd`, `msm`, each with a sandbox of its own, and `msm-diagrams` without one), the helpers and the DevTools-protocol drags (`lib/cdp.ts`), the test files (see [`context/ui-tests.md`](context/ui-tests.md)). |
 | `images/` | Icons: `light/` and `dark/` variants, the activity bar icons `activityBar-shell.svg` (MariaDB Shell), `activityBar-dba.svg` (MariaDB Deployments) and `activityBar-msm.svg` (MariaDB Schema Management), and `marketplace-icon.png`. |
 
 ## Context files
@@ -91,7 +91,8 @@ change belongs to up to date, and this table with it.
 | [`context/modeler-view.md`](context/modeler-view.md) | The diagram viewer's view: the Navigator (overview, zoom slider, − / + steps, presets), each diagram opening as it was left (views kept in VS Code's workspace state, never in the diagram), the shortcuts. |
 | [`context/modeler-figures.md`](context/modeler-figures.md) | The diagram viewer's figure kinds: table, view and routine group cards, REST object figures, any card standing upright or lying flat (`upright`, its footprint), figure and layer colors from Object Details, notes (Workbench fonts), images (data URLs, SVG sizing, pictures asked of msm), unknown types, connections between tables (matched to the foreign keys by definition, not name), sizing to content. |
 | [`context/modeler-tools.md`](context/modeler-tools.md) | The diagram viewer's tool palette: Workbench's EER tools and keys, placing tables with chained name / column / type editors, views, routine groups, notes, images, layers by area, the relationship tools and the existing-columns floater, the edits each sends and undoes, why a create's diagram is saved only after its edit, the `mariadb-lsp edit` ops agreed with lsp-server, driving headless Chrome over CDP. |
-| [`context/testing-and-debugging.md`](context/testing-and-debugging.md) | The interfaces everything external sits behind, the UI tests (ExTester), their suites, drags through the DevTools protocol and their traps, rendering the diagram viewer and Object Details headless, and the F5 launch and watch task. |
+| [`context/testing-and-debugging.md`](context/testing-and-debugging.md) | The interfaces everything external sits behind, rendering the diagram viewer and Object Details headless, and the F5 launch and watch task. |
+| [`context/ui-tests.md`](context/ui-tests.md) | The UI tests (ExTester): the runner, the VS Code under test and getting it past a slow download, the suites, the helpers, drags through the DevTools protocol and their traps. |
 
 ## Known gaps
 

@@ -37,13 +37,14 @@ export or import, `dba` for a cloud deployment or deletion (kinds
 | `src/util/utilCommands.ts` | The ten commands (Load Table Dump, `mariadb.loadTableDump`, on schemas) and the four task commands. The connection id is the tree's own session (`UI_BACKEND_SESSION`). The server runs each task in a shell process of its own, so the tree keeps working while it runs. Multi-select: the schemas or tables of the selection on the same connection (and schema); the selection is matched by row, not object. Load, import and copy refresh the tree once done, unless they failed, and have the SQL language server read the changed connection's catalog again (`refresh(uri)`: the target's for a copy). |
 
 Notes:
-- Start checks a dump folder first (`dumpFolderProblem`): one that is not
-  empty, or a file, keeps the dialog open with the reason, rather than letting the dump
-  start and fail after the dialog closed. Copy targets are shown
+- Start checks where a dump goes first (`dumpPathProblem`): a folder that
+  is not empty, a file in its place, or a zip that exists keeps the dialog
+  open with the reason, rather than letting the dump start and fail after
+  the dialog closed. Copy targets are shown
   by address (`IUtilTarget`), sent by URI.
 - Dump folders default to `<first workspace folder or home>/<name>-<YYYY-MM-DD-HHMM>`,
   an export to `<schema>.<table>.tsv` there. `exportTable` quotes names that
-  need it.
+  need it (`filterName`).
 - Copy targets are the configured connections other than the source; the
   target is connected (tree session) only when Start is pressed.
 - **Tasks end with the window.**
