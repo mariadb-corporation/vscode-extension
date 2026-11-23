@@ -1447,8 +1447,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
      * while an editor has unsaved changes on it.
      *
      * @param projectPath The project folder.
+     *
+     * @returns The script; undefined where the folder has none.
      */
-    const refuseUnsavedScript = async (projectPath: string): Promise<void> => {
+    const refuseUnsavedScript = async (
+        projectPath: string,
+    ): Promise<string | undefined> => {
         const file = await developmentScript(projectPath);
         const open = vscode.workspace.textDocuments.find((document) => {
             return file !== undefined && document.uri.fsPath === file;
@@ -1457,6 +1461,8 @@ export const activate = (context: vscode.ExtensionContext): void => {
             throw new Error(`${path.basename(open.uri.fsPath)} has unsaved `
                 + "changes. Save or revert them first.");
         }
+
+        return file;
     };
     /**
      * @param projectPath A project folder.
@@ -1582,7 +1588,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
             dumpSdk: async (service, directory, options) => {
                 // msm reads the script on disk: an SDK of what the editor
                 // shows would differ from it.
-                await refuseUnsavedScript(projectPath);
+                if (await refuseUnsavedScript(projectPath) === undefined) {
+                    // A rebuild's folder may name a project moved or gone:
+                    // no model source is made, and kept, for it.
+                    throw new Error(`The MSM project ${projectPath} has no `
+                        + "development script.");
+                }
                 const model = projectDiagrams(projectPath);
                 const what = `the REST Client SDK of ${service} in the MSM `
                     + `project ${model.schemaTitle} to ${directory}`;
