@@ -1989,9 +1989,12 @@ export class MrsCommands {
             folder.fsPath);
         if (made !== undefined) {
             const project = this.#projectSdkTarget(made.path, made.service);
+            // No source at all: MSM projects are not open to this command;
+            // a project moved or gone is said by the dump itself.
             if (project === undefined) {
                 throw new Error(`The SDK in ${folder.fsPath} was made from `
-                    + `the MSM project ${made.path}, which is not available.`);
+                    + `the MSM project ${made.path}, and MSM projects are `
+                    + "not available here.");
             }
             await project.dump(folder.fsPath, {});
 
