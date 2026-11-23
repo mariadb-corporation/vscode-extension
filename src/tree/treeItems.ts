@@ -142,12 +142,13 @@ export class FolderTreeItem extends vscode.TreeItem {
 /**
  * A configured connection.
  *
- * Its context value carries both whether it is open and whether it is the
- * default, because that is what the context menu switches its entries on.
- * Which LIST the connection is in is deliberately not in there: the commands
- * that need it - edit and delete - are handed the node itself, and adding a
- * fourth segment would break the `when` clauses that anchor on the third
- * (`/notDefault$/` and `/\.default$/`).
+ * Its context value carries whether it is open, whether its system schemas
+ * are hidden and whether it is the default -
+ * `mariadbConnection.connected.systemShown.notDefault` - because that is
+ * what the context menu switches its entries on. The default stays last:
+ * `when` clauses anchor on it (`/notDefault$/` and `/\.default$/`). Which
+ * LIST the connection is in is deliberately not in there: the commands
+ * that need it - edit and delete - are handed the node itself.
  */
 export class ConnectionTreeItem
     extends ConnectionBaseTreeItem<IConnectionNode> {
@@ -168,9 +169,11 @@ export class ConnectionTreeItem
                 node.color, node.connectionKind, node.uri);
         }
 
+        // The default stays last: the menus' `when` clauses anchor on it.
         this.contextValue = [
             "mariadbConnection",
             node.connected ? "connected" : "disconnected",
+            node.hidesSystemSchemas === true ? "systemHidden" : "systemShown",
             node.isDefault ? "default" : "notDefault",
         ].join(".");
 

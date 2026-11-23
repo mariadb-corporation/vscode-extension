@@ -27,7 +27,7 @@ import {
 } from "../connections/connectionFolders.js";
 import type { IStoredConnection } from "../connections/connectionStore.js";
 import { hasDiagrams, hasDiagramsSql } from "../modeler/diagramQueries.js";
-import { objectGroupsOf, objectsOf } from "./schemaTree.js";
+import { USER_SCHEMA, objectGroupsOf, objectsOf } from "./schemaTree.js";
 import type { DiagramService } from "../modeler/diagramService.js";
 import { isDefaultConnection } from "../connections/connectionUri.js";
 import {
@@ -81,6 +81,8 @@ export interface IConnectionNode {
      * and deleting both need it - and it is what the "MCP" marker shows.
      */
     connectionKind: ConnectionKind;
+    /** Whether the server's own schemas are left out of its children. */
+    hidesSystemSchemas?: boolean;
     /**
      * Whether the row has a twistie. An open connection always has one;
      * a closed one only where opening it is what expanding the row does,
@@ -121,7 +123,18 @@ export interface ISchemaNode {
     schema: string;
     schemaType: string;
     comment: string;
+    /** Whether it is the connection's current schema. */
+    current?: boolean;
 }
+
+/** How a connection's schemas are shown, by connection. */
+export interface ISchemaDisplay {
+    /** The connection's current schema; undefined for none. */
+    currentSchema(uri: string): string | undefined;
+    /** Whether the server's own schemas are left out under it. */
+    hidesSystemSchemas(uri: string): boolean;
+}
+
 
 /** The folder holding all objects of one type in a schema. */
 export interface IObjectGroupNode {
@@ -269,6 +282,7 @@ export class ConnectionsModel {
         private readonly customFolders: () => string[] = () => { return []; },
         private readonly mrs?: MrsModel,
         private readonly diagrams?: DiagramService,
+        private readonly schemaDisplay?: ISchemaDisplay,
     ) { }
 
     /**
@@ -339,8 +353,12 @@ export class ConnectionsModel {
         const connectOnOpen = this.connectOnOpen();
 
         return stored.map((connection) => {
-            return connectionNodeOf(connection, this.connections,
+            const node = connectionNodeOf(connection, this.connections,
                 connectOnOpen);
+
+            return this.schemaDisplay?.hidesSystemSchemas(node.uri) === true
+                ? { ...node, hidesSystemSchemas: true }
+                : node;
         });
     }
 
@@ -429,7 +447,16 @@ export class ConnectionsModel {
         // is one row, and the schemas can be many.
         const roots = this.mrs === undefined
             ? [] : await this.mrs.rootsOf(node.uri);
-        const schemas = await api.listSchemas(connectionId);
+        const listed = await api.listSchemas(connectionId);
+        const current = this.schemaDisplay?.currentSchema(node.uri);
+        const schemas = this.schemaDisplay?.hidesSystemSchemas(node.uri)
+            ? listed.filter((schema) => {
+                // The current one stays, whatever it is: it is where the
+                // editors run.
+                return schema.schema_type === USER_SCHEMA
+                    || schema.schema_name === current;
+            })
+            : listed;
 
         return [...roots, ...schemas.map((schema): ISchemaNode => {
             return {
@@ -438,6 +465,7 @@ export class ConnectionsModel {
                 schema: schema.schema_name,
                 schemaType: schema.schema_type,
                 comment: schema.schema_comment,
+                ...(schema.schema_name === current ? { current: true } : {}),
             };
         })];
     }

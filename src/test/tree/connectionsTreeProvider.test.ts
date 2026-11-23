@@ -155,7 +155,7 @@ describe("ConnectionsTreeProvider", () => {
 
         expect(item.label).toBe("dba@localhost:3310");
         expect(item.contextValue)
-            .toBe("mariadbConnection.disconnected.notDefault");
+            .toBe("mariadbConnection.disconnected.systemShown.notDefault");
 
         provider.dispose();
     });

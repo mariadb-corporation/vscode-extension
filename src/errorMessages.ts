@@ -67,3 +67,23 @@ export const reportError = (
 
     return message;
 };
+
+/**
+ * Runs an action, reporting a failure rather than letting it escape into
+ * the command handler.
+ *
+ * @param log Where to write the failure.
+ * @param action The action to run.
+ *
+ * @returns Nothing.
+ */
+export const guard = async (
+    log: (message: string) => void,
+    action: () => Promise<void>,
+): Promise<void> => {
+    try {
+        await action();
+    } catch (error) {
+        reportError(log, error);
+    }
+};

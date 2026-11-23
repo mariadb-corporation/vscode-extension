@@ -25,10 +25,9 @@
  * session's mode once the script is over - so a script that changed it is
  * followed without a query of its own.
  *
- * It also keeps what the editors' session reported, for the language
- * server: the full `sql_mode` after a run, and the schema after a run that
- * had a `USE`. The server reads its catalogs on a session of its own,
- * which neither follows.
+ * It also keeps the full `sql_mode` the editors' session reported after a
+ * run, for the language server, which reads its catalogs on a session of
+ * its own. The schema that session is in is `CurrentSchemas`'.
  */
 
 import { firstCell } from "../mcp/types.js";
@@ -56,11 +55,14 @@ export const hasAnsiQuotes = (sqlMode: string): boolean => {
 /** Called when what is known about a connection changed. */
 export type SqlModeChangeListener = (uri: string) => void;
 
-/** What the editors' session on a connection reported of itself. */
+/**
+ * What the editors' session on a connection is in: its `sql_mode`, from
+ * here, and its schema, which `CurrentSchemas` keeps.
+ */
 export interface ISessionState {
     /** Its `sql_mode` after the last run, as the server spelled it. */
     sqlMode?: string;
-    /** Its default schema after the last run with a `USE`; null for none. */
+    /** Its default schema; null for none. */
     schema?: string | null;
 }
 
@@ -176,19 +178,6 @@ export class SqlModes {
     }
 
     /**
-     * Takes the editors' session's schema, as read after a run with a
-     * `USE`.
-     *
-     * @param uri The connection.
-     * @param schema `DATABASE()`: null when no schema is in use.
-     *
-     * @returns Nothing.
-     */
-    public recordSchema(uri: string, schema: string | null): void {
-        this.#setSession(uri, { schema });
-    }
-
-    /**
      * @param uri The connection.
      *
      * @returns What its editors' session reported; nothing until a run did.
@@ -229,7 +218,7 @@ export class SqlModes {
     #setSession(uri: string, report: ISessionState): void {
         const before = this.#sessions.get(uri) ?? {};
         const after = { ...before, ...report };
-        if (after.sqlMode === before.sqlMode && after.schema === before.schema) {
+        if (after.sqlMode === before.sqlMode) {
             return;
         }
         this.#sessions.set(uri, after);

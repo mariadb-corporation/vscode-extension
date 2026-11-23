@@ -102,7 +102,8 @@ describe("New MSM Project from Schema", () => {
         expect(menus["view/item/context"].filter((entry) => {
             return entry.command === MSM_IMPORT_COMMAND;
         })).toEqual([{ command: MSM_IMPORT_COMMAND,
-            when: "view == mariadb.connections && viewItem == mariadbSchema",
+            when: "view == mariadb.connections"
+                + " && viewItem =~ /^mariadbSchema(\\.current)?$/",
             group: "6_msm@1" }]);
         expect(menus.commandPalette).toContainEqual(
             { command: MSM_IMPORT_COMMAND, when: "false" });

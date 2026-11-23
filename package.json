@@ -1453,6 +1453,91 @@
         "command": "mariadb.msm.removeProjectFolder",
         "title": "Remove Folder",
         "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.duplicateConnection",
+        "title": "Duplicate Connection…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.showSystemSchemas",
+        "title": "Show System Schemas",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.hideSystemSchemas",
+        "title": "Hide System Schemas",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.loadSqlScript",
+        "title": "Load SQL Script from Disk…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.setCurrentSchema",
+        "title": "Set As Current Schema",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.copyName",
+        "title": "Name",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.copyCreateStatement",
+        "title": "Create Statement",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.sendNameToEditor",
+        "title": "Name",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.sendCreateStatementToEditor",
+        "title": "Create Statement",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.dropSchema",
+        "title": "Drop Schema…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.dropTable",
+        "title": "Drop Table…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.dropView",
+        "title": "Drop View…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.dropFunction",
+        "title": "Drop Function…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.dropProcedure",
+        "title": "Drop Procedure…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.dropSequence",
+        "title": "Drop Sequence…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.dropTrigger",
+        "title": "Drop Trigger…",
+        "category": "MariaDB"
+      },
+      {
+        "command": "mariadb.dropEvent",
+        "title": "Drop Event…",
+        "category": "MariaDB"
       }
     ],
     "menus": {
@@ -1592,7 +1677,7 @@
         {
           "command": "mariadb.deleteConnection",
           "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\./",
-          "group": "3_manage@2"
+          "group": "3_manage@3"
         },
         {
           "command": "mariadb.copyConnectionUri",
@@ -1941,12 +2026,12 @@
         },
         {
           "command": "mariadb.mrs.addSchema",
-          "when": "view == mariadb.connections && viewItem == mariadbSchema",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/",
           "group": "5_mrs@1"
         },
         {
           "command": "mariadb.msm.importLiveSchema",
-          "when": "view == mariadb.connections && viewItem == mariadbSchema",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/",
           "group": "6_msm@1"
         },
         {
@@ -1971,7 +2056,7 @@
         },
         {
           "submenu": "mariadb.dumpLoad",
-          "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\./ || view == mariadb.connections && viewItem == mariadbSchema || view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view)$/",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\./ || view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/ || view == mariadb.connections && viewItem =~ /^mariadbObject\\.(table|view)$/",
           "group": "2_data@1"
         },
         {
@@ -2398,6 +2483,81 @@
           "command": "mariadb.msm.showInDiagram",
           "when": "view == mariadb.msmProjects && viewItem =~ /^mariadbMsmDiagram(Layer|Figure\\..+|Member\\..+)$/",
           "group": "0_open@0"
+        },
+        {
+          "command": "mariadb.loadSqlScript",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\./",
+          "group": "1_connection@4"
+        },
+        {
+          "command": "mariadb.duplicateConnection",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\./",
+          "group": "3_manage@2"
+        },
+        {
+          "command": "mariadb.showSystemSchemas",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\..*\\.systemHidden(\\.|$)/",
+          "group": "5_schemas@1"
+        },
+        {
+          "command": "mariadb.hideSystemSchemas",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbConnection\\..*\\.systemShown(\\.|$)/",
+          "group": "5_schemas@1"
+        },
+        {
+          "command": "mariadb.setCurrentSchema",
+          "when": "view == mariadb.connections && viewItem == mariadbSchema",
+          "group": "0_current@1"
+        },
+        {
+          "submenu": "mariadb.copyToClipboard",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/ || view == mariadb.connections && viewItem =~ /^mariadbObject\\./",
+          "group": "4_clipboard@1"
+        },
+        {
+          "submenu": "mariadb.sendToEditor",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/ || view == mariadb.connections && viewItem =~ /^mariadbObject\\./",
+          "group": "4_clipboard@2"
+        },
+        {
+          "command": "mariadb.dropSchema",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/",
+          "group": "9_drop@1"
+        },
+        {
+          "command": "mariadb.dropTable",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.table",
+          "group": "9_drop@1"
+        },
+        {
+          "command": "mariadb.dropView",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.view",
+          "group": "9_drop@1"
+        },
+        {
+          "command": "mariadb.dropFunction",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.function",
+          "group": "9_drop@1"
+        },
+        {
+          "command": "mariadb.dropProcedure",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.procedure",
+          "group": "9_drop@1"
+        },
+        {
+          "command": "mariadb.dropSequence",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.sequence",
+          "group": "9_drop@1"
+        },
+        {
+          "command": "mariadb.dropTrigger",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.trigger",
+          "group": "9_drop@1"
+        },
+        {
+          "command": "mariadb.dropEvent",
+          "when": "view == mariadb.connections && viewItem == mariadbObject.event",
+          "group": "9_drop@1"
         }
       ],
       "editor/title": [
@@ -2940,6 +3100,74 @@
         {
           "command": "mariadb.msm.removeProjectFolder",
           "when": "false"
+        },
+        {
+          "command": "mariadb.duplicateConnection",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.showSystemSchemas",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.hideSystemSchemas",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.loadSqlScript",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.setCurrentSchema",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.copyName",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.copyCreateStatement",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.sendNameToEditor",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.sendCreateStatementToEditor",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.dropSchema",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.dropTable",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.dropView",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.dropFunction",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.dropProcedure",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.dropSequence",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.dropTrigger",
+          "when": "false"
+        },
+        {
+          "command": "mariadb.dropEvent",
+          "when": "false"
         }
       ],
       "mariadb.mrs.copyToClipboard": [
@@ -3148,17 +3376,17 @@
         },
         {
           "command": "mariadb.dumpSchemas",
-          "when": "view == mariadb.connections && viewItem == mariadbSchema",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/",
           "group": "1_dump@1"
         },
         {
           "command": "mariadb.loadTableDump",
-          "when": "view == mariadb.connections && viewItem == mariadbSchema",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/",
           "group": "2_load@1"
         },
         {
           "command": "mariadb.copySchemas",
-          "when": "view == mariadb.connections && viewItem == mariadbSchema",
+          "when": "view == mariadb.connections && viewItem =~ /^mariadbSchema(\\.current)?$/",
           "group": "3_copy@1"
         },
         {
@@ -3217,6 +3445,26 @@
           "command": "mariadb.msm.addToProjects",
           "when": "explorerResourceIsFolder && resourceFilename =~ /\\.msm\\.project$/",
           "group": "5_list@1"
+        }
+      ],
+      "mariadb.copyToClipboard": [
+        {
+          "command": "mariadb.copyName",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "mariadb.copyCreateStatement",
+          "group": "1_copy@2"
+        }
+      ],
+      "mariadb.sendToEditor": [
+        {
+          "command": "mariadb.sendNameToEditor",
+          "group": "1_send@1"
+        },
+        {
+          "command": "mariadb.sendCreateStatementToEditor",
+          "group": "1_send@2"
         }
       ]
     },
@@ -3310,6 +3558,14 @@
       {
         "id": "mariadb.msm.explorer",
         "label": "MariaDB Schema Management"
+      },
+      {
+        "id": "mariadb.copyToClipboard",
+        "label": "Copy to Clipboard"
+      },
+      {
+        "id": "mariadb.sendToEditor",
+        "label": "Send to SQL Editor"
       }
     ],
     "mcpServerDefinitionProviders": [

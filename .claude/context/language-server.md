@@ -163,19 +163,21 @@ an agent through the MCP server, are seen only after that button or with
 The UI test's completion of the sandbox's tables depends on this: the
 schema is created after the first SQL editor opened.
 
-**The editors' session.** `SqlModes` also keeps what the editors' session
-on a connection reported (`sessionOf`, `onDidChangeSession`): the full
-`sql_mode` every run reports, and after a run whose script has `USE` or
-drops a schema (also one that failed), `SELECT DATABASE()` read on that
-session (`SqlEditorBinding`). The
+**The editors' session.** What the editors' session on a connection is
+in (`sessionOf`, `onDidChangeSession`, put together in `extension.ts`):
+the full `sql_mode` every run reports, kept by `SqlModes`, and the schema,
+kept by `CurrentSchemas` - after a run whose script has `USE` or drops a
+schema (also one that failed), `SELECT DATABASE()` read on that session
+(`SqlEditorBinding`), or one picked in the Connections view, which the
+next run is put into (see connections.md, "Current schema"). The
 controller sends them as `sqlMode` and `currentSchema` with the document's
 context, and again when they change. Each message is whole: until a run
 reported something, or once the connection closed, they are left out and
 the server takes the connection's own, which a new session shares. It is
 dropped once no editors' session (a numbered label) is open on the
-connection, whether the tree's is or not. Kept per connection, like the
-ANSI_QUOTES state: two editor sessions on one connection share the last
-report.
+connection, whether the tree's is or not; the schema once nothing is open
+on it. Kept per connection, like the ANSI_QUOTES state: two editor
+sessions on one connection share the last report.
 
 ## Progress of a large file's check
 

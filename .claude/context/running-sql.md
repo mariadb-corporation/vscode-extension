@@ -57,6 +57,10 @@ Keyboard Shortcuts editor's job.
 In order: the connection explicitly picked for that document, else the
 one its header names, else the default.
 
+A run starts in the connection's **current schema**: where one was picked
+in the Connections view, or a run's `USE` moved it, the session gets a
+`USE` first (see connections.md, "Current schema").
+
 Which of the connections open on that URI it runs on is the editors'
 numbered one, `1` - the Connections view keeps `UI Backend` beside it for
 browsing (see [connections.md](connections.md)). `labelFor()` is asked

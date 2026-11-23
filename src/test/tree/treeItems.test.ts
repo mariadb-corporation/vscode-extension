@@ -139,10 +139,15 @@ describe("createTreeItem for a connection", () => {
 
     it("carries its state in the context value, for the menus", () => {
         expect(createTreeItem(connection(), resolveIcon).contextValue)
-            .toBe("mariadbConnection.disconnected.notDefault");
+            .toBe("mariadbConnection.disconnected.systemShown.notDefault");
         expect(createTreeItem(
             connection({ connected: true, isDefault: true }), resolveIcon,
-        ).contextValue).toBe("mariadbConnection.connected.default");
+        ).contextValue).toBe("mariadbConnection.connected.systemShown.default");
+        expect(createTreeItem(
+            connection({ connected: true, hidesSystemSchemas: true }),
+            resolveIcon,
+        ).contextValue)
+            .toBe("mariadbConnection.connected.systemHidden.notDefault");
     });
 
     it("marks a connection the MCP list holds", () => {
@@ -176,12 +181,12 @@ describe("createTreeItem for a connection", () => {
     });
 
     it("keeps the list out of the context value", () => {
-        // The `when` clauses anchor on the third segment (`/notDefault$/`),
-        // so a fourth would break the menus. Edit and delete are handed the
-        // node itself, which carries the kind.
+        // Edit and delete are handed the node itself, which carries the
+        // kind; the menus need nothing of it.
         for (const connectionKind of ["mcp", "gui"] as const) {
             expect(createTreeItem(connection({ connectionKind }), resolveIcon)
-                .contextValue).toBe("mariadbConnection.disconnected.notDefault");
+                .contextValue)
+                .toBe("mariadbConnection.disconnected.systemShown.notDefault");
         }
     });
 
@@ -293,6 +298,22 @@ describe("createTreeItem for a schema", () => {
         expect(item.contextValue).toBe("mariadbSchema");
         expect(item.collapsibleState)
             .toBe(TreeItemCollapsibleState.Collapsed);
+    });
+
+    it("marks the current schema with its own icon and context value", () => {
+        const item = createTreeItem({
+            kind: "schema",
+            uri: "dba@h",
+            schema: "world",
+            schemaType: "User Schema",
+            comment: "",
+            current: true,
+        }, resolveIcon);
+
+        expect(item.contextValue).toBe("mariadbSchema.current");
+        expect((item.iconPath as { light: { path: string } }).light.path)
+            .toContain("schemaCurrent.svg");
+        expect(item.tooltip).toContain("The current schema");
     });
 
     it.each([

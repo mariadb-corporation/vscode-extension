@@ -29,6 +29,7 @@ import {
     type IConnectionNode,
     type IDiagramsNode,
     type IObjectGroupNode,
+    type ISchemaDisplay,
     type ISchemaNode,
 } from "../../tree/connectionsModel.js";
 import { MrsApi } from "../../mrs/mrsApi.js";
@@ -95,6 +96,7 @@ const createModel = (
     connectOnOpen = false,
     sqlResults?: Record<string, IStatementResult | Error>,
     diagrams?: (manager: ConnectionManager) => DiagramService,
+    schemaDisplay?: ISchemaDisplay,
 ) => {
     const api = createFakeApi({
         sqlResults,
@@ -131,9 +133,68 @@ const createModel = (
         api,
         manager,
         model: new ConnectionsModel(manager, () => { return connectOnOpen; },
-            undefined, undefined, undefined, diagrams?.(manager)),
+            undefined, undefined, undefined, diagrams?.(manager),
+            schemaDisplay),
     };
 };
+
+describe("ConnectionsModel: the current schema and the system schemas", () => {
+    const connection: IConnectionNode = {
+        kind: "connection",
+        uri: "dba@localhost:3310",
+        connected: true,
+        isDefault: false,
+        connectionKind: "gui",
+        expandable: true,
+    };
+    const display = (current: string | undefined, hides: boolean) => {
+        return {
+            currentSchema: () => { return current; },
+            hidesSystemSchemas: () => { return hides; },
+        };
+    };
+    const schemasOf = async (schemaDisplay: ISchemaDisplay) => {
+        const { manager, model } = createModel(undefined, false, undefined,
+            undefined, schemaDisplay);
+        await manager.connect("dba@localhost:3310", UI_BACKEND_SESSION);
+
+        return (await model.getChildren(connection)) as ISchemaNode[];
+    };
+
+    it("marks the current schema, and only it", async () => {
+        const schemas = await schemasOf(display("world", false));
+
+        expect(schemas.map((schema) => {
+            return [schema.schema, schema.current === true];
+        })).toEqual([["world", true], ["mysql", false]]);
+    });
+
+    it("leaves the system schemas out where they are hidden", async () => {
+        const schemas = await schemasOf(display(undefined, true));
+
+        expect(schemas.map((schema) => { return schema.schema; }))
+            .toEqual(["world"]);
+    });
+
+    it("keeps a hidden system schema that is the current one", async () => {
+        const schemas = await schemasOf(display("mysql", true));
+
+        expect(schemas.map((schema) => { return schema.schema; }))
+            .toEqual(["world", "mysql"]);
+    });
+
+    it("says on the connection row that its system schemas are hidden",
+        async () => {
+            const { model } = createModel(undefined, false, undefined,
+                undefined, display(undefined, true));
+            const roots = await model.getRoots();
+
+            expect(roots.every((node) => {
+                return node.kind !== "connection"
+                    || node.hidesSystemSchemas === true;
+            })).toBe(true);
+        });
+});
 
 describe("ConnectionsModel folders", () => {
     /**

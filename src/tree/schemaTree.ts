@@ -130,6 +130,8 @@ export interface ISchemaRow {
     /** What `db.list_schemas` says the schema is; left unsaid if a user's. */
     schemaType?: string;
     comment?: string;
+    /** Whether it is its connection's current schema. */
+    current?: boolean;
 }
 
 export interface IObjectGroupRow {
@@ -345,7 +347,7 @@ export const objectRefOf = (row: IObjectRow): ISchemaObjectRef => {
  * What a schema's own rows are called before a tree's prefix, and the
  * user's schemas' type, which is not shown.
  */
-const USER_SCHEMA = "User Schema";
+export const USER_SCHEMA = "User Schema";
 
 /** A row of a schema's subtree. */
 export class SchemaSubtreeItem<T> extends vscode.TreeItem {
@@ -369,16 +371,23 @@ export class SchemaTreeItem<T extends ISchemaRow>
 
     public constructor(node: T, resolveIcon: IconResolver,
         prefix: SchemaRowPrefix = "mariadb") {
-        super(node, node.schema, "schema.svg", true, resolveIcon);
-        this.contextValue = `${prefix}Schema`;
+        const current = node.current === true;
+        super(node, node.schema, current ? "schemaCurrent.svg" : "schema.svg",
+            true, resolveIcon);
+        // `.current` keeps Set As Current Schema off the one that is.
+        this.contextValue = current ? `${prefix}Schema.current`
+            : `${prefix}Schema`;
 
         // Only a system schema says what it is: a column of "User Schema"
         // down the tree is what the user came for and tells them nothing.
         const type = node.schemaType;
         this.description = type === undefined || type === USER_SCHEMA
             ? undefined : type;
-        this.tooltip = node.comment
+        const tooltip = node.comment
             || (type === undefined ? node.schema : `${node.schema} (${type})`);
+        this.tooltip = current
+            ? `${tooltip}\nThe current schema: the one SQL editors run in`
+            : tooltip;
     }
 }
 

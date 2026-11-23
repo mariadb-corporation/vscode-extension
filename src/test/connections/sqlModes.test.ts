@@ -125,14 +125,13 @@ describe("SqlModes", () => {
             modes.record(DBA, "STRICT_TRANS_TABLES");
             modes.record(DBA, "STRICT_TRANS_TABLES");
             modes.record(DBA, "STRICT_TRANS_TABLES,NO_ZERO_DATE");
-            modes.recordSchema(DBA, "shop");
             expect(modes.sessionOf(DBA)).toEqual({
-                sqlMode: "STRICT_TRANS_TABLES,NO_ZERO_DATE", schema: "shop" });
-            expect(reported).toEqual([DBA, DBA, DBA]);
+                sqlMode: "STRICT_TRANS_TABLES,NO_ZERO_DATE" });
+            expect(reported).toEqual([DBA, DBA]);
 
             await connections.disconnect(DBA);
             expect(modes.sessionOf(DBA)).toEqual({});
-            expect(reported).toHaveLength(4);
+            expect(reported).toHaveLength(3);
         });
 
     it("forgets it when the editors' session closes, the tree's open or not",
@@ -141,10 +140,9 @@ describe("SqlModes", () => {
             await connections.connect(DBA);
             await connections.connect(DBA, UI_BACKEND_SESSION);
             modes.record(DBA, "ANSI_QUOTES");
-            modes.recordSchema(DBA, "shop");
 
             await connections.disconnect(DBA, UI_BACKEND_SESSION);
-            expect(modes.sessionOf(DBA).schema).toBe("shop");
+            expect(modes.sessionOf(DBA).sqlMode).toBe("ANSI_QUOTES");
 
             await connections.connect(DBA, UI_BACKEND_SESSION);
             await connections.disconnect(DBA, "1");

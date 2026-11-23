@@ -35,15 +35,15 @@ import {
     driver,
     FILES,
     FrontWebView,
-    inlineAction,
+    discardEditors,
     inResults,
     menuAction,
     openSection,
     runCommand,
     screenshot,
+    sqlEditor as openSqlEditor,
     SERVER_TIMEOUT,
     sleep,
-    treeItem,
     waitFor,
 } from "../lib/ui";
 
@@ -58,31 +58,7 @@ let connections: CustomTreeSection;
 
 /** Opens a new SQL editor on the sandbox and puts the text in it. */
 const sqlEditor = async (text: string): Promise<TextEditor> => {
-    await inlineAction(await treeItem(connections, CONNECTION),
-        "New SQL Editor");
-    const editor = await waitFor(async () => {
-        const title = await (await new EditorView().getActiveTab())?.getTitle();
-
-        return title?.includes("MariaDB connection") === true
-            ? new TextEditor() : undefined;
-    }, "the new SQL editor");
-    const header = await editor.getText();
-    await editor.setText(`${header.trimEnd()}\n${text}\n`);
-
-    return editor;
-};
-
-/** Closes the SQL editors without saving them. */
-const discardEditor = async (): Promise<void> => {
-    const editors = new EditorView();
-    for (const title of await editors.getOpenEditorTitles()) {
-        if (title.includes("MariaDB connection")) {
-            // Brought to the front first: focus may be in a webview, where
-            // the command palette's commands do not reach.
-            await editors.openEditor(title);
-            await runCommand("View: Revert and Close Editor");
-        }
-    }
+    return await openSqlEditor(connections, CONNECTION, text);
 };
 
 describe("SQL editors and results", () => {
@@ -104,7 +80,7 @@ describe("SQL editors and results", () => {
             assert.ok(cells.includes("Vienna"));
             await screenshot("04-result-grid");
         });
-        await discardEditor();
+        await discardEditors();
     });
 
     it("opens SQL editors in the MariaDB SQL language, coloured", async () => {
@@ -126,7 +102,7 @@ describe("SQL editors and results", () => {
         }, "the tokens coloured by the grammar");
         assert.ok(classes.size >= 3, [...classes].join(", "));
         await screenshot("04-sql-language");
-        await discardEditor();
+        await discardEditors();
     });
 
     it("opens a .sql file from disk in the MariaDB SQL language",
@@ -159,7 +135,7 @@ describe("SQL editors and results", () => {
             }, "the error bar", SERVER_TIMEOUT);
             assert.match(text, /nope/);
         });
-        await discardEditor();
+        await discardEditors();
     });
 
     it("switches Stop on Error off and on again", async () => {
@@ -167,7 +143,7 @@ describe("SQL editors and results", () => {
         await runCommand("MariaDB: Stop on Error (on)");
         await sleep(500);
         await runCommand("MariaDB: Stop on Error (off)");
-        await discardEditor();
+        await discardEditors();
     });
 
     it("opens a table's rows with Select Rows, in a tab of their own",

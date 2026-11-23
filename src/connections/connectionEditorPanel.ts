@@ -92,6 +92,8 @@ export class ConnectionEditorPanel
     #connection: IStoredConnection | undefined;
     /** The folder a new connection starts in. */
     #newIn = ROOT_FOLDER;
+    /** The connection a new one starts as a copy of, for Duplicate. */
+    #template: IStoredConnection | undefined;
 
     private constructor(
         title: string,
@@ -109,6 +111,9 @@ export class ConnectionEditorPanel
      * @param connection The connection to edit, or undefined to add one.
      * @param newIn The folder a new connection starts in, where it was asked
      *              for from a folder in the tree. Ignored when editing.
+     * @param template The connection a new one starts as a copy of, for
+     *              Duplicate: its fields, but not its password, which the
+     *              secret store keeps. Ignored when editing.
      *
      * @returns Nothing.
      */
@@ -117,15 +122,19 @@ export class ConnectionEditorPanel
         host: IConnectionEditorHost,
         connection?: IStoredConnection,
         newIn: string = ROOT_FOLDER,
+        template?: IStoredConnection,
     ): void {
-        const title = connection === undefined
-            ? "New Database Connection"
-            : `Edit ${connection.uri}`;
+        const title = connection !== undefined
+            ? `Edit ${connection.uri}`
+            : template === undefined
+                ? "New Database Connection"
+                : `Duplicate ${template.uri}`;
 
         if (ConnectionEditorPanel.#current) {
             const existing = ConnectionEditorPanel.#current;
             existing.#connection = connection;
             existing.#newIn = newIn;
+            existing.#template = template;
             existing.panel.title = title;
             existing.panel.reveal(vscode.ViewColumn.Active);
             // Reloading the HTML restarts the webview, which then asks for
@@ -139,6 +148,7 @@ export class ConnectionEditorPanel
         const editor = new ConnectionEditorPanel(title, extensionUri, host);
         editor.#connection = connection;
         editor.#newIn = newIn;
+        editor.#template = template;
         ConnectionEditorPanel.#current = editor;
         editor.#render();
     }
@@ -176,7 +186,8 @@ export class ConnectionEditorPanel
     protected async onMessage(message: EditorWebviewMessage): Promise<void> {
         switch (message.type) {
             case "ready": {
-                const state = this.#connection === undefined
+                const copied = this.#connection ?? this.#template;
+                const state = copied === undefined
                     ? {
                         fields: emptyConnectionFields(),
                         mcpAccess: false,
@@ -184,7 +195,7 @@ export class ConnectionEditorPanel
                         caption: "",
                         color: "" as const,
                     }
-                    : fieldsOf(this.#connection);
+                    : fieldsOf(copied);
 
                 this.post({
                     type: "load",

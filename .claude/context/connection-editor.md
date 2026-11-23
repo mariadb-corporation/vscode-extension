@@ -17,6 +17,17 @@ several open on one URI, the Connections view, folders and the default.
 | `connectionEditorPanel.ts` | The panel and its message loop. The HTML and webview options are `src/webview/html.ts`'s, as for every webview. |
 | `webview/src/ConnectionEditor.tsx` | The dialog itself. |
 
+**Duplicate Connection** opens it as a new connection filled in from
+another (`show(..., template)`, titled `Duplicate <uri>`): `uri` undefined
+and `hasStoredPassword` false in the load, so the password has to be set
+again - it is in the secret store, out of reach. Saved while its URI and
+list are still the original's, it is refused: `saveConnection` refuses
+EVERY save whose URI (scheme filled in) its list has already - a new
+connection, or an edit that moves one onto another's URI or list (one
+keeping its own is no clash) - because the server takes such a URI as a
+new password for that connection and would quietly overwrite it. Edit is
+the way to change a stored password.
+
 It is modelled on the MySQL Shell extension's `ConnectionEditor`: the same
 tabs (Basic, SSL, SSH, Advanced) in the same order, with the same captions
 where the setting is the same one. **What is missing is missing on purpose** -

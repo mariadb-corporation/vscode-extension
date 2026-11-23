@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ConnectionManager } from "../../connections/connectionManager.js";
+import { CurrentSchemas } from "../../connections/currentSchemas.js";
 import { SqlModes } from "../../connections/sqlModes.js";
 import { SqlEditorBinding } from "../../editor/sqlEditorBinding.js";
 import {
@@ -117,7 +118,7 @@ const createController = (
     const log = createRecordingLog();
     const resultView = new ResultViewProvider(Uri.file("/ext") as never, log);
     const binding = new SqlEditorBinding(connections, resultView, log,
-        new SqlModes(connections, log));
+        new SqlModes(connections, log), new CurrentSchemas(connections));
     const results = new NotebookResults(resultView, binding, connections,
         log);
     const languages = new LanguageSwitcher(log, 0);
