@@ -320,7 +320,7 @@ describe("MsmApi", () => {
 
         expect(await new MsmApi(caller).dumpRestSdk(PROJECT, "/svc",
             "/out/svc.mrs.sdk", { service_url: "https://h/svc" }))
-            .toEqual(dumped);
+            .toEqual({ files: dumped.files, warnings: dumped.warnings });
         expect(caller.calls).toEqual([{
             name: "msm.dump_rest_sdk",
             args: { schema_project_path: PROJECT, service: "/svc",

@@ -24,7 +24,6 @@ import {
     type IToolResult,
 } from "../mcp/protocol.js";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { resolve } from "node:path";
 
 import {
     firstCell,
@@ -700,27 +699,6 @@ export interface IMrsSdkOptions {
      */
     msmProject?: { path?: string; service?: string };
 }
-
-/**
- * @param options An SDK folder's stored options.
- * @param folder The folder.
- *
- * @returns The MSM project and service it was dumped from, the project's
- *          path made absolute against the folder; undefined for a folder
- *          dumped from a server.
- */
-export const msmProjectOf = (
-    options: IMrsSdkOptions,
-    folder: string,
-): { path: string; service: string } | undefined => {
-    const made = options.msmProject;
-    if (typeof made?.path !== "string" || made.path === ""
-        || typeof made.service !== "string" || made.service === "") {
-        return undefined;
-    }
-
-    return { path: resolve(folder, made.path), service: made.service };
-};
 
 /** The result of `rest.load_content_set`. */
 export interface IContentSetUpload {

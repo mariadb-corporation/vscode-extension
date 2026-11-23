@@ -32,13 +32,15 @@ import {
     documentOf, type ISchemaDefinition,
 } from "../../modeler/modelFormat.js";
 import { buildDocument } from "../../mrs/dataMapping.js";
-import { msmProjectOf, RestToolsApi } from "../../mrs/mrsApi.js";
+import { RestToolsApi } from "../../mrs/mrsApi.js";
 import { objectDefaults, objectStatements } from "../../mrs/mrsDialogs.js";
 import {
     outlineRestObject, outlineRestSchema, outlineRestService,
     type IOutlineRest,
 } from "../../mrs/restOutline.js";
-import { projectRestSource } from "../../msm/projectRestSource.js";
+import {
+    msmProjectOf, projectRestSource,
+} from "../../msm/projectRestSource.js";
 import { fillTemplate } from "../../msm/schemaObjects.js";
 import { MCP_SERVER_ARGS } from "../../shell/constants.js";
 import { LspEdit } from "../../tableEditor/lspEdit.js";
@@ -179,7 +181,6 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
             const dumped = await msm.dumpRestSdk(project, "/svc", directory,
                 { service_url: "https://localhost:8443/svc",
                     sdk_language: "TypeScript" });
-            expect(dumped.service).toBe("/svc");
             expect(dumped.files.length).toBeGreaterThan(0);
             for (const file of dumped.files) {
                 expect(existsSync(resolve(directory, file))).toBe(true);
@@ -197,8 +198,13 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
                 path: project, service: "/svc" });
 
             // A rebuild: the options the folder keeps.
-            const again = await msm.dumpRestSdk(project, "/svc", directory, {});
-            expect(again.sdk_language).toBe("TypeScript");
+            const config = (): unknown => {
+                return JSON.parse(readFileSync(join(directory,
+                    "mrs.config.json"), "utf8"));
+            };
+            const before = config();
+            await msm.dumpRestSdk(project, "/svc", directory, {});
+            expect(config()).toEqual(before);
             await expect(msm.dumpRestSdk(project, "/none", directory, {}))
                 .rejects.toThrow("defines no REST service /none");
         }, 120_000);

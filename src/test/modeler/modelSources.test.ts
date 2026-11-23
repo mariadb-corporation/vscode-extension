@@ -675,11 +675,9 @@ describe("a project's REST objects", () => {
 describe("sdkDetail", () => {
     it("says how many files an SDK dump wrote, and each of msm's warnings",
         () => {
-            expect(sdkDetail({ directory: "/d", files: ["a", "b"],
-                service: "/svc", sdk_language: "TypeScript", warnings: [] }))
+            expect(sdkDetail({ files: ["a", "b"], warnings: [] }))
                 .toBe("2 files");
-            expect(sdkDetail({ directory: "/d", files: ["a"],
-                service: "/svc", sdk_language: "TypeScript",
-                warnings: ["flag: text"] })).toBe("1 file; flag: text");
+            expect(sdkDetail({ files: ["a"], warnings: ["flag: text"] }))
+                .toBe("1 file; flag: text");
         });
 });

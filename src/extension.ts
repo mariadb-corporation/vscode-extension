@@ -1583,17 +1583,13 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 // msm reads the script on disk: an SDK of what the editor
                 // shows would differ from it.
                 await refuseUnsavedScript(projectPath);
-                const project = `the MSM project ${projectDiagrams(projectPath)
-                    .schemaTitle}`;
+                const model = projectDiagrams(projectPath);
+                const what = `the REST Client SDK of ${service} in the MSM `
+                    + `project ${model.schemaTitle} to ${directory}`;
                 await msmTool("msm.dump_rest_sdk",
                     "Writing the REST Client SDK of an MSM project", () => {
-                        return projectDiagrams(projectPath).dumpRestSdk(
-                            service, directory, options, {
-                                doing: "Dumping the REST Client SDK of "
-                                    + `${service} in ${project} to ${directory}`,
-                                done: "Dumped the REST Client SDK of "
-                                    + `${service} in ${project} to ${directory}`,
-                            });
+                        return model.dumpRestSdk(service, directory, options,
+                            { doing: `Dumping ${what}`, done: `Dumped ${what}` });
                     });
             },
             // Read from disk, as the dialog's save refuses unsaved changes.

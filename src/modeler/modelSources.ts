@@ -736,7 +736,8 @@ export class ProjectModelSource implements IModelSource {
     /**
      * Writes the REST client SDK of a service of the project's MSM
      * Section 180, as an action, after the edits queued before it: it
-     * reads what they wrote.
+     * reads what they wrote. The diagrams' waiting saves are not waited
+     * for, as the SDK reads no diagram.
      *
      * @param service The service's request path.
      * @param directory The SDK folder.
@@ -751,8 +752,6 @@ export class ProjectModelSource implements IModelSource {
         options: IMsmRestSdkOptions,
         words: { doing: string; done: string },
     ): Promise<IMsmRestSdkDumped> {
-        await this.flush();
-
         return this.#enqueuedAction(words, "msm.dump_rest_sdk",
             { service, directory }, (api) => {
                 return api.dumpRestSdk(this.projectPath, service, directory,

@@ -15,7 +15,10 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import { resolve } from "node:path";
+
 import type { IMsmRestItem, IMsmRestSdkOptions } from "../mcp/msmApi.js";
+import type { IMrsSdkOptions } from "../mrs/mrsApi.js";
 import type {
     IOutlineRoutine,
     IOutlineTable,
@@ -539,4 +542,25 @@ export const projectRestSource = (
         saved: host.saved,
         failed: host.failed,
     };
+};
+
+/**
+ * @param options An SDK folder's stored options.
+ * @param folder The folder.
+ *
+ * @returns The MSM project and service it was dumped from, the project's
+ *          path made absolute against the folder; undefined for a folder
+ *          dumped from a server.
+ */
+export const msmProjectOf = (
+    options: Pick<IMrsSdkOptions, "msmProject">,
+    folder: string,
+): { path: string; service: string } | undefined => {
+    const made = options.msmProject;
+    if (typeof made?.path !== "string" || made.path === ""
+        || typeof made.service !== "string" || made.service === "") {
+        return undefined;
+    }
+
+    return { path: resolve(folder, made.path), service: made.service };
 };

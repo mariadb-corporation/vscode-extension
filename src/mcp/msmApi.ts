@@ -35,6 +35,7 @@ import type { ITaskStarted } from "./taskApi.js";
 import {
     CONNECTION_COLORS, type ConnectionColor, type ObjectType,
 } from "./types.js";
+import { MRS_TOOL_TIMEOUT_MS } from "../mrs/mrsApi.js";
 
 /** One copyright notice of a schema project. */
 export interface IMsmCopyright {
@@ -305,10 +306,10 @@ export const MSM_LICENSES = ["None", "BSD", "GPL-2.0", "MIT"] as const;
 export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
- * How long writing a REST client SDK may take: as long as the live dump
- * (`MRS_TOOL_TIMEOUT_MS`), since it writes as many files.
+ * How long writing a REST client SDK may take: as long as the live dump,
+ * since it writes as many files.
  */
-export const MSM_SDK_TIMEOUT_MS = 10 * 60 * 1000;
+export const MSM_SDK_TIMEOUT_MS = MRS_TOOL_TIMEOUT_MS;
 
 /**
  * The settings of msm.project.json that `msm.set_project_settings`
@@ -491,13 +492,10 @@ export interface IMsmRestSdkOptions {
     header?: string;
 }
 
-/** What `msm.dump_rest_sdk` answers with. */
+/** What of `msm.dump_rest_sdk`'s answer is shown. */
 export interface IMsmRestSdkDumped {
-    directory: string;
     /** The files written. */
     files: string[];
-    service: string;
-    sdk_language: string;
     /**
      * What the project's definition could not give as a server's metadata
      * would: a field whose type fell back to its `@DATATYPE` or `text`.
@@ -1614,13 +1612,7 @@ export class MsmApi implements IMsmApi {
                 projectPath, service, directory, options),
             MSM_SDK_TIMEOUT_MS));
 
-        return {
-            directory: result.directory ?? directory,
-            files: result.files ?? [],
-            service: result.service ?? service,
-            sdk_language: result.sdk_language ?? "",
-            warnings: result.warnings ?? [],
-        };
+        return { files: result.files ?? [], warnings: result.warnings ?? [] };
     }
 
     /**
