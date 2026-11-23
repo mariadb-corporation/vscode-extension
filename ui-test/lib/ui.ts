@@ -1512,6 +1512,19 @@ export const answerInput = async (text: string): Promise<void> => {
 export const answerFileDialog = async (path: string): Promise<void> => {
     const input = await InputBox.create(TIMEOUT);
     await input.setText(path);
+    // While the path is typed, the dialog completes it to an existing
+    // entry of the same start (uitest.mrs.s... to uitest.mrs.sdk) and says
+    // that one exists; confirmed before it checks the path as typed, the
+    // dialog refuses it. Confirm once it shows the path and no message.
+    await waitFor(async () => {
+        if (await input.getText() !== path) {
+            await input.setText(path);
+
+            return false;
+        }
+
+        return !/already exists/u.test(await input.getMessage());
+    }, `the file dialog showing ${path}`);
     await input.confirm();
 };
 
