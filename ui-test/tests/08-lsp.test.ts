@@ -210,12 +210,15 @@ const UNFORMATTED = [
     "select id from uitest.city where id > 1;",
 ];
 
-/** The first of them laid out (VS Code's default indentation: 4 spaces). */
+/**
+ * The first of them laid out (VS Code's default indentation: 4 spaces),
+ * its clauses one level deeper than SELECT (lsp-server #11).
+ */
 const FIRST_FORMATTED = [
     "SELECT c.name, c2.name",
-    "FROM uitest.city AS c",
-    "    LEFT OUTER JOIN uitest.country AS c2 ON c.country_id = c2.id",
-    "WHERE c.id > 10;",
+    "    FROM uitest.city AS c",
+    "        LEFT OUTER JOIN uitest.country AS c2 ON c.country_id = c2.id",
+    "    WHERE c.id > 10;",
 ];
 
 /** The second of them laid out. */
@@ -290,7 +293,10 @@ describe("SQL language server", () => {
             await pickCompletion(editor, "uitest");
             await pickCompletion(editor, "city");
             await pickCompletion(editor, "name");
-            await lineBecomes(editor, 2, "SELECT c.name FROM uitest.city AS c");
+            // The FROM mariadb-lsp adds starts a line of its own, one level
+            // deeper (lsp-server #11), however short the statement.
+            await lineBecomes(editor, 2, "SELECT c.name");
+            await lineBecomes(editor, 3, "  FROM uitest.city AS c");
 
             // Another column: the table's own first, then the tables it
             // has a foreign key with, joined on it.
@@ -301,12 +307,11 @@ describe("SQL language server", () => {
                 ["c.country_id", "c.id", "c.name"]);
             await pickCompletion(editor, "country");
             await pickCompletion(editor, "name");
-            // Past 80 characters: the join starts a line of its own, one
-            // level deeper than FROM.
-            await lineBecomes(editor, 2,
-                "SELECT c.name, c2.name FROM uitest.city AS c");
-            await lineBecomes(editor, 3,
-                "  LEFT OUTER JOIN uitest.country AS c2 ON c.country_id = c2.id");
+            // The join starts a line of its own, one level deeper than FROM.
+            await lineBecomes(editor, 2, "SELECT c.name, c2.name");
+            await lineBecomes(editor, 3, "  FROM uitest.city AS c");
+            await lineBecomes(editor, 4,
+                "    LEFT OUTER JOIN uitest.country AS c2 ON c.country_id = c2.id");
             await screenshot("08-joined");
         });
 
