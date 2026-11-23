@@ -43,6 +43,7 @@ import {
     type IFolderNode,
     type IConnectionStatusNode,
     type IOpenAttempt,
+    type ISchemaDisplay,
 } from "./connectionsModel.js";
 import {
     COLLAPSED_FOLDERS_KEY,
@@ -176,6 +177,8 @@ export class ConnectionsTreeProvider
      *        Diagrams folder.
      * @param folderColors The colors the user gave folders, moved along
      *        with them.
+     * @param schemaDisplay Each connection's current schema, and whether
+     *        its system schemas are hidden; left out, neither is shown.
      */
     public constructor(
         private readonly connections: ConnectionManager,
@@ -189,10 +192,12 @@ export class ConnectionsTreeProvider
         mrs?: MrsModel,
         diagrams?: DiagramService,
         private readonly folderColors = new FolderColors(),
+        schemaDisplay?: ISchemaDisplay,
     ) {
         this.#model = new ConnectionsModel(connections, connectOnOpen,
             (uri) => { return this.#attempts.get(uri); },
-            () => { return customFolders.list(); }, mrs, diagrams);
+            () => { return customFolders.list(); }, mrs, diagrams,
+            schemaDisplay);
         this.#unsubscribe = connections.onDidChange(() => {
             this.#followSessions();
             this.refresh();

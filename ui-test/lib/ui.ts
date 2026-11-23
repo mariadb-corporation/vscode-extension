@@ -36,6 +36,7 @@ import {
     InputBox,
     Key,
     SideBarView,
+    TextEditor,
     type TreeItem,
     ModalDialog,
     NotificationType,
@@ -1281,6 +1282,75 @@ export const dialogErrors = async (view: WebView): Promise<string[]> => {
  */
 export const dialogText = async (view: WebView): Promise<string> => {
     return await (await view.findWebElement(By.css("body"))).getText();
+};
+
+// --- SQL editors ---------------------------------------------------------
+
+/** What a SQL editor bound to a connection is titled by: its header. */
+export const SQL_EDITOR_TITLE = "MariaDB connection";
+
+/**
+ * Opens a new SQL editor on a connection, with its inline New SQL Editor,
+ * and puts the text in it.
+ *
+ * @param section The Connections view.
+ * @param path The labels on the way to the connection's row.
+ * @param text The SQL, below the editor's connection header.
+ *
+ * @returns The editor.
+ */
+export const sqlEditor = async (
+    section: CustomTreeSection,
+    path: string[],
+    text: string,
+): Promise<TextEditor> => {
+    await inlineAction(await treeItem(section, path), "New SQL Editor");
+    const editor = await waitFor(async () => {
+        const title = await (await new EditorView().getActiveTab())?.getTitle();
+
+        return title?.includes(SQL_EDITOR_TITLE) === true
+            ? new TextEditor() : undefined;
+    }, "the new SQL editor");
+    await setEditorBody(editor, text);
+
+    return editor;
+};
+
+/**
+ * Replaces what is below a SQL editor's connection header.
+ *
+ * @param editor The editor.
+ * @param text The new text.
+ *
+ * @returns Nothing.
+ */
+export const setEditorBody = async (
+    editor: TextEditor,
+    text: string,
+): Promise<void> => {
+    const header = (await editor.getText()).split("\n")[0];
+    await editor.setText(`${header}\n${text}\n`);
+};
+
+/**
+ * Closes editors without saving them, each brought to the front first:
+ * focus may be in a webview, where the command palette's commands do not
+ * reach.
+ *
+ * @param titled A part of their tab titles; the SQL editors' by default.
+ *
+ * @returns Nothing.
+ */
+export const discardEditors = async (
+    titled = SQL_EDITOR_TITLE,
+): Promise<void> => {
+    const editors = new EditorView();
+    for (const title of await editors.getOpenEditorTitles()) {
+        if (title.includes(titled)) {
+            await editors.openEditor(title);
+            await runCommand("View: Revert and Close Editor");
+        }
+    }
 };
 
 // --- the result view ---------------------------------------------------

@@ -276,6 +276,49 @@ describe("saveConnection", () => {
         expect(fake.updated).toEqual([]);
     });
 
+    it("refuses a new connection whose URI the list has already", async () => {
+        // Stored, it would overwrite that connection's password.
+        const fake = api({ guiConnections: ["dba@localhost:3306"] });
+
+        const result = await saveConnection(fake, {
+            fields: fields({ user: "dba" }), password: "pw", mcpAccess: false,
+        });
+
+        expect(result.error).toMatch(/is a connection already/);
+        expect(fake.added).toEqual([]);
+
+        // The other list may have it.
+        await saveConnection(fake, {
+            fields: fields({ user: "dba" }), password: "pw", mcpAccess: true,
+        });
+        expect(fake.added).toHaveLength(1);
+    });
+
+    it("refuses an edit that moves a connection onto another's URI",
+        async () => {
+            const fake = api({
+                guiConnections: ["dba@localhost:3306", "app@localhost:3306"],
+            });
+
+            const result = await saveConnection(fake, {
+                fields: fields({ user: "app" }),
+                mcpAccess: false,
+                original: { uri: "mariadb://dba@localhost:3306", kind: "gui" },
+            });
+
+            expect(result.error).toMatch(/is a connection already/);
+            expect(fake.updated).toEqual([]);
+
+            // Its own URI, kept, is no clash.
+            await saveConnection(fake, {
+                fields: fields({ user: "dba" }),
+                mcpAccess: false,
+                caption: "Ops",
+                original: { uri: "mariadb://dba@localhost:3306", kind: "gui" },
+            });
+            expect(fake.updated).toHaveLength(1);
+        });
+
     it("puts a connection in the MCP list when the box is ticked", async () => {
         const fake = api();
 

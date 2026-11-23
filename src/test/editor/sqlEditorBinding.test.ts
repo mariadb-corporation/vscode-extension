@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ConnectionManager } from "../../connections/connectionManager.js";
+import { CurrentSchemas } from "../../connections/currentSchemas.js";
 import { SqlModes } from "../../connections/sqlModes.js";
 import type { IStatementResult } from "../../mcp/types.js";
 import {
@@ -90,6 +91,8 @@ const createBinding = (
         defaultResults?: IStatementResult[];
         /** The schema `SELECT DATABASE()` answers. */
         schema?: string | null;
+        /** What other chosen statements answer. */
+        sqlResults?: Record<string, IStatementResult>;
     } = {},
 ) => {
     const api = createFakeApi({
@@ -101,6 +104,7 @@ const createBinding = (
         sqlMode: server.sqlMode,
         ...(server.schema === undefined ? {} : {
             sqlResults: {
+                ...server.sqlResults,
                 [SCHEMA_QUERY]: {
                     result_sets: [{
                         columns: ["DATABASE()"],
@@ -130,10 +134,14 @@ const createBinding = (
     resultView.resolveWebviewView(view as never);
     view.webview.receive({ type: "ready" });
     const sqlModes = new SqlModes(connections, log);
+    const currentSchemas = new CurrentSchemas(connections);
     const binding = new SqlEditorBinding(connections, resultView, log,
-        sqlModes);
+        sqlModes, currentSchemas);
 
-    return { api, connections, resultView, view, binding, log, sqlModes };
+    return {
+        api, connections, resultView, view, binding, log, sqlModes,
+        currentSchemas,
+    };
 };
 
 describe("SqlEditorBinding", () => {
@@ -253,7 +261,8 @@ describe("SqlEditorBinding", () => {
             const binding = new SqlEditorBinding(
                 connections,
                 new ResultViewProvider(Uri.file("/ext") as never, log),
-                log, new SqlModes(connections, log));
+                log, new SqlModes(connections, log),
+                new CurrentSchemas(connections));
 
             await binding.selectConnection(
                 createEditor("SELECT 1;").document as never);
@@ -303,7 +312,8 @@ describe("SqlEditorBinding", () => {
         const binding = new SqlEditorBinding(
             connections,
             new ResultViewProvider(Uri.file("/ext") as never, log),
-            log, new SqlModes(connections, log));
+            log, new SqlModes(connections, log),
+                new CurrentSchemas(connections));
 
         await expect(binding.selectConnection(
             createEditor("SELECT 1;").document as never,
@@ -362,19 +372,19 @@ describe("SqlEditorBinding", () => {
 
     it("reads the schema in use after a run with a USE, for the server",
         async () => {
-            const { api, binding, sqlModes } = createBinding(
+            const { api, binding, currentSchemas } = createBinding(
                 "dba@localhost:3310", { schema: "shop" });
 
             await binding.run(createEditor("SELECT 1;") as never);
             expect(api.statements.map((s) => { return s.sql; }))
                 .not.toContain(SCHEMA_QUERY);
-            expect(sqlModes.sessionOf("dba@localhost:3310")).toEqual({});
+            expect(currentSchemas.changed("dba@localhost:3310"))
+                .toBeUndefined();
 
             await binding.run(createEditor("use shop;") as never);
             expect(api.statements.map((s) => { return s.sql; }))
                 .toContain(SCHEMA_QUERY);
-            expect(sqlModes.sessionOf("dba@localhost:3310").schema)
-                .toBe("shop");
+            expect(currentSchemas.changed("dba@localhost:3310")).toBe("shop");
 
             // Dropping a schema may drop the one in use.
             const reads = api.statements.length;
@@ -383,6 +393,55 @@ describe("SqlEditorBinding", () => {
                 .toEqual([SCHEMA_QUERY]);
             binding.dispose();
         });
+
+    it("follows a USE into the connection's current schema", async () => {
+        const { binding, currentSchemas } = createBinding(
+            "dba@localhost:3310", { schema: "shop" });
+        // The URI names none.
+        expect(currentSchemas.of("dba@localhost:3310")).toBeUndefined();
+
+        await binding.run(createEditor("USE shop;") as never);
+
+        expect(currentSchemas.of("dba@localhost:3310")).toBe("shop");
+        binding.dispose();
+    });
+
+    it("puts the session into a schema picked in the view before its run",
+        async () => {
+            const { api, binding, currentSchemas } = createBinding(
+                "dba@localhost:3310");
+            currentSchemas.set("dba@localhost:3310", "sales");
+
+            await binding.run(createEditor("SELECT 1;") as never);
+            const sql = api.statements.map((s) => { return s.sql; });
+            expect(sql).toContain("USE `sales`");
+            expect(api.scripts).toEqual(["SELECT 1;"]);
+
+            // Once: the session is in it now.
+            await binding.run(createEditor("SELECT 1;") as never);
+            expect(api.statements.map((s) => { return s.sql; })
+                .filter((text) => { return text.startsWith("USE"); }))
+                .toHaveLength(1);
+            binding.dispose();
+        });
+
+    it("follows where a session really is when its USE fails", async () => {
+        // Dropped elsewhere: the server answers the USE with an error.
+        const { binding, currentSchemas, log } = createBinding(
+            "dba@localhost:3310", {
+                schema: "world",
+                sqlResults: {
+                    "USE `gone`": { error: "Unknown database 'gone'" },
+                },
+            });
+        currentSchemas.set("dba@localhost:3310", "gone");
+
+        await binding.run(createEditor("SELECT 1;") as never);
+
+        expect(log.lines.join("\n")).toMatch(/Unknown database 'gone'/);
+        expect(currentSchemas.of("dba@localhost:3310")).toBe("world");
+        binding.dispose();
+    });
 
     it("runs the file and shows the results in the view", async () => {
         const { api, view, binding } = createBinding("dba@localhost:3310");

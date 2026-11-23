@@ -32,6 +32,7 @@ import { ROOT_FOLDER, normalizeFolder } from "./connectionFolders.js";
 import {
     buildConnectionUri,
     parseConnectionUri,
+    withDefaultScheme,
     type IConnectionFields,
 } from "./connectionUri.js";
 
@@ -255,7 +256,27 @@ export const saveConnection = async (
         return { error: tooLong };
     }
 
-    if (request.original === undefined) {
+    // The server takes a URI already in the list as a new password for
+    // that connection, which would quietly overwrite it - a duplicate saved
+    // as it was copied, a New Connection typed again, or an edit that moved
+    // one onto another. An edit that keeps its own key is not a clash.
+    const original = request.original;
+    const key = withDefaultScheme(uri);
+    const keepsOwnKey = original !== undefined && original.kind === kind
+        && withDefaultScheme(original.uri) === key;
+    if (!keepsOwnKey) {
+        const taken = (await listConnections(api)).some((stored) => {
+            return stored.kind === kind && withDefaultScheme(stored.uri) === key;
+        });
+        if (taken) {
+            return {
+                error: `'${uri}' is a connection already. Change its user, `
+                    + "host, port or default schema to save it as a new one.",
+            };
+        }
+    }
+
+    if (original === undefined) {
         // A new connection has no stored password to fall back on, so an
         // omitted one is an empty one - which is what a server with no
         // password for that account wants.
@@ -275,7 +296,6 @@ export const saveConnection = async (
     }
 
     // Only what changed, so the server keeps the rest as it has it.
-    const original = request.original;
     const changes: IConnectionDetails = {
         ...(path === normalizeFolder(original.path ?? ROOT_FOLDER)
             ? {}

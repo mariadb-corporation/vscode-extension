@@ -64,7 +64,7 @@ import {
 import { SettledSaves } from "./msm/settledSaves.js";
 import { SqlEditorBinding } from "./editor/sqlEditorBinding.js";
 import { StatementDecorator } from "./editor/statementDecorations.js";
-import { reportError } from "./errorMessages.js";
+import { guard, reportError } from "./errorMessages.js";
 import { counted, errorText } from "./text.js";
 import { createSdkConnector } from "./mcp/sdkConnector.js";
 import {
@@ -238,8 +238,14 @@ import {
     VendorDecorations,
     VendorsTreeProvider,
 } from "./tree/vendorsTreeProvider.js";
-import { deleteConnection } from "./connections/connectionStore.js";
+import {
+    deleteConnection,
+    type IStoredConnection,
+} from "./connections/connectionStore.js";
 import { SqlModes } from "./connections/sqlModes.js";
+import { CurrentSchemas } from "./connections/currentSchemas.js";
+import { SystemSchemaVisibility } from "./tree/systemSchemas.js";
+import { registerSchemaRowCommands } from "./tree/schemaRowCommands.js";
 import { ConnectionColorDecorations } from "./tree/connectionColors.js";
 import {
     connectionNodeOf,
@@ -396,23 +402,21 @@ const showStartupInView = (starter: ServerStarter): void => {
 };
 
 /**
- * Runs an action, reporting a failure rather than letting it escape into
- * the command handler.
+ * @param node A connection's row.
  *
- * @param log Where to write the failure.
- * @param action The action to run.
- *
- * @returns Nothing.
+ * @returns The connection as the editor takes it: both halves of what
+ *          identifies it - the URI is the key and the kind says which of
+ *          the two lists it is the key in - and its folder, caption and
+ *          color, which the dialog would otherwise show none of.
  */
-const guard = async (
-    log: (message: string) => void,
-    action: () => Promise<void>,
-): Promise<void> => {
-    try {
-        await action();
-    } catch (error) {
-        reportError(log, error);
-    }
+const storedOf = (node: IConnectionNode): IStoredConnection => {
+    return {
+        uri: node.uri,
+        kind: node.connectionKind,
+        path: node.path,
+        ...(node.caption === undefined ? {} : { caption: node.caption }),
+        ...(node.color === undefined ? {} : { color: node.color }),
+    };
 };
 
 /**
@@ -517,6 +521,12 @@ export const activate = (context: vscode.ExtensionContext): void => {
         new FolderSet(context.globalState, COLLAPSED_FOLDERS_KEY);
     // The colors given to folders, which the server has no place for.
     const folderColors = new FolderColors(context.globalState);
+    // Each connection's current schema - its URI's until one is picked or
+    // a run's USE moves it - and the connections whose system schemas the
+    // view leaves out.
+    const currentSchemas = new CurrentSchemas(connections);
+    context.subscriptions.push(currentSchemas);
+    const systemSchemas = new SystemSchemaVisibility(context.globalState);
     // The REST Service rows read REST SQL on the session the tree browses
     // with, through the connection manager's API. That API passes
     // db.execute_sql through unreported (a SQL run reports itself), so
@@ -594,6 +604,10 @@ export const activate = (context: vscode.ExtensionContext): void => {
         mrsModel,
         diagrams,
         folderColors,
+        {
+            currentSchema: (uri) => { return currentSchemas.of(uri); },
+            hidesSystemSchemas: (uri) => { return systemSchemas.hides(uri); },
+        },
     );
     // The REST Daemon a tree row's URL goes to; the REST Daemons view
     // keeps the list, and is defined further down.
@@ -739,7 +753,21 @@ export const activate = (context: vscode.ExtensionContext): void => {
     // the runs, the highlighting and the gutter markers all follow.
     const sqlModes = new SqlModes(connections, log);
     const editors = new SqlEditorBinding(connections, resultView, log,
-        sqlModes);
+        sqlModes, currentSchemas);
+    // The current schema's row shows it, wherever it was changed.
+    context.subscriptions.push({
+        dispose: currentSchemas.onDidChange((uri) => {
+            tree.refreshConnection(uri);
+        }),
+    });
+    context.subscriptions.push(...registerSchemaRowCommands({
+        connections,
+        editors,
+        currentSchemas,
+        systemSchemas,
+        refreshTree: () => { tree.refresh(); },
+        log,
+    }));
     // A schema, table or view created, changed or dropped from an editor
     // shows under its connection, the open rows staying open.
     const stopRefreshingTree = editors.onDidRunScript(
@@ -829,11 +857,24 @@ export const activate = (context: vscode.ExtensionContext): void => {
         onDidRunScript: (listener) => {
             return editors.onDidRunScript(listener);
         },
+        // The editors' session's sql_mode, and the schema it is in or is
+        // put into before its next run.
         sessionOf: (connection) => {
-            return sqlModes.sessionOf(connection);
+            const schema = currentSchemas.changed(connection);
+
+            return {
+                ...sqlModes.sessionOf(connection),
+                ...(schema === undefined ? {} : { schema }),
+            };
         },
         onDidChangeSession: (listener) => {
-            return sqlModes.onDidChangeSession(listener);
+            const unwatchSessions = sqlModes.onDidChangeSession(listener);
+            const unwatchSchemas = currentSchemas.onDidChange(listener);
+
+            return () => {
+                unwatchSessions();
+                unwatchSchemas();
+            };
         },
         // The server's catalog reads, made on this extension's MCP server
         // and the tree's session on the URI, as the Connections view reads
@@ -2544,25 +2585,29 @@ export const activate = (context: vscode.ExtensionContext): void => {
                     return;
                 }
 
-                // Both halves of what identifies it: the URI is the key and
-                // the kind says which of the two lists it is the key in.
-                ConnectionEditorPanel.show(
-                    context.extensionUri,
-                    connectionEditorHost,
-                    // The caption and color too: the dialog starts from what
-                    // it is given, and would otherwise show neither.
-                    {
-                        uri: node.uri,
-                        kind: node.connectionKind,
-                        path: node.path,
-                        ...(node.caption === undefined
+                ConnectionEditorPanel.show(context.extensionUri,
+                    connectionEditorHost, storedOf(node));
+            },
+        ),
+
+        vscode.commands.registerCommand(
+            "mariadb.duplicateConnection",
+            (node?: IConnectionNode) => {
+                if (node?.kind !== "connection") {
+                    return;
+                }
+
+                // A new connection that starts as a copy of this one, in
+                // its folder. Its password is not copied: it is in the
+                // secret store, out of reach.
+                const stored = storedOf(node);
+                ConnectionEditorPanel.show(context.extensionUri,
+                    connectionEditorHost, undefined, node.path, {
+                        ...stored,
+                        ...(stored.caption === undefined
                             ? {}
-                            : { caption: node.caption }),
-                        ...(node.color === undefined
-                            ? {}
-                            : { color: node.color }),
-                    },
-                );
+                            : { caption: `${stored.caption} (copy)` }),
+                    });
             },
         ),
 

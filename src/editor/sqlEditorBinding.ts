@@ -22,6 +22,7 @@ import {
     ROOT_FOLDER,
 } from "../connections/connectionFolders.js";
 import type { ConnectionManager } from "../connections/connectionManager.js";
+import type { CurrentSchemas } from "../connections/currentSchemas.js";
 import {
     pageSize,
     stopOnError,
@@ -37,6 +38,7 @@ import {
     pendingRunRow,
 } from "../sql/executionService.js";
 import { changesCatalog } from "../sql/catalogChange.js";
+import { useSchemaSql } from "../sql/objectStatements.js";
 import { quoteIdentifier } from "../sql/queryBuilder.js";
 import {
     type ISqlStatement,
@@ -224,6 +226,7 @@ export class SqlEditorBinding implements vscode.Disposable {
         private readonly resultView: ResultViewProvider,
         private readonly log: (message: string) => void,
         private readonly sqlModes: SqlModes,
+        private readonly currentSchemas: CurrentSchemas,
     ) {
         this.#statusItem = vscode.window.createStatusBarItem(
             vscode.StatusBarAlignment.Right,
@@ -954,6 +957,7 @@ export class SqlEditorBinding implements vscode.Disposable {
                 this.sqlModes.ansiQuotes(uri),
                 this.connections.api(),
             ]);
+            await this.#enterCurrentSchema(uri, connectionId, api);
 
             return await work({ connectionId, ansiQuotes, api }, () => {
                 changedCatalog = true;
@@ -972,6 +976,44 @@ export class SqlEditorBinding implements vscode.Disposable {
     }
 
     /**
+     * Puts a session into the connection's current schema, where one was
+     * picked in the Connections view (or reported by another session)
+     * since it was last in it. A `USE` that fails - the schema was dropped
+     * elsewhere - is logged, and the schema the session is in is read
+     * instead, so the view shows where it really is.
+     *
+     * @param uri The connection.
+     * @param connectionId The session about to run.
+     * @param api The server.
+     *
+     * @returns Nothing.
+     */
+    async #enterCurrentSchema(
+        uri: string,
+        connectionId: string,
+        api: IMariaDbApi,
+    ): Promise<void> {
+        const schema = this.currentSchemas.pending(uri, connectionId);
+        if (schema === undefined) {
+            return;
+        }
+        try {
+            // A statement that failed answers its error rather than
+            // throwing it.
+            const result = await api.executeSql(connectionId,
+                useSchemaSql(schema));
+            if (result.error !== undefined) {
+                throw new Error(result.error);
+            }
+            this.currentSchemas.reported(uri, connectionId, schema);
+        } catch (error) {
+            this.log(`Could not make '${schema}' the current schema on `
+                + `${uri}: ${errorText(error)}`);
+            await this.#readSchema(uri, connectionId);
+        }
+    }
+
+    /**
      * Reads the schema a session is in, for the language server, which
      * reads its catalogs on a session of its own.
      *
@@ -983,9 +1025,12 @@ export class SqlEditorBinding implements vscode.Disposable {
     async #readSchema(uri: string, connectionId: string): Promise<void> {
         try {
             const api = await this.connections.api();
-            const value = firstCell(
-                await api.executeSql(connectionId, SCHEMA_QUERY));
-            this.sqlModes.recordSchema(uri,
+            const result = await api.executeSql(connectionId, SCHEMA_QUERY);
+            if (result.error !== undefined) {
+                throw new Error(result.error);
+            }
+            const value = firstCell(result);
+            this.currentSchemas.reported(uri, connectionId,
                 typeof value === "string" ? value : null);
         } catch (error) {
             this.log(`Could not read the schema in use on ${uri}: `

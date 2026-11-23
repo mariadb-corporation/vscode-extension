@@ -210,14 +210,24 @@ dba@localhost:3310/world      connection (icon by scheme; "default" if default)
   back to the `symbol-numeric` codicon. Upstream's `light/schemaPrcoedure.svg`
   typo was corrected to `schemaProcedure.svg` on copy.
 - A connection item's `contextValue` is
-  `mariadbConnection.<connected|disconnected>.<default|notDefault>`, which
-  is what the context menu switches its entries on. The connection's LIST is
-  deliberately **not** a fourth segment: the `when` clauses anchor on the
-  third (`/notDefault$/`, `/\.default$/`) and would break. Edit and delete
+  `mariadbConnection.<connected|disconnected>.<systemShown|systemHidden>.<default|notDefault>`,
+  which is what the context menu switches its entries on. The default
+  stays LAST: the `when` clauses anchor on it (`/notDefault$/`,
+  `/\.default$/`). The connection's LIST is deliberately not in it. Edit and delete
   are handed the node itself, which carries `connectionKind`.
 - A connection in the shared MCP list is described `MCP` in the tree, and
   `MCP, default` when it is both. The view lists **both** lists: the checkbox
   says who else may open a connection, not whether this extension can.
+- **System schemas can be hidden per connection** (Show / Hide System
+  Schemas on its row): `SystemSchemaVisibility` (`src/tree/systemSchemas.ts`)
+  keeps the URIs, scheme filled in, in `globalState`
+  (`mariadb.connections.hiddenSystemSchemas`); shown by default, as they
+  always were. `ConnectionsModel.#schemasOf` then lists only `User Schema`
+  rows - and the current schema, whatever it is. The connection's
+  `contextValue` carries it as a third segment,
+  `mariadbConnection.<connected|disconnected>.<systemShown|systemHidden>.<default|notDefault>`,
+  which the Show / Hide clauses match wherever it sits
+  (`/^mariadbConnection\..*\.systemHidden(\.|$)/`).
 - A schema is described by its type **only where that is not `User
   Schema`**, which is what `db.list_schemas` calls everything that is not
   the server's own. Nearly every row is one, and a column of the same
@@ -321,6 +331,52 @@ Whether a node is drawn with a twistie is `IConnectionNode.expandable`,
 which the model works out (`connected || connectOnOpen()`), not something
 `treeItems.ts` decides: the shape of the tree stays in one place, and the
 model is where it can be tested without VS Code.
+
+## Current schema
+
+Each connection has a **current schema**: the one its editors' sessions
+run in. `CurrentSchemas` (`src/connections/currentSchemas.ts`, no VS Code
+import) keeps it by URI, scheme filled in:
+
+- It starts as the schema the URI names (`schemaOfUri`), none where it
+  names none.
+- **Set As Current Schema** on a schema row (`mariadb.setCurrentSchema`)
+  makes it the current one (`set`).
+- **A `USE` is followed.** After a run whose script matches
+  `CHANGES_SCHEMA` (`USE`, `DROP DATABASE/SCHEMA`), the binding reads
+  `SELECT DATABASE()` on that session, as it already did for the language
+  server, and hands it to `reported`. A `USE`
+  inside a routine called with `CALL` is not seen. Neither is one run by
+  another client, or a notebook's TypeScript `runSql` that has none in its
+  text.
+- **A picked schema is put into each session before its next run.**
+  `SqlEditorBinding.#onSession` asks `pending(uri, connectionId)` once the
+  session is open and runs `USE \`schema\`` (`useSchemaSql`) where the
+  session is not in it yet (`reported` then counts it among the sessions
+  in it; a new current schema empties that set). So a session opened after
+  the pick starts there too, and a pick never runs anything until there
+  is a run. A `USE` that fails (the schema was dropped elsewhere) is
+  logged, and `DATABASE()` is read instead, so the row shows where the
+  session really is.
+- A schema dropped while in use leaves NO current schema (`reported(...,
+  null)`): no row has the icon.
+- Kept while anything is open on the connection, the tree's session
+  included; once nothing is, it is forgotten and the URI's schema is the
+  current one again, as the next session will be.
+- **Drawn** with `schemaCurrent.svg` (the MySQL Shell's) and the context
+  value `mariadbSchema.current` (so its menu has no Set As Current
+  Schema; the other clauses match `/^mariadbSchema(\.current)?$/`), and
+  "The current schema" in its tooltip. Every change redraws the
+  connection (`tree.refreshConnection`), which lists the schemas again.
+- **The language server** gets it too, from here alone: `SqlModes` keeps
+  only the `sql_mode`, and `sessionOf` in `extension.ts` puts the two
+  together (`CurrentSchemas.changed(uri)`, left out until something was
+  picked or reported); `onDidChangeSession` fires on either.
+
+The schema and object rows' other commands - Copy to Clipboard / Send to
+SQL Editor (Name, Create Statement) and Drop - are in
+`src/tree/schemaRowCommands.ts`, with the statements in
+`src/sql/objectStatements.ts` (built, never parsed); see commands.md.
 
 ## Default connection
 

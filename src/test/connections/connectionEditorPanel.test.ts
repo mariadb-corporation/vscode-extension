@@ -266,6 +266,57 @@ describe("ConnectionEditorPanel", () => {
         expect(currentPanel().disposed).toBe(true);
     });
 
+    it("duplicates a connection, its password left to be set", async () => {
+        const { host, api } = createHost({
+            guiConnections: ["mariadb://dba@db:3310/world"],
+        });
+
+        ConnectionEditorPanel.show(extensionUri as never, host, undefined,
+            "/Team", {
+                uri: "mariadb://dba@db:3310/world",
+                kind: "gui",
+                path: "/Team",
+                caption: "World (copy)",
+            });
+        expect(currentPanel().title)
+            .toBe("Duplicate mariadb://dba@db:3310/world");
+        await receive({ type: "ready" });
+        expect(posted()[0]).toMatchObject({
+            type: "load",
+            // A new connection: nothing is edited in place.
+            uri: undefined,
+            hasStoredPassword: false,
+            path: "/Team",
+            caption: "World (copy)",
+        });
+        expect(loadedFields()).toMatchObject({ host: "db", schema: "world" });
+
+        // Saved as copied, it would be stored over the one it copies.
+        const save = {
+            type: "save" as const,
+            fields: loadedFields(),
+            password: "pw",
+            mcpAccess: false,
+            path: "/Team",
+            caption: "World (copy)",
+            color: "" as const,
+        };
+        await receive(save);
+        expect(api.added).toEqual([]);
+        expect(posted()).toContainEqual({
+            type: "saveError",
+            message: "'mariadb://dba@db:3310/world' is a connection already. "
+                + "Change its user, host, port or default schema to save it "
+                + "as a new one.",
+        });
+        expect(currentPanel().disposed).toBe(false);
+
+        await receive({ ...save, fields: { ...save.fields, schema: "shop" } });
+        expect(api.added).toMatchObject([{
+            uri: "mariadb://dba@db:3310/shop", password: "pw", kind: "gui",
+        }]);
+    });
+
     it("keeps the dialog open and says why when a save is refused",
         async () => {
             const { host, api } = createHost();

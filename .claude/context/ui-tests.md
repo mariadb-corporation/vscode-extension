@@ -104,7 +104,19 @@ runner end anyway. A spawn that fails is reported with its error.
   - `01-sandbox`: New Sandbox dialog, test schema; waits for the
     workbench itself, as it is the first file of `mrs` and `dump-load`
   - `02-mrs`: MRS end to end
-  - `03-connections`
+  - `03-connections`: the connection editor's connection, edited, then
+    duplicated with `uitest` as its default schema (an unchanged copy
+    refused first). On the duplicate: `uitest` drawn as the current
+    schema (`schemaCurrent.svg`, read from the row icon's CSS
+    `background-image`) without Set As Current Schema in its menu, the
+    system schemas hidden and shown, Set As Current Schema on `mysql`
+    and a new editor's `SELECT DATABASE()` answering `mysql`, a `USE
+    uitest` run moving the marker back, Copy to Clipboard and Send to SQL
+    Editor (Name, Create Statement) on a table and the schema, Drop Table
+    / Drop Schema on a schema the test creates (`uidrop`, a Cancel
+    first), Load SQL Script from Disk (its `SELECT DATABASE()` answering
+    `uitest`), and the duplicate deleted. Then the default, the URI copy,
+    folders, Disconnect and Delete on the original.
   - `04-sql-results`
   - `05-lifecycle`: sandbox stop/start, MCP restart and log
   - `10-msm-projects`: the MSM Projects view, before `09-msm` in the
@@ -156,7 +168,7 @@ runner end anyway. A spawn that fails is reported with its error.
   open its editor and switch to it with `FrontWebView` yourself; a modal
   it raises (`showWarningMessage` with `modal`) is answered with
   `answerModal` after switching back.
-- Helpers live in `ui-test/lib/ui.ts`. `openSection` collapses the
+- Helpers live in `ui-test/lib/ui.ts`, the SQL editors' among them: `sqlEditor(section, path, text)` (New SQL Editor on a connection's row, the text below its header), `setEditorBody` and `discardEditors(titled)` (each brought to the front, then reverted and closed). `08-lsp` keeps its own, whose body has no trailing newline. `openSection` collapses the
   other MariaDB views and expands the one asked for: with three views
   sharing the side bar, deep Connections rows were out of sight (and
   collapsing only one view gives its height to the next, not to
