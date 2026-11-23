@@ -35,7 +35,6 @@ import type { ITaskStarted } from "./taskApi.js";
 import {
     CONNECTION_COLORS, type ConnectionColor, type ObjectType,
 } from "./types.js";
-import { MRS_TOOL_TIMEOUT_MS } from "../mrs/mrsApi.js";
 
 /** One copyright notice of a schema project. */
 export interface IMsmCopyright {
@@ -306,10 +305,11 @@ export const MSM_LICENSES = ["None", "BSD", "GPL-2.0", "MIT"] as const;
 export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
- * How long writing a REST client SDK may take: as long as the live dump,
- * since it writes as many files.
+ * How long writing a REST client SDK may take: as long as the live dump's
+ * `MRS_TOOL_TIMEOUT_MS`, since it writes as many files. Not imported from
+ * there: this module is shared with the webviews, and that one is Node's.
  */
-export const MSM_SDK_TIMEOUT_MS = MRS_TOOL_TIMEOUT_MS;
+export const MSM_SDK_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * The settings of msm.project.json that `msm.set_project_settings`
