@@ -1443,6 +1443,22 @@ export const activate = (context: vscode.ExtensionContext): void => {
         return found;
     });
     /**
+     * Refuses work on a project's development script as it is on disk
+     * while an editor has unsaved changes on it.
+     *
+     * @param projectPath The project folder.
+     */
+    const refuseUnsavedScript = async (projectPath: string): Promise<void> => {
+        const file = await developmentScript(projectPath);
+        const open = vscode.workspace.textDocuments.find((document) => {
+            return file !== undefined && document.uri.fsPath === file;
+        });
+        if (open?.isDirty === true) {
+            throw new Error(`${path.basename(open.uri.fsPath)} has unsaved `
+                + "changes. Save or revert them first.");
+        }
+    };
+    /**
      * @param projectPath A project folder.
      *
      * @returns The `source_hash` of its snapshot, which msm makes first
@@ -1457,14 +1473,7 @@ export const activate = (context: vscode.ExtensionContext): void => {
         }
         // msm writes the script on disk: an editor's unsaved changes on it
         // would be lost, and what the dialog was offered was read from disk.
-        const file = await developmentScript(projectPath);
-        const open = vscode.workspace.textDocuments.find((document) => {
-            return file !== undefined && document.uri.fsPath === file;
-        });
-        if (open?.isDirty === true) {
-            throw new Error(`${path.basename(open.uri.fsPath)} has unsaved `
-                + "changes. Save or revert them first.");
-        }
+        await refuseUnsavedScript(projectPath);
 
         return hash;
     };
@@ -1570,6 +1579,23 @@ export const activate = (context: vscode.ExtensionContext): void => {
                 return writeRestStatements(projectPath, statements, replaces);
             },
             drop: (item) => { return dropRestItem(projectPath, item); },
+            dumpSdk: async (service, directory, options) => {
+                // msm reads the script on disk: an SDK of what the editor
+                // shows would differ from it.
+                await refuseUnsavedScript(projectPath);
+                const project = `the MSM project ${projectDiagrams(projectPath)
+                    .schemaTitle}`;
+                await msmTool("msm.dump_rest_sdk",
+                    "Writing the REST Client SDK of an MSM project", () => {
+                        return projectDiagrams(projectPath).dumpRestSdk(
+                            service, directory, options, {
+                                doing: "Dumping the REST Client SDK of "
+                                    + `${service} in ${project} to ${directory}`,
+                                done: "Dumped the REST Client SDK of "
+                                    + `${service} in ${project} to ${directory}`,
+                            });
+                    });
+            },
             // Read from disk, as the dialog's save refuses unsaved changes.
             restOutline: async (feature) => {
                 if (!(await lspEdit.outlineFeatures()).includes(feature)) {

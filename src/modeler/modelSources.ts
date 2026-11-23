@@ -22,6 +22,8 @@ import type {
     IMsmApi,
     IMsmExpectedObject,
     IMsmRestItem,
+    IMsmRestSdkDumped,
+    IMsmRestSdkOptions,
     IMsmSchemaEdit,
     IMsmSchemaStatementsSet,
 } from "../mcp/msmApi.js";
@@ -732,6 +734,33 @@ export class ProjectModelSource implements IModelSource {
     }
 
     /**
+     * Writes the REST client SDK of a service of the project's MSM
+     * Section 180, as an action, after the edits queued before it: it
+     * reads what they wrote.
+     *
+     * @param service The service's request path.
+     * @param directory The SDK folder.
+     * @param options What to write; none regenerates the folder.
+     * @param words What the Actions tab says of it.
+     *
+     * @returns The files written, and what msm warns of.
+     */
+    public async dumpRestSdk(
+        service: string,
+        directory: string,
+        options: IMsmRestSdkOptions,
+        words: { doing: string; done: string },
+    ): Promise<IMsmRestSdkDumped> {
+        await this.flush();
+
+        return this.#enqueuedAction(words, "msm.dump_rest_sdk",
+            { service, directory }, (api) => {
+                return api.dumpRestSdk(this.projectPath, service, directory,
+                    options);
+            }, sdkDetail);
+    }
+
+    /**
      * Removes a REST service, schema or object from the project's MSM
      * Section 180, with what is on it, in turn with the viewer's edits.
      *
@@ -966,6 +995,17 @@ export class ProjectModelSource implements IModelSource {
         }, detail);
     }
 }
+
+/**
+ * @param dumped What `msm.dump_rest_sdk` wrote.
+ *
+ * @returns It in a few words for its Actions row: the files, and each of
+ *          msm's warnings, which the row is the only place to show.
+ */
+export const sdkDetail = (dumped: IMsmRestSdkDumped): string => {
+    return [counted(dumped.files.length, "file"), ...dumped.warnings]
+        .join("; ");
+};
 
 /**
  * @param message Why msm refused a schema edit.

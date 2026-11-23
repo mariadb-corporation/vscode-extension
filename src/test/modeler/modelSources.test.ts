@@ -38,6 +38,7 @@ import type { SaveState } from "../../modeler/modelerProtocol.js";
 import {
     ConnectionModelSource,
     describeEdit,
+    sdkDetail,
     isStaleSnapshot,
     type IModelSource,
     diagramHash,
@@ -669,4 +670,16 @@ describe("a project's REST objects", () => {
         expect(logs).toEqual([`Could not read the REST objects of ${PROJECT}: `
             + "no such file"]);
     });
+});
+
+describe("sdkDetail", () => {
+    it("says how many files an SDK dump wrote, and each of msm's warnings",
+        () => {
+            expect(sdkDetail({ directory: "/d", files: ["a", "b"],
+                service: "/svc", sdk_language: "TypeScript", warnings: [] }))
+                .toBe("2 files");
+            expect(sdkDetail({ directory: "/d", files: ["a"],
+                service: "/svc", sdk_language: "TypeScript",
+                warnings: ["flag: text"] })).toBe("1 file; flag: text");
+        });
 });

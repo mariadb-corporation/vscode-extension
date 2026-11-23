@@ -17,7 +17,8 @@
 
 import { execFileSync } from "node:child_process";
 import {
-    mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync,
+    existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync,
+    writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -31,6 +32,7 @@ import {
     documentOf, type ISchemaDefinition,
 } from "../../modeler/modelFormat.js";
 import { buildDocument } from "../../mrs/dataMapping.js";
+import { msmProjectOf, RestToolsApi } from "../../mrs/mrsApi.js";
 import { objectDefaults, objectStatements } from "../../mrs/mrsDialogs.js";
 import {
     outlineRestObject, outlineRestSchema, outlineRestService,
@@ -171,6 +173,36 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
                 .toBeDefined();
         }, 60_000);
 
+        it("dumps the service's REST client SDK from the project, which a "
+            + "rebuild finds again", async () => {
+            const directory = join(home, "sdk", "svc.mrs.sdk");
+            const dumped = await msm.dumpRestSdk(project, "/svc", directory,
+                { service_url: "https://localhost:8443/svc",
+                    sdk_language: "TypeScript" });
+            expect(dumped.service).toBe("/svc");
+            expect(dumped.files.length).toBeGreaterThan(0);
+            for (const file of dumped.files) {
+                expect(existsSync(resolve(directory, file))).toBe(true);
+            }
+            const sdk = dumped.files.map((file) => {
+                return readFileSync(resolve(directory, file), "utf8");
+            }).join("\n");
+            expect(sdk).toContain("Order");
+            expect(sdk).toContain("Customer");
+
+            const options = await new RestToolsApi(connection)
+                .getSdkOptions(directory);
+            expect(options.serviceUrl).toBe("https://localhost:8443/svc");
+            expect(msmProjectOf(options, directory)).toEqual({
+                path: project, service: "/svc" });
+
+            // A rebuild: the options the folder keeps.
+            const again = await msm.dumpRestSdk(project, "/svc", directory, {});
+            expect(again.sdk_language).toBe("TypeScript");
+            await expect(msm.dumpRestSdk(project, "/none", directory, {}))
+                .rejects.toThrow("defines no REST service /none");
+        }, 120_000);
+
         it("refuses an edit made against an older snapshot", async () => {
             const stale = "0".repeat(baseHash.length);
             await expect(msm.setRestStatements(project, [SERVICE], stale))
@@ -187,6 +219,7 @@ describe.runIf(shell !== undefined && lspBinary !== undefined)(
                     restSql: () => { return Promise.resolve(""); },
                     write: () => { return Promise.resolve(); },
                     drop: () => { return Promise.resolve(); },
+                    dumpSdk: () => { return Promise.resolve(); },
                     restOutline: () => { return Promise.resolve(rest); },
                     saved: () => { /* nothing to draw */ },
                     failed: () => { /* nothing to show */ },

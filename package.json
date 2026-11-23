@@ -2265,6 +2265,11 @@
           "group": "0_msm@1"
         },
         {
+          "command": "mariadb.mrs.exportServiceSdk",
+          "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestService",
+          "group": "5_disk@1"
+        },
+        {
           "command": "mariadb.mrs.deleteDbObject",
           "when": "view == mariadb.msmProjects && viewItem == mariadbMsmRestObject",
           "group": "9_delete@0"

@@ -305,6 +305,12 @@ export const MSM_LICENSES = ["None", "BSD", "GPL-2.0", "MIT"] as const;
 export const MSM_DEPLOY_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
+ * How long writing a REST client SDK may take: as long as the live dump
+ * (`MRS_TOOL_TIMEOUT_MS`), since it writes as many files.
+ */
+export const MSM_SDK_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
  * The settings of msm.project.json that `msm.set_project_settings`
  * writes; only those given change.
  */
@@ -475,6 +481,31 @@ export interface IMsmRestDropped extends IMsmSchemaEditResult {
 }
 
 /**
+ * What `msm.dump_rest_sdk` writes, by the keys `rest.dump_sdk_service_files`
+ * takes; none at all regenerates the folder from the options it keeps.
+ */
+export interface IMsmRestSdkOptions {
+    service_url?: string;
+    sdk_language?: string;
+    add_app_base_class?: string;
+    header?: string;
+}
+
+/** What `msm.dump_rest_sdk` answers with. */
+export interface IMsmRestSdkDumped {
+    directory: string;
+    /** The files written. */
+    files: string[];
+    service: string;
+    sdk_language: string;
+    /**
+     * What the project's definition could not give as a server's metadata
+     * would: a field whose type fell back to its `@DATATYPE` or `text`.
+     */
+    warnings: string[];
+}
+
+/**
  * @param error Why a call of an msm tool failed.
  * @param tool The tool, `msm.drop_rest_object`.
  *
@@ -545,6 +576,8 @@ export interface IMsmApi {
         replaces?: IMsmRestItem): Promise<IMsmRestStatementsSet>;
     dropRestObject(projectPath: string, item: IMsmRestItem,
         baseHash: string): Promise<IMsmRestDropped>;
+    dumpRestSdk(projectPath: string, service: string, directory: string,
+        options: IMsmRestSdkOptions): Promise<IMsmRestSdkDumped>;
     dropSchemaObject(projectPath: string, kind: ObjectType, name: string,
         baseHash: string): Promise<IMsmSchemaEditResult>;
 }
@@ -887,6 +920,19 @@ export const msmToolArgs = {
             schema: item.schema,
             object: item.object,
             base_hash: baseHash,
+        });
+    },
+    dumpRestSdk: (
+        projectPath: string,
+        service: string,
+        directory: string,
+        options: IMsmRestSdkOptions,
+    ): Record<string, unknown> => {
+        return given({
+            schema_project_path: projectPath,
+            service,
+            directory,
+            options,
         });
     },
     dropSchemaObject: (
@@ -1542,6 +1588,39 @@ export class MsmApi implements IMsmApi {
                 projectPath, item, baseHash)));
 
         return { ...editResultOf(result), removed: result.removed ?? [] };
+    }
+
+    /**
+     * Writes the REST client SDK of a service the project's MSM Section
+     * 180 defines, from the project alone: no server is needed.
+     *
+     * @param projectPath The project folder.
+     * @param service The service's request path, as the section names it.
+     * @param directory The SDK folder.
+     * @param options What to write; none regenerates the folder as its
+     *        stored options say.
+     *
+     * @returns The files written, and what msm warns of.
+     */
+    public async dumpRestSdk(
+        projectPath: string,
+        service: string,
+        directory: string,
+        options: IMsmRestSdkOptions,
+    ): Promise<IMsmRestSdkDumped> {
+        const tool = "msm.dump_rest_sdk";
+        const result = decodeObject<Partial<IMsmRestSdkDumped>>(tool,
+            await this.caller.callTool(tool, msmToolArgs.dumpRestSdk(
+                projectPath, service, directory, options),
+            MSM_SDK_TIMEOUT_MS));
+
+        return {
+            directory: result.directory ?? directory,
+            files: result.files ?? [],
+            service: result.service ?? service,
+            sdk_language: result.sdk_language ?? "",
+            warnings: result.warnings ?? [],
+        };
     }
 
     /**

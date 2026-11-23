@@ -234,6 +234,8 @@ const setUp = (options: ISetUp = {}): IRecorded => {
             files: [], migration: [], notes: [], statements: [] }),
         dropRestObject: answer("dropRestObject", { rows: [], files: [], migration: [],
             notes: [], removed: [] }),
+        dumpRestSdk: answer("dumpRestSdk", { directory: "", files: [],
+            service: "", sdk_language: "", warnings: [] }),
         dropSchemaObject: answer("dropSchemaObject", { rows: [], files: [],
             migration: [], notes: [] }),
     };

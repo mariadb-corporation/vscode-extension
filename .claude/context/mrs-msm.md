@@ -66,6 +66,33 @@ as possible.
   (`isUnknownTool`) gets a message to update it, and one whose
   mariadb-lsp has no `rest_statements` gets msm's own. The extension
   parses no REST SQL to place a statement.
+- **A project service's REST client SDK** (the user's request: the
+  Connections view's SDK export on the MSM Projects view too): Dump REST
+  Client SDK Files... on a `mariadbMsmRestService` row runs the same
+  `exportServiceSdk` and dialog (the service URL defaults to the
+  `mrs.restDaemonUrl` setting, as the project's service is on no
+  server). Saved, it calls `msm.dump_rest_sdk(schema_project_path,
+  service, directory, options)` (agreed with mariadb-shell-plugins
+  2026-11-23; options are `rest.dump_sdk_service_files`'s keys) through
+  `IProjectRestSource.dumpSdk` and `ProjectModelSource.dumpRestSdk`, an
+  action of the General Actions in turn with the diagrams' edits, its
+  detail the files written and msm's `warnings` (a field whose type fell
+  back to `@DATATYPE` / `text`), which no notification repeats (`sdkDetail`).
+  msm builds the SDK from mariadb-lsp's outline of the script on disk
+  (`rest_object_details`, `rest_settings`, and lsp-server's agreed
+  `column_types` for the server-normalized types) and its snapshot, with
+  the same generator as the live dump: no REST SQL is parsed here or by
+  a regex there. An editor with unsaved changes on the script is refused
+  (`refuseUnsavedScript`). A shell without the tool gets "update the
+  MariaDB Shell" (`isUnknownTool`); a too old mariadb-lsp is msm's own
+  ToolError. The folder's `mrs.config.json` keeps `msmProject {path,
+  service}` (`path` relative to the folder where it can be; `serviceId`
+  null), and **Rebuild MRS SDK** reads it (`rest.get_sdk_options`,
+  `msmProjectOf`) to write such a folder again from the project with `{}`
+  and no connection, the dispatch kept here, not in rest_plugin. A live
+  dump into the same folder drops `msmProject`, so Rebuild goes back to
+  the server. `msmStatements.e2e` dumps a project's SDK through the real
+  tool and reads the folder's options back as Rebuild does.
 - **Deleting** a project's REST service, schema or object: the Connections
   view's Delete commands on the MSM Projects rows, confirmed, then
   `msm.drop_rest_object(kind, service, schema, object, base_hash)`

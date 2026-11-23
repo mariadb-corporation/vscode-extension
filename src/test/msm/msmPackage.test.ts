@@ -385,10 +385,12 @@ describe("the MSM Projects view's menus", () => {
         expect(onRow("mariadbMsmObject.table", false)).not
             .toContain(MRS_ADD_OBJECT_COMMANDS.view);
         // A project's REST service and schema are edited and deleted with
-        // the Connections view's commands (msm removes their statements);
-        // a server's other menus stay off them.
+        // the Connections view's commands (msm removes their statements),
+        // and a service's client SDK dumped with its command (msm writes
+        // it from the project); a server's other menus stay off them.
         expect(onRow("mariadbMsmRestService", false))
-            .toEqual(["mariadb.mrs.editService", "mariadb.mrs.deleteService",
+            .toEqual(["mariadb.mrs.editService",
+                "mariadb.mrs.exportServiceSdk", "mariadb.mrs.deleteService",
                 MSM_NAVIGATION_COMMANDS.openDefinition]);
         expect(onRow("mariadbMsmRestSchema", false))
             .toEqual(["mariadb.mrs.editSchema", "mariadb.mrs.deleteSchema",

@@ -49,11 +49,12 @@ import {
     updateField,
     type IMappingDocument,
 } from "./dataMapping.js";
-import type {
-    IMrsScope,
-    IMrsSdkOptions,
-    MrsApi,
-    RestToolsApi,
+import {
+    msmProjectOf,
+    type IMrsScope,
+    type IMrsSdkOptions,
+    type MrsApi,
+    type RestToolsApi,
 } from "./mrsApi.js";
 import {
     APP_BASE_CLASSES,
@@ -846,11 +847,25 @@ export class MrsCommands {
             "Service", camelCase(servicePathOf(node.service)));
     }
 
-    public async exportServiceSdk(node?: IMrsServiceNode): Promise<void> {
-        if (node?.kind !== "mrsService") {
+    /**
+     * Writes a REST service's client SDK to a folder the user picks: a
+     * server's service from its REST metadata, or a project's of the MSM
+     * Projects view from the project alone (`msm.dump_rest_sdk`), with the
+     * same dialog.
+     */
+    public async exportServiceSdk(
+        node?: IMrsServiceNode | IProjectRestServiceRow,
+    ): Promise<void> {
+        if (node?.kind !== "mrsService" && node?.kind !== "restService") {
             return;
         }
-        const scope = this.#scope(node);
+        const project = node.kind === "restService"
+            ? this.host.projectRest?.(node.projectPath) : undefined;
+        if (node.kind === "restService" && project === undefined) {
+            return;
+        }
+        const scope = node.kind === "mrsService" ? this.#scope(node)
+            : undefined;
         const service = node.service;
         const target = await vscode.window.showSaveDialog({
             title: "Export REST Service SDK Files...",
@@ -864,13 +879,25 @@ export class MrsCommands {
         const tools = await this.host.tools();
         const stored = await tools.getSdkOptions(target.fsPath).catch(
             (): IMrsSdkOptions => { return {}; });
+        // A project's service is on no server: the setting's URL it is.
+        const daemon = node.kind === "mrsService"
+            ? await this.#daemonUrl(node) : restDaemonUrl();
         const values: ISdkExportValues = {
             directory: target.fsPath,
             serviceUrl: stored.serviceUrl
-                ?? `${await this.#daemonUrl(node)}${servicePathOf(service)}`,
+                ?? `${daemon}${servicePathOf(service)}`,
             sdkLanguage: stored.sdkLanguage ?? "TypeScript",
             addAppBaseClass: stored.addAppBaseClass ?? "",
             header: stored.header ?? "",
+        };
+        const optionsOf = (sdk: ISdkExportValues) => {
+            return {
+                service_url: sdk.serviceUrl,
+                sdk_language: sdk.sdkLanguage,
+                ...(sdk.addAppBaseClass === ""
+                    ? {} : { add_app_base_class: sdk.addAppBaseClass }),
+                ...(sdk.header === "" ? {} : { header: sdk.header }),
+            };
         };
 
         this.#show({
@@ -880,21 +907,23 @@ export class MrsCommands {
             context: { languages: SDK_LANGUAGES, baseClasses: APP_BASE_CLASSES },
             save: async (saved) => {
                 const sdk = saved as ISdkExportValues;
-                // The plugin works on the session's metadata schema.
-                if (scope.metadataSchema !== undefined) {
-                    await this.host.api.run(scope, []);
+                if (project !== undefined) {
+                    await project.dumpSdk(service.full_service_path,
+                        sdk.directory, optionsOf(sdk));
+
+                    return;
                 }
-                await tools.dumpSdkServiceFiles(scope.connectionId,
+                // The plugin works on the session's metadata schema.
+                if (scope!.metadataSchema !== undefined) {
+                    await this.host.api.run(scope!, []);
+                }
+                await tools.dumpSdkServiceFiles(scope!.connectionId,
                     sdk.directory, {
                         url_context_root: service.full_service_path,
-                        service_url: sdk.serviceUrl,
-                        sdk_language: sdk.sdkLanguage,
-                        ...(sdk.addAppBaseClass === ""
-                            ? {} : { add_app_base_class: sdk.addAppBaseClass }),
-                        ...(sdk.header === "" ? {} : { header: sdk.header }),
+                        ...optionsOf(sdk),
                     });
             },
-        }, this.#shows(scope));
+        }, project ?? this.#shows(scope!));
     }
 
     public async dumpServiceAsProject(node?: IMrsServiceNode): Promise<void> {
@@ -1893,6 +1922,21 @@ export class MrsCommands {
     /** Writes an SDK folder's files again, with the options it keeps. */
     public async rebuildMrsSdk(folder?: vscode.Uri): Promise<void> {
         if (folder === undefined) {
+            return;
+        }
+        // A folder an MSM project's service was dumped to is written again
+        // from the project, which needs no server.
+        const made = msmProjectOf(await (await this.host.tools())
+            .getSdkOptions(folder.fsPath).catch(
+                (): IMrsSdkOptions => { return {}; }), folder.fsPath);
+        if (made !== undefined) {
+            const project = this.host.projectRest?.(made.path);
+            if (project === undefined) {
+                throw new Error(`The SDK in ${folder.fsPath} was made from `
+                    + `the MSM project ${made.path}, which is not available.`);
+            }
+            await project.dumpSdk(made.service, folder.fsPath, {});
+
             return;
         }
         const connected = this.host.connections.openConnections;
