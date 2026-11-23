@@ -85,6 +85,7 @@ const project = (hasSnapshot = true) => {
             return Promise.resolve();
         },
         drop: () => { return Promise.resolve(); },
+        dumpSdk: () => { return Promise.resolve(); },
         restOutline: () => { return Promise.resolve(undefined); },
         saved: () => { state.saved += 1; },
         failed: () => { state.failed += 1; },

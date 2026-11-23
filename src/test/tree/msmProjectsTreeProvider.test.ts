@@ -121,7 +121,10 @@ const setUp = (
             return Promise.resolve(path.endsWith("shop.msm.project")
                 ? { schemaDefinition: { tables: 2, current: false },
                     diagrams: [{ name: "Main", figures: 3, connections: 1 }] }
-                : { diagrams: [] });
+                : path.endsWith("fresh.msm.project")
+                    ? { schemaDefinition: { tables: 2, current: true },
+                        diagrams: [] }
+                    : { diagrams: [] });
         },
         getSchemaDiagrams: () => {
             return Promise.resolve([{
@@ -440,6 +443,22 @@ describe("the MSM Projects view", () => {
                 "Procedures", "Sequences", "Triggers", "Events"]);
             expect(fake.tree.getTreeItem(rows[0]).contextValue)
                 .toBe("mariadbMsmObjectGroup.table");
+        });
+
+    it("keeps a schema row's menus and icon while its snapshot is current",
+        async () => {
+            // A current snapshot is not the connection's current schema,
+            // whose context value would take the row's menus away.
+            const project = makeProject(root, "fresh");
+            const fake = setUp([listed(project)]);
+            const [node] = await fake.tree.getChildren();
+            const [, schema] = await fake.tree.getChildren(node);
+
+            const item = fake.tree.getTreeItem(schema);
+            expect(item.contextValue).toBe("mariadbMsmSchema");
+            expect(String((item.iconPath as { light: Uri }).light.path))
+                .toBe("/ext/images/light/schema.svg");
+            expect(item.description).toBeUndefined();
         });
 
     it("lists the script's objects as msm's snapshot has them, by name",

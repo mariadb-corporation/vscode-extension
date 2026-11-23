@@ -15,7 +15,10 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import type { IMsmRestItem } from "../mcp/msmApi.js";
+import { resolve } from "node:path";
+
+import type { IMsmRestItem, IMsmRestSdkOptions } from "../mcp/msmApi.js";
+import type { IMrsSdkOptions } from "../mrs/mrsApi.js";
 import type {
     IOutlineRoutine,
     IOutlineTable,
@@ -77,6 +80,16 @@ export interface IProjectRestSource extends IRestSource {
      * @param item The item, by its paths.
      */
     drop(item: IMsmRestItem): Promise<void>;
+    /**
+     * Writes the REST client SDK of a service the project defines.
+     *
+     * @param service The service's request path.
+     * @param directory The SDK folder.
+     * @param options What to write; none regenerates the folder as its
+     *        stored options say.
+     */
+    dumpSdk(service: string, directory: string,
+        options: IMsmRestSdkOptions): Promise<void>;
 }
 
 /** What the source needs of the project. */
@@ -99,6 +112,9 @@ export interface IProjectRestHost extends Pick<IRestSource, "saved" | "failed"> 
      * @param item The item.
      */
     drop(item: IMsmRestItem): Promise<void>;
+    /** Has msm write a service's REST client SDK: see the source's. */
+    dumpSdk(service: string, directory: string,
+        options: IMsmRestSdkOptions): Promise<void>;
     /**
      * mariadb-lsp's outline of the development script, its `rest` member:
      * undefined where the binary's outline lacks the feature.
@@ -522,7 +538,29 @@ export const projectRestSource = (
             reads.clear();
             await host.drop(item);
         },
+        dumpSdk: host.dumpSdk,
         saved: host.saved,
         failed: host.failed,
     };
+};
+
+/**
+ * @param options An SDK folder's stored options.
+ * @param folder The folder.
+ *
+ * @returns The MSM project and service it was dumped from, the project's
+ *          path made absolute against the folder; undefined for a folder
+ *          dumped from a server.
+ */
+export const msmProjectOf = (
+    options: Pick<IMrsSdkOptions, "msmProject">,
+    folder: string,
+): { path: string; service: string } | undefined => {
+    const made = options.msmProject;
+    if (typeof made?.path !== "string" || made.path === ""
+        || typeof made.service !== "string" || made.service === "") {
+        return undefined;
+    }
+
+    return { path: resolve(folder, made.path), service: made.service };
 };

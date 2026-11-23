@@ -62,7 +62,7 @@ import { ENABLED_STATE, type IMrsColumns } from "../../mrs/mrsTypes.js";
 import type { IOutlineRest } from "../../mrs/restOutline.js";
 import type { IRestSource } from "../../mrs/restSource.js";
 import type { IObjectPlace } from "../../mrs/dataMapping.js";
-import type { IMsmRestItem } from "../../mcp/msmApi.js";
+import type { IMsmRestItem, IMsmRestSdkOptions } from "../../mcp/msmApi.js";
 import type { IProjectRestSource } from "../../msm/projectRestSource.js";
 import { projectRestSource } from "../../msm/projectRestSource.js";
 import type {
@@ -2052,6 +2052,17 @@ describe("users", () => {
     });
 });
 
+/**
+ * @param calls The tools called.
+ *
+ * @returns Those that wrote an SDK, not the read of a folder's options.
+ */
+const dumps = <T extends { name: string }>(calls: T[]): T[] => {
+    return calls.filter((call) => {
+        return call.name !== "rest.get_sdk_options";
+    });
+};
+
 describe("the rest tools", () => {
     it("exports the SDK with the options the folder keeps", async () => {
         const { toolCalls } = await setup({}, {
@@ -2273,7 +2284,11 @@ describe("the rest tools", () => {
 
         await run("mariadb.mrs.rebuildMrsSdk", Uri.file("/app/x.mrs.sdk"));
 
+        // The folder's options say whether a project made it: none did.
         expect(toolCalls).toEqual([{
+            name: "rest.get_sdk_options",
+            args: { directory: "/app/x.mrs.sdk" },
+        }, {
             name: "rest.dump_sdk_service_files",
             args: {
                 connection_id: "uuid-1",
@@ -2298,7 +2313,8 @@ describe("the rest tools", () => {
         await run("mariadb.mrs.rebuildMrsSdk", Uri.file("/x.mrs.sdk"));
 
         expect(api.sent.at(-1)).toBe(USE_DEV);
-        expect(toolCalls).toHaveLength(1);
+        expect(toolCalls.map((call) => { return call.name; })).toEqual([
+            "rest.get_sdk_options", "rest.dump_sdk_service_files"]);
     });
 
     it("rebuilds nothing without the REST Service", async () => {
@@ -2306,7 +2322,7 @@ describe("the rest tools", () => {
 
         await run("mariadb.mrs.rebuildMrsSdk", Uri.file("/x.mrs.sdk"));
 
-        expect(toolCalls).toEqual([]);
+        expect(dumps(toolCalls)).toEqual([]);
         expect(errorMessages).toHaveLength(1);
     });
 
@@ -2319,7 +2335,7 @@ describe("the rest tools", () => {
             expect(errorMessages).toEqual(["Please open a connection with "
                 + "the MariaDB REST Service configured in the Connections "
                 + "view first."]);
-            expect(toolCalls).toEqual([]);
+            expect(dumps(toolCalls)).toEqual([]);
             // As adding a folder does: nothing to pick from is not asked.
             expect(quickPickCalls).toEqual([]);
         });
@@ -2343,7 +2359,10 @@ describe("an MSM project's rows", () => {
             writes: [] as Array<{ statements: string[];
                 replaces?: IObjectPlace; }>,
             /** What was sent to msm to remove from it. */
-            drops: [] as IMsmRestItem[] };
+            drops: [] as IMsmRestItem[],
+            /** The SDKs msm was asked to write. */
+            sdks: [] as Array<{ service: string; directory: string;
+                options: IMsmRestSdkOptions; }> };
         const source = projectRestSource({
             snapshot: () => {
                 return Promise.resolve({
@@ -2372,6 +2391,11 @@ describe("an MSM project's rows", () => {
             },
             drop: (item) => {
                 state.drops.push(item);
+
+                return Promise.resolve();
+            },
+            dumpSdk: (service, directory, options) => {
+                state.sdks.push({ service, directory, options });
 
                 return Promise.resolve();
             },
@@ -2768,5 +2792,65 @@ describe("an MSM project's rows", () => {
 
         expect(state.drops).toEqual([]);
         expect(state.saved).toBe(0);
+    });
+
+    it("writes a project service's REST client SDK through msm, from the "
+        + "project alone", async () => {
+        const { projectRest, state } = project(`\n${SERVICE}\n`);
+        const { api, toolCalls } = await setup({}, { projectRest });
+        const [service] = await projectRest(PROJECT)!.services();
+        fileDialogs.saveAnswer = Uri.file("/out/svc.mrs.sdk");
+
+        await run("mariadb.mrs.exportServiceSdk", { kind: "restService",
+            projectPath: PROJECT, service });
+
+        const spec = dialog();
+        expect(spec.dialog).toBe("sdkExport");
+        // On no server: the setting's REST Daemon URL.
+        expect(spec.values).toMatchObject({
+            directory: "/out/svc.mrs.sdk",
+            serviceUrl: "https://localhost:8443/svc",
+            sdkLanguage: "TypeScript",
+        });
+        await spec.save({ ...spec.values as ISdkExportValues,
+            header: "// hi" });
+
+        expect(state.sdks).toEqual([{
+            service: "/svc",
+            directory: "/out/svc.mrs.sdk",
+            options: { service_url: "https://localhost:8443/svc",
+                sdk_language: "TypeScript", header: "// hi" },
+        }]);
+        // Only the folder's options were read; nothing went to a server.
+        expect(dumps(toolCalls)).toEqual([]);
+        expect(api.sent).toEqual([]);
+    });
+
+    it("rebuilds an SDK folder a project's service was dumped to from the "
+        + "project, with no connection", async () => {
+        const { projectRest, state } = project(`\n${SERVICE}\n`);
+        const { toolCalls } = await setup({}, {
+            open: false,
+            projectRest,
+            toolAnswers: {
+                "rest.get_sdk_options": {
+                    content: [{
+                        type: "text",
+                        text: JSON.stringify({ serviceId: null,
+                            msmProject: { path: "../../shop.msm.project",
+                                service: "/svc" } }),
+                    }],
+                },
+            },
+        });
+
+        await run("mariadb.mrs.rebuildMrsSdk",
+            Uri.file("/work/app/svc.mrs.sdk"));
+
+        expect(state.asked).toEqual([PROJECT]);
+        expect(state.sdks).toEqual([{ service: "/svc",
+            directory: "/work/app/svc.mrs.sdk", options: {} }]);
+        expect(dumps(toolCalls)).toEqual([]);
+        expect(errorMessages).toEqual([]);
     });
 });

@@ -25,6 +25,7 @@ import type { IToolCaller } from "../../mcp/mariaDbApi.js";
 import {
     MSM_DEPLOY_TIMEOUT_MS,
     MSM_LICENSES,
+    MSM_SDK_TIMEOUT_MS,
     MsmApi,
 } from "../../mcp/msmApi.js";
 import type { IToolResult } from "../../mcp/protocol.js";
@@ -301,6 +302,31 @@ describe("MsmApi", () => {
                 version: "1.0.0", backup: true, backup_directory: "/backups",
             },
             timeoutMs: MSM_DEPLOY_TIMEOUT_MS,
+        }]);
+    });
+
+    it("writes a project service's REST client SDK, with the time an SDK "
+        + "takes", async () => {
+        const dumped = { directory: "/out/svc.mrs.sdk",
+            files: ["/out/svc.mrs.sdk/svc.ts"], service: "/svc",
+            sdk_language: "TypeScript",
+            warnings: ["/svc/shop/item.flag: text"] };
+        const caller = createCaller({
+            "msm.dump_rest_sdk": {
+                content: [{ type: "text", text: JSON.stringify(dumped) }],
+                structuredContent: { result: dumped }, isError: false,
+            },
+        });
+
+        expect(await new MsmApi(caller).dumpRestSdk(PROJECT, "/svc",
+            "/out/svc.mrs.sdk", { service_url: "https://h/svc" }))
+            .toEqual({ files: dumped.files, warnings: dumped.warnings });
+        expect(caller.calls).toEqual([{
+            name: "msm.dump_rest_sdk",
+            args: { schema_project_path: PROJECT, service: "/svc",
+                directory: "/out/svc.mrs.sdk",
+                options: { service_url: "https://h/svc" } },
+            timeoutMs: MSM_SDK_TIMEOUT_MS,
         }]);
     });
 

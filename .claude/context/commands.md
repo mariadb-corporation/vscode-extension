@@ -106,7 +106,7 @@ The four Explorer operations (information, release, deployment script, deploy) a
 | `mariadb.mrs.copyCreateServiceSql` | Copy CREATE REST SERVICE Statement | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.copyCreateServiceSqlIncludeDatabaseEndpoints` | Copy CREATE REST SERVICE Statement Including Database Objects | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.dumpCreateServiceSql` | Dump REST SERVICE SQL Script... | REST Service rows (see [mrs.md](mrs.md)) |
-| `mariadb.mrs.exportServiceSdk` | Dump REST Client SDK Files... | REST Service rows (see [mrs.md](mrs.md)) |
+| `mariadb.mrs.exportServiceSdk` | Dump REST Client SDK Files... | REST Service rows (see [mrs.md](mrs.md)); an MSM project's REST service rows (see [mrs-msm.md](mrs-msm.md)) |
 | `mariadb.mrs.dumpServiceAsProject` | Dump REST Service as REST Project... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.loadProjectFromDisk` | Load REST Project from Disk... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.loadServiceFromDisk` | Load REST SERVICE SQL Script... | REST Service rows (see [mrs.md](mrs.md)) |
@@ -144,7 +144,7 @@ The four Explorer operations (information, release, deployment script, deploy) a
 | `mariadb.mrs.copyCreateUserSql` | Copy CREATE REST USER Statement | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.dumpCreateUserSql` | Dump CREATE REST USER Statement... | REST Service rows (see [mrs.md](mrs.md)) |
 | `mariadb.mrs.deleteDaemon` | Delete REST Daemon... | REST Service rows (see [mrs.md](mrs.md)) |
-| `mariadb.mrs.rebuildMrsSdk` | Rebuild MRS SDK | REST Service rows (see [mrs.md](mrs.md)) |
+| `mariadb.mrs.rebuildMrsSdk` | Rebuild MRS SDK | Explorer, a `*.mrs.sdk` folder: from its server, or from the MSM project it was dumped from (see [mrs-msm.md](mrs-msm.md)) |
 
 **The Connections view's toolbar has commands of its own.** VS Code runs a
 tree view's toolbar commands with the tree's FOCUSED row as their argument

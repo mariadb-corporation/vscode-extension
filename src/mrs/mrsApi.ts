@@ -693,6 +693,11 @@ export interface IMrsSdkOptions {
     addAppBaseClass?: string;
     header?: string;
     dbConnectionUri?: string;
+    /**
+     * The MSM project a folder was dumped from (`msm.dump_rest_sdk`), its
+     * path relative to the folder where it could be made so.
+     */
+    msmProject?: { path?: string; service?: string };
 }
 
 /** The result of `rest.load_content_set`. */
