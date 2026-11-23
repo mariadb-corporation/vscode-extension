@@ -98,8 +98,7 @@ import {
 } from "./mrsDialogs.js";
 import { words } from "./mrsActions.js";
 import { found, liveRestSource, type IRestSource } from "./restSource.js";
-import type { IMsmRestItem } from "../mcp/msmApi.js";
-import type { IMsmRestSdkOptions } from "../mcp/msmApi.js";
+import type { IMsmRestItem, IMsmRestSdkOptions } from "../mcp/msmApi.js";
 import {
     msmProjectOf,
     type IProjectRestSource,

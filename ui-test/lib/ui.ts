@@ -1503,7 +1503,9 @@ export const answerInput = async (text: string): Promise<void> => {
 };
 
 /**
- * Answers VS Code's simple file dialog with a path.
+ * Answers VS Code's simple file dialog with a path. A save dialog's "already
+ * exists" is waited out, as the completion's (below): a test that means to
+ * overwrite an existing file would time out here.
  *
  * @param path The file or folder.
  *
