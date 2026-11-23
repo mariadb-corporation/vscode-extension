@@ -29,13 +29,16 @@ import {
 import { middleOf, moveMouse, shiftDrag } from "../lib/cdp.js";
 import {
     actionRows,
+    answerFileDialog,
     answerInput,
     answerModal,
+    contextMenu,
     driver,
     extensionLog,
     failOnErrorNotification,
     FrontWebView,
     hasTreeItem,
+    inDialog,
     inputUp,
     inResults,
     menuAction,
@@ -44,7 +47,9 @@ import {
     screenshot,
     SERVER_TIMEOUT,
     sleep,
+    submitDialog,
     treeItem,
+    viewAction,
     waitFor,
     waitForAction,
     WORKSPACE,
@@ -256,6 +261,69 @@ describe("MSM schema diagrams", () => {
         });
         await screenshot("11-auto-layout-toolbar");
     });
+
+    it("dumps a project's REST service's client SDK, with no server",
+        async () => {
+            // A REST service in Section 180, written as a user would; taken
+            // out again after, as Rename Schema below does not expect it.
+            const file = join(PROJECT, "development", `${SCHEMA}_next.sql`);
+            const marker = "-- Create a REST service, schema and endpoints\n";
+            const rest = "CREATE OR REPLACE REST SERVICE /shop;\n"
+                + `CREATE OR REPLACE REST SCHEMA /msm ON SERVICE /shop FROM \`${SCHEMA}\`;\n`
+                + "CREATE OR REPLACE REST VIEW /customer ON SERVICE /shop "
+                + `SCHEMA /msm AS \`${SCHEMA}\`.\`customer\` CLASS \`Customer\` {\n`
+                + "    id: id @KEY\n};\n";
+            const script = readFileSync(file, "utf8");
+            assert.ok(script.includes(marker), "Section 180 of the script");
+            writeFileSync(file, script.replace(marker, `${marker}${rest}`));
+            // Written outside VS Code: the view reads it again once asked.
+            await viewAction(await view(), "Refresh MSM Projects");
+            const target = join(WORKSPACE, "shop.mrs.sdk");
+            try {
+                // The REST rows are the project's, beside its schema row.
+                const service = [PROJECT_ROW, "MariaDB REST Service", "/shop"];
+                const row = await treeItem(await view(), service).catch(
+                    (error: unknown) => {
+                        const text = readFileSync(file, "utf8");
+                        const at = text.indexOf("MSM Section 180");
+                        throw new Error(`${String(error)}\nSection 180:\n`
+                            + `${text.slice(at, at + 700)}\nThe extension's `
+                            + `log:\n${extensionLog(40)}`);
+                    });
+                await contextMenu(row, "Dump REST Client SDK Files...");
+                await answerFileDialog(target);
+                const title = "Export MRS SDK Files for /shop";
+                await inDialog(title, async (dialog) => {
+                    // On no server: the setting's REST Daemon URL.
+                    assert.equal(await (await dialog.findWebElement(
+                        By.css("[name='serviceUrl']"))).getAttribute("value"),
+                    "https://localhost:8443/shop");
+                    await submitDialog(dialog, "Export", SERVER_TIMEOUT,
+                        "Writing the SDK files...");
+                });
+                await waitForAction(/^Dumped the REST Client SDK of \/shop in the MSM project msm_view/u);
+                const config = JSON.parse(readFileSync(
+                    join(target, "mrs.config.json"), "utf8")) as {
+                    msmProject?: { service?: string }; };
+                assert.equal(config.msmProject?.service, "/shop");
+                assert.ok(readdirSync(target, { recursive: true })
+                    .some((name) => {
+                        return String(name).endsWith(".ts") && readFileSync(
+                            join(target, String(name)), "utf8")
+                            .includes("Customer");
+                    }), "the service's TypeScript classes");
+                await screenshot("11-project-sdk");
+            } finally {
+                writeFileSync(file, readFileSync(file, "utf8")
+                    .replace(`${marker}${rest}`, marker));
+                await viewAction(await view(), "Refresh MSM Projects");
+                // Redrawn without it before the next test opens a menu.
+                await waitFor(async () => {
+                    return !await hasTreeItem(await view(),
+                        [PROJECT_ROW, "MariaDB REST Service", "/shop"]);
+                }, "the REST service gone from the view", SERVER_TIMEOUT);
+            }
+        });
 
     describe("Rename Schema", () => {
         /** The name the schema is renamed to, and back from. */
