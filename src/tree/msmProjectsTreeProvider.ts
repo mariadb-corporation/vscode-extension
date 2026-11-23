@@ -180,9 +180,11 @@ export interface IMsmProjectPlace {
 export interface IMsmSchemaNode extends IMsmProjectPlace, ISchemaRow {
     /**
      * Whether the snapshot was made from the script as it is; undefined
-     * where the project has none yet, or the shell cannot say.
+     * where the project has none yet, or the shell cannot say. Not
+     * `current`: to a schema row that is its connection's current schema,
+     * which would take the row's menus away.
      */
-    current?: boolean;
+    snapshotCurrent?: boolean;
     /** Whether the project has a snapshot at all. */
     snapshot: boolean;
 }
@@ -940,7 +942,7 @@ export class MsmProjectsTreeProvider
             schema: project.schemaName
                 ?? schemaNameOfFolder(basename(project.projectPath)),
             snapshot: listing?.schemaDefinition !== undefined,
-            current: listing?.schemaDefinition?.current,
+            snapshotCurrent: listing?.schemaDefinition?.current,
         };
     }
 
@@ -1441,7 +1443,7 @@ const schemaItem = (
         item.description = "no snapshot yet";
         item.tooltip = `The schema ${node.schema} has no snapshot yet: `
             + "Update Schema Snapshot makes it from the development script.";
-    } else if (node.current === false) {
+    } else if (node.snapshotCurrent === false) {
         item.description = "snapshot older than the script";
         item.tooltip = `The objects of ${node.schema} as msm's snapshot `
             + "has them, which the development script changed since: Update "
