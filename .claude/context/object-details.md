@@ -106,7 +106,10 @@ viewer is [`modeler.md`](modeler.md), its palette
   It has all seven kinds of the Connections view (msm keeps the outline's
   `triggers`, `events`, `sequences`); a routine without a kind is a
   procedure. Shown by name. Where `msm.list_schema_diagrams` says the snapshot is not
-  current, or there is none, the row says so; **Update Schema Snapshot**
+  current, or there is none, the row says so (the node's `snapshotCurrent`,
+  never `current`: `SchemaTreeItem` reads `ISchemaRow.current` as the
+  connection's current schema, and a project's row with it became
+  `mariadbMsmSchema.current`, drawn as current, without a menu); **Update Schema Snapshot**
   (`msm.update_schema_definition`) makes it again and reloads the project's
   open viewer (`ModelerPanel.reload`). Not done on expand: making the
   snapshot writes the script's Section 160.
