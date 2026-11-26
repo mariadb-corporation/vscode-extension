@@ -114,7 +114,12 @@ change belongs to up to date, and this table with it.
   mcp_plugin's `msm.list_projects` / `add_project` / `update_project` /
   `remove_project` with `mcp_access` (mariadb-shell-plugins #80), which
   26.11.1 is the first to ship: with an older shell its welcome content
-  asks for a newer MariaDB Shell.
+  asks for a newer MariaDB Shell. 26.11.3 is expected to be the first with
+  `mcp start-server --toolNameSeparator` (mariadb-shell-plugins #134),
+  which Copilot needs for tool names VS Code accepts (issue #56). Until the
+  floor reaches it, `TOOL_NAME_SEPARATOR_SHELL_VERSION` gates the option on
+  its own. Remove that gate when the floor passes it, as
+  [`context/shell-and-mcp.md`](context/shell-and-mcp.md) describes.
 - The result grid edits every value as text; there is no type-aware editor
   (date picker, BLOB viewer) yet. Its cell menu has Save / Load Value and
   Set Field to Null only - none of the MySQL Shell's Copy items.

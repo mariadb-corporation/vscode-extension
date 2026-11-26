@@ -183,6 +183,23 @@ whatever `mcp setup` saved; its `--toolNameSeparator=.` only says so
 outright, and is no safeguard of its own. Copilot's server gets `_` (see
 [copilot.md](copilot.md)).
 
+`start-server --toolNameSeparator` comes with mariadb-shell-plugins #134,
+first in shell 26.11.3. `TOOL_NAME_SEPARATOR_SHELL_VERSION` gates it in
+`buildMcpServerCommand` until `MINIMUM_SHELL_VERSION` reaches that release;
+then the option moves into `AGENT_MCP_SERVER_ARGS` (`_`) and
+`MCP_SERVER_ARGS` (`.`), and the gate and its tests go. If the release
+that ships #134 gets another number, the gate follows it.
+
+To see what names a server serves, pipe `initialize`,
+`notifications/initialized` and `tools/list` into
+`mariadb-shell -- mcp start-server --transport=stdio [...]` and read the
+`"name"` fields. To try plugin changes not yet in a shell release, the
+shell loads its plugins from `~/.mariadb-shell/plugins`, whose entries can
+be symlinks to a mariadb-shell-plugins checkout's `mcp_plugin`,
+`msm_plugin` and so on. Pointing `MARIADB_SHELL_PLUGINS_PATH` at the
+checkout's root instead fails with `ImportError: cannot import name
+'sandbox'`.
+
 ## The MCP wire format
 
 The server is a FastMCP server, so a tool's return value is rendered into
