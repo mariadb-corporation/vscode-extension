@@ -73,7 +73,7 @@ MSM Projects (`mariadb.msmProjects`).
   on the next listing (`rowIdOf` makes the ids, `isRowOf` matches a
   project's, so `/a/p` is not taken for `/a/p2`; a project folder that moved has its rows' ids rewritten with the same match, `projectMoved`, which re-reads the list and that project only). Drag and drop on a MIME of
   its own (`application/vnd.mariadb.msmprojects`) moves projects and whole
-  folders with one `msm.update_project(new_folder=)` per project that moves,
+  folders with one `msm.update_project(folder=)` per project that moves,
   sent one at a time: each call rewrites the server's one `projects.json`
   and the MCP connector does not serialize calls, so parallel ones lose
   moves (`fileConnections` does the same for connections). Rename Folder

@@ -1090,7 +1090,7 @@ describe("activate", () => {
             await vi.waitFor(() => {
                 expect(toolCalls()).toContainEqual({
                     name: "msm.remove_schema_diagram",
-                    args: { name: "Main", schema_project_path: "/work/shop" },
+                    args: { diagram: "Main", schema_project_path: "/work/shop" },
                 });
             });            expect(errorMessages).toEqual([]);
         });
@@ -1105,7 +1105,7 @@ describe("activate", () => {
         await vi.waitFor(() => {
             expect(toolCalls()).toContainEqual({
                 name: "msm.rename_schema_diagram",
-                args: { name: "Main", new_name: "Overview",
+                args: { diagram: "Main", new_name: "Overview",
                     schema_project_path: "/work/shop" },
             });
         });        expect(errorMessages).toEqual([]);

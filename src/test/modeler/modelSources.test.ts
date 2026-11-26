@@ -474,7 +474,7 @@ describe("ProjectModelSource", () => {
             expect(await fake.drafts.list(PROJECT)).toEqual([]);
             expect(fake.states.at(-1)?.state).toBe("saved");
             expect(calls(fake)).toContainEqual(expect.stringContaining(
-                "msm.remove_schema_diagram(name=Main"));
+                "msm.remove_schema_diagram(diagram=Main"));
         });
 
     it("keeps a diagram's changes where msm does not delete it", async () => {
