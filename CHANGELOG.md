@@ -34,6 +34,14 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - The Load dialog's typed include and exclude lists are replaced by the
   Objects tab, and its User accounts box by the tree's.
 
+### Fixed
+
+- **GitHub Copilot gets the MariaDB MCP server's tools.** VS Code drops
+  tools whose names contain a dot, which all of the server's did
+  (`db.list_connections`), so Copilot had none. Copilot's server now names
+  them with an underscore (`db_list_connections`). This needs MariaDB Shell
+  26.11.3 or later; with an older shell the names stay as they were.
+
 ## [26.11.2] - 2026-11-14
 
 ### Fixed

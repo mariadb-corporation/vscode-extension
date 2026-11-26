@@ -90,9 +90,21 @@ declares. VS Code lists the server as **MariaDB**.
   only the connections with **MCP access** ticked (the `mcp` kind, marked
   `MCP` in the Connections view), and serves none of `db.add_connection`,
   `db.update_connection`, `db.delete_connection` or `db.test_connection`.
+- **Tool names with `_`** (`--toolNameSeparator=_`, issue #56): VS Code
+  accepts only tool names made of `[a-z0-9_-]` and drops every other tool
+  with a warning in the server's output, so with the shell's dotted names
+  (`db.list_connections`) Copilot got none at all. The server rewrites the
+  names in its instructions and errors too; the skills still write
+  `db.execute_sql`, which models map to `db_execute_sql` on their own. Only
+  from `TOOL_NAME_SEPARATOR_SHELL_VERSION` on: an older shell refuses the
+  option and would not start, so it gets the dotted names and Copilot no
+  tools until the shell is upgraded.
 - **`onDidChangeMcpServerDefinitions`** fires when `mariadb.copilot.enabled`
   changes. A shell upgrade needs no event: it only happens after an
   extension update raised `MINIMUM_SHELL_VERSION`, which reloads the window.
+  The definition's `version` is `MINIMUM_SHELL_VERSION`, so VS Code, which
+  keeps a server's tool list and starts it for fresh tools only when its
+  version changed, sees the new names (`_` from 26.11.3) after that update.
 
 Copilot's server is a process of its own, beside the extension's `--gui`
 one; VS Code owns it, and Restart MCP Server does not touch it.

@@ -15,8 +15,20 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-import { AGENT_MCP_SERVER_ARGS, MCP_SERVER_ARGS } from "./constants.js";
+import {
+    AGENT_MCP_SERVER_ARGS, MCP_SERVER_ARGS, TOOL_NAME_SEPARATOR_SHELL_VERSION,
+} from "./constants.js";
 import type { ShellLocation } from "./locator.js";
+import { meetsMinimum } from "./version.js";
+
+/**
+ * The character between a tool's group and its name each client is served,
+ * over what `mcp setup --toolNameSeparator` saved for every server: this
+ * extension's MCP client calls `db.connect`, and VS Code's - Copilot's -
+ * takes only names made of `[a-z0-9_-]` and drops the rest (issue #56), so
+ * `db_connect`.
+ */
+const TOOL_NAME_SEPARATORS = { gui: ".", agent: "_" } as const;
 
 export interface McpServerCommand {
     command: string;
@@ -40,7 +52,12 @@ export const buildMcpServerCommand = (
     location: ShellLocation,
     client: "gui" | "agent",
 ): McpServerCommand => {
-    const args = client === "gui" ? MCP_SERVER_ARGS : AGENT_MCP_SERVER_ARGS;
+    const args = [
+        ...(client === "gui" ? MCP_SERVER_ARGS : AGENT_MCP_SERVER_ARGS),
+    ];
+    if (meetsMinimum(location.version, TOOL_NAME_SEPARATOR_SHELL_VERSION)) {
+        args.push(`--toolNameSeparator=${TOOL_NAME_SEPARATORS[client]}`);
+    }
 
-    return { command: location.binaryPath, args: [...args] };
+    return { command: location.binaryPath, args };
 };

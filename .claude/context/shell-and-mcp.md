@@ -163,12 +163,42 @@ autonomous agent, and that changes two things about the server:
   [`connections.md`](connections.md).
 
 `MCP_SERVER_ARGS` in `src/shell/constants.ts` is where the flag is passed.
-A shell whose MCP plugin predates it **ignores it rather than failing** (the
-plugin function takes its options as a dictionary and reads only the ones it
-knows), so such a server simply comes up without GUI mode.
+The shell's command line **refuses an option the plugin function does not
+declare** (`ERROR: The following option is invalid: --bogusOption`, and no
+server), checked against 26.11.2. So an option goes only to a shell known to
+take it: `--gui` is safe above `MINIMUM_SHELL_VERSION`, and
+`--toolNameSeparator` is passed from `TOOL_NAME_SEPARATOR_SHELL_VERSION` on
+(`buildMcpServerCommand` checks the located shell's version).
 `MariaDbApi.listConnections`/`addConnection`/`deleteConnection` leave `kind`
-and `verify` out of the call entirely when they were not given, for the same
-reason.
+and `verify` out of the call entirely when they were not given, so a tool
+older than those parameters still accepts the call.
+
+### Tool names
+
+The server names a tool `<group><separator><name>`. `mcp setup
+--toolNameSeparator` saves a separator for every server, and `mcp
+start-server --toolNameSeparator` sets it for one. This extension's client
+calls the dotted names (`db.connect`). A `--gui` server keeps those
+whatever `mcp setup` saved; its `--toolNameSeparator=.` only says so
+outright, and is no safeguard of its own. Copilot's server gets `_` (see
+[copilot.md](copilot.md)).
+
+`start-server --toolNameSeparator` comes with mariadb-shell-plugins #134,
+first in shell 26.11.3. `TOOL_NAME_SEPARATOR_SHELL_VERSION` gates it in
+`buildMcpServerCommand` until `MINIMUM_SHELL_VERSION` reaches that release;
+then the option moves into `AGENT_MCP_SERVER_ARGS` (`_`) and
+`MCP_SERVER_ARGS` (`.`), and the gate and its tests go. If the release
+that ships #134 gets another number, the gate follows it.
+
+To see what names a server serves, pipe `initialize`,
+`notifications/initialized` and `tools/list` into
+`mariadb-shell -- mcp start-server --transport=stdio [...]` and read the
+`"name"` fields. To try plugin changes not yet in a shell release, the
+shell loads its plugins from `~/.mariadb-shell/plugins`, whose entries can
+be symlinks to a mariadb-shell-plugins checkout's `mcp_plugin`,
+`msm_plugin` and so on. Pointing `MARIADB_SHELL_PLUGINS_PATH` at the
+checkout's root instead fails with `ImportError: cannot import name
+'sandbox'`.
 
 ## The MCP wire format
 

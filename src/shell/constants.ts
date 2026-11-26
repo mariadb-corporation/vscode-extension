@@ -15,6 +15,8 @@
  * 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+import type { ShellVersion } from "./version.js";
+
 /**
  * The oldest MariaDB Shell this extension can talk to. The MCP plugin's
  * stdio transport and the tool set the extension relies on only exist from
@@ -74,13 +76,23 @@ export const AGENT_MCP_SERVER_ARGS = [
  * writable, through the `db.add_connection` and `db.delete_connection` tools
  * that only a `--gui` server serves.
  *
- * A shell whose MCP plugin predates the option ignores it rather than
- * failing, because the plugin function takes its options as a dictionary and
- * only reads the ones it knows. Such a server simply comes up without GUI
- * mode, so connection management is unavailable and paths go back to being
- * confirmed - which is why {@link MINIMUM_SHELL_VERSION} is the real gate.
+ * The shell's command line refuses an option the plugin function does not
+ * declare (`ERROR: The following option is invalid: --...`) and the server
+ * never starts, so an option is only ever passed to a shell known to take
+ * it: {@link MINIMUM_SHELL_VERSION} for `--gui`,
+ * {@link TOOL_NAME_SEPARATOR_SHELL_VERSION} for `--toolNameSeparator`.
  */
 export const MCP_SERVER_ARGS = [...AGENT_MCP_SERVER_ARGS, "--gui"];
+
+/**
+ * The first shell whose `mcp start-server` takes `--toolNameSeparator`.
+ *
+ * A bridge until {@link MINIMUM_SHELL_VERSION} reaches it: then the option
+ * belongs in the argument lists above, and this gate goes.
+ */
+export const TOOL_NAME_SEPARATOR_SHELL_VERSION: ShellVersion = {
+    major: 26, minor: 11, patch: 3,
+};
 
 /**
  * Where a release's install script is: the one in the shell repository at

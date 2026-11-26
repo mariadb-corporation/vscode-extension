@@ -24,6 +24,9 @@ import {
 } from "../../copilot/mcpServerProvider.js";
 import type { BootstrapResult } from "../../shell/bootstrap.js";
 import {
+    MINIMUM_SHELL_VERSION, TOOL_NAME_SEPARATOR_SHELL_VERSION,
+} from "../../shell/constants.js";
+import {
     shellBinaryName,
     type ShellLocation,
 } from "../../shell/locator.js";
@@ -97,6 +100,7 @@ describe("CopilotMcpServerProvider", () => {
 
             expect(lookups()).toBe(1);
             expect(server?.command).toBe(SHELL.binaryPath);
+            // Too old for --toolNameSeparator: see mcpServer.test.ts.
             expect(server?.args).toEqual(
                 ["--", "mcp", "start-server", "--transport=stdio"]);
             expect(log.lines.join("\n")).toContain("for Copilot");
@@ -104,6 +108,29 @@ describe("CopilotMcpServerProvider", () => {
             expect(provider.provideMcpServerDefinitions()[0].command)
                 .toBe(shellBinaryName(process.platform));
         });
+
+    it("versions the server by the shell floor, for fresh tool names",
+        () => {
+            const provider = new CopilotMcpServerProvider(
+                resolverFinding().resolver, on, createRecordingLog());
+
+            expect(provider.provideMcpServerDefinitions()[0].version)
+                .toBe(MINIMUM_SHELL_VERSION);
+        });
+
+    it("asks a new enough shell for tool names VS Code accepts", async () => {
+        const { resolver } = resolverFinding({
+            ...SHELL,
+            version: TOOL_NAME_SEPARATOR_SHELL_VERSION,
+        });
+        const provider = new CopilotMcpServerProvider(resolver, on,
+            createRecordingLog());
+        const [listed] = provider.provideMcpServerDefinitions();
+
+        const server = await provider.resolveMcpServerDefinition(listed);
+
+        expect(server?.args).toContain("--toolNameSeparator=_");
+    });
 
     it("lists nothing and starts nothing while switched off", async () => {
         const { resolver, lookups } = resolverFinding();
