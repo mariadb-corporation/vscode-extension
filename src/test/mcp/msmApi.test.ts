@@ -412,13 +412,15 @@ describe("MsmApi", () => {
             expect(caller.calls.map((call) => {
                 return [call.name, call.args];
             })).toEqual([
-                ["msm.add_project", { project_path: PROJECT }],
-                ["msm.add_project", { project_path: PROJECT, folder: "/Shop" }],
-                ["msm.update_project", {
-                    project_path: PROJECT, new_caption: "", new_color: "red",
-                    new_mcp_access: true,
+                ["msm.add_project", { schema_project_path: PROJECT }],
+                ["msm.add_project", {
+                    schema_project_path: PROJECT, folder: "/Shop",
                 }],
-                ["msm.remove_project", { project_path: PROJECT }],
+                ["msm.update_project", {
+                    schema_project_path: PROJECT, caption: "", color: "red",
+                    mcp_access: true,
+                }],
+                ["msm.remove_project", { schema_project_path: PROJECT }],
                 ["msm.set_development_version", {
                     schema_project_path: PROJECT, version: "0.1.0",
                 }],
@@ -524,7 +526,7 @@ describe("MsmApi", () => {
             await api.createEmptySchemaDiagram(PROJECT, "Diagram 1");
             expect(caller.calls[2]).toEqual({
                 name: "msm.create_schema_diagram",
-                args: { name: "Diagram 1", tables: [],
+                args: { diagram: "Diagram 1", tables: [],
                     schema_project_path: PROJECT } });
 
             // Removed and renamed by name; msm answers the files written.
@@ -532,12 +534,12 @@ describe("MsmApi", () => {
                 .toEqual(["/p/a.sql"]);
             expect(caller.calls[3]).toEqual({
                 name: "msm.remove_schema_diagram",
-                args: { name: "Main", schema_project_path: PROJECT } });
+                args: { diagram: "Main", schema_project_path: PROJECT } });
             expect(await api.renameSchemaDiagram(PROJECT, "Main", "Overview"))
                 .toEqual(["/p/a.sql"]);
             expect(caller.calls[4]).toEqual({
                 name: "msm.rename_schema_diagram",
-                args: { name: "Main", new_name: "Overview",
+                args: { diagram: "Main", new_name: "Overview",
                     schema_project_path: PROJECT } });
         });
 

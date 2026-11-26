@@ -672,13 +672,12 @@ const listedProject = (listed: IListedOnTheWire): IMsmListedProject => {
 };
 
 /**
- * @param prefix "" for msm.add_project, "new_" for msm.update_project.
- * @param details What to set.
+ * @param details What to set, for msm.add_project and msm.update_project,
+ *                which take the same arguments.
  *
  * @returns The arguments, only those set.
  */
 const detailArgs = (
-    prefix: string,
     details: IMsmProjectDetails,
 ): Record<string, unknown> => {
     const args = {
@@ -691,7 +690,7 @@ const detailArgs = (
 
     return Object.fromEntries(Object.entries(args).filter(([, value]) => {
         return value !== undefined;
-    }).map(([name, value]) => { return [`${prefix}${name}`, value]; }));
+    }));
 };
 
 /**
@@ -736,16 +735,16 @@ export const msmToolArgs = {
         projectPath: string,
         details: IMsmProjectDetails = {},
     ): Record<string, unknown> => {
-        return { project_path: projectPath, ...detailArgs("", details) };
+        return { schema_project_path: projectPath, ...detailArgs(details) };
     },
     updateProject: (
         projectPath: string,
         details: IMsmProjectDetails,
     ): Record<string, unknown> => {
-        return { project_path: projectPath, ...detailArgs("new_", details) };
+        return { schema_project_path: projectPath, ...detailArgs(details) };
     },
     removeProject: (projectPath: string): Record<string, unknown> => {
-        return { project_path: projectPath };
+        return { schema_project_path: projectPath };
     },
     setDevelopmentVersion: (
         projectPath: string,
@@ -799,13 +798,13 @@ export const msmToolArgs = {
         name: string,
     ): Record<string, unknown> => {
         // No tables: msm's default is every one of the schema's.
-        return { name, tables: [], schema_project_path: projectPath };
+        return { diagram: name, tables: [], schema_project_path: projectPath };
     },
     removeSchemaDiagram: (
         projectPath: string,
         name: string,
     ): Record<string, unknown> => {
-        return { name, schema_project_path: projectPath };
+        return { diagram: name, schema_project_path: projectPath };
     },
     getOnlineAlterSettings: (
         projectPath: string,
@@ -850,14 +849,14 @@ export const msmToolArgs = {
         name: string,
     ): Record<string, unknown> => {
         // Every figure laid out again, not only the unplaced.
-        return { name, keep_placed: false, schema_project_path: projectPath };
+        return { diagram: name, keep_placed: false, schema_project_path: projectPath };
     },
     renameSchemaDiagram: (
         projectPath: string,
         name: string,
         newName: string,
     ): Record<string, unknown> => {
-        return { name, new_name: newName, schema_project_path: projectPath };
+        return { diagram: name, new_name: newName, schema_project_path: projectPath };
     },
     renameSchema: (
         projectPath: string,
