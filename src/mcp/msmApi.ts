@@ -672,15 +672,20 @@ const listedProject = (listed: IListedOnTheWire): IMsmListedProject => {
 };
 
 /**
- * @param details What to set, for msm.add_project and msm.update_project,
- *                which take the same arguments.
+ * The arguments of msm.add_project and msm.update_project, which take the
+ * same ones.
  *
- * @returns The arguments, only those set.
+ * @param projectPath The project folder.
+ * @param details What to set.
+ *
+ * @returns The arguments, the details only those set.
  */
-const detailArgs = (
-    details: IMsmProjectDetails,
+const projectDetailArgs = (
+    projectPath: string,
+    details: IMsmProjectDetails = {},
 ): Record<string, unknown> => {
     const args = {
+        schema_project_path: projectPath,
         folder: details.folder,
         caption: details.caption,
         color: details.color,
@@ -731,17 +736,12 @@ export const msmToolArgs = {
             ...newProjectArgs(options),
         });
     },
-    addProject: (
-        projectPath: string,
-        details: IMsmProjectDetails = {},
-    ): Record<string, unknown> => {
-        return { schema_project_path: projectPath, ...detailArgs(details) };
-    },
+    addProject: projectDetailArgs,
     updateProject: (
         projectPath: string,
         details: IMsmProjectDetails,
     ): Record<string, unknown> => {
-        return { schema_project_path: projectPath, ...detailArgs(details) };
+        return projectDetailArgs(projectPath, details);
     },
     removeProject: (projectPath: string): Record<string, unknown> => {
         return { schema_project_path: projectPath };
@@ -849,14 +849,22 @@ export const msmToolArgs = {
         name: string,
     ): Record<string, unknown> => {
         // Every figure laid out again, not only the unplaced.
-        return { diagram: name, keep_placed: false, schema_project_path: projectPath };
+        return {
+            diagram: name,
+            keep_placed: false,
+            schema_project_path: projectPath,
+        };
     },
     renameSchemaDiagram: (
         projectPath: string,
         name: string,
         newName: string,
     ): Record<string, unknown> => {
-        return { diagram: name, new_name: newName, schema_project_path: projectPath };
+        return {
+            diagram: name,
+            new_name: newName,
+            schema_project_path: projectPath,
+        };
     },
     renameSchema: (
         projectPath: string,

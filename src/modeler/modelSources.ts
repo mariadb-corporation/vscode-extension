@@ -27,6 +27,7 @@ import type {
     IMsmSchemaEdit,
     IMsmSchemaStatementsSet,
 } from "../mcp/msmApi.js";
+import { msmToolArgs } from "../mcp/msmApi.js";
 import {
     callArguments,
     GENERAL_ACTIONS,
@@ -427,7 +428,8 @@ export class ProjectModelSource implements IModelSource {
         return this.#enqueuedAction({
             doing: `Reading a picture of ${diagram}`,
             done: `Read a picture of ${diagram}`,
-        }, "msm.get_schema_diagram_image", { diagram, figure_id: figureId },
+        }, "msm.get_schema_diagram_image",
+        msmToolArgs.getSchemaDiagramImage(this.projectPath, diagram, figureId),
         (api) => {
             return api.getSchemaDiagramImage(this.projectPath, diagram,
                 figureId);
@@ -548,7 +550,8 @@ export class ProjectModelSource implements IModelSource {
             await this.#enqueuedAction({
                 doing: `Deleting the diagram ${name} of ${this.#schema}`,
                 done: `Deleted the diagram ${name} of ${this.#schema}`,
-            }, "msm.remove_schema_diagram", { diagram: name }, (api) => {
+            }, "msm.remove_schema_diagram",
+            msmToolArgs.removeSchemaDiagram(this.projectPath, name), (api) => {
                 return api.removeSchemaDiagram(this.projectPath, name);
             }, (files) => { return counted(files.length, "file"); });
         } catch (error) {
@@ -575,7 +578,8 @@ export class ProjectModelSource implements IModelSource {
         await this.#enqueuedAction({
             doing: `Laying out the diagram ${name} of ${this.#schema}`,
             done: `Laid out the diagram ${name} of ${this.#schema}`,
-        }, "msm.layout_schema_diagram", { diagram: name, keep_placed: false },
+        }, "msm.layout_schema_diagram",
+        msmToolArgs.layoutSchemaDiagram(this.projectPath, name),
         (api) => {
             return api.layoutSchemaDiagram(this.projectPath, name);
         }, (layout) => {
@@ -603,7 +607,9 @@ export class ProjectModelSource implements IModelSource {
             doing: `Renaming the diagram ${name} of ${this.#schema}`,
             done: `Renamed the diagram ${name} of ${this.#schema} `
                 + `to ${newName}`,
-        }, "msm.rename_schema_diagram", { diagram: name, new_name: newName }, (api) => {
+        }, "msm.rename_schema_diagram",
+        msmToolArgs.renameSchemaDiagram(this.projectPath, name, newName),
+        (api) => {
             return api.renameSchemaDiagram(this.projectPath, name, newName);
         }, (files) => { return counted(files.length, "file"); });
         // The hash takes the name in: the next read has the renamed one's.
