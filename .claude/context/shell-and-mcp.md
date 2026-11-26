@@ -163,12 +163,25 @@ autonomous agent, and that changes two things about the server:
   [`connections.md`](connections.md).
 
 `MCP_SERVER_ARGS` in `src/shell/constants.ts` is where the flag is passed.
-A shell whose MCP plugin predates it **ignores it rather than failing** (the
-plugin function takes its options as a dictionary and reads only the ones it
-knows), so such a server simply comes up without GUI mode.
+The shell's command line **refuses an option the plugin function does not
+declare** (`ERROR: The following option is invalid: --bogusOption`, and no
+server), checked against 26.11.2. So an option goes only to a shell known to
+take it: `--gui` is safe above `MINIMUM_SHELL_VERSION`, and
+`--toolNameSeparator` is passed from `TOOL_NAME_SEPARATOR_SHELL_VERSION` on
+(`buildMcpServerCommand` checks the located shell's version).
 `MariaDbApi.listConnections`/`addConnection`/`deleteConnection` leave `kind`
-and `verify` out of the call entirely when they were not given, for the same
-reason.
+and `verify` out of the call entirely when they were not given, so a tool
+older than those parameters still accepts the call.
+
+### Tool names
+
+The server names a tool `<group><separator><name>`. `mcp setup
+--toolNameSeparator` saves a separator for every server, and `mcp
+start-server --toolNameSeparator` sets it for one. This extension's client
+calls the dotted names (`db.connect`). A `--gui` server keeps those
+whatever `mcp setup` saved; its `--toolNameSeparator=.` only says so
+outright, and is no safeguard of its own. Copilot's server gets `_` (see
+[copilot.md](copilot.md)).
 
 ## The MCP wire format
 

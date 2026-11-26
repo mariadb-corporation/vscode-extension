@@ -17,6 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { TOOL_NAME_SEPARATOR_SHELL_VERSION } from "../../shell/constants.js";
 import { buildMcpServerCommand } from "../../shell/mcpServer.js";
 import type { ShellLocation } from "../../shell/locator.js";
 
@@ -60,4 +61,39 @@ describe("buildMcpServerCommand", () => {
         expect(buildMcpServerCommand(location, "agent").args).toEqual(
             ["--", "mcp", "start-server", "--transport=stdio"]);
     });
+
+    describe("on a shell that takes --toolNameSeparator", () => {
+        const newer: ShellLocation = {
+            ...location,
+            version: TOOL_NAME_SEPARATOR_SHELL_VERSION,
+        };
+
+        it("keeps this extension's dotted tool names", () => {
+            expect(buildMcpServerCommand(newer, "gui").args).toEqual([
+                "--", "mcp", "start-server", "--transport=stdio", "--gui",
+                "--toolNameSeparator=.",
+            ]);
+        });
+
+        it("gives an agent names VS Code accepts", () => {
+            expect(buildMcpServerCommand(newer, "agent").args).toEqual([
+                "--", "mcp", "start-server", "--transport=stdio",
+                "--toolNameSeparator=_",
+            ]);
+        });
+    });
+
+    it("passes no separator to the release just before, which refuses it",
+        () => {
+            const older: ShellLocation = {
+                ...location,
+                version: {
+                    ...TOOL_NAME_SEPARATOR_SHELL_VERSION,
+                    patch: TOOL_NAME_SEPARATOR_SHELL_VERSION.patch - 1,
+                },
+            };
+
+            expect(buildMcpServerCommand(older, "agent").args).toEqual(
+                ["--", "mcp", "start-server", "--transport=stdio"]);
+        });
 });

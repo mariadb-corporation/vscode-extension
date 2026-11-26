@@ -17,6 +17,7 @@
 
 import * as vscode from "vscode";
 
+import { MINIMUM_SHELL_VERSION } from "../shell/constants.js";
 import { shellBinaryName } from "../shell/locator.js";
 import { buildMcpServerCommand } from "../shell/mcpServer.js";
 import type { IShellResolver } from "../shell/shellResolver.js";
@@ -36,6 +37,12 @@ const ENABLED_SETTING = "copilot.enabled";
  * VS Code is about to start it does `resolveMcpServerDefinition` look the
  * shell up, install it if there is none, and put in the real binary - so
  * a window where nobody asks Copilot about MariaDB never downloads anything.
+ *
+ * Its version is {@link MINIMUM_SHELL_VERSION}: the tools a shell serves,
+ * and their names (`--toolNameSeparator`), change with the shell, and the
+ * shell only changes when an extension update raised that floor. VS Code
+ * keeps a server's tool list and starts it again for fresh tools only when
+ * its version changed.
  */
 export class CopilotMcpServerProvider
 implements vscode.McpServerDefinitionProvider<vscode.McpStdioServerDefinition> {
@@ -63,7 +70,8 @@ implements vscode.McpServerDefinitionProvider<vscode.McpStdioServerDefinition> {
         }
 
         return [new vscode.McpStdioServerDefinition(
-            "MariaDB", shellBinaryName(this.platform))];
+            "MariaDB", shellBinaryName(this.platform), [], {},
+            MINIMUM_SHELL_VERSION)];
     }
 
     /**
